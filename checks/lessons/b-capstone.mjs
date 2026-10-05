@@ -5,8 +5,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { items as b1 } from './b-1.mjs';
-import { items as b3 } from './b-3.mjs';
+import { versionSaved } from './b-1.mjs';
+import { testsPass, nothingUncommitted } from './b-3.mjs';
 
 export const title = 'Beginner capstone';
 
@@ -17,7 +17,7 @@ const statusPaths = (text) => (text ?? '').split(/\r?\n/).filter((l) => l.trim()
   .filter((p) => !p.startsWith('.practice/'));
 
 export const items = [
-  b1[0],
+  versionSaved,
   {
     text: '`.practice/capstone-before.txt`, saved while the plan was on screen, lists no changed files',
     local: true,
@@ -60,7 +60,7 @@ export const items = [
       }
     },
   },
-  b3[1],
+  testsPass,
   {
     text: 'a committed CLAUDE.md names the test command, `npm test`',
     check(repo) {
@@ -72,5 +72,5 @@ export const items = [
       return 'There is no committed CLAUDE.md. Run `/init` in a session, check the file, and commit it.';
     },
   },
-  b3[2],
+  nothingUncommitted,
 ];

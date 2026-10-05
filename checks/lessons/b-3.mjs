@@ -19,6 +19,30 @@ function savedCommit(repo) {
   return { sha };
 }
 
+export const testsPass = {
+  text: 'the tests pass',
+  check(repo) {
+    const pkg = repo.read('package.json');
+    let hasScript = false;
+    try { hasScript = Boolean(pkg && JSON.parse(pkg).scripts?.test); } catch { /* not JSON */ }
+    if (hasScript) {
+      const run = spawnSync('npm', ['test', '--silent'], { cwd: repo.dir, encoding: 'utf8', shell: process.platform === 'win32', timeout: 120_000 });
+      return run.status === 0 ? true : '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.';
+    }
+    const saved = repo.read('.practice/b-3-tests.txt');
+    if (saved === null) return 'This repository has no `npm test` script. Run your tests, then save their exit code: `<your test command>; echo $? > .practice/b-3-tests.txt`.';
+    return saved.trim() === '0' ? true : `\`.practice/b-3-tests.txt\` says the tests exited with ${saved.trim()}, not 0.`;
+  },
+};
+
+export const nothingUncommitted = {
+  text: 'nothing is left uncommitted',
+  check(repo) {
+    const status = repo.git('status', '--porcelain').split('\n').filter((l) => l && !l.slice(3).startsWith('.practice/'));
+    return status.length ? `These changes are uncommitted: ${status.map((l) => l.slice(3)).join(', ')}. Commit them or set them aside with \`git stash\`.` : true;
+  },
+};
+
 export const items = [
   {
     text: 'the commit named in `.practice/b-3-commit.txt` changes a test file and at least one other file',
@@ -33,26 +57,6 @@ export const items = [
       return true;
     },
   },
-  {
-    text: 'the tests pass',
-    check(repo) {
-      const pkg = repo.read('package.json');
-      let hasScript = false;
-      try { hasScript = Boolean(pkg && JSON.parse(pkg).scripts?.test); } catch { /* not JSON */ }
-      if (hasScript) {
-        const run = spawnSync('npm', ['test', '--silent'], { cwd: repo.dir, encoding: 'utf8', shell: process.platform === 'win32', timeout: 120_000 });
-        return run.status === 0 ? true : '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.';
-      }
-      const saved = repo.read('.practice/b-3-tests.txt');
-      if (saved === null) return 'This repository has no `npm test` script. Run your tests, then save their exit code: `<your test command>; echo $? > .practice/b-3-tests.txt`.';
-      return saved.trim() === '0' ? true : `\`.practice/b-3-tests.txt\` says the tests exited with ${saved.trim()}, not 0.`;
-    },
-  },
-  {
-    text: 'nothing is left uncommitted',
-    check(repo) {
-      const status = repo.git('status', '--porcelain').split('\n').filter((l) => l && !l.slice(3).startsWith('.practice/'));
-      return status.length ? `These changes are uncommitted: ${status.map((l) => l.slice(3)).join(', ')}. Commit them or set them aside with \`git stash\`.` : true;
-    },
-  },
+  testsPass,
+  nothingUncommitted,
 ];
