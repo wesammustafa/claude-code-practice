@@ -84,3 +84,16 @@ test('an unknown lesson id is a usage error that lists the known ones', () => {
   assert.equal(code, 2);
   assert.match(out, /b-1/);
 });
+
+test('b-1 accepts a version file that Windows PowerShell wrote as UTF-16', () => {
+  const dir = repo();
+  try {
+    mkdirSync(join(dir, '.practice'));
+    const text = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('2.1.285 (Claude Code)\r\n', 'utf16le')]);
+    writeFileSync(join(dir, '.practice', 'version.txt'), text);
+    const { code, out } = check(['b-1', '--dir', dir]);
+    assert.equal(code, 0, out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
