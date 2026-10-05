@@ -48,7 +48,7 @@ export const items = [
       }
       const sources = added.filter((f) => !TEST_FILE.test(f) && !/\.md$/i.test(f));
       if (!sources.length) return 'That commit adds no new source file. Ask the new session for a change that creates one.';
-      const wrong = sources.filter((f) => repo.git('show', `${sha}:${f}`).replace(/^﻿/, '').split(/\r?\n/)[0].trim() !== line);
+      const wrong = sources.filter((f) => repo.git('show', `${sha}:${f}`).replace(/^\uFEFF/, '').split(/\r?\n/)[0].trim() !== line);
       return wrong.length ? `These new files don't start with \`${line}\`: ${wrong.join(', ')}. Check that the rule is in CLAUDE.md and that you started a new session after committing it.` : true;
     },
   },
