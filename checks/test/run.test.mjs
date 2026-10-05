@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -289,6 +289,74 @@ test('b-5 fails when a new file does not start with the rule', () => {
     const { code, out } = check(['b-5', '--dir', dir]);
     assert.equal(code, 1, out);
     assert.match(out, /src\/stats\.js/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A copy of this template where the Beginner capstone is done: the solution
+// for the bug report, committed, with the snapshots the capstone asks for.
+function capstoneRepo({ fix = true, planned = 'src/check-links.js\nsrc/cli.js\ntest/links.test.js\n' } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'practice-cap-'));
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  for (const entry of ['package.json', 'src', 'test', 'samples']) {
+    execFileSync('cp', ['-R', join(root, entry), dir]);
+  }
+  writeFileSync(join(dir, '.gitignore'), '.practice/\n');
+  writeFileSync(join(dir, 'CLAUDE.md'), '# linkcheck\n\n- Run the tests: `npm test`\n');
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  git('add', '-A');
+  git('commit', '-q', '-m', 'start');
+  if (fix) {
+    const cl = join(dir, 'src', 'check-links.js');
+    writeFileSync(cl, readFileSync(cl, 'utf8').replace(
+      "  if (!existsSync(path)) return [];",
+      "  if (!existsSync(path)) throw new Error(`no such file or folder: ${entry}`);"));
+    const cli = join(dir, 'src', 'cli.js');
+    writeFileSync(cli, readFileSync(cli, 'utf8').replace(
+      'const broken = brokenLinks(root, config);',
+      'let broken;\ntry {\n  broken = brokenLinks(root, config);\n} catch (error) {\n  console.error(`linkcheck: ${error.message}`);\n  process.exit(2);\n}'));
+    const t = join(dir, 'test', 'links.test.js');
+    writeFileSync(t, readFileSync(t, 'utf8') + "\ntest('a missing folder is an error', () => {\n  assert.throws(() => brokenLinks(samples, { files: ['nowhere'], ignore: [] }), /nowhere/);\n});\n");
+  }
+  git('add', '-A');
+  git('commit', '-q', '--allow-empty', '-m', 'Report a missing folder in linkcheck.json');
+  mkdirSync(join(dir, '.practice'), { recursive: true });
+  writeFileSync(join(dir, '.practice', 'version.txt'), '2.1.285 (Claude Code)\n');
+  writeFileSync(join(dir, '.practice', 'capstone-before.txt'), '');
+  writeFileSync(join(dir, '.practice', 'capstone-plan.txt'), planned);
+  writeFileSync(join(dir, '.practice', 'capstone-commit.txt'), `${git('rev-parse', 'HEAD')}\n`);
+  return dir;
+}
+
+test('the Beginner capstone passes when every observed Exit statement is met', () => {
+  const dir = capstoneRepo();
+  try {
+    const { code, out } = check(['b-capstone', '--dir', dir]);
+    assert.equal(code, 0, out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the Beginner capstone fails while the reported bug is still there', () => {
+  const dir = capstoneRepo({ fix: false });
+  try {
+    const { code, out } = check(['b-capstone', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /exit/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the Beginner capstone fails when the commit changes a file the plan did not name', () => {
+  const dir = capstoneRepo({ planned: 'src/check-links.js\nsrc/cli.js\n' });
+  try {
+    const { code, out } = check(['b-capstone', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /test\/links\.test\.js/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
