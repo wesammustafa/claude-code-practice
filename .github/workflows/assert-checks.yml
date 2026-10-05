@@ -1,8 +1,8 @@
 name: Assert checks
 
-# Runs only in the template repository itself, never in a copy made with
-# "Use this template": proves that every check fails on main, where no
-# exercise is done, and passes on the solutions branch.
+# Its job runs only in the template repository itself; in a copy made with
+# "Use this template" the job is skipped. It proves that every check fails on
+# main, where no exercise is done, and passes on the solutions branch.
 on:
   push:
     branches: [main, solutions]
