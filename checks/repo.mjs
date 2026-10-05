@@ -17,6 +17,7 @@ export function openRepo(dir) {
     dir,
     exists: (path) => existsSync(join(dir, path)),
     read: (path) => (existsSync(join(dir, path)) ? decode(readFileSync(join(dir, path))) : null),
-    git: (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(),
+    // Only trailing whitespace goes: `git status --porcelain` lines start with a space.
+    git: (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).replace(/\s+$/, ''),
   };
 }
