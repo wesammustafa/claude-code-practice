@@ -7,8 +7,11 @@ export const versionSaved = {
   local: true,
   check(repo) {
     const text = repo.read('.practice/version.txt');
-    if (text === null) return 'Run `claude --version > .practice/version.txt` in your practice copy (create the folder with `mkdir -p .practice` first).';
-    if (!/^\d+\.\d+\.\d+ \(Claude Code\)/m.test(text)) return '`.practice/version.txt` should hold a line such as `2.1.0 (Claude Code)`. Run `claude --version > .practice/version.txt` again.';
+    // With --dir, this is the Learner's own repository, not the practice copy.
+    const save = `run \`claude --version > .practice/version.txt\` in ${repo.dir}, the folder this check reads`;
+    if (text === null) return `No \`.practice/version.txt\` yet: ${save} (create its \`.practice\` folder first).`;
+    if (!text.trim()) return `\`.practice/version.txt\` is empty. Run \`claude --version\` on its own: if the shell says \`claude\` isn't found, the install folder isn't on your PATH yet (lesson 1 links the fix). Then ${save}.`;
+    if (!/^\d+\.\d+\.\d+ \(Claude Code\)/m.test(text)) return `\`.practice/version.txt\` should hold a line such as \`2.1.0 (Claude Code)\`. To save it again, ${save}.`;
     return true;
   },
 };

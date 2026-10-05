@@ -10,7 +10,7 @@ With this `linkcheck.json`:
 { "files": ["docs"] }
 ```
 
-in a folder that has no `docs/` folder, `npm run linkcheck -- .` prints `All relative links resolve.` and exits with code 0.
+saved in an empty folder outside this repository, `npm run linkcheck -- <that folder>` prints `All relative links resolve.` and exits with code 0, although there is no `docs/` folder.
 
 ## What should happen
 
