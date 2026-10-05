@@ -1,6 +1,6 @@
 # Claude Code practice
 
-The practice repository for [Claude Code: Everything You Need to Know](https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know). The lessons live in the guide; this repository holds the small app you practice on and a check for every exercise.
+The practice repository for [Claude Code: Everything You Need to Know](https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know). The lessons live in the guide; this repository holds the small app you practice on and a check for every core lesson and capstone.
 
 Independent community guide. Not affiliated with Anthropic.
 
@@ -13,16 +13,16 @@ You need Node.js LTS and git. There is nothing to install with npm: the app and 
 
 ## Check your work
 
-Each lesson ends with a Check. Run it from the root of your copy:
+Each core lesson and the capstone end with a check. Run it from the root of your copy:
 
 ```bash
 npm run check -- b-1
 ```
 
-Each item prints `PASS` or `FAIL`, with a hint for what to fix. To check a lesson you did in one of your own repositories, run the same command from your copy with `--dir`:
+Each item prints `PASS` or `FAIL`, with a hint for what to fix. To check a lesson you did in one of your own repositories, run the same command from your copy with `--dir` and the path to that repository, relative to your copy or in full. Here it is a folder next to your copy:
 
 ```bash
-npm run check -- b-1 --dir ~/code/my-project
+npm run check -- b-1 --dir ../my-project
 ```
 
 Some items read a file you save under `.practice/`, for state that exists only for a moment, such as a plan before you approve it. Git ignores that folder, so those items are checked on your machine only.
@@ -31,7 +31,7 @@ Some items read a file you save under `.practice/`, for state that exists only f
 
 - Every push runs the **Progress** workflow, which lists each check's result in the run's summary. It never fails: an exercise you have not finished shows as "not yet", and items that read `.practice/` show as "checked locally".
 - Open an issue from the **Track my progress** template for a checklist of every lesson and capstone.
-- The `solutions` branch of [the template](https://github.com/wesammustafa/claude-code-practice) holds a reference solution for every exercise. Read it after an honest attempt.
+- The `solutions` branch of [the template](https://github.com/wesammustafa/claude-code-practice) holds a reference solution for every check. Read it after an honest attempt.
 
 ## The app
 
@@ -41,6 +41,8 @@ A small Markdown link checker. It reports relative links whose file is missing:
 npm run linkcheck -- samples
 npm test
 ```
+
+The app is `src/`, `test/` and `samples/`. The rest belongs to the course: `checks/` holds the checks, `capstone/` the capstone's bug report and `.github/` the workflows. The **Assert checks** workflow runs only in the template repository, never in your copy, so you can commit your exercises on any branch, `main` included.
 
 ## In a Codespace
 

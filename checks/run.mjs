@@ -29,8 +29,11 @@ try {
   usage(error.message);
 }
 const { values, positionals } = parsed;
-const [id] = positionals;
+const [id, extra] = positionals;
 if (!id) usage('name a lesson to check');
+// Some shells, such as Windows PowerShell with an older npm, drop the `--`, so
+// npm keeps --dir for itself and passes only the folder on.
+if (extra !== undefined) usage(`unexpected argument "${extra}". Put --dir before the folder to check. If you did, your shell dropped the --: run node checks/run.mjs ${id} --dir <folder> instead.`);
 if (id !== 'all' && !lessons[id]) usage(`no check for "${id}"`);
 if (values.assert && !['pass', 'fail'].includes(values.assert)) usage('--assert takes pass or fail');
 const dir = resolve(values.dir);

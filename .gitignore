@@ -4,3 +4,7 @@
 
 node_modules/
 .DS_Store
+
+# JetBrains IDEs keep project settings here; the checks would count the
+# folder as an uncommitted change.
+.idea/

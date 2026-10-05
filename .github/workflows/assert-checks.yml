@@ -25,6 +25,9 @@ jobs:
           node-version: lts/*
       - name: Run the tests
         run: npm test
+      # The checks' own tests stay out of `npm test`, which Learners run.
+      - name: Run the checks' own tests
+        run: npm run test:checks
       - name: Every check fails on main
         run: |
           git worktree add "$RUNNER_TEMP/main" origin/main

@@ -1,20 +1,19 @@
 // The Beginner capstone: fix the bug in capstone/beginner-bug.md from plan to
-// commit. It checks every Beginner Exit statement that leaves state behind:
-// B1, B2, B3 and B5. B4 is self-assessed.
+// commit. It checks the parts of the Beginner Exit statements B1, B2, B3 and
+// B5 that a script can see in files and git. The rest, B4 and the new-session
+// half of B5 included, is self-assessed on the capstone page.
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { versionSaved } from './b-1.mjs';
 import { testsPass, nothingUncommitted } from './b-3.mjs';
+import { isTestFile, planPaths, statusPaths } from '../paths.mjs';
 
 export const title = 'Beginner capstone';
 
-const TEST_FILE = /(^|\/)(tests?|spec|__tests__)\/|[._-](test|spec)\.[a-z0-9]+$/i;
 const lines = (text) => (text ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-const statusPaths = (text) => (text ?? '').split(/\r?\n/).filter((l) => l.trim())
-  .map((l) => l.slice(3).split(' -> ').pop().replace(/^"|"$/g, '').trim())
-  .filter((p) => !p.startsWith('.practice/'));
+const SAVE_COMMIT = '`git rev-parse HEAD > .practice/capstone-commit.txt`';
 
 export const items = [
   versionSaved,
@@ -25,17 +24,17 @@ export const items = [
       const before = repo.read('.practice/capstone-before.txt');
       if (before === null) return 'While the plan is on screen, run `git status --porcelain > .practice/capstone-before.txt`.';
       const changed = statusPaths(before);
-      return changed.length ? `Files had changed before you approved the plan: ${changed.join(', ')}.` : true;
+      return changed.length ? `Files had changed before you approved the plan: ${changed.join(', ')}. Start from a clean tree (commit them, or set them aside with \`git stash push --include-untracked\`), stay in plan mode until you approve, and save this file while the plan is on screen.` : true;
     },
   },
   {
     text: 'the commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test',
     local: true,
     check(repo) {
-      const plan = new Set(lines(repo.read('.practice/capstone-plan.txt')));
+      const plan = planPaths(repo.read('.practice/capstone-plan.txt'), repo.dir);
       if (!plan.size) return 'Save the files the plan will change, one per line, to `.practice/capstone-plan.txt` before you approve.';
       const sha = lines(repo.read('.practice/capstone-commit.txt'))[0];
-      if (!sha) return 'After you commit the fix, run `git rev-parse HEAD > .practice/capstone-commit.txt`.';
+      if (!sha) return `After you commit the fix, run ${SAVE_COMMIT}.`;
       let files;
       try {
         files = repo.git('show', '--name-only', '--format=', sha).split('\n').filter(Boolean);
@@ -43,8 +42,8 @@ export const items = [
         return `\`.practice/capstone-commit.txt\` names ${sha}, which is not a commit in this repository.`;
       }
       const extra = files.filter((f) => !plan.has(f));
-      if (extra.length) return `The commit changes files the plan didn't name: ${extra.join(', ')}.`;
-      return files.some((f) => TEST_FILE.test(f)) ? true : 'The commit changes no test file. Add the test the bug report asks for.';
+      if (extra.length) return `The commit changes files the plan didn't name: ${extra.join(', ')}. If the plan you approved named them, add them to \`.practice/capstone-plan.txt\`. If not, take them out of the commit, set them aside with \`git stash push --include-untracked\`, and run ${SAVE_COMMIT} again.`;
+      return files.some(isTestFile) ? true : `The commit changes no test file. Put the test the bug report asks for in the same commit as the fix, then run ${SAVE_COMMIT} again.`;
     },
   },
   {
