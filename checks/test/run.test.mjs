@@ -97,3 +97,50 @@ test('b-1 accepts a version file that Windows PowerShell wrote as UTF-16', () =>
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const planned = {
+  '.practice/b-2-before.txt': '',
+  '.practice/b-2-plan.txt': 'src/config.js\ntest/config.test.js\n',
+  '.practice/b-2-after.txt': ' M src/config.js\n M test/config.test.js\n',
+};
+
+test('b-2 passes when nothing changed before approval and only planned files changed after', () => {
+  const dir = repo(planned);
+  try {
+    const { code, out } = check(['b-2', '--dir', dir]);
+    assert.equal(code, 0, out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-2 fails when files had changed before the plan was approved', () => {
+  const dir = repo({ ...planned, '.practice/b-2-before.txt': ' M src/config.js\n' });
+  try {
+    const { code, out } = check(['b-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /before you approved/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-2 fails when a changed file was not in the plan', () => {
+  const dir = repo({ ...planned, '.practice/b-2-after.txt': ' M src/config.js\n?? test/new.test.js\n' });
+  try {
+    const { code, out } = check(['b-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /test\/new\.test\.js/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-2 fails when nothing was recorded after approving', () => {
+  const dir = repo({ ...planned, '.practice/b-2-after.txt': '' });
+  try {
+    assert.equal(check(['b-2', '--dir', dir]).code, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
