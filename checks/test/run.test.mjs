@@ -243,3 +243,53 @@ test('b-4 fails when the change is still there after rewinding', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A repository whose committed CLAUDE.md holds a rule, followed by a commit a
+// new session made, as in lesson b-5.
+function memoryRepo({ claudeMd = '# Project\n\n- Every new source file starts with the line `// Part of linkcheck.`\n', commitClaudeMd = true, header = '// Part of linkcheck.' } = {}) {
+  const dir = repo({ 'CLAUDE.md': claudeMd, '.practice/b-5-rule.txt': '// Part of linkcheck.\n' });
+  writeFileSync(join(dir, '.git', 'info', 'exclude'), '.practice/\n');
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  if (commitClaudeMd) git('add', 'CLAUDE.md');
+  git('commit', '-q', '--allow-empty', '-m', 'Add project instructions');
+  mkdirSync(join(dir, 'src'), { recursive: true });
+  mkdirSync(join(dir, 'test'), { recursive: true });
+  writeFileSync(join(dir, 'src', 'stats.js'), `${header}\nexport function countLinks() { return 0; }\n`);
+  writeFileSync(join(dir, 'test', 'stats.test.js'), "import { test } from 'node:test';\n");
+  git('add', 'src', 'test');
+  git('commit', '-q', '-m', 'Add countLinks');
+  writeFileSync(join(dir, '.practice', 'b-5-commit.txt'), `${git('rev-parse', 'HEAD')}\n`);
+  return dir;
+}
+
+test('b-5 passes when CLAUDE.md is committed with the rule and the new session followed it', () => {
+  const dir = memoryRepo();
+  try {
+    const { code, out } = check(['b-5', '--dir', dir]);
+    assert.equal(code, 0, out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-5 fails when CLAUDE.md is not committed', () => {
+  const dir = memoryRepo({ commitClaudeMd: false });
+  try {
+    const { code, out } = check(['b-5', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /not committed/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-5 fails when a new file does not start with the rule', () => {
+  const dir = memoryRepo({ header: '// stats' });
+  try {
+    const { code, out } = check(['b-5', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /src\/stats\.js/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
