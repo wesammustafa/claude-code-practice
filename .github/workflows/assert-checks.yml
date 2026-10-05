@@ -1,0 +1,35 @@
+name: Assert checks
+
+# Runs only in the template repository itself, never in a copy made with
+# "Use this template": proves that every check fails on main, where no
+# exercise is done, and passes on the solutions branch.
+on:
+  push:
+    branches: [main, solutions]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assert:
+    if: github.event.repository.is_template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Run the tests
+        run: npm test
+      - name: Every check fails on main
+        run: |
+          git worktree add "$RUNNER_TEMP/main" origin/main
+          node checks/run.mjs all --assert fail --dir "$RUNNER_TEMP/main"
+      - name: Every check passes on solutions
+        run: |
+          git worktree add "$RUNNER_TEMP/solutions" origin/solutions
+          node checks/run.mjs all --assert pass --dir "$RUNNER_TEMP/solutions"
