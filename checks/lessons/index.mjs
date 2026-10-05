@@ -2,5 +2,6 @@
 import * as b1 from './b-1.mjs';
 import * as b2 from './b-2.mjs';
 import * as b3 from './b-3.mjs';
+import * as b4 from './b-4.mjs';
 
-export const lessons = { 'b-1': b1, 'b-2': b2, 'b-3': b3 };
+export const lessons = { 'b-1': b1, 'b-2': b2, 'b-3': b3, 'b-4': b4 };

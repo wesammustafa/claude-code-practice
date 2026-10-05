@@ -208,3 +208,38 @@ test('b-3 fails when changes are left uncommitted', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const rewound = {
+  '.practice/b-4-before-rewind.txt': ' M src/cli.js\n',
+  '.practice/b-4-after-rewind.txt': '',
+};
+
+test('b-4 passes when a change was there before rewinding and gone after', () => {
+  const dir = repo(rewound);
+  try {
+    const { code, out } = check(['b-4', '--dir', dir]);
+    assert.equal(code, 0, out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-4 fails when no change was saved before rewinding', () => {
+  const dir = repo({ ...rewound, '.practice/b-4-before-rewind.txt': '' });
+  try {
+    assert.equal(check(['b-4', '--dir', dir]).code, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-4 fails when the change is still there after rewinding', () => {
+  const dir = repo({ ...rewound, '.practice/b-4-after-rewind.txt': ' M src/cli.js\n' });
+  try {
+    const { code, out } = check(['b-4', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /Restore code/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
