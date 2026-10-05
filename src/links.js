@@ -9,8 +9,9 @@ export function findLinks(markdown) {
     }
     if (inFence) return;
     const prose = line.replace(/`[^`]*`/g, '');
-    for (const m of prose.matchAll(/(?<!!)\[([^\]]*)\]\(([^)\s]+)\)/g)) {
-      links.push({ text: m[1], target: m[2], line: i + 1 });
+    // The target may sit in angle brackets and may be followed by a title.
+    for (const m of prose.matchAll(/(?<!!)\[([^\]]*)\]\(\s*(?:<([^>]*)>|([^)\s]+))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g)) {
+      links.push({ text: m[1], target: m[2] ?? m[3], line: i + 1 });
     }
   });
   return links;

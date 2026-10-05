@@ -27,3 +27,12 @@ test('reports only the relative links whose file is missing', () => {
   const broken = brokenLinks(samples, { files: ['.'], ignore: [] });
   assert.deepEqual(broken, [{ file: 'guide.md', line: 5, target: 'missing.md' }]);
 });
+
+test('finds links that have a title', () => {
+  const links = findLinks('See [setup](setup.md "Setup guide") and [faq](faq.md \'FAQ\').\n');
+  assert.deepEqual(links.map((l) => l.target), ['setup.md', 'faq.md']);
+});
+
+test('finds links whose target sits in angle brackets', () => {
+  assert.deepEqual(findLinks('Read [my notes](<my notes.md>).\n').map((l) => l.target), ['my notes.md']);
+});
