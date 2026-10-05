@@ -4,6 +4,9 @@
 export const DEFAULTS = { files: ['.'], ignore: [] };
 
 export function parseConfig(text) {
+  if (!text.trim()) {
+    throw new Error('linkcheck.json is empty: write a JSON object, such as {}');
+  }
   const raw = JSON.parse(text);
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('linkcheck.json must hold a JSON object');

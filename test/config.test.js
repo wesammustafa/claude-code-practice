@@ -17,3 +17,7 @@ test('a list field must hold strings', () => {
 test('the file must hold an object', () => {
   assert.throws(() => parseConfig('[]'), /must hold a JSON object/);
 });
+
+test('an empty file is rejected with a clear message', () => {
+  assert.throws(() => parseConfig('  \n'), /linkcheck\.json is empty/);
+});
