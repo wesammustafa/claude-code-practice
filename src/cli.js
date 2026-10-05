@@ -16,7 +16,13 @@ try {
   process.exit(2);
 }
 
-const broken = brokenLinks(root, config);
+let broken;
+try {
+  broken = brokenLinks(root, config);
+} catch (error) {
+  console.error(`linkcheck: ${error.message}`);
+  process.exit(2);
+}
 for (const b of broken) console.log(`${b.file}:${b.line}: broken link to ${b.target}`);
 console.log(broken.length ? `${broken.length} broken link(s)` : 'All relative links resolve.');
 process.exit(broken.length ? 1 : 0);

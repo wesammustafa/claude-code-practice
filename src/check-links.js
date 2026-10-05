@@ -4,7 +4,7 @@ import { findLinks, isExternal } from './links.js';
 
 function markdownFiles(root, entry) {
   const path = join(root, entry);
-  if (!existsSync(path)) return [];
+  if (!existsSync(path)) throw new Error(`no such file or folder: ${entry}`);
   if (statSync(path).isFile()) return path.endsWith('.md') ? [path] : [];
   return readdirSync(path)
     .filter((name) => !name.startsWith('.') && name !== 'node_modules')

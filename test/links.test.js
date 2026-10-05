@@ -36,3 +36,7 @@ test('finds links that have a title', () => {
 test('finds links whose target sits in angle brackets', () => {
   assert.deepEqual(findLinks('Read [my notes](<my notes.md>).\n').map((l) => l.target), ['my notes.md']);
 });
+
+test('a folder listed in the config that does not exist is an error', () => {
+  assert.throws(() => brokenLinks(samples, { files: ['nowhere'], ignore: [] }), /no such file or folder: nowhere/);
+});
