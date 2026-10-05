@@ -1,4 +1,4 @@
-// Reads linkcheck.json. Every field is optional:
+// Parses linkcheck.json. Every field is optional:
 //   files:  files or folders to scan for Markdown links (default ["."])
 //   ignore: link targets to skip, matched as prefixes (default [])
 export const DEFAULTS = { files: ['.'], ignore: [] };
