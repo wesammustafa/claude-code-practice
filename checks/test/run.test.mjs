@@ -144,3 +144,67 @@ test('b-2 fails when nothing was recorded after approving', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A repository with one commit that changes code and its test, like the one
+// the Learner makes in lesson b-3, and the commit's sha saved for the check.
+function committedRepo({ testScript = 'node -e "process.exit(0)"', files = { 'src/links.js': 'export {}\n', 'test/links.test.js': '// test\n' } } = {}) {
+  const dir = repo({ 'package.json': JSON.stringify({ scripts: { test: testScript } }) });
+  const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'start');
+  git('add', 'package.json');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'package');
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    writeFileSync(join(dir, path), text);
+  }
+  git('add', '-A');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'Check links that have a title');
+  mkdirSync(join(dir, '.practice'), { recursive: true });
+  writeFileSync(join(dir, '.practice', 'b-3-commit.txt'), `${git('rev-parse', 'HEAD')}\n`);
+  writeFileSync(join(dir, '.git', 'info', 'exclude'), '.practice/\n');
+  return dir;
+}
+
+test('b-3 passes for a commit that changes code and a test, with the tests passing and the tree clean', () => {
+  const dir = committedRepo();
+  try {
+    const { code, out } = check(['b-3', '--dir', dir]);
+    assert.equal(code, 0, out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-3 fails when the commit changes no test file', () => {
+  const dir = committedRepo({ files: { 'src/links.js': 'export {}\n' } });
+  try {
+    const { code, out } = check(['b-3', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /no test file/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-3 fails when the tests fail', () => {
+  const dir = committedRepo({ testScript: 'node -e "process.exit(1)"' });
+  try {
+    const { code, out } = check(['b-3', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /npm test/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('b-3 fails when changes are left uncommitted', () => {
+  const dir = committedRepo();
+  try {
+    writeFileSync(join(dir, 'src', 'links.js'), 'export const x = 1\n');
+    const { code, out } = check(['b-3', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /uncommitted/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
