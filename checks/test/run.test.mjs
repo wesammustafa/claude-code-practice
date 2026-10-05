@@ -203,7 +203,7 @@ test('b-3 fails when changes are left uncommitted', () => {
     writeFileSync(join(dir, 'src', 'links.js'), 'export const x = 1\n');
     const { code, out } = check(['b-3', '--dir', dir]);
     assert.equal(code, 1, out);
-    assert.match(out, /uncommitted/);
+    assert.match(out, /uncommitted: src\/links\.js/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
