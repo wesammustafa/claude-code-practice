@@ -474,3 +474,69 @@ test('i-6 says how to log delegations when there is no log, and fails when test-
     assert.match(out, /Use the test-gaps agent/);
   });
 });
+
+// A repository after lesson i-7: Chrome DevTools MCP shared at project scope,
+// pinned and with its data flows off, and the screenshot a session saved.
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+const MCP = (args, env = { CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1' }) => JSON.stringify({ mcpServers: { 'chrome-devtools': { type: 'stdio', command: 'npx', args, env } } }, null, 2);
+const PINNED = ['-y', 'chrome-devtools-mcp@1.10.1', '--isolated', '--no-usage-statistics', '--no-performance-crux'];
+function mcpRepo({ mcp = MCP(PINNED), shot = PNG } = {}) {
+  return () => {
+    const dir = repo({ '.mcp.json': mcp });
+    commit(dir, 'Share Chrome DevTools MCP');
+    if (shot) write(dir, { '.practice/i-7-page.png': shot });
+    return dir;
+  };
+}
+
+test('i-7 passes for a pinned server with its data flows off and a saved screenshot', () => {
+  withRepo(mcpRepo(), (dir) => {
+    const { code, out } = check(['i-7', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-7 accepts the flags written as --flag=false', () => {
+  withRepo(mcpRepo({ mcp: MCP(['-y', 'chrome-devtools-mcp@1.10.1', '--usage-statistics=false', '--performance-crux=false']) }), (dir) => {
+    const { code, out } = check(['i-7', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-7 fails for @latest, and for each data flow left on', () => {
+  for (const [args, env, hint] of [
+    [['-y', 'chrome-devtools-mcp@latest', '--no-usage-statistics', '--no-performance-crux'], undefined, /exact version/],
+    [['-y', 'chrome-devtools-mcp@1.10.1', '--no-performance-crux'], undefined, /usage statistics/],
+    [['-y', 'chrome-devtools-mcp@1.10.1', '--no-usage-statistics'], undefined, /CrUX/],
+    [PINNED, {}, /update checks/],
+  ]) {
+    withRepo(mcpRepo({ mcp: MCP(args, env) }), (dir) => {
+      const { code, out } = check(['i-7', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, hint);
+    });
+  }
+});
+
+test('i-7 fails without a committed .mcp.json, and without a server running chrome-devtools-mcp', () => {
+  withRepo(() => repo(), (dir) => {
+    const { code, out } = check(['i-7', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /\.mcp\.json/);
+  });
+  withRepo(mcpRepo({ mcp: JSON.stringify({ mcpServers: {} }) }), (dir) => {
+    const { code, out } = check(['i-7', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /chrome-devtools-mcp/);
+  });
+});
+
+test('i-7 fails when the screenshot is missing or is not a PNG', () => {
+  for (const shot of [null, Buffer.from('not an image')]) {
+    withRepo(mcpRepo({ shot }), (dir) => {
+      const { code, out } = check(['i-7', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, /i-7-page\.png/);
+    });
+  }
+});
