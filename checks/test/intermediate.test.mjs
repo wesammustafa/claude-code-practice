@@ -2,6 +2,8 @@
 // repository with --dir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { chmodSync } from 'node:fs';
+import { join } from 'node:path';
 import { check, commit, repo, withRepo, write } from './helpers.mjs';
 
 // The tdd skill as lesson i-1's Your turn leaves it once finished.
@@ -336,4 +338,74 @@ test('i-4 fails when the personal file is committed, and when the sandbox is off
     assert.equal(code, 1, out);
     assert.match(out, /\/sandbox/);
   });
+});
+
+// A repository after lesson i-5: the finished protect-files hook, executable
+// and registered as a PreToolUse hook for Edit and Write.
+const FIXED_HOOK = `#!/bin/bash
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+FILE_PATH="\${FILE_PATH//\\\\//}"
+NAME=$(basename "$FILE_PATH")
+case "$NAME" in
+  .env.example) ;;
+  .env | .env.*) echo "Blocked: $FILE_PATH is an env file" >&2; exit 2 ;;
+esac
+case "/$FILE_PATH" in
+  */secrets/*) echo "Blocked: $FILE_PATH is in a secrets folder" >&2; exit 2 ;;
+esac
+exit 0
+`;
+// The hooks guide's script: a substring match that blocks too much and misses secrets/.
+const GUIDE_HOOK = `#!/bin/bash
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+for pattern in ".env" "package-lock.json" ".git/"; do
+  if [[ "$FILE_PATH" == *"$pattern"* ]]; then echo "Blocked: $FILE_PATH" >&2; exit 2; fi
+done
+exit 0
+`;
+const REGISTERED = { hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-files.sh', args: [] }] }] } };
+function hookRepo({ hook = FIXED_HOOK, mode = 0o755, settings = REGISTERED } = {}) {
+  return () => {
+    const dir = repo({ '.claude/hooks/protect-files.sh': hook, '.claude/settings.json': JSON.stringify(settings, null, 2) });
+    chmodSync(join(dir, '.claude/hooks/protect-files.sh'), mode);
+    commit(dir, 'Protect env files and secrets');
+    return dir;
+  };
+}
+
+test('i-5 passes for the finished hook, committed, executable and registered', () => {
+  withRepo(hookRepo(), (dir) => {
+    const { code, out } = check(['i-5', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-5 fails for the guide script, naming each path it gets wrong', () => {
+  withRepo(hookRepo({ hook: GUIDE_HOOK }), (dir) => {
+    const { code, out } = check(['i-5', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /\.env\.example/);
+    assert.match(out, /secrets\/api\.key/);
+    assert.match(out, /config\.envelope\.ts/);
+  });
+});
+
+test('i-5 fails when the script is not executable', () => {
+  withRepo(hookRepo({ mode: 0o644 }), (dir) => {
+    const { code, out } = check(['i-5', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /chmod \+x/);
+  });
+});
+
+test('i-5 fails when the hook is not registered for Edit and Write before tools run', () => {
+  for (const settings of [{}, { hooks: { PostToolUse: REGISTERED.hooks.PreToolUse } }, { hooks: { PreToolUse: [{ ...REGISTERED.hooks.PreToolUse[0], matcher: 'Bash' }] } }]) {
+    withRepo(hookRepo({ settings }), (dir) => {
+      const { code, out } = check(['i-5', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, /PreToolUse/);
+    });
+  }
 });
