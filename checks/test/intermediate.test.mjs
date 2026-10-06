@@ -226,8 +226,8 @@ test('i-3 passes for a small model at low effort and a committed entry', () => {
   });
 });
 
-test('i-3 accepts haiku, a full Sonnet model name, and medium effort', () => {
-  for (const [model, effort] of [['haiku', 'low'], ['claude-sonnet-5-5', 'medium']]) {
+test('i-3 accepts haiku, a full Sonnet model name, sonnet[1m] and medium effort', () => {
+  for (const [model, effort] of [['haiku', 'low'], ['claude-sonnet-5-5', 'medium'], ['sonnet[1m]', 'low']]) {
     withRepo(effortRepo({ model, effort }), (dir) => {
       const { code, out } = check(['i-3', '--dir', dir]);
       assert.equal(code, 0, out);
@@ -353,6 +353,7 @@ case "$NAME" in
 esac
 case "/$FILE_PATH" in
   */secrets/*) echo "Blocked: $FILE_PATH is in a secrets folder" >&2; exit 2 ;;
+  */package-lock.json | */.git/*) echo "Blocked: $FILE_PATH is protected" >&2; exit 2 ;;
 esac
 exit 0
 `;
@@ -389,6 +390,32 @@ test('i-5 fails for the guide script, naming each path it gets wrong', () => {
     assert.match(out, /\.env\.example/);
     assert.match(out, /secrets\/api\.key/);
     assert.match(out, /config\.envelope\.ts/);
+  });
+});
+
+test('i-5 fails when the finished hook drops the guide\'s package-lock.json and .git/ protection', () => {
+  withRepo(hookRepo({ hook: FIXED_HOOK.replace(/^  \*\/package-lock.*$\n/m, '') }), (dir) => {
+    const { code, out } = check(['i-5', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /package-lock\.json gave exit 0/);
+    assert.match(out, /\.git\/config gave exit 0/);
+  });
+});
+
+test('i-5 runs the committed hook, not an uncommitted fix', () => {
+  withRepo(hookRepo({ hook: GUIDE_HOOK }), (dir) => {
+    write(dir, { '.claude/hooks/protect-files.sh': FIXED_HOOK });
+    const { code, out } = check(['i-5', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /\.env\.example/);
+  });
+});
+
+test('i-5 sets CLAUDE_PROJECT_DIR, so a hook anchored on it passes', () => {
+  const anchored = FIXED_HOOK.replace('case "/$FILE_PATH" in\n  */secrets/*)', 'case "$FILE_PATH" in\n  "$CLAUDE_PROJECT_DIR"/secrets/*)');
+  withRepo(hookRepo({ hook: anchored }), (dir) => {
+    const { code, out } = check(['i-5', '--dir', dir]);
+    assert.equal(code, 0, out);
   });
 });
 
@@ -438,6 +465,14 @@ test('i-6 passes for a committed read-only subagent that Claude delegated to', (
 
 test('i-6 accepts tools written as a YAML list', () => {
   withRepo(agentRepo({ fields: GAPS_FIELDS.replace('tools: Read, Grep, Glob', 'tools:\n  - Read\n  - Grep') }), (dir) => {
+    const { code, out } = check(['i-6', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-6 reads a trailing comment and a description on the next line as Claude Code does', () => {
+  const fields = 'description:\n  Lists the functions in a project that no test calls, with the file each is in.\n  Use when the user asks what is untested.\ntools: Read, Grep, Glob  # read-only';
+  withRepo(agentRepo({ fields }), (dir) => {
     const { code, out } = check(['i-6', '--dir', dir]);
     assert.equal(code, 0, out);
   });
@@ -584,6 +619,16 @@ test('i-8 fails when the saved list has the plugin only at another scope or for 
   }
 });
 
+test('i-8 fails when the saved list shows the install for another project on this machine', () => {
+  const other = realpathSync(repo({ 'README.md': '# other\n' }));
+  const list = () => [{ id: PLUGIN, version: '1.0.0', scope: 'project', enabled: true, installPath: '/tmp/x', projectPath: other, projectEnabled: true }];
+  withRepo(pluginRepo({ list }), (dir) => {
+    const { code, out } = check(['i-8', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /--scope project/);
+  });
+});
+
 test('i-8 says how to save the plugin list when it is missing or not JSON', () => {
   withRepo(pluginRepo({ list: null }), (dir) => {
     const { code, out } = check(['i-8', '--dir', dir]);
@@ -600,13 +645,14 @@ case "$FILE_PATH" in
 esac
 exit 0
 `;
-function capstoneRepo({ omit = [], hook = SAMPLES_HOOK } = {}) {
+function capstoneRepo({ omit = [], hook = SAMPLES_HOOK, files: extra = {}, settings: patch = {} } = {}) {
   return () => {
     const settings = {
       permissions: { allow: ['Bash(npm test)'], deny: ['Read(./.env)', 'Read(./.env.*)'] },
       sandbox: { enabled: true },
       enabledPlugins: { 'claude-code-setup@claude-plugins-official': true },
       hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-samples.sh', args: [] }] }] },
+      ...patch,
     };
     const files = {
       'package.json': JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } }),
@@ -620,6 +666,7 @@ function capstoneRepo({ omit = [], hook = SAMPLES_HOOK } = {}) {
       '.mcp.json': MCP(PINNED),
       '.claude/settings.json': JSON.stringify(settings, null, 2),
       '.claude/hooks/protect-samples.sh': hook,
+      ...extra,
     };
     for (const path of omit) delete files[path];
     const dir = repo(files);
@@ -656,4 +703,37 @@ test('the Intermediate capstone fails for a hook that blocks too much, or not sa
       assert.match(out, /samples\//);
     });
   }
+});
+
+test('the Intermediate capstone does not count lesson leftovers as the brief\'s skill and reviewer', () => {
+  const files = { '.claude/skills/tdd/SKILL.md': FINISHED_TDD, '.claude/agents/test-gaps.md': TEST_GAPS(GAPS_FIELDS) };
+  withRepo(capstoneRepo({ omit: ['.claude/skills/check-links/SKILL.md', '.claude/agents/reviewer.md'], files }), (dir) => {
+    const { code, out } = check(['i-capstone', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /npm run linkcheck/);
+    assert.match(out, /reviews changes/);
+  });
+});
+
+test('the Intermediate capstone finds the hook script in args or behind a quoted project path', () => {
+  for (const entry of [
+    { type: 'command', command: 'bash', args: ['.claude/hooks/protect-samples.sh'] },
+    { type: 'command', command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/protect-samples.sh' },
+    { type: 'command', command: '"$CLAUDE_PROJECT_DIR/.claude/hooks/protect-samples.sh"' },
+  ]) {
+    const settings = { hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [entry] }] } };
+    withRepo(capstoneRepo({ settings }), (dir) => {
+      const { code, out } = check(['i-capstone', '--dir', dir]);
+      assert.equal(code, 0, out);
+    });
+  }
+});
+
+test('the Intermediate capstone wants the sandbox in the committed team settings', () => {
+  withRepo(capstoneRepo({ settings: { sandbox: { enabled: false } } }), (dir) => {
+    write(dir, { '.claude/settings.local.json': JSON.stringify({ sandbox: { enabled: true } }) });
+    const { code, out } = check(['i-capstone', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /sandbox/);
+  });
 });

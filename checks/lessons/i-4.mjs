@@ -59,6 +59,8 @@ export const items = [
   },
   {
     text: 'the sandbox is on, and `.claude/settings.local.json` stays out of git',
+    // `/sandbox` saves to the uncommitted local file, which never reaches CI.
+    local: true,
     check(repo) {
       if (repo.git('ls-files', '--', LOCAL)) return `${LOCAL} is committed, but it holds your own settings. Run \`git rm --cached ${LOCAL}\`, commit, and add it to \`.gitignore\`.`;
       for (const path of [LOCAL, SHARED]) {

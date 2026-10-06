@@ -2,10 +2,9 @@
 // hooks guide's protect-files script so it blocks .env files (but not
 // .env.example) and anything in a secrets/ folder, commits it as an
 // executable file, and registers it as a PreToolUse hook for Edit and Write.
-// The check runs the script with the JSON a tool call sends. Seeing the hook
-// fire in a session is self-checked.
-import { spawnSync } from 'node:child_process';
-import { join, posix } from 'node:path';
+// The check runs the committed script with the JSON a tool call sends. Seeing
+// the hook fire in a session is self-checked.
+import { committedMode, editWriteScripts, missingJq, runCommitted } from '../hooks.mjs';
 
 export const title = 'Enforce a rule with a hook';
 
@@ -13,6 +12,7 @@ const HOOK = '.claude/hooks/protect-files.sh';
 const SETTINGS = '.claude/settings.json';
 
 // Each path, under the repository, and the exit code the hook must give it.
+// The guide's own protections for package-lock.json and .git/ stay.
 const CASES = [
   ['.env', 2],
   ['config/.env.local', 2],
@@ -20,28 +20,15 @@ const CASES = [
   ['secrets/api.key', 2],
   ['src/config.envelope.ts', 0],
   ['src/app.js', 0],
+  ['package-lock.json', 2],
+  ['.git/config', 2],
 ];
-
-function committedMode(repo) {
-  const line = repo.git('ls-files', '-s', '--', HOOK);
-  return line ? line.split(/\s+/)[0] : null;
-}
-
-function registered(value) {
-  const groups = value?.hooks?.PreToolUse;
-  if (!Array.isArray(groups)) return false;
-  return groups.some((g) => {
-    const m = g?.matcher ?? '';
-    const matches = m === '' || m === '*' || (/\bEdit\b/.test(m) && /\bWrite\b/.test(m));
-    return matches && (g.hooks ?? []).some((h) => typeof h?.command === 'string' && (h.command.includes('protect-files.sh') || (h.args ?? []).some((a) => String(a).includes('protect-files.sh'))));
-  });
-}
 
 export const items = [
   {
     text: '`.claude/hooks/protect-files.sh` is committed and executable',
     check(repo) {
-      const mode = committedMode(repo);
+      const mode = committedMode(repo, HOOK);
       if (mode === null) return repo.exists(HOOK) ? `${HOOK} is not committed. Run \`git add ${HOOK}\` and commit it.` : `There is no ${HOOK}. Copy the hook from the lesson's Worked example there.`;
       return mode === '100755' ? true : `${HOOK} isn't executable, so Claude Code can't run it. Run \`chmod +x ${HOOK}\`, then \`git add ${HOOK}\` and commit.`;
     },
@@ -61,24 +48,18 @@ export const items = [
       } catch (error) {
         return `The committed ${SETTINGS} is not valid JSON: ${error.message}`;
       }
-      return registered(value) ? true : `${SETTINGS} doesn't run protect-files.sh as a PreToolUse hook with a matcher for Edit and Write, such as \`"matcher": "Edit|Write"\`.`;
+      return editWriteScripts(value).includes(HOOK) ? true : `${SETTINGS} doesn't run protect-files.sh as a PreToolUse hook with a matcher for Edit and Write, such as \`"matcher": "Edit|Write"\`.`;
     },
   },
   {
-    text: 'the hook blocks `.env` files, but not `.env.example`, and anything in a `secrets/` folder, and allows the rest',
+    text: 'the committed hook blocks `.env` files, but not `.env.example`, anything in a `secrets/` folder, `package-lock.json` and `.git/`, and allows the rest',
     check(repo) {
-      if (!repo.exists(HOOK)) return `There is no ${HOOK}.`;
+      if (committedMode(repo, HOOK) === null) return `Commit ${HOOK}: the check runs the committed script, the one your teammates get.`;
       const wrong = [];
       for (const [path, want] of CASES) {
-        const filePath = posix.join(repo.dir.replace(/\\/g, '/'), path);
-        const run = spawnSync('bash', [join(repo.dir, HOOK)], {
-          cwd: repo.dir,
-          input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: filePath } }),
-          encoding: 'utf8',
-          timeout: 10_000,
-        });
+        const run = runCommitted(repo, HOOK, path, 'Write');
         if (run.error) return `The hook couldn't run: ${run.error.message}`;
-        if (/jq: (command )?not found/.test(run.stderr)) return 'The hook needs `jq`, which isn\'t installed. Install it and run the check again.';
+        if (missingJq(run)) return 'The hook needs `jq`, which isn\'t installed. Install it and run the check again.';
         if (run.status !== want) wrong.push(`${path} gave exit ${run.status}, expected ${want}`);
         else if (want === 2 && !run.stderr.trim()) wrong.push(`${path} was blocked without a reason on stderr for Claude`);
       }
