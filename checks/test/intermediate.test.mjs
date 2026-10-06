@@ -109,3 +109,88 @@ test('i-1 says how to save the commit when none is saved', () => {
     assert.match(out, /git rev-parse HEAD > \.practice\/i-1-commit\.txt/);
   });
 });
+
+// A repository after lesson i-2: CLAUDE.md imports package.json, a rule is
+// scoped to the test files, and the load log a session wrote.
+const LOG = (dir, lines) => lines.map(([reason, path]) => `${reason}\t${dir}/${path}`).join('\n') + '\n';
+function memoryRepo({
+  claudeMd = '# linkcheck\n\n- npm scripts: @package.json\n',
+  rules = { 'testing.md': '---\npaths:\n  - "test/**/*.js"\n---\n\n- Use node:test.\n' },
+  log = [['session_start', 'CLAUDE.md'], ['include', 'package.json'], ['path_glob_match', '.claude/rules/testing.md']],
+} = {}) {
+  return () => {
+    const files = { 'CLAUDE.md': claudeMd, 'package.json': '{}\n', 'test/links.test.js': '// test\n', 'src/cli.js': '// cli\n' };
+    for (const [name, text] of Object.entries(rules)) files[`.claude/rules/${name}`] = text;
+    const dir = repo(files);
+    commit(dir, 'Organize project memory');
+    if (log) write(dir, { '.practice/i-2-loaded.txt': LOG(dir, log) });
+    return dir;
+  };
+}
+
+test('i-2 passes with an import, a scoped rule that matches files, and a log of both loading', () => {
+  withRepo(memoryRepo(), (dir) => {
+    const { code, out } = check(['i-2', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-2 fails without an @path import in the committed CLAUDE.md, and ignores one in backticks', () => {
+  withRepo(memoryRepo({ claudeMd: '# linkcheck\n\n- The scripts are in `@package.json`.\n' }), (dir) => {
+    const { code, out } = check(['i-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /no @path import/);
+  });
+});
+
+test('i-2 says a period after the imported path becomes part of it', () => {
+  withRepo(memoryRepo({ claudeMd: '# linkcheck\n\nThe npm scripts are in @package.json.\n' }), (dir) => {
+    const { code, out } = check(['i-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /package\.json\. doesn't exist/);
+    assert.match(out, /first space/);
+  });
+});
+
+test('i-2 fails for a scoped rule whose paths match no file, and names it', () => {
+  const rules = { 'testing.md': '---\npaths: "test/**/*.js"\n---\n', 'cli.md': '---\npaths:\n  - "source/**/*.js"\n---\n' };
+  withRepo(memoryRepo({ rules }), (dir) => {
+    const { code, out } = check(['i-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /\.claude\/rules\/cli\.md/);
+    assert.match(out, /source\/\*\*\/\*\.js/);
+  });
+});
+
+test('i-2 needs at least one rule scoped with paths', () => {
+  withRepo(memoryRepo({ rules: { 'style.md': '- Two spaces.\n' } }), (dir) => {
+    const { code, out } = check(['i-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /paths:/);
+  });
+});
+
+test('i-2 matches brace patterns and a comma-separated paths value', () => {
+  const rules = { 'code.md': '---\npaths:\n  - "src/**/*.{js,ts}"\n---\n', 'lib.md': '---\npaths: lib/*.js, src/*.js\n---\n' };
+  const log = [['include', 'package.json'], ['path_glob_match', '.claude/rules/code.md']];
+  withRepo(memoryRepo({ rules, log }), (dir) => {
+    const { code, out } = check(['i-2', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-2 says how to start a logged session when there is no log', () => {
+  withRepo(memoryRepo({ log: null }), (dir) => {
+    const { code, out } = check(['i-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /--settings \.practice\/i-2-hook\.json/);
+  });
+});
+
+test('i-2 fails when the log shows no scoped rule loading, and says which tools load one', () => {
+  withRepo(memoryRepo({ log: [['session_start', 'CLAUDE.md'], ['include', 'package.json']] }), (dir) => {
+    const { code, out } = check(['i-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /Read tool/);
+  });
+});
