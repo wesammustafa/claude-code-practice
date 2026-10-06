@@ -409,3 +409,68 @@ test('i-5 fails when the hook is not registered for Edit and Write before tools 
     });
   }
 });
+
+// A repository after lesson i-6: the finished test-gaps subagent, read-only,
+// and the log a SubagentStart hook wrote when Claude delegated to it.
+const TEST_GAPS = (fields) => `---
+name: test-gaps
+${fields}
+---
+
+You find code that no test exercises.
+`;
+const GAPS_FIELDS = 'description: Lists the functions in a project that no test calls, with the file each is in. Use when the user asks what is untested or where tests are missing.\ntools: Read, Grep, Glob';
+function agentRepo({ fields = GAPS_FIELDS, log = 'Explore\ntest-gaps\n' } = {}) {
+  return () => {
+    const dir = repo({ '.claude/agents/test-gaps.md': TEST_GAPS(fields) });
+    commit(dir, 'Add a test-gaps subagent');
+    if (log !== null) write(dir, { '.practice/i-6-agents.txt': log });
+    return dir;
+  };
+}
+
+test('i-6 passes for a committed read-only subagent that Claude delegated to', () => {
+  withRepo(agentRepo(), (dir) => {
+    const { code, out } = check(['i-6', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-6 accepts tools written as a YAML list', () => {
+  withRepo(agentRepo({ fields: GAPS_FIELDS.replace('tools: Read, Grep, Glob', 'tools:\n  - Read\n  - Grep') }), (dir) => {
+    const { code, out } = check(['i-6', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-6 fails while the partial file still has its TODOs', () => {
+  withRepo(agentRepo({ fields: 'description: TODO\ntools: TODO' }), (dir) => {
+    const { code, out } = check(['i-6', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /description/);
+    assert.match(out, /tools/);
+  });
+});
+
+test('i-6 fails for a subagent that can edit files or run commands, or inherits every tool', () => {
+  for (const tools of ['tools: Read, Grep, Bash', 'tools: Read, Edit', '']) {
+    withRepo(agentRepo({ fields: GAPS_FIELDS.replace('tools: Read, Grep, Glob', tools) }), (dir) => {
+      const { code, out } = check(['i-6', '--dir', dir]);
+      assert.equal(code, 1, `${tools}: ${out}`);
+      assert.match(out, /read-only|every tool/);
+    });
+  }
+});
+
+test('i-6 says how to log delegations when there is no log, and fails when test-gaps never ran', () => {
+  withRepo(agentRepo({ log: null }), (dir) => {
+    const { code, out } = check(['i-6', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /--settings \.practice\/i-6-hook\.json/);
+  });
+  withRepo(agentRepo({ log: 'Explore\n' }), (dir) => {
+    const { code, out } = check(['i-6', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /Use the test-gaps agent/);
+  });
+});
