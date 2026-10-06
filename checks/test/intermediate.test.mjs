@@ -591,3 +591,69 @@ test('i-8 says how to save the plugin list when it is missing or not JSON', () =
     assert.match(out, /claude plugin list --json > \.practice\/i-8-plugins\.json/);
   });
 });
+
+// The Intermediate capstone: everything the brief asks for, committed.
+const SAMPLES_HOOK = `#!/bin/bash
+FILE_PATH=$(jq -r '.tool_input.file_path // empty')
+case "$FILE_PATH" in
+  "$CLAUDE_PROJECT_DIR"/samples/*) echo "Blocked: samples/ is test data" >&2; exit 2 ;;
+esac
+exit 0
+`;
+function capstoneRepo({ omit = [], hook = SAMPLES_HOOK } = {}) {
+  return () => {
+    const settings = {
+      permissions: { allow: ['Bash(npm test)'], deny: ['Read(./.env)', 'Read(./.env.*)'] },
+      sandbox: { enabled: true },
+      enabledPlugins: { 'claude-code-setup@claude-plugins-official': true },
+      hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-samples.sh', args: [] }] }] },
+    };
+    const files = {
+      'package.json': JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } }),
+      'samples/guide.md': '# Guide\n',
+      'src/cli.js': '// cli\n',
+      'test/links.test.js': '// test\n',
+      'CLAUDE.md': '# linkcheck\n\n- npm scripts: @package.json\n',
+      '.claude/rules/testing.md': '---\npaths:\n  - "test/**/*.js"\n---\n\n- Use node:test.\n',
+      '.claude/skills/check-links/SKILL.md': '---\nname: check-links\ndescription: Runs the link checker on a folder and explains each broken link it finds. Use when someone asks to check links or find broken links.\n---\n\nRun npm run linkcheck on $ARGUMENTS and explain each broken link.\n',
+      '.claude/agents/reviewer.md': '---\nname: reviewer\ndescription: Reviews changes before a commit and reports problems by severity, without editing anything.\ntools: Read, Grep, Glob\n---\n\nReview the changes you are given.\n',
+      '.mcp.json': MCP(PINNED),
+      '.claude/settings.json': JSON.stringify(settings, null, 2),
+      '.claude/hooks/protect-samples.sh': hook,
+    };
+    for (const path of omit) delete files[path];
+    const dir = repo(files);
+    if (files['.claude/hooks/protect-samples.sh']) chmodSync(join(dir, '.claude/hooks/protect-samples.sh'), 0o755);
+    commit(dir, 'Get linkcheck ready for a new teammate');
+    return dir;
+  };
+}
+
+test('the Intermediate capstone passes when everything in the brief is committed', () => {
+  withRepo(capstoneRepo(), (dir) => {
+    const { code, out } = check(['i-capstone', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('the Intermediate capstone fails without a skill, a reviewer or a hook, naming each', () => {
+  for (const [path, hint] of [['.claude/skills/check-links/SKILL.md', /skill/], ['.claude/agents/reviewer.md', /subagent/], ['.claude/hooks/protect-samples.sh', /samples\//]]) {
+    withRepo(capstoneRepo({ omit: [path] }), (dir) => {
+      const { code, out } = check(['i-capstone', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, hint);
+    });
+  }
+});
+
+test('the Intermediate capstone fails for a hook that blocks too much, or not samples/', () => {
+  const blocksAll = '#!/bin/bash\ncat >/dev/null\necho "Blocked" >&2\nexit 2\n';
+  const blocksNone = '#!/bin/bash\ncat >/dev/null\nexit 0\n';
+  for (const hook of [blocksAll, blocksNone]) {
+    withRepo(capstoneRepo({ hook }), (dir) => {
+      const { code, out } = check(['i-capstone', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, /samples\//);
+    });
+  }
+});
