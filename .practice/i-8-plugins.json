@@ -1,0 +1,13 @@
+[
+  {
+    "id": "claude-code-setup@claude-plugins-official",
+    "version": "1.0.0",
+    "scope": "project",
+    "enabled": true,
+    "installPath": "/home/learner/.claude/plugins/cache/claude-plugins-official/claude-code-setup/1.0.0",
+    "installedAt": "2026-10-06T11:00:00.000Z",
+    "lastUpdated": "2026-10-06T11:00:00.000Z",
+    "projectPath": "/home/learner/linkcheck",
+    "projectEnabled": true
+  }
+]
