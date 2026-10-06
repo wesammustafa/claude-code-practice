@@ -139,7 +139,7 @@ export const items = [
       if (!lines.some(([reason]) => reason === 'include')) return `The log has no \`include\` line, so no imported file loaded. Check the import's path, then ${START[0].toLowerCase()}${START.slice(1)}.`;
       const loaded = lines.filter(([reason, path]) => reason === 'path_glob_match' && rules.some((r) => path.replace(/\\/g, '/').endsWith(`/${r}`)));
       if (loaded.length) return true;
-      return 'The log shows no scoped rule loading. A scoped rule loads when Claude uses the Read, Write or Edit tool on a matching file, not when it reads one through a shell command. Ask Claude to use its Read tool on a file the rule covers.';
+      return 'The log shows no scoped rule loading. A scoped rule loads when Claude reads a matching file with its Read tool, not through a shell command. Ask Claude to use its Read tool on a file the rule covers.';
     },
   },
 ];
