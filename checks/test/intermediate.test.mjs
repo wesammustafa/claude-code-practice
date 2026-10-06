@@ -2,7 +2,7 @@
 // repository with --dir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync } from 'node:fs';
+import { chmodSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { check, commit, repo, withRepo, write } from './helpers.mjs';
 
@@ -539,4 +539,55 @@ test('i-7 fails when the screenshot is missing or is not a PNG', () => {
       assert.match(out, /i-7-page\.png/);
     });
   }
+});
+
+// A repository after lesson i-8: a plugin from an Anthropic marketplace
+// enabled for the project, and the plugin list a shell saved there.
+const PLUGIN = 'claude-code-setup@claude-plugins-official';
+function pluginRepo({ enabled = { [PLUGIN]: true }, list = (dir) => [{ id: PLUGIN, version: '1.0.0', scope: 'project', enabled: true, installPath: '/tmp/x', projectPath: dir, projectEnabled: true }] } = {}) {
+  return () => {
+    const dir = repo({ '.claude/settings.json': JSON.stringify({ enabledPlugins: enabled }, null, 2) });
+    commit(dir, 'Enable claude-code-setup for the project');
+    if (list) write(dir, { '.practice/i-8-plugins.json': JSON.stringify(list(realpathSync(dir)), null, 2) });
+    return dir;
+  };
+}
+
+test('i-8 passes for an Anthropic plugin enabled and installed at project scope', () => {
+  withRepo(pluginRepo(), (dir) => {
+    const { code, out } = check(['i-8', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-8 fails while the enabledPlugins entry is a TODO, or names a third-party marketplace', () => {
+  for (const enabled of [{ 'TODO: claude-code-setup@<marketplace>': true }, { 'formatter@acme-tools': true }]) {
+    withRepo(pluginRepo({ enabled }), (dir) => {
+      const { code, out } = check(['i-8', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, /claude-plugins-official/);
+    });
+  }
+});
+
+test('i-8 fails when the saved list has the plugin only at another scope or for another project', () => {
+  const lists = [
+    (dir) => [{ id: PLUGIN, version: '1.0.0', scope: 'user', enabled: true, installPath: '/tmp/x' }],
+    () => [{ id: PLUGIN, version: '1.0.0', scope: 'project', enabled: true, installPath: '/tmp/x', projectPath: '/somewhere/else', projectEnabled: false }],
+  ];
+  for (const list of lists) {
+    withRepo(pluginRepo({ list }), (dir) => {
+      const { code, out } = check(['i-8', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, /--scope project/);
+    });
+  }
+});
+
+test('i-8 says how to save the plugin list when it is missing or not JSON', () => {
+  withRepo(pluginRepo({ list: null }), (dir) => {
+    const { code, out } = check(['i-8', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /claude plugin list --json > \.practice\/i-8-plugins\.json/);
+  });
 });
