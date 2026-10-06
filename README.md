@@ -13,7 +13,7 @@ You need Node.js LTS and git. There is nothing to install with npm: the app and 
 
 ## Check your work
 
-Each core lesson and the capstone end with a check. Run it from the root of your copy:
+Each core lesson and each capstone ends with a check. Run it from the root of your copy:
 
 ```bash
 npm run check -- b-1
