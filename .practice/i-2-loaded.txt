@@ -1,0 +1,3 @@
+session_start	/home/learner/linkcheck/CLAUDE.md
+include	/home/learner/linkcheck/package.json
+path_glob_match	/home/learner/linkcheck/.claude/rules/cli.md
