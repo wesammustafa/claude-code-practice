@@ -3,9 +3,8 @@
 // Intermediate Exit statement leaves in files and git; picking a model and
 // effort, and seeing each piece work in a session, are self-assessed on the
 // capstone page.
-import { spawnSync } from 'node:child_process';
-import { join, posix } from 'node:path';
 import { frontmatter } from '../frontmatter.mjs';
+import { committedMode, editWriteScripts, missingJq, runCommitted } from '../hooks.mjs';
 import { items as memory } from './i-2.mjs';
 import { items as scopes } from './i-4.mjs';
 import { items as mcp } from './i-7.mjs';
@@ -25,9 +24,9 @@ function committedFiles(repo, dir, suffix) {
   }
 }
 
-function committedFields(repo, path) {
+function committedFile(repo, path) {
   try {
-    return frontmatter(repo.git('show', `HEAD:${path}`))?.fields ?? null;
+    return frontmatter(repo.git('show', `HEAD:${path}`));
   } catch {
     return null;
   }
@@ -35,65 +34,61 @@ function committedFields(repo, path) {
 
 const words = (text) => String(text ?? '').split(/\s+/).filter((w) => w && w !== 'TODO').length;
 
+// The brief's skill runs the link checker: `npm run linkcheck` or src/cli.js.
+const LINKCHECK = /npm run linkcheck|src\/cli\.js/;
+
 const skill = {
-  text: 'a committed project skill that runs by name and can load on its own',
+  text: 'a committed project skill that runs the link checker by name and can load on its own',
   check(repo) {
     const ok = committedFiles(repo, '.claude/skills', '/SKILL.md').some((path) => {
-      const f = committedFields(repo, path);
-      return f && words(f.description) >= 8 && String(f['disable-model-invocation']) !== 'true' && String(f['user-invocable']) !== 'false';
+      const file = committedFile(repo, path);
+      const f = file?.fields;
+      return f && LINKCHECK.test(file.body) && words(f.description) >= 8 && String(f['disable-model-invocation']) !== 'true' && String(f['user-invocable']) !== 'false';
     });
-    return ok ? true : 'Commit a skill in `.claude/skills/<name>/SKILL.md` with a description of what it does and when to use it, and without `disable-model-invocation: true`, as in lesson 1.';
+    return ok ? true : 'Commit a skill in `.claude/skills/<name>/SKILL.md` whose instructions run the link checker (`npm run linkcheck -- <folder>`), with a description of what it does and when to use it, and without `disable-model-invocation: true`, as in lesson 1.';
   },
 };
 
 const reviewer = {
-  text: 'a committed subagent with only read-only tools',
+  text: 'a committed reviewer subagent with only read-only tools',
   check(repo) {
     const ok = committedFiles(repo, '.claude/agents', '.md').some((path) => {
-      const f = committedFields(repo, path);
+      const f = committedFile(repo, path)?.fields;
       const tools = list(f?.tools);
-      return f?.name && words(f.description) >= 5 && tools.length && tools.every((t) => READ_ONLY.has(t));
+      return f?.name && /review/i.test(`${f.name} ${f.description}`) && words(f.description) >= 5 && tools.length && tools.every((t) => READ_ONLY.has(t));
     });
-    return ok ? true : 'Commit a subagent in `.claude/agents/` with a name, a description and a `tools` list of read-only tools only, such as `Read, Grep, Glob`, as in lesson 6.';
+    return ok ? true : 'Commit a reviewer in `.claude/agents/`: a subagent whose name or description says it reviews changes, with a `tools` list of read-only tools only, such as `Read, Grep, Glob`, as in lesson 6.';
   },
 };
 
-// The scripts the committed settings run before Edit and Write.
-function editHooks(repo) {
-  let value;
+function committedSettings(repo) {
   try {
-    value = JSON.parse(repo.git('show', 'HEAD:.claude/settings.json'));
+    return JSON.parse(repo.git('show', 'HEAD:.claude/settings.json'));
   } catch {
-    return [];
+    return null;
   }
-  return (value?.hooks?.PreToolUse ?? [])
-    .filter((g) => { const m = g?.matcher ?? ''; return m === '' || m === '*' || (/\bEdit\b/.test(m) && /\bWrite\b/.test(m)); })
-    .flatMap((g) => g.hooks ?? [])
-    .map((h) => String(h?.command ?? '').replace(/^"?\$\{?CLAUDE_PROJECT_DIR\}?"?\/?/, '').replace(/^\.\//, ''))
-    .filter((path) => path.startsWith('.claude/hooks/'));
-}
-
-function exitCode(repo, script, path) {
-  const run = spawnSync('bash', [join(repo.dir, script)], {
-    cwd: repo.dir,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: repo.dir },
-    input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: posix.join(repo.dir.replace(/\\/g, '/'), path) } }),
-    encoding: 'utf8',
-    timeout: 10_000,
-  });
-  return run.status;
 }
 
 const hook = {
   text: 'a committed, executable `PreToolUse` hook for Edit and Write blocks `samples/` and nothing else',
   check(repo) {
-    const scripts = editHooks(repo).filter((s) => repo.exists(s) && (repo.git('ls-files', '-s', '--', s).split(/\s+/)[0] === '100755'));
+    const scripts = editWriteScripts(committedSettings(repo)).filter((s) => committedMode(repo, s) === '100755');
     if (!scripts.length) return 'Commit an executable script in `.claude/hooks/` and run it from `.claude/settings.json` as a `PreToolUse` hook with the matcher `Edit|Write`, as in lesson 5, to keep Claude out of samples/.';
-    const blocksSamples = scripts.some((s) => exitCode(repo, s, 'samples/guide.md') === 2);
-    const allowsSource = scripts.every((s) => exitCode(repo, s, 'src/cli.js') === 0);
-    if (!blocksSamples) return 'No Edit|Write hook exits with 2 for `samples/guide.md`, so Claude can still edit samples/.';
-    return allowsSource ? true : 'An Edit|Write hook also blocks `src/cli.js`: block samples/ only.';
+    const samples = scripts.map((s) => runCommitted(repo, s, 'samples/guide.md'));
+    const source = scripts.map((s) => runCommitted(repo, s, 'src/cli.js'));
+    if ([...samples, ...source].some(missingJq)) return 'A hook needs `jq`, which isn\'t installed. Install it and run the check again.';
+    if (!samples.some((r) => r?.status === 2)) return 'No Edit|Write hook exits with 2 for `samples/guide.md`, so Claude can still edit samples/.';
+    return source.every((r) => r?.status === 0) ? true : 'An Edit|Write hook also blocks `src/cli.js`: block samples/ only.';
   },
 };
 
-export const items = [skill, hook, reviewer, mcp[0], plugins[0], scopes[0], scopes[1], memory[0], memory[1], testsPass, nothingUncommitted];
+// The brief puts the sandbox in the team's committed settings.
+const sandbox = {
+  text: 'the committed `.claude/settings.json` turns the sandbox on, and `.claude/settings.local.json` stays out of git',
+  check(repo) {
+    if (repo.git('ls-files', '--', '.claude/settings.local.json')) return '.claude/settings.local.json is committed, but it holds your own settings. Run `git rm --cached .claude/settings.local.json`, commit, and add it to `.gitignore`.';
+    return committedSettings(repo)?.sandbox?.enabled === true ? true : 'The committed .claude/settings.json doesn\'t turn the sandbox on. Add `"sandbox": {"enabled": true}` to it and commit: `/sandbox` saves to your local file, which teammates don\'t get.';
+  },
+};
+
+export const items = [skill, hook, reviewer, mcp[0], plugins[0], scopes[0], sandbox, memory[0], memory[1], testsPass, nothingUncommitted];

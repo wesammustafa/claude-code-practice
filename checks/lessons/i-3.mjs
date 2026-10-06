@@ -7,7 +7,7 @@ import { frontmatter } from '../frontmatter.mjs';
 export const title = 'Pick the model and effort';
 
 const SKILL = '.claude/skills/changelog/SKILL.md';
-const SMALL = /^(sonnet|haiku|claude-sonnet-[\w.-]+|claude-haiku-[\w.-]+)$/;
+const SMALL = /^(sonnet|claude-sonnet-[\w.-]+)(\[1m\])?$|^(haiku|claude-haiku-[\w.-]+)$/;
 const LARGE = /^(opus|fable|best|opusplan|claude-opus-[\w.-]+|claude-fable-[\w.-]+)(\[1m\])?$/;
 const LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 

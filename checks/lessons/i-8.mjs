@@ -2,10 +2,22 @@
 // plugin from one of Anthropic's marketplaces for the whole project, in the
 // committed .claude/settings.json, installs it at project scope, and saves
 // `claude plugin list --json` so the check can see the install.
+import { realpathSync } from 'node:fs';
+
 export const title = 'Install and manage plugins';
 
 const ANTHROPIC = ['claude-plugins-official', 'claude-community', 'claude-code-plugins'];
 const SAVE = '`claude plugin list --json > .practice/i-8-plugins.json`';
+
+// Whether an install's projectPath is this repository: true or false when the
+// path exists on this machine, null when it doesn't (a list saved elsewhere).
+function here(projectPath, dir) {
+  try {
+    return realpathSync(projectPath) === realpathSync(dir);
+  } catch {
+    return null;
+  }
+}
 
 function projectPlugins(repo) {
   try {
@@ -40,9 +52,10 @@ export const items = [
         return `.practice/i-8-plugins.json isn't JSON. Run ${SAVE} again, from the repository's root.`;
       }
       const ids = projectPlugins(repo) ?? [];
-      // projectEnabled says whether the shared settings of the folder the list
-      // ran in turn the plugin on, so a list saved in this repository shows it.
-      const ok = (Array.isArray(list) ? list : list?.installed ?? []).some((p) => ids.includes(p?.id) && p.scope === 'project' && p.enabled === true && p.projectEnabled === true);
+      // The list holds project-scope installs for every project on the machine,
+      // and projectEnabled reflects the settings of the folder it ran in, so an
+      // install counts only when its projectPath is this repository.
+      const ok = (Array.isArray(list) ? list : list?.installed ?? []).some((p) => ids.includes(p?.id) && p.scope === 'project' && p.enabled === true && p.projectEnabled === true && here(p.projectPath, repo.dir) !== false);
       return ok ? true : `The saved list doesn't show ${ids[0] ?? 'the plugin'} installed at project scope for this repository. Run \`claude plugin install ${ids[0] ?? '<plugin>@<marketplace>'} --scope project\` in the repository, then ${SAVE}.`;
     },
   },
