@@ -6,4 +6,4 @@ effort: low
 disable-model-invocation: true
 ---
 
-Read the staged changes with `git diff --staged`. Add one line under `## Unreleased` in CHANGELOG.md that says what changed for someone using the tool, creating the file and the heading if they don't exist. Change no other file.
+Read the staged changes with `git diff --staged`. Add one list item (`- `) under `## Unreleased` in CHANGELOG.md that says what changed for someone using the tool, creating the file and the heading if they don't exist. Change no other file.
