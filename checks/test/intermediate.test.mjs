@@ -194,3 +194,69 @@ test('i-2 fails when the log shows no scoped rule loading, and says which tools 
     assert.match(out, /Read tool/);
   });
 });
+
+// A repository after lesson i-3: the changelog skill with its model and
+// effort filled in, and the entry a /changelog run committed.
+const CHANGELOG_SKILL = (model, effort) => `---
+name: changelog
+description: Adds a one-line entry for the staged changes to CHANGELOG.md. Use when the user asks for a changelog entry.
+model: ${model}
+effort: ${effort}
+disable-model-invocation: true
+---
+
+Read the staged changes and add one line under ## Unreleased in CHANGELOG.md.
+`;
+function effortRepo({ model = 'sonnet', effort = 'low', changelog = '## Unreleased\n\n- Report broken links in headings.\n' } = {}) {
+  return () => {
+    const files = { '.claude/skills/changelog/SKILL.md': CHANGELOG_SKILL(model, effort) };
+    if (changelog !== null) files['CHANGELOG.md'] = changelog;
+    const dir = repo(files);
+    commit(dir, 'Add a changelog skill and an entry');
+    return dir;
+  };
+}
+
+test('i-3 passes for a small model at low effort and a committed entry', () => {
+  withRepo(effortRepo(), (dir) => {
+    const { code, out } = check(['i-3', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-3 accepts haiku, a full Sonnet model name, and medium effort', () => {
+  for (const [model, effort] of [['haiku', 'low'], ['claude-sonnet-5-5', 'medium']]) {
+    withRepo(effortRepo({ model, effort }), (dir) => {
+      const { code, out } = check(['i-3', '--dir', dir]);
+      assert.equal(code, 0, out);
+    });
+  }
+});
+
+test('i-3 fails while model and effort are still TODO', () => {
+  withRepo(effortRepo({ model: 'TODO', effort: 'TODO' }), (dir) => {
+    const { code, out } = check(['i-3', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /model/);
+  });
+});
+
+test('i-3 says a routine task does not need a larger model or a higher effort', () => {
+  for (const [model, effort, hint] of [['opus', 'low', /larger model/], ['sonnet', 'high', /higher effort/]]) {
+    withRepo(effortRepo({ model, effort }), (dir) => {
+      const { code, out } = check(['i-3', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, hint);
+    });
+  }
+});
+
+test('i-3 fails without a committed changelog entry under Unreleased', () => {
+  for (const changelog of [null, '## Unreleased\n\n']) {
+    withRepo(effortRepo({ changelog }), (dir) => {
+      const { code, out } = check(['i-3', '--dir', dir]);
+      assert.equal(code, 1, out);
+      assert.match(out, /\/changelog/);
+    });
+  }
+});
