@@ -260,3 +260,80 @@ test('i-3 fails without a committed changelog entry under Unreleased', () => {
     });
   }
 });
+
+// A repository after lesson i-4: team rules in the committed shared settings,
+// and the sandbox turned on in the personal file that stays out of git.
+const TEAM = { permissions: { allow: ['Bash(npm test)'], deny: ['Read(./.env)', 'Read(./.env.*)'] } };
+const LOCAL = { sandbox: { enabled: true, autoAllowBashIfSandboxed: true } };
+function scopesRepo({ team = TEAM, local = LOCAL, commitLocal = false } = {}) {
+  return () => {
+    const files = {};
+    if (team) files['.claude/settings.json'] = typeof team === 'string' ? team : JSON.stringify(team, null, 2);
+    if (local) files['.claude/settings.local.json'] = JSON.stringify(local, null, 2);
+    const dir = repo(files);
+    commit(dir, 'Add team settings', [...(team ? ['.claude/settings.json'] : []), ...(commitLocal ? ['.claude/settings.local.json'] : [])]);
+    return dir;
+  };
+}
+
+test('i-4 passes with team rules committed and the sandbox on in the uncommitted local file', () => {
+  withRepo(scopesRepo(), (dir) => {
+    const { code, out } = check(['i-4', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-4 accepts the sandbox turned on in the shared file, with no local file', () => {
+  withRepo(scopesRepo({ team: { ...TEAM, sandbox: { enabled: true } }, local: null }), (dir) => {
+    const { code, out } = check(['i-4', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('i-4 fails while the partial file still has its TODOs', () => {
+  const partial = { permissions: { allow: ['TODO: the command that runs your tests'], deny: ['TODO: reading .env'] } };
+  withRepo(scopesRepo({ team: partial }), (dir) => {
+    const { code, out } = check(['i-4', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /TODO/);
+  });
+});
+
+test('i-4 needs deny rules for .env and the other .env files', () => {
+  withRepo(scopesRepo({ team: { permissions: { allow: ['Bash(npm test)'], deny: ['Read(./.env)'] } } }), (dir) => {
+    const { code, out } = check(['i-4', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /\.env\.\*/);
+  });
+});
+
+test('i-4 refuses an allow rule that lets every command or every edit through', () => {
+  for (const rule of ['Bash', 'Bash(*)', 'Bash(npm *)', 'Bash(npm:*)', 'Edit']) {
+    withRepo(scopesRepo({ team: { permissions: { allow: ['Bash(npm test)', rule], deny: TEAM.permissions.deny } } }), (dir) => {
+      const { code, out } = check(['i-4', '--dir', dir]);
+      assert.equal(code, 1, `${rule}: ${out}`);
+      assert.ok(out.includes(rule), out);
+    });
+  }
+});
+
+test('i-4 fails when the shared settings are not valid JSON', () => {
+  withRepo(scopesRepo({ team: '{ "permissions": { "allow": ["Bash(npm test)"], } }' }), (dir) => {
+    const { code, out } = check(['i-4', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /not valid JSON/);
+  });
+});
+
+test('i-4 fails when the personal file is committed, and when the sandbox is off', () => {
+  withRepo(scopesRepo({ commitLocal: true }), (dir) => {
+    const { code, out } = check(['i-4', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /git rm --cached \.claude\/settings\.local\.json/);
+  });
+  withRepo(scopesRepo({ local: { sandbox: { enabled: false } } }), (dir) => {
+    const { code, out } = check(['i-4', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /\/sandbox/);
+  });
+});

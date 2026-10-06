@@ -8,5 +8,6 @@ import * as bCapstone from './b-capstone.mjs';
 import * as i1 from './i-1.mjs';
 import * as i2 from './i-2.mjs';
 import * as i3 from './i-3.mjs';
+import * as i4 from './i-4.mjs';
 
-export const lessons = { 'b-1': b1, 'b-2': b2, 'b-3': b3, 'b-4': b4, 'b-5': b5, 'b-capstone': bCapstone, 'i-1': i1, 'i-2': i2, 'i-3': i3 };
+export const lessons = { 'b-1': b1, 'b-2': b2, 'b-3': b3, 'b-4': b4, 'b-5': b5, 'b-capstone': bCapstone, 'i-1': i1, 'i-2': i2, 'i-3': i3, 'i-4': i4 };
