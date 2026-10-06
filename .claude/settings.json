@@ -1,9 +1,28 @@
 {
   "permissions": {
-    "allow": ["Bash(npm test)"],
-    "deny": ["Read(./.env)", "Read(./.env.*)"]
+    "allow": [
+      "Bash(npm test)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
   },
   "sandbox": {
     "enabled": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-files.sh",
+            "args": []
+          }
+        ]
+      }
+    ]
   }
 }
