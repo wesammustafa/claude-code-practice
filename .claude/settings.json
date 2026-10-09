@@ -30,7 +30,16 @@
       }
     ]
   },
+  "extraKnownMarketplaces": {
+    "team-tools": {
+      "source": {
+        "source": "directory",
+        "path": "./team-marketplace"
+      }
+    }
+  },
   "enabledPlugins": {
-    "claude-code-setup@claude-plugins-official": true
+    "claude-code-setup@claude-plugins-official": true,
+    "team-kit@team-tools": true
   }
 }
