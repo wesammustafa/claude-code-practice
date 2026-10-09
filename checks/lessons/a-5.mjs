@@ -7,7 +7,8 @@
 // pass before and after the teardown, and a later workflow on other events
 // never stands in for this one. That Claude answered the @claude issue and
 // explained each broken link shows only on GitHub, so the lesson self-checks
-// it. The Advanced capstone reuses the workflow items with its own events.
+// it. The Advanced capstone reuses the workflow items, as one item, with its
+// own events.
 import { claudeArgWords, claudeHistory, claudeWorkflowsAt, headBlob, uncommittedWorkflows } from '../actions.mjs';
 import { ruleList } from '../claude-args.mjs';
 
@@ -263,6 +264,21 @@ export function workflowLimits(options = LESSON) {
       const c = chosenWorkflow(repo, o.triggers);
       if (!c) return `There is no committed workflow ${startsOn(o.triggers)} and runs \`anthropics/claude-code-action\`, so the check can't read its limits. Commit one as the item above says.`;
       return c.limits.length ? report(repo, c, c.limits) : true;
+    },
+  };
+}
+
+// Both workflow items as one, as the Advanced capstone checks its review
+// workflow: what each finds wrong, in one report on the file it read.
+export function boundedWorkflow(options = LESSON) {
+  const o = { ...LESSON, ...options };
+  return {
+    text: `a committed workflow runs \`anthropics/claude-code-action\` on ${or(o.triggers.map(code))}, pinned to a release or a commit SHA, in automation mode, with its credential from a secret and none in the file, a read-only job token, \`--max-turns\` of at most ${TURNS_MAX}, an \`--allowedTools\` list without unrestricted \`Bash\` and \`timeout-minutes\` of at most ${TIMEOUT_MAX}`,
+    check(repo) {
+      const c = chosenWorkflow(repo, o.triggers);
+      if (!c) return missingHint(repo, o);
+      const problems = [...c.setup, ...c.limits];
+      return problems.length ? report(repo, c, problems) : true;
     },
   };
 }

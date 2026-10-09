@@ -3,16 +3,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import { claudeArgWords, parseYaml, readWorkflow as readActions } from '../actions.mjs';
 import { parseClaudeArgs, ruleList, scriptCalls } from '../claude-args.mjs';
 import { callHints, RESULT, SCRIPT, savedRun, scriptBehavior, scriptCall } from '../lessons/a-4.mjs';
 import { chosenWorkflow, dispatchedRun, pinnedWorkflow, RUNS, WORKFLOW, workflowLimits } from '../lessons/a-5.mjs';
 import { movedComponent, personalFiles, sharedSettings, strictValidation, teamMarketplace, VALIDATE } from '../lessons/a-6.mjs';
 import { boundedScript, CAPPED, cappedRun, narrowRules, runLimits, SCRIPT as RUNNER, SLICE, sliceRun, stops, strictSandbox, wideReason } from '../lessons/a-7.mjs';
+import { CI, items as capstoneItems, noCommittedKey, REVIEW as REVIEW_WORKFLOW, RUN as CAPSTONE_RUN, SNAPSHOT as CAPSTONE_LISTING } from '../lessons/a-capstone.mjs';
 import { nameProblem } from '../marketplace.mjs';
 import { openRepo } from '../repo.mjs';
 import { runStubbed, scratchPath, STUB_SESSION } from '../stub-claude.mjs';
@@ -2763,6 +2765,339 @@ test('a-7 fails on an unsolved repository and passes on a solved one, as the tem
   });
   withRepo(boundedRepo(), (dir) => {
     const { code, out } = check(['a-7', '--assert', 'pass', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+// The Advanced capstone, in a new copy of the template: the worktrees
+// ignored; two sessions at once, one adding the review script and one the
+// team marketplace with the settings that register it, listed while both
+// worktrees existed, merged and removed; the per-file review workflow saved;
+// the review workflow on pull_request committed and, with `teardown`,
+// deleted; and one run of the script saved. The options change a step:
+// `gitignore` is committed first, with `files`; `script`, `settings`,
+// `workflow` and `ci` (null for none) replace what is committed; `merge` is
+// 'no-ff', 'squash' or 'one'; `listing` and `run` (null for none) are what
+// is saved; `after` changes the repository last. The check runs the script
+// with a stand-in for `claude` and never runs gh.
+const CAPSTONE_START = {
+  'README.md': '# linkcheck\n',
+  'package.json': json({ name: 'linkcheck', private: true, type: 'module', scripts: { test: 'node -e "process.exit(0)"' } }),
+  'src/total.js': TOTAL,
+};
+const KIT_FILES = {
+  [`${MARKETPLACE_ROOT}/.claude-plugin/marketplace.json`]: json(TEAM_MARKET),
+  [`${TEAM_KIT}/.claude-plugin/plugin.json`]: json({ name: 'team-kit', version: '0.1.0', description: 'A team\'s shared setup', author: { name: 'Your team' } }),
+  [`${TEAM_KIT}/skills/onboard/SKILL.md`]: '---\nname: onboard\ndescription: Explains the shared setup to a new teammate.\n---\n\nExplain it.\n',
+};
+const TEAM_SETTINGS = {
+  permissions: { deny: ['Read(.env)'] },
+  extraKnownMarketplaces: { 'team-tools': { source: { source: 'directory', path: './team-marketplace' } } },
+  enabledPlugins: { 'team-kit@team-tools': true },
+};
+const FILE_REVIEW_PATH = '.claude/workflows/file-review.js';
+const FILE_REVIEW = [
+  'export const meta = {',
+  "  name: 'file-review',",
+  "  description: 'Review each file under src/ and have a second agent verify each finding',",
+  '}',
+  '',
+  "const listed = await agent('List every file under src/, one path from the repository root each.', {",
+  "  schema: { type: 'object', required: ['paths'], properties: { paths: { type: 'array', items: { type: 'string' } } } },",
+  '})',
+  'const found = await pipeline(listed.paths, (path) => agent(`Review ${path} for bugs. Report each finding as path:line and one sentence.`))',
+  'const verified = await pipeline(found, (finding) => agent(`Check this finding against the code and say whether it holds: ${finding}`))',
+  "return verified.join('\\n')",
+  '',
+].join('\n');
+const CLAUDE_REVIEW = [
+  'name: Claude review',
+  '',
+  'on:',
+  '  pull_request:',
+  '    types: [opened, synchronize]',
+  '',
+  'permissions:',
+  '  contents: read',
+  '  pull-requests: read',
+  '',
+  'jobs:',
+  '  review:',
+  '    runs-on: ubuntu-latest',
+  '    timeout-minutes: 10',
+  '    steps:',
+  '      - uses: actions/checkout@v7',
+  '        with:',
+  '          fetch-depth: 0',
+  `      - uses: anthropics/claude-code-action@${PIN} # v1.0.237`,
+  '        with:',
+  '          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}',
+  '          github_token: ${{ github.token }}',
+  "          prompt: Review this pull request's changes against origin/main for bugs. List each finding as file:line and one sentence.",
+  '          claude_args: --model sonnet --max-turns 5 --allowedTools "Read,Grep,Glob,Bash(git diff *)"',
+  '',
+].join('\n');
+const MADE_UP_KEY = `sk-ant-api03-${'Xy9_'.repeat(8)}`;
+
+// The review workflow with each `[from, to]` replaced.
+function reviewWith(...pairs) {
+  return pairs.reduce((text, [from, to]) => {
+    assert.ok(text.includes(from), `the review workflow has no ${JSON.stringify(from)}`);
+    return text.replace(from, () => to);
+  }, CLAUDE_REVIEW);
+}
+
+function capstoneRepo({
+  gitignore = IGNORE, files = {}, script = REVIEW, settings = TEAM_SETTINGS, workflow = FILE_REVIEW, ci = CLAUDE_REVIEW,
+  teardown = false, merge = 'no-ff', listing = (text) => text, run = REAL_RUN, after,
+} = {}) {
+  return () => {
+    const dir = repo({ '.gitignore': gitignore, ...CAPSTONE_START, ...files });
+    commit(dir, 'Start');
+    const sessions = [
+      ['review-script', script === null ? {} : { [SCRIPT]: script }],
+      ['team-kit', { ...KIT_FILES, ...(settings === null ? {} : { '.claude/settings.json': typeof settings === 'string' ? settings : json(settings) }) }],
+    ];
+    const at = (name) => join(dir, '.claude', 'worktrees', name);
+    for (const [name] of sessions) git(dir, 'worktree', 'add', '-q', '-b', `worktree-${name}`, `.claude/worktrees/${name}`);
+    for (const [name, made] of sessions) {
+      write(at(name), made);
+      if (made[SCRIPT]) chmodSync(join(at(name), SCRIPT), 0o755);
+      commit(at(name), `Build ${name}`);
+    }
+    const saved = listing(`${git(dir, 'worktree', 'list', '--porcelain')}\n`);
+    if (saved !== null) write(dir, { [CAPSTONE_LISTING]: saved });
+    for (const [name] of merge === 'one' ? sessions.slice(0, 1) : sessions) {
+      if (merge === 'squash') {
+        git(dir, 'merge', '-q', '--squash', `worktree-${name}`);
+        git(dir, 'commit', '-q', '-m', `Squash worktree-${name}`);
+      } else {
+        git(dir, 'merge', '-q', '--no-ff', '--no-edit', `worktree-${name}`);
+      }
+    }
+    for (const [name] of sessions) git(dir, 'worktree', 'remove', '--force', `.claude/worktrees/${name}`);
+    if (workflow !== null) {
+      write(dir, { [FILE_REVIEW_PATH]: workflow });
+      commit(dir, 'Save the per-file review workflow', [FILE_REVIEW_PATH]);
+    }
+    if (ci !== null) {
+      write(dir, { [REVIEW_WORKFLOW]: ci });
+      commit(dir, 'Review each pull request with Claude', [REVIEW_WORKFLOW]);
+    }
+    if (teardown) {
+      git(dir, 'rm', '-q', REVIEW_WORKFLOW);
+      commit(dir, 'Tear down the review workflow', []);
+    }
+    if (run !== null) write(dir, { [CAPSTONE_RUN]: typeof run === 'string' || Buffer.isBuffer(run) ? run : JSON.stringify(run, null, 2) });
+    after?.(dir);
+    return dir;
+  };
+}
+
+const aCapstone = (dir) => check(['a-capstone', '--dir', dir]);
+// One item on its own, found by its text.
+const capstoneHint = (dir, pattern) => {
+  const item = capstoneItems.find((i) => pattern.test(i.text));
+  assert.ok(item, `no capstone item matches ${pattern}`);
+  return item.check(openRepo(dir));
+};
+const CI_ITEM = /^a committed workflow runs `anthropics\/claude-code-action` on `pull_request`/;
+
+test('the Advanced capstone passes for everything the brief asks for, committed, with the worktree listing and one run saved', () => {
+  withRepo(capstoneRepo(), (dir) => {
+    const { code, out } = aCapstone(dir);
+    assert.equal(code, 0, out);
+    assert.match(out, /13 of 13 passed/);
+  });
+});
+
+test('the Advanced capstone still passes after the teardown deletes the review workflow, since it reads the history', () => {
+  withRepo(capstoneRepo({ teardown: true }), (dir) => {
+    assert.equal(existsSync(join(dir, REVIEW_WORKFLOW)), false);
+    const { code, out } = aCapstone(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('the Advanced capstone reads its own saved files, not the ones the lessons save', () => {
+  const lessonPaths = (dir) => {
+    renameSync(join(dir, CAPSTONE_LISTING), join(dir, LISTING));
+    renameSync(join(dir, CAPSTONE_RUN), join(dir, RESULT));
+  };
+  withRepo(capstoneRepo({ after: lessonPaths }), (dir) => {
+    const { code, out } = aCapstone(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /11 of 13 passed/);
+    assert.match(out, /run `git worktree list --porcelain > \.practice\/a-capstone-worktrees\.txt` from your main checkout/);
+    assert.match(out, /stage a change and run `scripts\/review-staged\.sh \.practice\/a-capstone-run\.json`, which saves the JSON there/);
+  });
+});
+
+test('the Advanced capstone wants both worktree branches merged as they are, as lesson 1 does', () => {
+  withRepo(capstoneRepo({ merge: 'one' }), (dir) => {
+    assert.match(String(capstoneHint(dir, /a-capstone-worktrees\.txt/)), /`worktree-team-kit` isn't merged into your current branch\. From your main checkout, run `git merge worktree-team-kit`\./);
+  });
+  withRepo(capstoneRepo({ merge: 'squash' }), (dir) => {
+    assert.match(String(capstoneHint(dir, /a-capstone-worktrees\.txt/)), /A squash merge or a rebase copies the commits/);
+  });
+  withRepo(capstoneRepo({ listing: (text) => text.split('\n\n')[0] }), (dir) => {
+    assert.match(String(capstoneHint(dir, /a-capstone-worktrees\.txt/)), /lists no worktree under `\.claude\/worktrees\/`/);
+  });
+});
+
+test('the Advanced capstone wants the worktrees ignored in a committed .gitignore, whatever a global excludes file says', () => {
+  const globalIgnore = (dir) => {
+    write(dir, { '.git/global-ignore': '.claude/\n' });
+    git(dir, 'config', 'core.excludesFile', join(dir, '.git', 'global-ignore'));
+  };
+  withRepo(capstoneRepo({ gitignore: '.practice/\n', after: globalIgnore }), (dir) => {
+    assert.match(String(capstoneHint(dir, /ignores `\.claude\/worktrees\/`/)), /No committed `\.gitignore` ignores `\.claude\/worktrees\/`/);
+  });
+});
+
+test('the Advanced capstone wants a saved workflow that starts subagents, and doesn\'t ask it to read args', () => {
+  const noAgent = FILE_REVIEW.replace(/const listed[\s\S]*$/, "return 'nothing to review'\n");
+  withRepo(capstoneRepo({ workflow: noAgent }), (dir) => {
+    assert.match(String(capstoneHint(dir, /\.claude\/workflows\//)), /`\.claude\/workflows\/file-review\.js` never calls `agent\(\)`, so it starts no subagent\./);
+  });
+  // Lesson 3's workflow, which also reads args, passes too.
+  withRepo(capstoneRepo({ workflow: TODO_CHECK }), (dir) => {
+    assert.equal(capstoneHint(dir, /\.claude\/workflows\//), true);
+  });
+  withRepo(capstoneRepo({ workflow: null }), (dir) => {
+    assert.match(String(capstoneHint(dir, /\.claude\/workflows\//)), /There is no workflow script in `\.claude\/workflows\/`/);
+  });
+});
+
+test('the Advanced capstone holds the review script to lesson 4\'s rules', () => {
+  withRepo(capstoneRepo({ script: null }), (dir) => {
+    assert.match(String(capstoneHint(dir, /is committed and executable/)), /There is no `scripts\/review-staged\.sh`/);
+  });
+  withRepo(capstoneRepo({ script: withFlags(FLAGS.replace('dontAsk', 'acceptEdits')) }), (dir) => {
+    assert.match(String(capstoneHint(dir, /^its `claude -p` call/)), /It runs in `acceptEdits` mode: use `--permission-mode dontAsk`/);
+  });
+  withRepo(capstoneRepo({ run: { ...REAL_RUN, subtype: 'error_max_turns', is_error: true } }), (dir) => {
+    assert.match(String(capstoneHint(dir, /a-capstone-run\.json/)), /The run in `\.practice\/a-capstone-run\.json` stopped early \(`error_max_turns`\)/);
+  });
+});
+
+test('the Advanced capstone wants the review workflow on pull_request, and lesson 5\'s manual workflow never stands in for it', () => {
+  const lesson5 = { [WORKFLOW]: LINKCHECK_REPORT };
+  withRepo(capstoneRepo({ ci: null, files: lesson5 }), (dir) => {
+    assert.match(String(capstoneHint(dir, CI_ITEM)), /`\.github\/workflows\/linkcheck-report\.yml` runs Claude with a `prompt`, but starts on `workflow_dispatch`\. Start it with `on: pull_request`, then commit and push\./);
+  });
+  withRepo(capstoneRepo({ ci: null }), (dir) => {
+    assert.match(String(capstoneHint(dir, CI_ITEM)), /Write `\.github\/workflows\/claude-review\.yml` as part 5 of `capstone\/advanced-brief\.md` describes/);
+  });
+  // A later manual workflow doesn't shadow the review, and a review that
+  // also starts by hand still counts.
+  const later = (dir) => {
+    write(dir, lesson5);
+    commit(dir, 'Add the link check report', [WORKFLOW]);
+  };
+  withRepo(capstoneRepo({ after: later }), (dir) => {
+    assert.equal(capstoneHint(dir, CI_ITEM), true);
+    assert.equal(chosenWorkflow(openRepo(dir), CI.triggers).file.path, REVIEW_WORKFLOW);
+  });
+  withRepo(capstoneRepo({ ci: reviewWith(['    types: [opened, synchronize]', '    types: [opened, synchronize]\n  workflow_dispatch:']) }), (dir) => {
+    assert.equal(capstoneHint(dir, CI_ITEM), true);
+  });
+});
+
+test('the Advanced capstone reports what is wrong with the review workflow\'s setup and limits together, on the file it read', () => {
+  const loose = reviewWith([`@${PIN} # v1.0.237`, '@v1'], ['    timeout-minutes: 10\n', ''], ['          github_token: ${{ github.token }}\n', '']);
+  withRepo(capstoneRepo({ ci: loose }), (dir) => {
+    const got = String(capstoneHint(dir, CI_ITEM));
+    assert.match(got, /^`\.github\/workflows\/claude-review\.yml`: `@v1` on line 18 can move to a new release/);
+    assert.match(got, /The job `review` sets no `timeout-minutes`/);
+    assert.match(got, /passes no `github_token`/);
+  });
+  for (const [ci, hint] of [
+    [reviewWith(['--max-turns 5', '--max-turns 25']), /`--max-turns 25` is above 10/],
+    [reviewWith(['"Read,Grep,Glob,Bash(git diff *)"', '"Read,Grep,Glob,Bash"']), /`--allowedTools` lists `Bash`, which lets Claude run any command/],
+    [reviewWith(['  contents: read\n', '  contents: write\n']), /`contents: write` on line 8 gives the job token write access/],
+    [reviewWith(['    types: [opened, synchronize]', '    types: [opened, synchronize]\n  pull_request_target:']), /Remove `pull_request_target` from `on:`/],
+  ]) {
+    withRepo(capstoneRepo({ ci }), (dir) => {
+      assert.match(String(capstoneHint(dir, CI_ITEM)), hint, ci);
+    });
+  }
+  // After the teardown, the hint names the commit it read.
+  withRepo(capstoneRepo({ ci: reviewWith([`@${PIN} # v1.0.237`, '@v1']), teardown: true }), (dir) => {
+    const added = git(dir, 'rev-parse', '--short=7', 'HEAD~1');
+    assert.match(String(capstoneHint(dir, CI_ITEM)), new RegExp(`^\`\\.github/workflows/claude-review\\.yml\` \\(as committed in ${added}\\): \`@v1\``));
+  });
+});
+
+test('the Advanced capstone fails for a Claude key or token committed at HEAD or in the workflow\'s commit, and never prints it', () => {
+  const keyHint = (dir) => noCommittedKey.check(openRepo(dir));
+  withRepo(capstoneRepo({ files: { 'notes/ci setup.txt': `Remember:\nANTHROPIC_API_KEY=${MADE_UP_KEY}\n` } }), (dir) => {
+    const { code, out } = aCapstone(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /At `HEAD`, line 2 of `notes\/ci setup\.txt` holds what looks like a Claude API key or token\. Treat it as leaked/);
+    assert.doesNotMatch(out, /sk-ant-/, 'the check repeats the key');
+  });
+  // In the workflow, then torn down: HEAD is clean, the commit the workflow
+  // item reads isn't.
+  withRepo(capstoneRepo({ ci: reviewWith(['${{ secrets.ANTHROPIC_API_KEY }}', MADE_UP_KEY]), teardown: true }), (dir) => {
+    const added = git(dir, 'rev-parse', '--short=7', 'HEAD~1');
+    const got = String(keyHint(dir));
+    assert.match(got, new RegExp(`^In commit ${added}, where the check reads your workflow, line 21 of \`\\.github/workflows/claude-review\\.yml\` holds`));
+    assert.doesNotMatch(got, /sk-ant-/);
+    assert.doesNotMatch(String(capstoneHint(dir, CI_ITEM)), /sk-ant-/);
+  });
+  // Several places are counted; the checks' own made-up keys, and text too
+  // short to be a key, are not.
+  const many = Object.fromEntries([1, 2, 3, 4].map((n) => [`notes/${n}.txt`, `${MADE_UP_KEY}\n`]));
+  withRepo(capstoneRepo({ files: many }), (dir) => {
+    assert.match(String(keyHint(dir)), /line 1 of `notes\/1\.txt`, line 1 of `notes\/2\.txt`, line 1 of `notes\/3\.txt`, and 1 more hold/);
+  });
+  withRepo(capstoneRepo({ files: { 'checks/test/keys.test.mjs': `const key = '${MADE_UP_KEY}';\n`, 'notes/prefix.txt': 'Keys start with sk-ant-api03-.\n' } }), (dir) => {
+    assert.equal(keyHint(dir), true);
+  });
+});
+
+test('the Advanced capstone wants the team marketplace and its registration committed, as lesson 6 does', () => {
+  withRepo(capstoneRepo({ settings: null }), (dir) => {
+    assert.match(String(capstoneHint(dir, /registers that marketplace/)), /There is no committed `\.claude\/settings\.json`/);
+  });
+  withRepo(capstoneRepo({ settings: { ...TEAM_SETTINGS, extraKnownMarketplaces: { 'team-tools': { source: { source: 'directory', path: '/Users/me/claude-capstone/team-marketplace' } } } } }), (dir) => {
+    assert.match(String(capstoneHint(dir, /registers that marketplace/)), /a path on your machine, which a teammate's clone doesn't have/);
+  });
+  withRepo(capstoneRepo({ after: (dir) => { git(dir, 'rm', '-q', '-r', MARKETPLACE_ROOT); commit(dir, 'Drop the marketplace', []); } }), (dir) => {
+    assert.match(String(capstoneHint(dir, /team marketplace lists a plugin/)), /There is no committed `\.claude-plugin\/marketplace\.json`/);
+  });
+});
+
+test('the Advanced capstone fails while the tests fail or something is left uncommitted', () => {
+  const failing = { 'package.json': json({ name: 'linkcheck', private: true, scripts: { test: 'node -e "process.exit(1)"' } }) };
+  withRepo(capstoneRepo({ files: failing }), (dir) => {
+    assert.match(String(capstoneHint(dir, /^the tests pass$/)), /`npm test` fails/);
+  });
+  withRepo(capstoneRepo({ after: (dir) => write(dir, { 'src/new.js': '// not committed\n' }) }), (dir) => {
+    assert.match(String(capstoneHint(dir, /uncommitted/)), /These changes are uncommitted: src\/new\.js/);
+  });
+});
+
+test('the capstone brief names the files the Advanced capstone\'s check reads', () => {
+  const brief = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'capstone', 'advanced-brief.md'), 'utf8');
+  for (const path of [CAPSTONE_LISTING, CAPSTONE_RUN, SCRIPT, REVIEW_WORKFLOW, 'team-marketplace/', '.claude/workflows/', 'npm run check -- a-capstone']) {
+    assert.ok(brief.includes(path), `the brief doesn't name ${path}`);
+  }
+  assert.doesNotMatch(brief, /\u2014/, 'the brief has an em dash');
+});
+
+test('the Advanced capstone fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
+  withRepo(() => {
+    const dir = repo({ '.gitignore': '.practice/\nnode_modules/\n', ...CAPSTONE_START });
+    commit(dir, 'Start');
+    return dir;
+  }, (dir) => {
+    const { code, out } = check(['a-capstone', '--assert', 'fail', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+  withRepo(capstoneRepo({ teardown: true }), (dir) => {
+    const { code, out } = check(['a-capstone', '--assert', 'pass', '--dir', dir]);
     assert.equal(code, 0, out);
   });
 });
