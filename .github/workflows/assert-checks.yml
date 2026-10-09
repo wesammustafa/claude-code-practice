@@ -3,6 +3,7 @@ name: Assert checks
 # Its job runs only in the template repository itself; in a copy made with
 # "Use this template" the job is skipped. It proves that every check fails on
 # main, where no exercise is done, and passes on the solutions branch.
+# Merge into main and solutions, never squash or rebase: on solutions, .practice/a-1-worktrees.txt, .practice/a-5-runs.json and .practice/a-capstone-worktrees.txt name commits by their SHA.
 on:
   push:
     branches: [main, solutions]

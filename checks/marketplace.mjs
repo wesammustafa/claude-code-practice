@@ -48,13 +48,23 @@ const paths = (run) => {
   }
 };
 
-function parse(text) {
+// A committed JSON file, read as `{ value }` or `{ error }`. Claude Code's
+// `claude plugin validate` at v2.1.285 reads a marketplace.json or plugin.json
+// that starts with a UTF-8 byte-order mark, so `bom: true` skips one; it
+// rejects one in hooks/hooks.json, so elsewhere the error names the mark.
+export function parseJson(text, { bom = false } = {}) {
+  let body = text;
+  if (body.startsWith('\uFEFF')) {
+    if (!bom) return { error: 'it starts with a UTF-8 byte-order mark. Save it as UTF-8 without one, and commit.' };
+    body = body.slice(1);
+  }
   try {
-    return { value: JSON.parse(text) };
+    return { value: JSON.parse(body) };
   } catch (error) {
     return { error: error.message };
   }
 }
+const manifestJson = (text) => parseJson(text, { bom: true });
 
 export function headText(repo, path) {
   try {
@@ -166,7 +176,7 @@ function reviewEntry(repo, marketplace, entry, index, committed) {
     if (dir && [...committed].some((p) => p.startsWith(`${dir}/`))) return { stage: 2, ...found, hint: `${lists}, which has no \`.claude-plugin/plugin.json\`. A plugin folder needs one, with the plugin's \`name\`: add it and commit.` };
     return { stage: 2, ...found, hint: `${lists}, where no plugin is committed. Put the plugin there, with its \`.claude-plugin/plugin.json\`, and commit it, or fix the \`source\`.` };
   }
-  const plugin = parse(headText(repo, manifest) ?? '');
+  const plugin = manifestJson(headText(repo, manifest) ?? '');
   if (plugin.error) return { stage: 3, ...found, hint: `The committed ${code(manifest)} isn't valid JSON: ${plugin.error}` };
   const manifestName = isObject(plugin.value) ? plugin.value.name : undefined;
   if (typeof manifestName !== 'string' || !manifestName.trim()) return { stage: 3, ...found, hint: `The committed ${code(manifest)} has no \`name\`. Set \`"name": "${name}"\`, the entry's name, and commit.` };
@@ -183,7 +193,7 @@ function reviewEntry(repo, marketplace, entry, index, committed) {
 function reviewMarketplace(repo, path, committed) {
   const root = folder(posix.dirname(posix.dirname(path)));
   const base = { path, root, entries: [], plugins: [] };
-  const parsed = parse(headText(repo, path) ?? '');
+  const parsed = manifestJson(headText(repo, path) ?? '');
   if (parsed.error) return { ...base, stage: 0, hint: `The committed ${code(path)} isn't valid JSON: ${parsed.error}` };
   const value = parsed.value;
   if (!isObject(value)) return { ...base, stage: 0, hint: `The committed ${code(path)} isn't a JSON object with a \`name\`, an \`owner\` and a \`plugins\` list.` };
@@ -216,8 +226,9 @@ export function committedMarketplaces(repo) {
 // that lists a committed plugin by a relative path, with matching names.
 export const passingMarketplaces = (repo) => committedMarketplaces(repo).filter((m) => m.plugins.length);
 
-// Why no committed marketplace passes.
-export function marketplaceHint(repo) {
+// Why no committed marketplace passes. `start` says how to make one when
+// there is none, as the page describes it.
+export function marketplaceHint(repo, start = 'Download the example marketplace into `team-marketplace/`, as the Worked example shows') {
   const all = committedMarketplaces(repo);
   if (all.length) {
     const rank = (m) => m.stage * 10 + (m.entry ?? 0);
@@ -231,14 +242,14 @@ export function marketplaceHint(repo) {
     const to = inside(folder(posix.dirname(from)), '.claude-plugin');
     return `${code(`${from}/`)} isn't a marketplace until it's named \`.claude-plugin/\`: Claude Code reads a marketplace from \`.claude-plugin/marketplace.json\`. Run \`git mv ${shell(from)} ${shell(to)}\` (or \`mv\`, if it isn't committed yet), and commit.`;
   }
-  return 'There is no committed `.claude-plugin/marketplace.json`. Download the example marketplace into `team-marketplace/`, as the Worked example shows, and commit it.';
+  return `There is no committed \`.claude-plugin/marketplace.json\`. ${start}, and commit it.`;
 }
 
 // The committed .claude/settings.json: `{ value }`, `{ error }`, or null when
 // HEAD has none.
 export function committedSettings(repo) {
   const text = headText(repo, SETTINGS);
-  return text === null ? null : parse(text);
+  return text === null ? null : parseJson(text);
 }
 
 const BLOCK = (name, dir) => `\`"extraKnownMarketplaces": { "${name}": { "source": { "source": "directory", "path": "${relativePath(dir)}" } } }\``;

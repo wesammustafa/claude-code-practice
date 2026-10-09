@@ -87,8 +87,8 @@ function argProblems(args) {
     return typo ? ` Claude Code doesn't know ${code(typo.split('=')[0])}: write ${code(flags[0])}.` : '';
   };
 
-  // The action takes the word after `--max-turns` as its value; it reads
-  // `--max-turns=5` as an option of that whole name.
+  // The action reads a flag's value from the word after it, so it takes the
+  // turn limit itself only from `--max-turns 5`; the page asks for that form.
   let turns;
   let joined = null;
   for (let i = 0; i < words.length; i += 1) {
@@ -99,7 +99,7 @@ function argProblems(args) {
   const fits = (n) => /^\d+$/.test(n ?? '') && Number(n) >= 1 && Number(n) <= TURNS_MAX;
   if (joined) {
     const n = joined.slice('--max-turns='.length);
-    problems.push(`Write ${fits(n) ? `\`--max-turns ${n}\` with a space` : `\`--max-turns\` with a space and ${range}`}, not ${code(joined)}: the action reads \`claude_args\` word by word, so it doesn't take ${code(joined)} as the turn limit.`);
+    problems.push(`Write ${fits(n) ? `\`--max-turns ${n}\` with a space` : `\`--max-turns\` with a space and ${range}`}, not ${code(joined)}: the action reads a flag's value from the word after it.`);
   }
   else if (turns === undefined) {
     if (!hidden.includes('--max-turns')) problems.push(`\`claude_args\` sets no turn limit: add \`--max-turns\` with ${range}.${spelling(['--max-turns'])}`);
@@ -295,7 +295,7 @@ function originRepo(repo) {
 
 function isCommit(repo, sha) {
   try {
-    repo.git('cat-file', '-e', `${sha}^{commit}`);
+    repo.gitLocal('cat-file', '-e', `${sha}^{commit}`);
     return true;
   } catch {
     return false;

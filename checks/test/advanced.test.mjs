@@ -17,7 +17,7 @@ import { boundedScript, CAPPED, cappedRun, narrowRules, runLimits, SCRIPT as RUN
 import { CI, items as capstoneItems, noCommittedKey, REVIEW as REVIEW_WORKFLOW, RUN as CAPSTONE_RUN, SNAPSHOT as CAPSTONE_LISTING } from '../lessons/a-capstone.mjs';
 import { nameProblem } from '../marketplace.mjs';
 import { openRepo } from '../repo.mjs';
-import { runStubbed, scratchPath, STUB_SESSION } from '../stub-claude.mjs';
+import { notRun, runStubbed, scratchPath, STUB_SESSION } from '../stub-claude.mjs';
 import { readWorkflow } from '../workflow-script.mjs';
 import { parseWorktrees } from '../worktrees.mjs';
 import { check, commit, repo, withRepo, write } from './helpers.mjs';
@@ -468,7 +468,7 @@ test('a-2 names the chart question that settles each job picked wrongly', () => 
   const Q3 = 'Does it need many agents, cross-checked findings or a rerun?';
   for (const [picks, expected] of [
     [['main conversation', 'main conversation', 'subagents', 'main conversation'], [
-      `Job 1 doesn't call for the main conversation. ${Q1} No: reading three whole files`,
+      `Job 1 doesn't call for the main conversation. ${Q1} No: reading the files in your conversation would crowd it, and you only need the findings.`,
       `Job 2 doesn't call for the main conversation. ${Q1} No: it checks every source file.`,
       `Job 3 doesn't call for subagents. ${Q1} Yes: fixing a typo is a quick, targeted change`,
       `Job 4 doesn't call for the main conversation. ${Q1} No: three investigators work at the same time`,
@@ -477,7 +477,7 @@ test('a-2 names the chart question that settles each job picked wrongly', () => 
       `Job 1 doesn't call for an agent team. ${Q2} No: each reviewer checks its own file`,
       `Job 2 doesn't call for an agent team. ${Q2} No: each finding is verified against the code`,
       `Job 3 doesn't call for a workflow. ${Q1} Yes:`,
-      `Job 4 doesn't call for subagents. ${Q2} Yes: the investigators challenge each other's findings`,
+      `Job 4 doesn't call for subagents. ${Q2} Yes: the investigators message each other as they work to challenge each other's findings`,
     ]],
     [['workflow', 'subagents', 'agent team', 'workflow'], [
       `Job 1 doesn't call for a workflow. ${Q3} No: three files, checked once`,
@@ -1209,6 +1209,11 @@ test('a-4 refuses to run a script that could reach the real Claude Code, and run
       [withCall(`npx @anthropic-ai/claude-code -p "${PROMPT}" ${FLAGS}`), /runs Claude Code through `npx`/],
       [withCall(`bunx claude -p "${PROMPT}" ${FLAGS}`), /runs Claude Code through `bunx`/],
       [edited(['set -uo pipefail\n', 'set -uo pipefail\nexport PATH="$HOME/.local/bin:$PATH"\n']), /changes `PATH`/],
+      [withCall(`bash -lc 'claude -p "${PROMPT}" ${FLAGS}'`), /starts a login shell, with `-l` or `--login`/],
+      [withCall(`/bin/zsh --login -c 'claude -p "${PROMPT}" ${FLAGS}'`), /starts a login shell, with `-l` or `--login`/],
+      [edited(['set -uo pipefail\n', 'set -uo pipefail\n. /etc/profile\n']), /reads `\/etc\/profile`/],
+      [edited(['set -uo pipefail\n', 'set -uo pipefail\nsource "/etc/zprofile"\n']), /reads `\/etc\/zprofile`/],
+      [edited(['set -uo pipefail\n', 'set -uo pipefail\neval "$(/usr/libexec/path_helper -s)"\n']), /runs `path_helper`/],
     ]) {
       const marked = script.replace('set -uo pipefail\n', () => `set -uo pipefail\ntouch "${ran}"\n`);
       withRepo(reviewRepo({ script: marked }), (dir) => {
@@ -1224,6 +1229,19 @@ test('a-4 refuses to run a script that could reach the real Claude Code, and run
   }
   withRepo(reviewRepo({ script: edited(['set -uo pipefail\n', 'set -uo pipefail\n# Not /usr/local/bin/claude: the check stands in for claude on PATH.\n']) }), (dir) => {
     assert.equal(callHint(dir), true);
+  });
+  // A shell that isn't a login shell, and an `-l` meant for another command.
+  withRepo(reviewRepo({ script: edited(['set -uo pipefail\n', 'set -uo pipefail\nbash -c \'ls -l src\' > /dev/null\necho ssh -l nobody example.invalid > /dev/null\n']) }), (dir) => {
+    assert.equal(callHint(dir), true);
+  });
+});
+
+test('a-4 runs the script without an argument in a copy that has no .practice/ yet, and wants it to create the folder', () => {
+  withRepo(reviewRepo({ script: edited(['mkdir -p "$(dirname "$out")"\n', '']) }), (dir) => {
+    assert.equal(behaviorHint(dir), 'Run without an argument in a fresh copy, where `.practice/` doesn\'t exist yet, it couldn\'t write `.practice/a-4-result.json`. Create the folder first, as `mkdir -p "$(dirname "$out")"` does.');
+  });
+  withRepo(reviewRepo({ script: edited(['mkdir -p "$(dirname "$out")"', 'mkdir -p .practice']) }), (dir) => {
+    assert.equal(behaviorHint(dir), true);
   });
 });
 
@@ -1313,6 +1331,23 @@ test('the stand-in stops a script at the time limit, with whatever the script le
     assert.equal(statSync(beat).mtimeMs, last, 'the background loop is still running');
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('the stand-in runs nothing on Windows itself, and says to run the check from WSL 2, macOS or Linux', () => {
+  const outside = mkdtempSync(join(tmpdir(), 'a4-win-'));
+  const ran = join(outside, 'ran');
+  try {
+    withRepo(reviewRepo({ script: `#!/usr/bin/env bash\ntouch "${ran}"\n` }), (dir) => {
+      const run = runStubbed(openRepo(dir), SCRIPT, { platform: 'win32' });
+      assert.deepEqual(run, { windows: true });
+      assert.equal(existsSync(ran), false, 'the stand-in ran the script on Windows');
+      assert.equal(notRun(run, SCRIPT), 'The check didn\'t run `scripts/review-staged.sh`: it runs scripts with bash and a stand-in for `claude` only from WSL 2, macOS or Linux, not from Windows itself. Run the check there.');
+      assert.equal(runStubbed(openRepo(dir), SCRIPT, { platform: 'linux' }).status, 0);
+      assert.equal(existsSync(ran), true);
+    });
+  } finally {
     rmSync(outside, { recursive: true, force: true });
   }
 });
@@ -1559,7 +1594,7 @@ test('a-5 names each limit the second item finds missing or too loose', () => {
     [withArgs(ARGS.replace('--max-turns 8', '--max-turns 0')), /`--max-turns 0` is below 1/],
     [withArgs(ARGS.replace('--max-turns 8', '--max-turns eight')), /`--max-turns eight` isn't a whole number/],
     [withArgs(ARGS.replace(' --max-turns 8', '')), /`claude_args` sets no turn limit: add `--max-turns` with a number from 1 to 10\./],
-    [withArgs(ARGS.replace('--max-turns 8', '--max-turns=8')), /Write `--max-turns 8` with a space, not `--max-turns=8`: the action reads `claude_args` word by word, so it doesn't take `--max-turns=8` as the turn limit\./],
+    [withArgs(ARGS.replace('--max-turns 8', '--max-turns=8')), /Write `--max-turns 8` with a space, not `--max-turns=8`: the action reads a flag's value from the word after it\./],
     [withArgs(ARGS.replace('--max-turns 8', '--max-turns=20')), /Write `--max-turns` with a space and a number from 1 to 10, not `--max-turns=20`/],
     [withArgs(ARGS.replace('--max-turns 8', '--max_turns 8')), /sets no turn limit: .* Claude Code doesn't know `--max_turns`: write `--max-turns`\./],
     [withArgs('--allowedTools "Bash(npm run linkcheck *)" --max-turns'), /`--max-turns` has no number after it/],
@@ -2062,6 +2097,22 @@ test('a-6 says to create the settings, fix their JSON, or commit them, with -f w
   });
 });
 
+test('a-6 reads a marketplace.json and plugin.json that start with a byte-order mark, as claude plugin validate does, and names the mark in other JSON files', () => {
+  const BOM = '\uFEFF';
+  const plugin = `${TEAM_KIT}/.claude-plugin/plugin.json`;
+  withRepo(shareRepo({ market: `${BOM}${json(TEAM_MARKET)}`, files: { [plugin]: `${BOM}${json({ name: 'team-kit', version: '0.1.0', description: 'A team\'s shared setup', author: { name: 'Your team' } })}` } }), (dir) => {
+    const { code, out } = a6(dir);
+    assert.equal(code, 0, out);
+  });
+  withRepo(shareRepo({ settings: `${BOM}${json(SHARED_SETTINGS)}` }), (dir) => {
+    assert.equal(settingsHint(dir), 'The committed `.claude/settings.json` isn\'t valid JSON: it starts with a UTF-8 byte-order mark. Save it as UTF-8 without one, and commit.');
+  });
+  const hook = `${TEAM_KIT}/hooks/hooks.json`;
+  withRepo(shareRepo({ move: [], files: { [hook]: `${BOM}${json({ hooks: { PreToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'true' }] }] } })}` } }), (dir) => {
+    assert.equal(movedHint(dir), `The committed \`${hook}\` isn't valid JSON: it starts with a UTF-8 byte-order mark. Save it as UTF-8 without one, and commit.`);
+  });
+});
+
 test('a-6 fails until a component of your own is in the plugin and gone from .claude/', () => {
   withRepo(shareRepo({ move: [] }), (dir) => {
     assert.match(String(movedHint(dir)), /The plugin holds only the example's `onboard` skill and `config-reviewer` subagent\. Move one of your own into it: a skill to `team-marketplace\/plugins\/team-kit\/skills\/<name>\/SKILL\.md`, a subagent to `team-marketplace\/plugins\/team-kit\/agents\/<name>\.md`, or a hook into `team-marketplace\/plugins\/team-kit\/hooks\/hooks\.json`/);
@@ -2514,6 +2565,15 @@ test('a-7 says what is wrong with the settings file the call names', () => {
   });
   withRepo(boundedRepo({ script: runner([`--settings ${BOUNDS_PATH}`, '--settings \'{"sandbox": {"enabled": true,}}\'']) }), (dir) => {
     assert.match(String(runnerHint(dir)), /The inline `--settings` JSON isn't valid JSON: /);
+  });
+});
+
+test('a-7 names a byte-order mark at the start of the bounds file or the project settings', () => {
+  withRepo(boundedRepo({ bounds: `\uFEFF${json(BOUNDS)}` }), (dir) => {
+    assert.equal(sandboxHint(dir), 'The committed `.claude/bounded-run.json` isn\'t valid JSON: it starts with a UTF-8 byte-order mark. Save it as UTF-8 without one, and commit.');
+  });
+  withRepo(boundedRepo({ settings: `\uFEFF${json(PROJECT_SETTINGS)}` }), (dir) => {
+    assert.equal(ruleHint(dir), 'The committed `.claude/settings.json` isn\'t valid JSON: it starts with a UTF-8 byte-order mark. Save it as UTF-8 without one, and commit.');
   });
 });
 
@@ -3069,6 +3129,41 @@ test('the Advanced capstone wants the team marketplace and its registration comm
   });
 });
 
+test('the Advanced capstone\'s hints point at the brief\'s parts, not at lesson sections the capstone page doesn\'t have', () => {
+  const lessonSections = /Worked example|Your turn|as the lesson/;
+  withRepo(capstoneRepo({ script: null }), (dir) => {
+    const hint = String(capstoneHint(dir, /is committed and executable/));
+    assert.equal(hint, 'There is no `scripts/review-staged.sh`. Write it as part 2 of `capstone/advanced-brief.md` describes, then commit it.');
+  });
+  withRepo(capstoneRepo({ settings: null }), (dir) => {
+    const hint = String(capstoneHint(dir, /registers that marketplace/));
+    assert.match(hint, /`"enabledPlugins": \{ "team-kit@team-tools": true \}`, as part 3 of `capstone\/advanced-brief\.md` describes, and commit it\.$/);
+    assert.doesNotMatch(hint, lessonSections);
+  });
+  withRepo(capstoneRepo({ after: (dir) => { git(dir, 'rm', '-q', '-r', MARKETPLACE_ROOT); commit(dir, 'Drop the marketplace', []); } }), (dir) => {
+    assert.equal(capstoneHint(dir, /team marketplace lists a plugin/), 'There is no committed `.claude-plugin/marketplace.json`. Put a marketplace with one plugin of yours in `team-marketplace/`, as part 3 of `capstone/advanced-brief.md` describes, and commit it.');
+  });
+  // Every hint of an empty copy.
+  withRepo(() => {
+    const dir = repo({ '.gitignore': '.practice/\nnode_modules/\n', ...CAPSTONE_START });
+    commit(dir, 'Start');
+    return dir;
+  }, (dir) => {
+    const { out } = aCapstone(dir);
+    assert.doesNotMatch(out, lessonSections);
+  });
+  // The lessons keep their own sections.
+  withRepo(reviewRepo({ script: null }), (dir) => {
+    assert.match(String(a4(dir).out), /Write it as the lesson's Your turn describes/);
+  });
+  withRepo(shareRepo({ market: null, files: { [`${MARKETPLACE_ROOT}/.claude-plugin`]: null } }), (dir) => {
+    assert.match(String(marketHint(dir)), /Download the example marketplace into `team-marketplace\/`, as the Worked example shows, and commit it\.$/);
+  });
+  withRepo(shareRepo({ settings: null }), (dir) => {
+    assert.match(String(settingsHint(dir)), /, as the Worked example shows, and commit it\.$/);
+  });
+});
+
 test('the Advanced capstone fails while the tests fail or something is left uncommitted', () => {
   const failing = { 'package.json': json({ name: 'linkcheck', private: true, scripts: { test: 'node -e "process.exit(1)"' } }) };
   withRepo(capstoneRepo({ files: failing }), (dir) => {
@@ -3100,4 +3195,47 @@ test('the Advanced capstone fails on an unsolved repository and passes on a solv
     const { code, out } = check(['a-capstone', '--assert', 'pass', '--dir', dir]);
     assert.equal(code, 0, out);
   });
+});
+
+test('the history reads never fetch an object a partial clone lacks', () => {
+  const source = actionsRepo({ teardown: true, runs: null })();
+  const clone = mkdtempSync(join(tmpdir(), 'partial-'));
+  // Whether the clone holds `object`, without fetching it.
+  const holds = (object, env = { GIT_NO_LAZY_FETCH: '1' }) => {
+    try {
+      execFileSync('git', ['cat-file', '-e', object], { cwd: clone, env: { ...process.env, ...env }, stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  try {
+    git(source, 'config', 'uploadpack.allowFilter', 'true');
+    git(source, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+    const blob = git(source, 'rev-parse', `HEAD~1:${WORKFLOW}`);
+    git(clone, 'clone', '-q', '--filter=blob:none', `file://${source}`, '.');
+    // A commit the remote has and the clone doesn't.
+    git(source, 'checkout', '-q', '-b', 'later');
+    const later = commit(source, 'A commit made after the clone');
+    write(clone, { [RUNS]: JSON.stringify([runOf(later)]) });
+    assert.equal(holds(blob), false, 'the clone already holds the workflow');
+    assert.match(String(setupHint(clone)), /There is no committed workflow that runs `anthropics\/claude-code-action`/);
+    assert.match(String(runsHint(clone)), new RegExp(`ran on commit ${later.slice(0, 7)}, which this repository doesn't have`));
+    assert.equal(holds(blob), false, 'the check fetched the workflow');
+    assert.equal(holds(`${later}^{commit}`), false, 'the check fetched the commit');
+    // git itself would have fetched both.
+    assert.equal(holds(blob, {}), true);
+    assert.equal(holds(`${later}^{commit}`, {}), true);
+  } finally {
+    rmSync(source, { recursive: true, force: true });
+    rmSync(clone, { recursive: true, force: true });
+  }
+});
+
+test('the Assert checks workflow says to merge, never squash or rebase, naming the saved files that hold commit SHAs', () => {
+  const workflow = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.github', 'workflows', 'assert-checks.yml'), 'utf8');
+  const line = workflow.split('\n').find((l) => l.startsWith('#') && /never squash or rebase/.test(l));
+  assert.ok(line, 'assert-checks.yml has no comment that says never to squash or rebase');
+  for (const path of [LISTING, RUNS, CAPSTONE_LISTING]) assert.ok(line.includes(path), `the comment doesn't name ${path}`);
+  assert.doesNotMatch(workflow, /\u2014/, 'the workflow has an em dash');
 });

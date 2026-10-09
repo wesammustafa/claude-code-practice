@@ -19,5 +19,9 @@ export function openRepo(dir) {
     read: (path) => (existsSync(join(dir, path)) ? decode(readFileSync(join(dir, path))) : null),
     // Only trailing whitespace goes: `git status --porcelain` lines start with a space.
     git: (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).replace(/\s+$/, ''),
+    // The same for reads of the history. In a partial clone, git fetches an
+    // object the clone lacks from the remote; this never does, and the call
+    // fails as if the object didn't exist.
+    gitLocal: (...args) => execFileSync('git', args, { cwd: dir, env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).replace(/\s+$/, ''),
   };
 }

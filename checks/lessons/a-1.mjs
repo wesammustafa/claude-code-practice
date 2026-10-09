@@ -20,7 +20,7 @@ const shell = (path) => (/\s/.test(path) ? `"${path}"` : path);
 
 function isCommit(repo, sha) {
   try {
-    repo.git('cat-file', '-e', `${sha}^{commit}`);
+    repo.gitLocal('cat-file', '-e', `${sha}^{commit}`);
     return true;
   } catch {
     return false;
@@ -34,7 +34,7 @@ function ancestry(repo) {
     const key = `${a} ${b}`;
     if (!known.has(key)) {
       try {
-        repo.git('merge-base', '--is-ancestor', a, b);
+        repo.gitLocal('merge-base', '--is-ancestor', a, b);
         known.set(key, true);
       } catch (error) {
         if (error.status !== 1) throw error;
