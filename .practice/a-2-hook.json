@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "command": "jq -r '[.agent_id, .agent_type] | @tsv' >> \"$CLAUDE_PROJECT_DIR/.practice/a-2-agents.txt\"" } ] }
+    ]
+  }
+}
