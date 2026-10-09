@@ -9,7 +9,7 @@ export function parseConfig(text) {
   }
   const raw = JSON.parse(text);
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error('linkcheck.json must hold a JSON object');
+    throw new Error('linkcheck.json must hold a JSON object, such as {}');
   }
   const config = { ...DEFAULTS, ...raw };
   for (const key of ['files', 'ignore']) {
