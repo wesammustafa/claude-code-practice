@@ -7,8 +7,10 @@ import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, statSync } fr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
+import { claudeArgWords, parseYaml, readWorkflow as readActions } from '../actions.mjs';
 import { parseClaudeArgs, ruleList } from '../claude-args.mjs';
 import { callHints, RESULT, SCRIPT, savedRun, scriptBehavior, scriptCall } from '../lessons/a-4.mjs';
+import { chosenWorkflow, dispatchedRun, pinnedWorkflow, RUNS, WORKFLOW, workflowLimits } from '../lessons/a-5.mjs';
 import { openRepo } from '../repo.mjs';
 import { runStubbed, STUB_SESSION } from '../stub-claude.mjs';
 import { readWorkflow } from '../workflow-script.mjs';
@@ -1341,6 +1343,430 @@ test('a-4 fails on an unsolved repository and passes on a solved one, as the tem
   });
   withRepo(reviewRepo(), (dir) => {
     const { code, out } = check(['a-4', '--assert', 'pass', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+// A repository after lesson a-5, in a copy of the template: the link check
+// report workflow on a commit of its own, and the saved list of its runs, one
+// run on that commit. The options change a step: `workflow` (null for none) is
+// written at `path` and committed unless `commitWorkflow` is false;
+// `teardown` deletes it in a later commit; `runs` builds the saved list from
+// the workflow's commit (null for none; text or a Buffer as it is);
+// `origin` is the remote (null for none); `after` changes the repository
+// last. The checks never run gh, so no run happens.
+const PIN = 'fd1c128679612beff4ca259c78021c506e8aa7a7';
+const ORIGIN = 'git@github.com:learner/claude-actions-practice.git';
+const RUN_AT = 'https://github.com/learner/claude-actions-practice/actions/runs/123456789';
+const PROMPT_LINES = [
+  '          prompt: |',
+  '            Run `npm run linkcheck -- samples`. For each broken link it reports, explain in one sentence why it is broken.',
+  "            Don't change any files.",
+];
+const ARGS = '--model sonnet --max-turns 8 --allowedTools "Bash(npm run linkcheck *)"';
+const LINKCHECK_REPORT = [
+  'name: Link check report',
+  '',
+  'on:',
+  '  workflow_dispatch:',
+  '',
+  'permissions:',
+  '  contents: read',
+  '',
+  'jobs:',
+  '  report:',
+  '    runs-on: ubuntu-latest',
+  '    timeout-minutes: 10',
+  '    steps:',
+  '      - uses: actions/checkout@v7',
+  '      - uses: actions/setup-node@v7',
+  '        with:',
+  '          node-version: lts/*',
+  `      - uses: anthropics/claude-code-action@${PIN} # v1.0.237`,
+  '        with:',
+  '          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}',
+  '          github_token: ${{ github.token }}',
+  ...PROMPT_LINES,
+  `          claude_args: ${ARGS}`,
+  '',
+].join('\n');
+// Quick setup's interactive workflow, cut down: no prompt, @claude events.
+const CLAUDE_YML = [
+  'name: Claude Code',
+  'on:',
+  '  issue_comment:',
+  '    types: [created]',
+  '  issues:',
+  '    types: [opened, assigned]',
+  'jobs:',
+  '  claude:',
+  "    if: contains(github.event.comment.body, '@claude')",
+  '    runs-on: ubuntu-latest',
+  '    permissions:',
+  '      contents: read',
+  '      id-token: write',
+  '    steps:',
+  '      - uses: actions/checkout@v4',
+  '      - uses: anthropics/claude-code-action@v1',
+  '        with:',
+  '          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}',
+  '',
+].join('\n');
+
+const runOf = (sha, extra = {}) => ({ databaseId: 123456789, status: 'completed', conclusion: 'success', event: 'workflow_dispatch', headSha: sha, url: RUN_AT, workflowName: 'Link check report', ...extra });
+
+// The lesson's workflow with each `[from, to]` replaced.
+function reportWith(...pairs) {
+  return pairs.reduce((text, [from, to]) => {
+    assert.ok(text.includes(from), `the workflow has no ${JSON.stringify(from)}`);
+    return text.replace(from, () => to);
+  }, LINKCHECK_REPORT);
+}
+const withArgs = (args) => reportWith([`claude_args: ${ARGS}`, `claude_args: ${args}`]);
+
+function actionsRepo({ workflow = LINKCHECK_REPORT, path = WORKFLOW, commitWorkflow = true, teardown = false, runs = (sha) => [runOf(sha)], origin = ORIGIN, after } = {}) {
+  return () => {
+    const dir = repo({ 'README.md': '# demo\n', 'samples/guide.md': '[setup](setup.md)\n' });
+    if (origin) git(dir, 'remote', 'add', 'origin', origin);
+    const start = commit(dir, 'Start');
+    let added = start;
+    if (workflow !== null) {
+      write(dir, { [path]: workflow });
+      if (commitWorkflow) added = commit(dir, 'Add the link check report workflow', [path]);
+    }
+    if (teardown) {
+      git(dir, 'rm', '-q', path);
+      commit(dir, 'Tear down the Claude workflow', []);
+    }
+    if (runs !== null) {
+      const saved = typeof runs === 'function' ? runs(added, start) : runs;
+      write(dir, { [RUNS]: typeof saved === 'string' || Buffer.isBuffer(saved) ? saved : JSON.stringify(saved, null, 2) });
+    }
+    after?.(dir, { added, start });
+    return dir;
+  };
+}
+
+const a5 = (dir) => check(['a-5', '--dir', dir]);
+// One item on its own.
+const setupHint = (dir, options) => pinnedWorkflow(options).check(openRepo(dir));
+const limitsHint = (dir, options) => workflowLimits(options).check(openRepo(dir));
+const runsHint = (dir) => dispatchedRun().check(openRepo(dir));
+
+test('a-5 passes for the lesson\'s workflow, committed, and a saved manual run on its commit', () => {
+  withRepo(actionsRepo(), (dir) => {
+    const { code, out } = a5(dir);
+    assert.equal(code, 0, out);
+    assert.match(out, /3 of 3 passed/);
+  });
+});
+
+test('a-5 still passes after the teardown deletes the workflow, since it reads the history', () => {
+  withRepo(actionsRepo({ teardown: true }), (dir) => {
+    assert.equal(existsSync(join(dir, WORKFLOW)), false);
+    const { code, out } = a5(dir);
+    assert.equal(code, 0, out);
+  });
+  // The same with quick setup's workflow beside it, both deleted.
+  withRepo(actionsRepo({
+    teardown: true,
+    after: (dir) => {
+      write(dir, { '.github/workflows/claude.yml': CLAUDE_YML });
+      commit(dir, 'Add claude.yml', ['.github/workflows/claude.yml']);
+      git(dir, 'rm', '-q', '.github/workflows/claude.yml');
+      commit(dir, 'Remove claude.yml', []);
+    },
+  }), (dir) => {
+    const { code, out } = a5(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('a-5 accepts the workflow written in other ways', () => {
+  const steps = LINKCHECK_REPORT.split('\n');
+  const atStepsIndent = steps.map((l, i) => (i > 12 ? l.replace(/^ {2}/, '') : l)).join('\n');
+  for (const workflow of [
+    withArgs(ARGS.replace('--allowedTools', '--allowed-tools')),
+    withArgs('|\n            --model sonnet\n            # One command, and a cap.\n            --max-turns 8\n            --allowedTools "Bash(npm run linkcheck *)"'),
+    withArgs('>-\n            --model sonnet --max-turns 8\n            --allowedTools "Bash(npm run linkcheck *)"'),
+    withArgs(`'--max-turns 8 --allowedTools "Bash(npm run linkcheck *)"'`),
+    withArgs(`"--max-turns 8 --allowedTools \\"Bash(npm run linkcheck *)\\""`),
+    withArgs("--max-turns 8 --allowedTools 'Bash(npm run linkcheck *)' Read"),
+    withArgs('--max-turns 8 --allowedTools=Bash(npm\\ run\\ linkcheck\\ *)'),
+    withArgs('--max-turns 10 --allowedTools "Bash(npm run linkcheck *),Read"'),
+    reportWith([`anthropics/claude-code-action@${PIN} # v1.0.237`, '"anthropics/claude-code-action@v1.0.237"']),
+    reportWith([`anthropics/claude-code-action@${PIN} # v1.0.237`, `'anthropics/claude-code-action@${PIN}'`]),
+    reportWith(['${{ github.token }}', '${{ secrets.GITHUB_TOKEN }}']),
+    reportWith(['anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}', 'claude_code_oauth_token: ${{secrets.CLAUDE_CODE_OAUTH_TOKEN}}']),
+    reportWith(['permissions:\n  contents: read\n\n', ''], ['    timeout-minutes: 10\n', '    timeout-minutes: 10\n    permissions:\n      contents: read\n      id-token: write\n']),
+    reportWith(['permissions:\n  contents: read', 'permissions: read-all']),
+    reportWith(['permissions:\n  contents: read', 'permissions: {}']),
+    reportWith(['    timeout-minutes: 10\n', ''], ['        with:\n          anthropic_api_key', '        timeout-minutes: 15\n        with:\n          anthropic_api_key']),
+    reportWith(['on:\n  workflow_dispatch:', 'on: workflow_dispatch']),
+    reportWith(['on:\n  workflow_dispatch:', 'on: [push, workflow_dispatch]']),
+    reportWith(['on:\n  workflow_dispatch:', '"on":\n  workflow_dispatch:\n    inputs:\n      folder:\n        default: samples']),
+    reportWith([PROMPT_LINES.join('\n'), '          prompt: Run `npm run linkcheck -- samples` and explain\n            why each broken link is broken. Change no files.']),
+    atStepsIndent,
+  ]) {
+    withRepo(actionsRepo({ workflow }), (dir) => {
+      assert.equal(setupHint(dir), true, workflow);
+      assert.equal(limitsHint(dir), true, workflow);
+    });
+  }
+  // A .yaml file, and Windows line ends, end to end.
+  for (const options of [{ path: '.github/workflows/linkcheck-report.yaml' }, { workflow: LINKCHECK_REPORT.replace(/\n/g, '\r\n') }]) {
+    withRepo(actionsRepo(options), (dir) => {
+      const { code, out } = a5(dir);
+      assert.equal(code, 0, `${JSON.stringify(options)}: ${out}`);
+    });
+  }
+});
+
+test('a-5 names what the first item finds wrong, in the file and on its line', () => {
+  const KEY_TEXT = `sk-ant-api03-${'Xy9_'.repeat(8)}`;
+  for (const [workflow, hint] of [
+    [reportWith([`@${PIN} # v1.0.237`, '@v1']), /`@v1` on line 18 can move to a new release, which changes the Claude Code version on the runner without a commit of yours\. Pin a release tag \(`@vX\.Y\.Z`\) or that release's full commit SHA\./],
+    [reportWith([`@${PIN} # v1.0.237`, '@main']), /`@main` on line 18 can move to a new release/],
+    [reportWith([`@${PIN} # v1.0.237`, '@fd1c128']), /`@fd1c128` on line 18 is a short commit SHA\. Write the full 40-character SHA\./],
+    [reportWith([`@${PIN} # v1.0.237`, '']), /Line 18 runs `anthropics\/claude-code-action` without a version\./],
+    [reportWith([PROMPT_LINES.join('\n') + '\n', '']), /The step on line 18 has no `prompt`, so Claude waits for `@claude` in an issue or pull request \(interactive mode\)\. Add a `prompt` under `with:`/],
+    [reportWith([PROMPT_LINES.join('\n'), '          prompt: ""']), /The `prompt` on line 22 is empty\./],
+    [reportWith(['${{ secrets.ANTHROPIC_API_KEY }}', KEY_TEXT]), /Line 20 holds what looks like a Claude API key or token\. Treat it as leaked: delete the key in the Claude Console now, because removing it from the file doesn't take it out of your history\./],
+    [reportWith(['name: Link check report', `name: Link check report # was ${KEY_TEXT}`]), /Line 1 holds what looks like a Claude API key or token/],
+    [reportWith(['${{ secrets.ANTHROPIC_API_KEY }}', '${{ env.CLAUDE_KEY }}']), /`anthropic_api_key` on line 20 isn't read from a secret\. Write `anthropic_api_key: \$\{\{ secrets\.<NAME> \}\}`/],
+    [reportWith(['          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}\n', '']), /The step on line 18 passes no credential\. Add `anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}` under `with:`/],
+    [reportWith(['  workflow_dispatch:', '  workflow_dispatch:\n  pull_request_target:']), /Remove `pull_request_target` from `on:`\. GitHub warns that running untrusted code on it can grant unintended access to write privileges or secrets\./],
+  ]) {
+    withRepo(actionsRepo({ workflow }), (dir) => {
+      const got = String(setupHint(dir));
+      assert.match(got, /^`\.github\/workflows\/linkcheck-report\.yml`: /, workflow);
+      assert.match(got, hint, workflow);
+      assert.doesNotMatch(got, /sk-ant-/, 'the hint repeats the key');
+      assert.doesNotMatch(got, /undefined|null/, workflow);
+    });
+  }
+});
+
+test('a-5 names each limit the second item finds missing or too loose', () => {
+  const longKey = '--max-turns 8 --allowedTools "Bash(npm run linkcheck *)"';
+  for (const [workflow, hint] of [
+    [withArgs(ARGS.replace('--max-turns 8', '--max-turns 50')), /`--max-turns 50` is above 10: use a number from 1 to 10\./],
+    [withArgs(ARGS.replace('--max-turns 8', '--max-turns 0')), /`--max-turns 0` is below 1/],
+    [withArgs(ARGS.replace('--max-turns 8', '--max-turns eight')), /`--max-turns eight` isn't a whole number/],
+    [withArgs(ARGS.replace(' --max-turns 8', '')), /`claude_args` sets no turn limit: add `--max-turns` with a number from 1 to 10\./],
+    [withArgs(ARGS.replace('--max-turns 8', '--max-turns=8')), /Write `--max-turns 8` with a space, not `--max-turns=8`: the action reads `claude_args` word by word, so it doesn't take `--max-turns=8` as the turn limit\./],
+    [withArgs(ARGS.replace('--max-turns 8', '--max-turns=20')), /Write `--max-turns` with a space and a number from 1 to 10, not `--max-turns=20`/],
+    [withArgs(ARGS.replace('--max-turns 8', '--max_turns 8')), /sets no turn limit: .* Claude Code doesn't know `--max_turns`: write `--max-turns`\./],
+    [withArgs('--allowedTools "Bash(npm run linkcheck *)" --max-turns'), /`--max-turns` has no number after it/],
+    [withArgs(ARGS.replace('"Bash(npm run linkcheck *)"', 'Bash')), /`--allowedTools` lists `Bash`, which lets Claude run any command\. Name only the command it needs, as in `Bash\(<command> \*\)`\./],
+    [withArgs(ARGS.replace('"Bash(npm run linkcheck *)"', '"Read,Bash(*)"')), /lists `Bash\(\*\)`, which lets Claude run any command/],
+    [withArgs(ARGS.replace('"Bash(npm run linkcheck *)"', '"Bash(:*)"')), /lists `Bash\(:\*\)`/],
+    [withArgs(ARGS.replace('"Bash(npm run linkcheck *)"', '"Bash( *)"')), /lists `Bash\( \*\)`/],
+    [withArgs(ARGS.replace('"Bash(npm run linkcheck *)"', 'Bash(npm run linkcheck *)')), /`--allowedTools` gets `Bash\(npm`, `run`, `linkcheck` and `\*\)` as separate words, because the action splits `claude_args` at spaces outside quotes\. Put each rule in quotes, as in `--allowedTools "Bash\(npm run linkcheck \*\)"`\./],
+    [withArgs(ARGS.replace(' --allowedTools "Bash(npm run linkcheck *)"', '')), /`claude_args` pre-approves no tool: add `--allowedTools` naming only the command Claude needs, as in `--allowedTools "Bash\(<command> \*\)"`\./],
+    [withArgs(ARGS.replace('--allowedTools', '--allowedtools')), /Claude Code doesn't know `--allowedtools`: write `--allowedTools`\./],
+    [withArgs(ARGS.replace('"Bash(npm run linkcheck *)"', '""')), /`--allowedTools` lists no tool/],
+    [withArgs(`|\n            --model sonnet # the cheaper model\n            ${longKey}`), /: An unquoted `#` in `claude_args` starts a comment that, for the action, runs to the end of the value, so it never reads `--max-turns` and `--allowedTools`\. Move that comment to a line of its own, above `claude_args`\.$/],
+    [reportWith([`          claude_args: ${ARGS}\n`, '']), /The step on line 18 has no `claude_args`, so nothing limits the run\./],
+    [reportWith(['    timeout-minutes: 10\n', '']), /The job `report` sets no `timeout-minutes`, so only GitHub's default limit stops a run that hangs\. Add `timeout-minutes` with a number from 1 to 30 to the job\./],
+    [reportWith(['timeout-minutes: 10', 'timeout-minutes: 90']), /`timeout-minutes: 90` on line 12 is above 30: use a number from 1 to 30\./],
+    [reportWith(['timeout-minutes: 10', 'timeout-minutes: ${{ inputs.minutes }}']), /`timeout-minutes: \$\{\{ inputs\.minutes \}\}` on line 12 isn't a whole number/],
+    [reportWith(['permissions:\n  contents: read\n', '']), /Neither the workflow nor the job `report` sets `permissions`, so the job token gets the repository's default access, which can include write access\. Add `permissions:` with `contents: read`\./],
+    [reportWith(['contents: read', 'contents: write']), /`contents: write` on line 7 gives the job token write access, and this job only reads\. Make it `read`, or remove it\./],
+    [reportWith(['contents: read', 'contents: read\n  issues: write\n  pull-requests: write']), /`issues: write` and `pull-requests: write` on lines 8 and 9 give the job token write access/],
+    [reportWith(['permissions:\n  contents: read', 'permissions: write-all']), /`permissions: write-all` on line 6 gives the job token write access to everything\. Use `contents: read`\./],
+    [reportWith(['          github_token: ${{ github.token }}\n', '']), /The step on line 18 passes no `github_token`, so Claude acts as the Claude GitHub App, which can write to the repository\. Add `github_token: \$\{\{ github\.token \}\}` under `with:`/],
+    [reportWith(['${{ github.token }}', '${{ secrets.MY_TOKEN }}']), /`github_token` on line 21 isn't this job's own token, so the job's `permissions` don't limit it\./],
+  ]) {
+    withRepo(actionsRepo({ workflow }), (dir) => {
+      const got = String(limitsHint(dir));
+      assert.match(got, /^`\.github\/workflows\/linkcheck-report\.yml`: /, workflow);
+      assert.match(got, hint, workflow);
+      assert.doesNotMatch(got, /undefined|null/, workflow);
+    });
+  }
+  // A job's own permissions replace the workflow's.
+  withRepo(actionsRepo({ workflow: reportWith(['permissions:\n  contents: read', 'permissions: write-all'], ['    timeout-minutes: 10\n', '    timeout-minutes: 10\n    permissions:\n      contents: read\n']) }), (dir) => {
+    assert.equal(limitsHint(dir), true);
+  });
+  // Four problems at once: three are named, then how many more.
+  withRepo(actionsRepo({ workflow: reportWith([`          claude_args: ${ARGS}\n`, ''], ['    timeout-minutes: 10\n', ''], ['contents: read', 'contents: write'], ['          github_token: ${{ github.token }}\n', '']) }), (dir) => {
+    assert.match(String(limitsHint(dir)), /And 1 more: fix these and run the check again\.$/);
+  });
+});
+
+test('a-5 says to commit a workflow that is only in the working tree, and points out uncommitted fixes', () => {
+  withRepo(actionsRepo({ commitWorkflow: false }), (dir) => {
+    const { code, out } = a5(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.github\/workflows\/linkcheck-report\.yml` isn't committed\. Run `git add \.github\/workflows\/linkcheck-report\.yml`, commit it, and push\. GitHub starts a workflow by hand only once its file is on the default branch\./);
+    assert.match(out, /There is no committed workflow that starts on `workflow_dispatch` and runs `anthropics\/claude-code-action`, so the check can't read its limits\./);
+  });
+  withRepo(actionsRepo({ workflow: reportWith([`@${PIN} # v1.0.237`, '@v1']), after: (dir) => write(dir, { [WORKFLOW]: LINKCHECK_REPORT }) }), (dir) => {
+    assert.match(String(setupHint(dir)), /`@v1` on line 18 can move.* Your copy of `\.github\/workflows\/linkcheck-report\.yml` has changes that aren't committed: if they fix this, commit them\./);
+  });
+  withRepo(actionsRepo({ workflow: 'name: Placeholder\non: workflow_dispatch\njobs: {}\n', after: (dir) => write(dir, { [WORKFLOW]: LINKCHECK_REPORT }) }), (dir) => {
+    assert.match(String(setupHint(dir)), /Your copy of `\.github\/workflows\/linkcheck-report\.yml` runs `anthropics\/claude-code-action`, but that change isn't committed\. Commit it, and push\./);
+  });
+});
+
+test('a-5 says the @claude workflow is not the one the lesson asks for, and names the events of one that starts otherwise', () => {
+  withRepo(actionsRepo({ workflow: CLAUDE_YML, path: '.github/workflows/claude.yml' }), (dir) => {
+    assert.match(String(setupHint(dir)), /`\.github\/workflows\/claude\.yml` has no `prompt`, so it waits for `@claude` \(interactive mode\)\. You need a second workflow, `\.github\/workflows\/linkcheck-report\.yml`, that starts with `on: workflow_dispatch` and has a `prompt`\. Write it as Your turn describes, then commit and push it\./);
+  });
+  withRepo(actionsRepo({ workflow: reportWith(['on:\n  workflow_dispatch:', 'on:\n  push:\n    branches: [main]']) }), (dir) => {
+    assert.match(String(setupHint(dir)), /`\.github\/workflows\/linkcheck-report\.yml` runs Claude with a `prompt`, but starts on `push`\. Start it with `on: workflow_dispatch`, then commit and push\./);
+  });
+  withRepo(actionsRepo({ workflow: null }), (dir) => {
+    assert.match(String(setupHint(dir)), /^There is no committed workflow that runs `anthropics\/claude-code-action`\. Write `\.github\/workflows\/linkcheck-report\.yml` as Your turn describes, then commit and push it\./);
+  });
+});
+
+test('a-5 reads the newest commit that holds a manual workflow, and a later pull_request workflow never stands in for it', () => {
+  const review = reportWith(['on:\n  workflow_dispatch:', 'on:\n  pull_request:'], [`@${PIN} # v1.0.237`, '@v1']);
+  const later = (dir) => {
+    write(dir, { '.github/workflows/claude-review.yml': review });
+    commit(dir, 'Add the review workflow', ['.github/workflows/claude-review.yml']);
+  };
+  withRepo(actionsRepo({ after: later }), (dir) => {
+    const { code, out } = a5(dir);
+    assert.equal(code, 0, out);
+    // The capstone's builder, limited to pull_request, reads the later one.
+    const capstone = { triggers: ['pull_request'], file: '.github/workflows/claude-review.yml', guide: 'the brief' };
+    assert.match(String(setupHint(dir, capstone)), /^`\.github\/workflows\/claude-review\.yml`: `@v1` on line 18 can move/);
+    assert.equal(chosenWorkflow(openRepo(dir), ['pull_request']).file.path, '.github/workflows/claude-review.yml');
+    assert.equal(chosenWorkflow(openRepo(dir), ['workflow_dispatch']).file.path, WORKFLOW);
+  });
+  // The newest version of the workflow counts, whichever way it changed.
+  const edit = (text) => (dir) => {
+    write(dir, { [WORKFLOW]: text });
+    commit(dir, 'Change the workflow', [WORKFLOW]);
+  };
+  withRepo(actionsRepo({ after: edit(reportWith([`@${PIN} # v1.0.237`, '@v1'])) }), (dir) => {
+    assert.match(String(setupHint(dir)), /`@v1` on line 18/);
+  });
+  withRepo(actionsRepo({ workflow: reportWith([`@${PIN} # v1.0.237`, '@v1']), after: edit(LINKCHECK_REPORT) }), (dir) => {
+    assert.equal(setupHint(dir), true);
+  });
+  // After the teardown, a hint names the commit it read.
+  withRepo(actionsRepo({ workflow: reportWith([`@${PIN} # v1.0.237`, '@v1']), teardown: true }), (dir) => {
+    const added = git(dir, 'rev-parse', '--short=7', 'HEAD~1');
+    assert.match(String(setupHint(dir)), new RegExp(`^\`\\.github/workflows/linkcheck-report\\.yml\` \\(as committed in ${added}\\): \`@v1\``));
+  });
+});
+
+test('a-5 picks the workflow with a prompt and the fewest problems among those of one commit', () => {
+  const broken = reportWith([`@${PIN} # v1.0.237`, '@v1']);
+  withRepo(actionsRepo({ after: (dir) => { write(dir, { '.github/workflows/a-broken.yml': broken }); commit(dir, 'Add another', ['.github/workflows/a-broken.yml']); } }), (dir) => {
+    assert.equal(setupHint(dir), true);
+  });
+  const noPrompt = reportWith([PROMPT_LINES.join('\n') + '\n', '']);
+  withRepo(actionsRepo({ workflow: broken, after: (dir) => { write(dir, { '.github/workflows/a-dispatch.yml': noPrompt }); commit(dir, 'Add another', ['.github/workflows/a-dispatch.yml']); } }), (dir) => {
+    assert.match(String(setupHint(dir)), /^`\.github\/workflows\/linkcheck-report\.yml`: `@v1`/);
+  });
+});
+
+test('a-5 reads the saved runs, and says what is wrong with them', () => {
+  const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replace(/\n/g, '\r\n'), 'utf16le')]);
+  for (const options of [
+    { runs: (sha) => utf16(JSON.stringify([runOf(sha)], null, 2)) },
+    { runs: (sha) => `﻿${JSON.stringify([runOf(sha)])}` },
+    { runs: (sha) => runOf(sha) },
+    { runs: (sha) => [runOf(sha, { status: 'in_progress', conclusion: '', databaseId: 2 }), runOf(sha)] },
+    { runs: (sha) => [runOf(sha, { url: 'https://github.com/Learner/Claude-Actions-Practice/actions/runs/123456789' })] },
+    { origin: 'https://github.com/learner/claude-actions-practice' },
+    { origin: 'ssh://git@github.com/learner/claude-actions-practice.git' },
+    { origin: null, runs: (sha) => [runOf(sha, { url: 'https://github.com/someone/else/actions/runs/1' })] },
+    { origin: 'https://gitlab.com/learner/claude-actions-practice.git', runs: (sha) => [runOf(sha, { url: undefined })] },
+  ]) {
+    withRepo(actionsRepo(options), (dir) => {
+      assert.equal(runsHint(dir), true, String(options.runs ?? options.origin));
+    });
+  }
+  const SAVE = '`gh run list --workflow linkcheck-report\\.yml --json databaseId,status,conclusion,event,headSha,url,workflowName > \\.practice\\/a-5-runs\\.json`';
+  for (const [runs, hint] of [
+    [null, new RegExp(`^There is no \`\\.practice/a-5-runs\\.json\` yet\\. Start the workflow with \`gh workflow run linkcheck-report\\.yml\`, wait for it to finish, then save the list: ${SAVE}\\.$`)],
+    ['completed  success  Link check report\n', /`\.practice\/a-5-runs\.json` isn't JSON\. Save the list with `--json`, unchanged:/],
+    [[], /`\.practice\/a-5-runs\.json` lists no runs\. Start the workflow with `gh workflow run linkcheck-report\.yml`/],
+    [[{ name: 'Link check report' }], /doesn't hold the fields the check reads\. Save the list with them:/],
+    [(sha) => [runOf(sha, { status: 'in_progress', conclusion: '' })], /Run 123456789 hasn't finished: its `status` is `in_progress`\. Wait for it with `gh run watch 123456789`, then save the list again:/],
+    [(sha) => [runOf(sha, { conclusion: 'failure' })], /Run 123456789 ended with `failure`\. See why with `gh run view 123456789 --log-failed`, fix the workflow, commit and push it, run it again with `gh workflow run linkcheck-report\.yml`, then save the list again:/],
+    [(sha) => [runOf(sha, { conclusion: 'cancelled' })], /Run 123456789 ended with `cancelled`\. Run the workflow again with `gh workflow run linkcheck-report\.yml`/],
+    [(sha) => [runOf(sha, { event: 'issues' }), runOf(sha, { event: 'issue_comment' })], /`\.practice\/a-5-runs\.json` lists only runs that `@claude` started \(`issues` and `issue_comment`\)\. Start your workflow by hand with `gh workflow run linkcheck-report\.yml`/],
+    [(sha) => [runOf(sha, { event: 'push' })], /lists no run started by hand \(`workflow_dispatch`\), only `push`\./],
+    [(sha) => [runOf(sha, { url: 'https://github.com/someone/else/actions/runs/1' })], /Run 123456789 ran in `someone\/else`, but this repository's `origin` is `learner\/claude-actions-practice`\. Save the list in the copy you made for this lesson, and run the check there\./],
+    [(sha) => [runOf(sha, { url: undefined })], /Run 123456789 in `\.practice\/a-5-runs\.json` has no GitHub run URL/],
+    [(sha) => [runOf(sha, { headSha: undefined })], /Run 123456789 has no `headSha`/],
+    [() => [runOf('0123456789abcdef0123456789abcdef01234567')], /Run 123456789 ran on commit 0123456, which this repository doesn't have\. Run `git pull` to fetch it, then run the check again\./],
+    [(sha, start) => [runOf(start)], /ran on commit [0-9a-f]{7}, where no workflow runs `anthropics\/claude-code-action` with a `prompt`\. Once your workflow is pushed, run it with `gh workflow run linkcheck-report\.yml`/],
+    [(sha) => [runOf(sha, { event: 'issues' }), runOf(sha, { conclusion: 'failure', databaseId: 7 })], /Run 7 ended with `failure`/],
+  ]) {
+    withRepo(actionsRepo({ runs }), (dir) => {
+      assert.match(String(runsHint(dir)), hint, String(runs));
+    });
+  }
+  // A run on a commit that holds only the @claude workflow, which has no prompt.
+  withRepo(actionsRepo({
+    runs: null,
+    after: (dir) => {
+      write(dir, { '.github/workflows/claude.yml': CLAUDE_YML });
+      const sha = commit(dir, 'Add claude.yml', ['.github/workflows/claude.yml']);
+      git(dir, 'rm', '-q', WORKFLOW);
+      const without = commit(dir, 'Drop the report', []);
+      write(dir, { [RUNS]: JSON.stringify([runOf(without)]) });
+      assert.ok(sha);
+    },
+  }), (dir) => {
+    assert.match(String(runsHint(dir)), /where no workflow runs `anthropics\/claude-code-action` with a `prompt`/);
+  });
+});
+
+test('the workflow reader takes the forms workflow files use, without a YAML library', () => {
+  const read = (text) => readActions(text);
+  assert.deepEqual(read('on: {workflow_dispatch: {}, push: {branches: [main]}}\njobs: {}\n').triggers, ['workflow_dispatch', 'push']);
+  assert.deepEqual(read('on:\n  - push\n  - workflow_dispatch # by hand\njobs: {}\n').triggers, ['push', 'workflow_dispatch']);
+  assert.deepEqual(read("'on': [ \"push\" ]\n").triggers, ['push']);
+  const steps = read([
+    'on: workflow_dispatch',
+    'jobs:',
+    '  a:',
+    '    steps:',
+    '      # - uses: anthropics/claude-code-action@v1',
+    '      - name: Ask Claude',
+    '        uses: Anthropics/Claude-Code-Action@v1.0.237 # pinned',
+    '        with:',
+    '          prompt: |',
+    '            # Not a comment: part of the prompt.',
+    '            Say hi.',
+    '          claude_args: "--max-turns 2 --allowedTools \\"Read\\""',
+    '  b:',
+    '    steps:',
+    '      - uses: anthropics/claude-code-action/base-action@v1',
+    '',
+  ].join('\n')).steps;
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].ref, 'v1.0.237');
+  assert.equal(steps[0].line, 7);
+  assert.equal(steps[0].inputs.prompt.text, '# Not a comment: part of the prompt.\nSay hi.');
+  assert.equal(steps[0].inputs.claude_args.text, '--max-turns 2 --allowedTools "Read"');
+  assert.equal(parseYaml('a: "one\n  two"\n').entries[0].value.text, 'one two');
+  assert.equal(parseYaml('a: >\n  one\n  two\n\n  three\n').entries[0].value.text, 'one two\nthree');
+  // claude_args as the action reads it: comment lines go, an inline # ends it.
+  assert.deepEqual(claudeArgWords('# note\n--max-turns 3\n  --allowedTools "Bash(npm run linkcheck *)" \'Read\''), { words: ['--max-turns', '3', '--allowedTools', 'Bash(npm run linkcheck *)', 'Read'], comment: null });
+  assert.deepEqual(claudeArgWords('--model sonnet # cheap\n--max-turns 3'), { words: ['--model', 'sonnet'], comment: '# cheap\n--max-turns 3' });
+  assert.deepEqual(claudeArgWords('a#b "c#d"').words, ['a']);
+  assert.deepEqual(claudeArgWords('--allowedTools Bash(npm\\ run\\ *) ""').words, ['--allowedTools', 'Bash(npm run *)', '']);
+});
+
+test('a-5 fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
+  withRepo(actionsRepo({ workflow: null, runs: null }), (dir) => {
+    const { code, out } = check(['a-5', '--assert', 'fail', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+  // The solutions branch: the workflow added, then torn down, so no branch
+  // head carries a live Claude workflow, and a run record on the add commit.
+  withRepo(actionsRepo({ teardown: true }), (dir) => {
+    const { code, out } = check(['a-5', '--assert', 'pass', '--dir', dir]);
     assert.equal(code, 0, out);
   });
 });
