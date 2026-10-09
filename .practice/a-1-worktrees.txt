@@ -1,0 +1,12 @@
+worktree /tmp/claude-code-practice
+HEAD bf06fa89740a3e9eb593f6ebdfc473a58448c7b5
+branch refs/heads/advanced-solutions
+
+worktree /tmp/claude-code-practice/.claude/worktrees/docs-pass
+HEAD 37ad2b3287e5a80815338ed6edb666aea8edaea2
+branch refs/heads/worktree-docs-pass
+
+worktree /tmp/claude-code-practice/.claude/worktrees/test-pass
+HEAD 8928e3384aa0ef44ef9e8eb9e7166e35d23ae52b
+branch refs/heads/worktree-test-pass
+
