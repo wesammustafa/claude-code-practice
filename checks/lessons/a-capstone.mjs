@@ -20,8 +20,15 @@ export const SNAPSHOT = '.practice/a-capstone-worktrees.txt';
 export const RUN = '.practice/a-capstone-run.json';
 export const REVIEW = '.github/workflows/claude-review.yml';
 // The brief's review runs on each pull request; a workflow started by hand,
-// such as lesson 5's, never stands in for it.
-export const CI = { triggers: ['pull_request'], file: REVIEW, guide: 'part 5 of `capstone/advanced-brief.md`' };
+// such as lesson 5's, never stands in for it. The copy has only the
+// credential's secret, saved with `gh secret set`, and no Claude GitHub App.
+export const CI = {
+  triggers: ['pull_request'],
+  file: REVIEW,
+  guide: 'part 5 of `capstone/advanced-brief.md`',
+  secret: 'the secret you saved with `gh secret set`',
+  noToken: 'the action authenticates as the Claude GitHub App, which the capstone doesn\'t set up',
+};
 // Where the brief describes the review script and the team's plugin, for the
 // hints of the lessons' items, which name the lessons' own sections.
 const SCRIPT_GUIDE = 'part 2 of `capstone/advanced-brief.md`';
@@ -67,7 +74,7 @@ export const noCommittedKey = {
   check(repo) {
     const head = headCommit(repo);
     if (!head) return true;
-    const read = chosenWorkflow(repo, CI.triggers)?.file.commit;
+    const read = chosenWorkflow(repo, CI.triggers, CI)?.file.commit;
     for (const commit of [head, read].filter((c, i, all) => c && all.indexOf(c) === i)) {
       const found = keysAt(repo, commit);
       if (!found.length) continue;
