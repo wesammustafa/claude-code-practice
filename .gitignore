@@ -11,3 +11,7 @@ node_modules/
 
 # The worktrees `claude --worktree` makes: each is a checkout of its own.
 .claude/worktrees/
+
+# Personal Claude Code files: your own settings and memory, never shared.
+.claude/settings.local.json
+CLAUDE.local.md
