@@ -3089,6 +3089,18 @@ test('the Advanced capstone reports what is wrong with the review workflow\'s se
     assert.match(got, /The job `review` sets no `timeout-minutes`/);
     assert.match(got, /passes no `github_token`/);
   });
+  // The copy has only the credential's secret: no hint sends the learner to
+  // quick setup or relies on the Claude GitHub App.
+  const bare = reviewWith(['          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}\n', ''], ['          github_token: ${{ github.token }}\n', '']);
+  withRepo(capstoneRepo({ ci: bare }), (dir) => {
+    const got = String(capstoneHint(dir, CI_ITEM));
+    assert.match(got, /passes no credential\. Add `anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}` under `with:`, or `claude_code_oauth_token: \$\{\{ secrets\.CLAUDE_CODE_OAUTH_TOKEN \}\}` for a subscription token, naming the secret you saved with `gh secret set`\./);
+    assert.match(got, /passes no `github_token`, so the action authenticates as the Claude GitHub App, which the capstone doesn't set up\. Add `github_token: \$\{\{ github\.token \}\}` under `with:`/);
+    assert.doesNotMatch(got, /quick setup/);
+  });
+  withRepo(capstoneRepo({ ci: reviewWith(['${{ secrets.ANTHROPIC_API_KEY }}', '${{ env.CLAUDE_KEY }}']) }), (dir) => {
+    assert.match(String(capstoneHint(dir, CI_ITEM)), /`anthropic_api_key` on line 21 isn't read from a secret\. Write `anthropic_api_key: \$\{\{ secrets\.<NAME> \}\}`, naming the secret you saved with `gh secret set`, and keep the credential itself out of the file\./);
+  });
   for (const [ci, hint] of [
     [reviewWith(['--max-turns 5', '--max-turns 25']), /`--max-turns 25` is above 10/],
     [reviewWith(['"Read,Grep,Glob,Bash(git diff *)"', '"Read,Grep,Glob,Bash"']), /`--allowedTools` lists `Bash`, which lets Claude run any command/],

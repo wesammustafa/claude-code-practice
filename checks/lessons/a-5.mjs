@@ -19,9 +19,18 @@ export const RUNS = '.practice/a-5-runs.json';
 export const TURNS_MAX = 10;
 export const TIMEOUT_MAX = 30;
 
-// What the lesson's workflow starts on, its file, and where the page says
-// what to write.
-const LESSON = { triggers: ['workflow_dispatch'], file: WORKFLOW, guide: 'Your turn' };
+// What the lesson's workflow starts on, its file, where the page says what to
+// write, and two things the hints say about the setup: where the credential's
+// secret came from, and what the action does without `github_token`. The
+// lesson's copy is set up with quick setup, which installs the Claude GitHub
+// App.
+const LESSON = {
+  triggers: ['workflow_dispatch'],
+  file: WORKFLOW,
+  guide: 'Your turn',
+  secret: 'the secret quick setup saved',
+  noToken: 'Claude acts as the Claude GitHub App, which can write to the repository',
+};
 
 const RUN_FIELDS = 'databaseId,status,conclusion,event,headSha,url,workflowName';
 const CREDENTIALS = ['anthropic_api_key', 'claude_code_oauth_token'];
@@ -52,7 +61,7 @@ function anyBash(entry) {
 }
 
 // What item 1 reads: the pin, automation mode, the credential and the events.
-function setupProblems(file, step) {
+function setupProblems(file, step, o) {
   const problems = [];
   const leaked = file.text.split('\n').findIndex((line) => KEY.test(line));
   if (leaked !== -1) problems.push(`Line ${leaked + 1} holds what looks like a Claude API key or token. Treat it as leaked: delete the key in the Claude Console now, because removing it from the file doesn't take it out of your history. Keep the credential only in a repository secret.`);
@@ -65,11 +74,11 @@ function setupProblems(file, step) {
   else if (!prompt.text?.trim()) problems.push(`The \`prompt\` on line ${prompt.line} is empty. Write what Claude should do there.`);
 
   const given = CREDENTIALS.filter((k) => step.inputs[k]);
-  if (!given.length) problems.push(`The step on line ${step.line} passes no credential. Add \`anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}\` under \`with:\`, or \`claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\` for a subscription token, naming the secret quick setup saved.`);
+  if (!given.length) problems.push(`The step on line ${step.line} passes no credential. Add \`anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}\` under \`with:\`, or \`claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\` for a subscription token, naming ${o.secret}.`);
   for (const k of given) {
     const v = step.inputs[k];
     const text = (v.text ?? '').trim();
-    if (!SECRET.test(text) && !KEY.test(text)) problems.push(`\`${k}\` on line ${v.line} isn't read from a secret. Write \`${k}: \${{ secrets.<NAME> }}\`, naming the secret quick setup saved, and keep the credential itself out of the file.`);
+    if (!SECRET.test(text) && !KEY.test(text)) problems.push(`\`${k}\` on line ${v.line} isn't read from a secret. Write \`${k}: \${{ secrets.<NAME> }}\`, naming ${o.secret}, and keep the credential itself out of the file.`);
   }
   if (step.triggers.includes('pull_request_target')) problems.push('Remove `pull_request_target` from `on:`. GitHub warns that running untrusted code on it can grant unintended access to write privileges or secrets.');
   return problems;
@@ -138,7 +147,7 @@ function argProblems(args) {
 }
 
 // What item 2 reads: the turn and tool limits, the time limit and the token.
-function limitProblems(file, step) {
+function limitProblems(file, step, o) {
   const problems = [];
   const args = step.inputs.claude_args;
   if (!args?.text?.trim()) problems.push(`The step on line ${step.line} has no \`claude_args\`, so nothing limits the run. Add \`claude_args\` with \`--max-turns\` and a number from 1 to ${TURNS_MAX}, and \`--allowedTools\` naming only the command Claude needs, as in \`--allowedTools "Bash(<command> *)"\`.`);
@@ -169,7 +178,7 @@ function limitProblems(file, step) {
   }
 
   const token = step.inputs.github_token;
-  if (!token) problems.push(`The step on line ${step.line} passes no \`github_token\`, so Claude acts as the Claude GitHub App, which can write to the repository. Add \`github_token: \${{ github.token }}\` under \`with:\`, so Claude uses this job's token and the \`permissions\` you set.`);
+  if (!token) problems.push(`The step on line ${step.line} passes no \`github_token\`, so ${o.noToken}. Add \`github_token: \${{ github.token }}\` under \`with:\`, so Claude uses this job's token and the \`permissions\` you set.`);
   else if (!JOB_TOKEN.test((token.text ?? '').trim())) problems.push(`\`github_token\` on line ${token.line} isn't this job's own token, so the job's \`permissions\` don't limit it. Write \`github_token: \${{ github.token }}\`.`);
   return problems;
 }
@@ -179,17 +188,19 @@ const chosen = new WeakMap();
 
 // The workflow step the items evaluate: in the newest commit that holds a
 // step on one of `triggers`, the one with a `prompt` and the fewest problems.
-// Returns `{ file, step, setup, limits }`, or null.
-export function chosenWorkflow(repo, triggers) {
+// `options` gives the hints' wording, as the items' options do. Returns
+// `{ file, step, setup, limits }`, or null.
+export function chosenWorkflow(repo, triggers, options = LESSON) {
+  const o = { ...LESSON, ...options };
   if (!chosen.has(repo)) chosen.set(repo, new Map());
   const byTriggers = chosen.get(repo);
-  const key = triggers.join(' ');
+  const key = [...triggers, o.secret, o.noToken].join('\0');
   if (!byTriggers.has(key)) {
     let found = null;
     for (const { files } of claudeHistory(repo)) {
       const steps = files.flatMap((file) => file.steps
         .filter((step) => step.triggers.some((t) => triggers.includes(t)))
-        .map((step) => ({ file, step, setup: setupProblems(file, step), limits: limitProblems(file, step) })));
+        .map((step) => ({ file, step, setup: setupProblems(file, step, o), limits: limitProblems(file, step, o) })));
       if (!steps.length) continue;
       const rank = (c) => [c.step.inputs.prompt?.text?.trim() ? 0 : 1, c.setup.length + c.limits.length];
       [found] = steps.sort((a, b) => {
@@ -243,13 +254,13 @@ function missingHint(repo, { triggers, file, guide }) {
 
 // The workflow items. Options: `triggers`, the events the workflow may start
 // on, which pick it out of the history; `file`, the path a hint suggests;
-// `guide`, where the page describes it.
+// `guide`, where the page describes it; `secret` and `noToken`, as in LESSON.
 export function pinnedWorkflow(options = LESSON) {
   const o = { ...LESSON, ...options };
   return {
     text: 'a committed workflow runs `anthropics/claude-code-action` pinned to a release or a commit SHA, in automation mode, with its credential from a secret and none in the file',
     check(repo) {
-      const c = chosenWorkflow(repo, o.triggers);
+      const c = chosenWorkflow(repo, o.triggers, o);
       if (!c) return missingHint(repo, o);
       return c.setup.length ? report(repo, c, c.setup) : true;
     },
@@ -261,7 +272,7 @@ export function workflowLimits(options = LESSON) {
   return {
     text: `its limits are in the file: \`--max-turns\` of at most ${TURNS_MAX}, an \`--allowedTools\` list without unrestricted \`Bash\`, a read-only job token and \`timeout-minutes\``,
     check(repo) {
-      const c = chosenWorkflow(repo, o.triggers);
+      const c = chosenWorkflow(repo, o.triggers, o);
       if (!c) return `There is no committed workflow ${startsOn(o.triggers)} and runs \`anthropics/claude-code-action\`, so the check can't read its limits. Commit one as the item above says.`;
       return c.limits.length ? report(repo, c, c.limits) : true;
     },
@@ -275,7 +286,7 @@ export function boundedWorkflow(options = LESSON) {
   return {
     text: `a committed workflow runs \`anthropics/claude-code-action\` on ${or(o.triggers.map(code))}, pinned to a release or a commit SHA, in automation mode, with its credential from a secret and none in the file, a read-only job token, \`--max-turns\` of at most ${TURNS_MAX}, an \`--allowedTools\` list without unrestricted \`Bash\` and \`timeout-minutes\` of at most ${TIMEOUT_MAX}`,
     check(repo) {
-      const c = chosenWorkflow(repo, o.triggers);
+      const c = chosenWorkflow(repo, o.triggers, o);
       if (!c) return missingHint(repo, o);
       const problems = [...c.setup, ...c.limits];
       return problems.length ? report(repo, c, problems) : true;
