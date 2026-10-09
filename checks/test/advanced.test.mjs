@@ -1695,6 +1695,23 @@ test('a-5 reads the newest commit that holds a manual workflow, and a later pull
   });
 });
 
+test('a-5 reads the workflow on both sides of a merge, after a merge that keeps the other side\'s workflows', () => {
+  // After the teardown, a branch from the start that adds another workflow
+  // is merged: the merge's workflows match that branch's alone.
+  const merged = (dir, { start }) => {
+    git(dir, 'checkout', '-q', '-b', 'other-ci', start);
+    write(dir, { '.github/workflows/ci.yml': 'name: CI\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n' });
+    commit(dir, 'Add CI', ['.github/workflows/ci.yml']);
+    git(dir, 'checkout', '-q', '-');
+    git(dir, 'merge', '-q', '--no-ff', '--no-edit', 'other-ci');
+  };
+  withRepo(actionsRepo({ teardown: true, after: merged }), (dir) => {
+    assert.equal(git(dir, 'log', '--format=%H', '--', '.github/workflows').split('\n').length, 1, 'the merge hides nothing from git log, so this test shows nothing');
+    const { code, out } = a5(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
 test('a-5 picks the workflow with a prompt and the fewest problems among those of one commit', () => {
   const broken = reportWith([`@${PIN} # v1.0.237`, '@v1']);
   withRepo(actionsRepo({ after: (dir) => { write(dir, { '.github/workflows/a-broken.yml': broken }); commit(dir, 'Add another', ['.github/workflows/a-broken.yml']); } }), (dir) => {
