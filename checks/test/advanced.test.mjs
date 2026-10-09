@@ -314,3 +314,242 @@ test('a-1 fails on an unsolved repository and passes on a solved one, as the tem
     assert.equal(code, 0, out);
   });
 });
+
+// A repository after lesson a-2: the four choices written down, and the log
+// the lesson's SubagentStart hook wrote while job 1 ran as parallel
+// subagents, one `agent_id<TAB>agent_type` line per start. The options
+// replace a file, or leave it out when null.
+const CHOSEN = [
+  '1: subagents because three files, one reviewer each, checked once, and only a short list comes back',
+  '2: workflow because it covers every file, verifies each finding and reruns before every release',
+  '3: main conversation because a typo fix is a quick, targeted change',
+  '4: agent team because the investigators must challenge each other until they agree',
+  '',
+].join('\n');
+const STARTS = 'agent-a1\tgeneral-purpose\nagent-a2\tgeneral-purpose\nagent-a3\tExplore\n';
+const LOG_HOOK = `jq -r '[.agent_id, .agent_type] | @tsv' >> "$CLAUDE_PROJECT_DIR/.practice/a-2-agents.txt"`;
+const HOOK_FILE = JSON.stringify({ hooks: { SubagentStart: [{ hooks: [{ type: 'command', command: LOG_HOOK }] }] } }, null, 2);
+
+function patternRepo({ choices = CHOSEN, log = STARTS, hook = HOOK_FILE } = {}) {
+  return () => {
+    const dir = repo({ 'README.md': '# demo\n' });
+    commit(dir, 'Start');
+    for (const [path, text] of [['.practice/a-2-choices.md', choices], ['.practice/a-2-agents.txt', log], ['.practice/a-2-hook.json', hook]]) {
+      if (text !== null) write(dir, { [path]: text });
+    }
+    return dir;
+  };
+}
+
+const a2 = (dir) => check(['a-2', '--dir', dir]);
+const choicesOf = (picks) => picks.map((p, i) => `${i + 1}: ${p} because it fits`).join('\n');
+
+test('a-2 passes for the four patterns that fit and a log with three subagents', () => {
+  withRepo(patternRepo(), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 0, out);
+    assert.match(out, /2 of 2 passed/);
+  });
+});
+
+test('a-2 reads the log the lesson\'s hook writes, counting a resumed subagent once', () => {
+  withRepo(patternRepo({ log: null }), (dir) => {
+    const hook = (id, type) => execFileSync('sh', ['-c', LOG_HOOK], {
+      cwd: dir,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+      input: JSON.stringify({ session_id: 'abc123', cwd: dir, hook_event_name: 'SubagentStart', agent_id: id, agent_type: type }),
+    });
+    hook('agent-abc123', 'Explore');
+    hook('agent-abc123', 'Explore');
+    let { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /It shows one subagent, `agent-abc123`, starting 2 times: a subagent that Claude resumes logs its id again, so it counts once/);
+    hook('agent-def456', 'fork');
+    ({ code, out } = a2(dir));
+    assert.equal(code, 0, out);
+  });
+});
+
+test('a-2 accepts the choices written as list items, with job labels, bold and other separators', () => {
+  const choices = [
+    '# My choices',
+    '',
+    'Job 1 - Subagents, one per file',
+    '- **2:** dynamic workflow, since it reruns',
+    '3. main session because it is one line',
+    '4) Agent teams: they argue it out',
+  ].join('\n');
+  withRepo(patternRepo({ choices }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('a-2 accepts a table, task boxes, articles and quoted pattern names', () => {
+  for (const choices of [
+    '| Job | Pattern | Why |\n|---|---|---|\n| 1 | subagents | few files |\n| 2 | workflow | rerun |\n| 3 | main conversation | quick |\n| 4 | agent team | debate |\n',
+    '- [x] 1: `subagents` because few\n- [x] 2: a dynamic workflow because rerun\n- [x] 3: the main conversation because quick\n- [x] 4: an agent team because debate\n',
+    '(1) "sub-agents" because few\n(2) Workflow because rerun\n(3) one conversation because quick\n(4) agent-team because debate\n',
+  ]) {
+    withRepo(patternRepo({ choices }), (dir) => {
+      const { code, out } = a2(dir);
+      assert.equal(code, 0, `${choices}\n${out}`);
+    });
+  }
+});
+
+test('a-2 skips other lines for a job once one of its lines names a pattern', () => {
+  const jobs = '1. Check the three largest source files\n2. Run the same check on every source file\n3. Fix a typo in one error message\n4. Three investigators each test a different theory\n\n';
+  withRepo(patternRepo({ choices: `${jobs}${CHOSEN}` }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('a-2 reads files saved with CRLF line ends, a UTF-8 byte-order mark, or as UTF-16 by Windows PowerShell', () => {
+  const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replace(/\n/g, '\r\n'), 'utf16le')]);
+  for (const options of [
+    { choices: CHOSEN.replace(/\n/g, '\r\n'), log: STARTS.replace(/\n/g, '\r\n') },
+    { choices: `﻿${CHOSEN}`, log: `﻿${STARTS}` },
+    { choices: utf16(CHOSEN), log: utf16(STARTS) },
+  ]) {
+    withRepo(patternRepo(options), (dir) => {
+      const { code, out } = a2(dir);
+      assert.equal(code, 0, out);
+    });
+  }
+});
+
+test('a-2 says where to save the choices and in what form when there are none', () => {
+  withRepo(patternRepo({ choices: null }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /There is no `\.practice\/a-2-choices\.md`\. Save your choices there, one line per job in the form `<job number>: <pattern> because <reason>`/);
+    assert.match(out, /PASS {2}`\.practice\/a-2-agents\.txt`/);
+  });
+  withRepo(patternRepo({ choices: 'subagents, then a workflow, then the main conversation, then a team\n' }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /has no line that starts with a job number/);
+  });
+});
+
+test('a-2 names each job that has no line', () => {
+  const lines = CHOSEN.split('\n');
+  withRepo(patternRepo({ choices: [lines[0], lines[1], lines[3]].join('\n') }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /has no line for job 3\. Add one per job/);
+  });
+  withRepo(patternRepo({ choices: [lines[0], lines[2]].join('\n') }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /has no line for jobs 2 and 4\./);
+  });
+});
+
+test('a-2 names the chart question that settles each job picked wrongly', () => {
+  const Q1 = 'Can one conversation do it without filling up?';
+  const Q2 = 'Must the workers talk to each other?';
+  const Q3 = 'Does it need many agents, cross-checked findings or a rerun?';
+  for (const [picks, expected] of [
+    [['main conversation', 'main conversation', 'subagents', 'main conversation'], [
+      `Job 1 doesn't call for the main conversation. ${Q1} No: reading three whole files`,
+      `Job 2 doesn't call for the main conversation. ${Q1} No: it checks every source file.`,
+      `Job 3 doesn't call for subagents. ${Q1} Yes: fixing a typo is a quick, targeted change`,
+      `Job 4 doesn't call for the main conversation. ${Q1} No: three investigators work at the same time`,
+    ]],
+    [['agent team', 'agent team', 'workflow', 'subagents'], [
+      `Job 1 doesn't call for an agent team. ${Q2} No: each reviewer checks its own file`,
+      `Job 2 doesn't call for an agent team. ${Q2} No: each finding is verified against the code`,
+      `Job 3 doesn't call for a workflow. ${Q1} Yes:`,
+      `Job 4 doesn't call for subagents. ${Q2} Yes: the investigators challenge each other's findings`,
+    ]],
+    [['workflow', 'subagents', 'agent team', 'workflow'], [
+      `Job 1 doesn't call for a workflow. ${Q3} No: three files, checked once`,
+      `Job 2 doesn't call for subagents. ${Q3} Yes: it checks every source file, verifies each finding and reruns before every release`,
+      `Job 3 doesn't call for an agent team. ${Q1} Yes:`,
+      `Job 4 doesn't call for a workflow. ${Q2} Yes:`,
+    ]],
+  ]) {
+    withRepo(patternRepo({ choices: choicesOf(picks) }), (dir) => {
+      const { code, out } = a2(dir);
+      assert.equal(code, 1, out);
+      for (const text of expected) assert.ok(out.includes(text), `${picks}: missing "${text}" in ${out}`);
+      assert.match(out, /It calls for subagents\./);
+      assert.match(out, /It calls for a workflow\./);
+      assert.match(out, /It calls for the main conversation\./);
+      assert.match(out, /It calls for an agent team\./);
+    });
+  }
+});
+
+test('a-2 fails for a pattern that is not one of the four, or no pattern, and lists the four', () => {
+  withRepo(patternRepo({ choices: CHOSEN.replace('1: subagents', '1: delegate to helpers').replace(/^2: .*$/m, '2:') }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /Job 1's line starts with "delegate to helpers", which isn't one of the four patterns\. Right after the job number, write `main conversation`, `subagents`, `workflow` or `agent team`\./);
+    assert.match(out, /Job 2's line names no pattern\./);
+  });
+});
+
+test('a-2 fails for a job with lines that pick different patterns', () => {
+  withRepo(patternRepo({ choices: `${CHOSEN}1: workflow because it may grow\n` }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /Job 1 has lines that pick different patterns: subagents and a workflow\. Keep one line per job\./);
+  });
+});
+
+test('a-2 says how to start the logging session when there is no log, and to save the hook file first', () => {
+  withRepo(patternRepo({ log: null }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /There is no `\.practice\/a-2-agents\.txt`\. Start the session with `claude --settings \.practice\/a-2-hook\.json`, then run job 1\./);
+  });
+  withRepo(patternRepo({ log: null, hook: null }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /Save the hook file from the lesson's Your turn as `\.practice\/a-2-hook\.json`/);
+  });
+});
+
+test('a-2 points at jq for an empty log, ignoring blank lines', () => {
+  for (const log of ['', '\n\n  \n']) {
+    withRepo(patternRepo({ log }), (dir) => {
+      const { code, out } = a2(dir);
+      assert.equal(code, 1, out);
+      assert.match(out, /is empty\. The hook's command creates the file before `jq` runs, so check that `jq --version` works/);
+    });
+  }
+});
+
+test('a-2 fails for a log with one subagent, and asks for one subagent per file, in parallel', () => {
+  for (const log of ['agent-a1\tgeneral-purpose\n', 'general-purpose\n\n', '\n\nagent-a1\tExplore\n\n']) {
+    withRepo(patternRepo({ log }), (dir) => {
+      const { code, out } = a2(dir);
+      assert.equal(code, 1, out);
+      assert.match(out, /needs at least two subagents\. It shows one subagent starting\. In a session started with `claude --settings \.practice\/a-2-hook\.json`, ask for one subagent per file, in parallel\./);
+    });
+  }
+});
+
+test('a-2 counts any agent type, a fork included, and lines from a hook that logs only the type', () => {
+  for (const log of ['agent-a1\tfork\n\nagent-a2\tfork\n', 'agent-a1\tExplore\nagent-a2\tmy-reviewer\n', 'general-purpose\ngeneral-purpose\n', '\tgeneral-purpose\n\tExplore\n']) {
+    withRepo(patternRepo({ log }), (dir) => {
+      const { code, out } = a2(dir);
+      assert.equal(code, 0, `${JSON.stringify(log)}: ${out}`);
+    });
+  }
+});
+
+test('a-2 fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
+  withRepo(patternRepo({ choices: null, log: null, hook: null }), (dir) => {
+    const { code, out } = check(['a-2', '--assert', 'fail', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+  withRepo(patternRepo(), (dir) => {
+    const { code, out } = check(['a-2', '--assert', 'pass', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
