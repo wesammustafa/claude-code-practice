@@ -544,7 +544,7 @@ export function cappedRun(record = CAPPED) {
       if (wrong) return wrong;
       const { subtype } = saved.value;
       if (LIMITS.has(subtype)) return true;
-      if (subtype === 'success') return `The run in ${code(record)} finished (\`success\`), so no limit stopped it. Give it a limit too small for the task, such as \`--max-turns 1\`. ${again}`;
+      if (subtype === 'success') return `The run in ${code(record)} finished (\`success\`), so no limit stopped it. Give it a limit too small for the task, such as \`--max-budget-usd 0.01\`, as the lesson's step 4 does. ${again}`;
       return `The run in ${code(record)} ended with ${code(String(subtype))}, not at a limit (\`error_max_turns\` or \`error_max_budget_usd\`). ${again}`;
     },
   };
