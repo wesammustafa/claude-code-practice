@@ -11,6 +11,8 @@ import { claudeArgWords, parseYaml, readWorkflow as readActions } from '../actio
 import { parseClaudeArgs, ruleList } from '../claude-args.mjs';
 import { callHints, RESULT, SCRIPT, savedRun, scriptBehavior, scriptCall } from '../lessons/a-4.mjs';
 import { chosenWorkflow, dispatchedRun, pinnedWorkflow, RUNS, WORKFLOW, workflowLimits } from '../lessons/a-5.mjs';
+import { movedComponent, personalFiles, sharedSettings, strictValidation, teamMarketplace, VALIDATE } from '../lessons/a-6.mjs';
+import { nameProblem } from '../marketplace.mjs';
 import { openRepo } from '../repo.mjs';
 import { runStubbed, STUB_SESSION } from '../stub-claude.mjs';
 import { readWorkflow } from '../workflow-script.mjs';
@@ -1767,6 +1769,463 @@ test('a-5 fails on an unsolved repository and passes on a solved one, as the tem
   // head carries a live Claude workflow, and a run record on the add commit.
   withRepo(actionsRepo({ teardown: true }), (dir) => {
     const { code, out } = check(['a-5', '--assert', 'pass', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+// A repository after lesson a-6: an Intermediate setup (a tdd skill, a
+// test-gaps subagent and a protect-files hook in .claude/), then the example
+// marketplace committed in `root`, registered in .claude/settings.json and
+// turned on, the subagent moved into team-kit with git mv, the personal
+// files ignored, and the strict validation of the plugin saved. The options
+// change a step: `market` replaces the marketplace file; `settings` replaces
+// the committed settings (null for none); `gitignore` is committed (null for
+// none); `move` lists the [from, to] pairs moved with git mv; `files` writes
+// or, with null, deletes files before the commit; `report` is the saved
+// validation, as an object, text, a Buffer, a function of the folder and the
+// plugin's path, or null for none; `after` changes the repository last.
+const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
+const TDD_SKILL = '---\nname: tdd\ndescription: Builds a feature test first, then the code, then refactors.\n---\n\nWrite a failing test first.\n';
+const TEST_GAPS = '---\nname: test-gaps\ndescription: Lists the functions that no test calls. Use before adding tests.\ntools: Read, Grep, Glob\n---\n\nList them.\n';
+const PROTECT_HOOK = '.claude/hooks/protect-files.sh';
+const PROJECT_HOOKS = { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-files.sh', args: [] }] }] };
+const BASE_SETTINGS = { permissions: { allow: ['Bash(npm test)'], deny: ['Read(./.env)'] }, hooks: PROJECT_HOOKS };
+const MARKETPLACE_ROOT = 'team-marketplace';
+const TEAM_KIT = `${MARKETPLACE_ROOT}/plugins/team-kit`;
+const TEAM_MARKET = { name: 'team-tools', description: 'A demo team marketplace.', owner: { name: 'Your team' }, plugins: [{ name: 'team-kit', source: './plugins/team-kit', description: 'The team\'s shared skills and subagents' }] };
+const SHARED_SETTINGS = {
+  ...BASE_SETTINGS,
+  extraKnownMarketplaces: { 'team-tools': { source: { source: 'directory', path: './team-marketplace' } } },
+  enabledPlugins: { 'team-kit@team-tools': true },
+};
+const PERSONAL_IGNORE = '.practice/\n.claude/settings.local.json\nCLAUDE.local.md\n';
+const under = (root, path) => (root ? `${root}/${path}` : path);
+const reportOf = (target, extra = {}) => ({ success: true, strict: true, target, manifest: { file: target, type: 'plugin', errors: [], warnings: [], notes: [] }, contents: [], ...extra });
+const VALID_REPORT = (dir, plugin) => reportOf(join(realpathSync(dir), plugin, '.claude-plugin', 'plugin.json'));
+
+function shareRepo({
+  root = MARKETPLACE_ROOT, market = TEAM_MARKET, settings = SHARED_SETTINGS, gitignore = PERSONAL_IGNORE,
+  move = [['.claude/agents/test-gaps.md', 'agents/test-gaps.md']], files = {}, report = VALID_REPORT, after,
+} = {}) {
+  return () => {
+    const plugin = under(root, 'plugins/team-kit');
+    const dir = repo({
+      'README.md': '# demo\n',
+      ...(gitignore === null ? {} : { '.gitignore': gitignore }),
+      '.claude/settings.json': json(BASE_SETTINGS),
+      '.claude/skills/tdd/SKILL.md': TDD_SKILL,
+      '.claude/agents/test-gaps.md': TEST_GAPS,
+      [PROTECT_HOOK]: '#!/bin/bash\nexit 0\n',
+    });
+    commit(dir, 'Start');
+    write(dir, {
+      [under(root, '.claude-plugin/marketplace.json')]: typeof market === 'string' ? market : json(market),
+      [`${plugin}/.claude-plugin/plugin.json`]: json({ name: 'team-kit', version: '0.1.0', description: 'A team\'s shared setup', author: { name: 'Your team' } }),
+      [`${plugin}/skills/onboard/SKILL.md`]: '---\nname: onboard\ndescription: Explains the shared setup to a new teammate.\n---\n\nExplain it.\n',
+      [`${plugin}/agents/config-reviewer.md`]: '---\nname: config-reviewer\ndescription: Reviews the shared configuration.\ntools: Read, Grep, Glob\nmodel: inherit\n---\n\nReview it.\n',
+    });
+    if (settings === null) rmSync(join(dir, '.claude/settings.json'));
+    else write(dir, { '.claude/settings.json': typeof settings === 'string' ? settings : json(settings) });
+    for (const [from, to] of move) {
+      const target = to.startsWith('.claude/') ? to : `${plugin}/${to}`;
+      execFileSync('mkdir', ['-p', join(dir, target, '..')]);
+      git(dir, 'mv', from, target);
+    }
+    for (const [path, text] of Object.entries(files)) {
+      if (text === null) rmSync(join(dir, path), { recursive: true, force: true });
+      else write(dir, { [path]: text });
+    }
+    commit(dir, 'Share the team\'s Claude Code setup');
+    if (report !== null) {
+      const saved = typeof report === 'function' ? report(dir, plugin) : report;
+      write(dir, { [VALIDATE]: typeof saved === 'string' || Buffer.isBuffer(saved) ? saved : json(saved) });
+    }
+    after?.(dir, plugin);
+    return dir;
+  };
+}
+
+const a6 = (dir) => check(['a-6', '--dir', dir]);
+// One item on its own.
+const marketHint = (dir) => teamMarketplace.check(openRepo(dir));
+const settingsHint = (dir) => sharedSettings.check(openRepo(dir));
+const movedHint = (dir) => movedComponent.check(openRepo(dir));
+const personalHint = (dir) => personalFiles.check(openRepo(dir));
+const validateHint = (dir) => strictValidation().check(openRepo(dir));
+const marketWith = (...entries) => ({ ...TEAM_MARKET, plugins: entries });
+const settingsWith = (extra) => ({ ...BASE_SETTINGS, ...extra });
+const registered = (source, key = 'team-tools') => settingsWith({ extraKnownMarketplaces: { [key]: { source } }, enabledPlugins: { 'team-kit@team-tools': true } });
+
+test('a-6 passes for the example marketplace registered and turned on, a subagent moved into it, the personal files ignored and a strict validation saved', () => {
+  withRepo(shareRepo(), (dir) => {
+    const { code, out } = a6(dir);
+    assert.equal(code, 0, out);
+    assert.match(out, /5 of 5 passed/);
+  });
+});
+
+test('a-6 accepts the other ways to write the registration', () => {
+  for (const settings of [
+    registered({ source: 'directory', path: 'team-marketplace' }),
+    registered({ source: 'directory', path: './team-marketplace/' }),
+    registered({ source: 'file', path: './team-marketplace/.claude-plugin/marketplace.json' }),
+    settingsWith({ additionalMarketplaces: SHARED_SETTINGS.extraKnownMarketplaces, enabledPlugins: { 'team-kit@team-tools': true } }),
+    // With both spellings, Claude Code reads extraKnownMarketplaces only.
+    { ...SHARED_SETTINGS, additionalMarketplaces: { 'team-tools': { source: { source: 'github', repo: 'acme/elsewhere' } } } },
+  ]) {
+    withRepo(shareRepo({ settings }), (dir) => {
+      assert.equal(settingsHint(dir), true, JSON.stringify(settings));
+    });
+  }
+});
+
+test('a-6 accepts a marketplace at the repository\'s root, registered as . or ./', () => {
+  for (const path of ['.', './']) {
+    withRepo(shareRepo({ root: '', settings: registered({ source: 'directory', path }) }), (dir) => {
+      const { code, out } = a6(dir);
+      assert.equal(code, 0, `${path}: ${out}`);
+    });
+  }
+});
+
+test('a-6 says how to start without a marketplace, to commit one, and to rename a folder still called dot-claude-plugin/', () => {
+  withRepo(shareRepo({ market: null, files: { [`${MARKETPLACE_ROOT}/.claude-plugin`]: null } }), (dir) => {
+    const { code, out } = a6(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /There is no committed `\.claude-plugin\/marketplace\.json`\. Download the example marketplace into `team-marketplace\/`/);
+    assert.match(out, /No committed marketplace passes the item above yet/);
+  });
+  withRepo(shareRepo({ files: { [`${MARKETPLACE_ROOT}/.claude-plugin`]: null, [`${MARKETPLACE_ROOT}/dot-claude-plugin/marketplace.json`]: json(TEAM_MARKET) } }), (dir) => {
+    assert.match(String(marketHint(dir)), /`team-marketplace\/dot-claude-plugin\/` isn't a marketplace until it's named `\.claude-plugin\/`.*Run `git mv team-marketplace\/dot-claude-plugin team-marketplace\/\.claude-plugin`/);
+  });
+  withRepo(shareRepo({
+    files: { [`${MARKETPLACE_ROOT}/.claude-plugin`]: null },
+    after: (dir) => write(dir, { [`${MARKETPLACE_ROOT}/.claude-plugin/marketplace.json`]: json(TEAM_MARKET) }),
+  }), (dir) => {
+    assert.equal(marketHint(dir), '`team-marketplace` isn\'t committed. Run `git add team-marketplace` and commit it.');
+  });
+  // The template's own folders and dependencies are never read.
+  withRepo(shareRepo({ files: { [`${MARKETPLACE_ROOT}/.claude-plugin`]: null, 'node_modules/kit/.claude-plugin/marketplace.json': json(TEAM_MARKET) } }), (dir) => {
+    assert.match(String(marketHint(dir)), /There is no committed `\.claude-plugin\/marketplace\.json`/);
+  });
+});
+
+test('a-6 fails a marketplace name that Claude Code reserves or can\'t use', () => {
+  assert.equal(nameProblem('team-tools'), null);
+  for (const name of ['claude-plugins-official', 'Claude-Code-Plugins', 'GitHub', 'npm', 'skills-dir', 'healthcare', 'claude.code.plugins', 'anthropic-plugins.']) {
+    assert.match(String(nameProblem(name)), /which Claude Code reserves/, name);
+  }
+  assert.match(nameProblem('claude.code.plugins'), /as another spelling of `claude-code-plugins`/);
+  assert.match(nameProblem('claudeai-team'), /names starting with `claudeai-` are reserved for marketplaces hosted on claude\.ai/);
+  for (const name of ['team tools', '.team', 'team..tools', 'tëam', 'team/tools']) assert.match(String(nameProblem(name)), /takes only letters, digits/, name);
+  assert.equal(nameProblem(''), 'has no `name`');
+  withRepo(shareRepo({ market: { ...TEAM_MARKET, name: 'claude-plugins-official' } }), (dir) => {
+    const hint = String(marketHint(dir));
+    assert.match(hint, /`team-marketplace\/\.claude-plugin\/marketplace\.json` names the marketplace `claude-plugins-official`, which Claude Code reserves\. Pick a name of your own/);
+  });
+});
+
+test('a-6 fails a marketplace file that isn\'t JSON, or has no owner name or no plugins', () => {
+  for (const [market, hint] of [
+    ['{ "name": "team-tools", }', /The committed `team-marketplace\/\.claude-plugin\/marketplace\.json` isn't valid JSON/],
+    ['[]', /isn't a JSON object with a `name`, an `owner` and a `plugins` list/],
+    [{ ...TEAM_MARKET, owner: {} }, /needs an `owner` with a `name`, such as `"owner": \{ "name": "Your team" \}`/],
+    [{ ...TEAM_MARKET, owner: 'Your team' }, /needs an `owner` with a `name`/],
+    [{ ...TEAM_MARKET, plugins: [] }, /lists no plugins\. Add an entry to `plugins`/],
+  ]) {
+    withRepo(shareRepo({ market }), (dir) => {
+      assert.match(String(marketHint(dir)), hint, JSON.stringify(market));
+    });
+  }
+});
+
+test('a-6 names what is wrong with each kind of entry', () => {
+  for (const [entry, hint] of [
+    [{ source: './plugins/team-kit' }, /The entry number 1 in `team-marketplace\/\.claude-plugin\/marketplace\.json` needs a `name`/],
+    [{ name: 'team-kit', source: { source: 'github', repo: 'acme/team-kit' } }, /The entry `team-kit` in .* fetches its plugin from a `github` source, which each teammate would have to install\. Keep the plugin inside the marketplace folder and list it by a relative path, such as `"source": "\.\/plugins\/team-kit"`/],
+    [{ name: 'team-kit' }, /has no `source`/],
+    [{ name: 'team-kit', source: 'plugins/team-kit' }, /has the `source` `plugins\/team-kit`\. A relative path must start with `\.\/`: write `"source": "\.\/plugins\/team-kit"`/],
+    [{ name: 'team-kit', source: './plugins/../../team-kit' }, /whose `\.\.` leaves the marketplace folder/],
+    [{ name: 'team-kit', source: '.\\plugins\\team-kit' }, /writes its `source` with a backslash/],
+    [{ name: 'team-kit', source: './plugins/missing' }, /lists `team-marketplace\/plugins\/missing\/`, where no plugin is committed/],
+    [{ name: 'kit', source: './plugins/team-kit' }, /The entry `kit` in .* is named `kit`, but `team-marketplace\/plugins\/team-kit\/\.claude-plugin\/plugin\.json` names the plugin `team-kit`\. Use one name in both places/],
+  ]) {
+    withRepo(shareRepo({ market: marketWith(entry) }), (dir) => {
+      assert.match(String(marketHint(dir)), hint, JSON.stringify(entry));
+    });
+  }
+  // The entry that gets furthest speaks for the marketplace.
+  withRepo(shareRepo({ market: marketWith({ name: 'other', source: 'other' }, { name: 'kit', source: './plugins/team-kit' }) }), (dir) => {
+    assert.match(String(marketHint(dir)), /is named `kit`/);
+  });
+  // Any entry that passes is enough.
+  withRepo(shareRepo({ market: marketWith({ name: 'other', source: './plugins/missing' }, TEAM_MARKET.plugins[0]) }), (dir) => {
+    assert.equal(marketHint(dir), true);
+  });
+});
+
+test('a-6 names what is wrong with the plugin an entry lists', () => {
+  const manifest = `${TEAM_KIT}/.claude-plugin/plugin.json`;
+  withRepo(shareRepo({ files: { [manifest]: '{}\n' } }), (dir) => {
+    assert.match(String(marketHint(dir)), /The committed `team-marketplace\/plugins\/team-kit\/\.claude-plugin\/plugin\.json` has no `name`\. Set `"name": "team-kit"`/);
+  });
+  withRepo(shareRepo({ files: { [manifest]: '{ name }' } }), (dir) => {
+    assert.match(String(marketHint(dir)), /plugin\.json` isn't valid JSON/);
+  });
+  // The plugin.json is on disk but not committed.
+  withRepo(shareRepo({ files: { [manifest]: null }, after: (dir) => write(dir, { [manifest]: json({ name: 'team-kit' }) }) }), (dir) => {
+    assert.match(String(marketHint(dir)), /lists `team-marketplace\/plugins\/team-kit\/`, but `team-marketplace\/plugins\/team-kit` isn't committed\. Run `git add team-marketplace\/plugins\/team-kit` and commit it\./);
+  });
+  withRepo(shareRepo({ files: { [manifest]: null } }), (dir) => {
+    assert.match(String(marketHint(dir)), /lists `team-marketplace\/plugins\/team-kit\/`, which has no `\.claude-plugin\/plugin\.json`/);
+  });
+  withRepo(shareRepo({ move: [], files: { [`${TEAM_KIT}/skills`]: null, [`${TEAM_KIT}/agents`]: null } }), (dir) => {
+    assert.match(String(marketHint(dir)), /The plugin in `team-marketplace\/plugins\/team-kit\/` commits no component: no skill in `skills\/<name>\/SKILL\.md`, no subagent in `agents\/` and no `hooks\/hooks\.json`/);
+  });
+});
+
+test('a-6 fails a registration by a path on one machine, outside the repository or at another folder', () => {
+  for (const [source, hint] of [
+    [{ source: 'directory', path: '/Users/me/repo/team-marketplace' }, /`extraKnownMarketplaces\.team-tools` has the `path` `\/Users\/me\/repo\/team-marketplace`, a path on your machine, which a teammate's clone doesn't have\. Write it relative to the repository: `"path": "\.\/team-marketplace"`\. Then commit\./],
+    [{ source: 'directory', path: '~/repo/team-marketplace' }, /a path on your machine/],
+    [{ source: 'directory', path: 'C:\\repo\\team-marketplace' }, /a path on your machine/],
+    [{ source: 'directory', path: '../repo/team-marketplace' }, /whose `\.\.` leaves the repository/],
+    [{ source: 'directory', path: '.\\team-marketplace' }, /writes its `path` with a backslash/],
+    [{ source: 'directory', path: './plugins' }, /has the `path` `\.\/plugins`, but the marketplace is in `team-marketplace\/\.claude-plugin\/marketplace\.json`/],
+    [{ source: 'file', path: './team-marketplace' }, /but the marketplace is in .* Write `"path": "\.\/team-marketplace\/\.claude-plugin\/marketplace\.json"`/],
+    [{ source: 'directory' }, /has no `path`\. Write `"path": "\.\/team-marketplace"`/],
+    [{ source: 'github', repo: 'acme/team-marketplace' }, /registers the marketplace from a `github` source\. Register the committed folder instead: `"source": \{ "source": "directory", "path": "\.\/team-marketplace" \}`/],
+    ['./team-marketplace', /has no `source` object/],
+  ]) {
+    withRepo(shareRepo({ settings: registered(source) }), (dir) => {
+      assert.match(String(settingsHint(dir)), hint, JSON.stringify(source));
+    });
+  }
+});
+
+test('a-6 fails a registration under another key, or under the alias beside extraKnownMarketplaces', () => {
+  withRepo(shareRepo({ settings: registered({ source: 'directory', path: './team-marketplace' }, 'team') }), (dir) => {
+    assert.match(String(settingsHint(dir)), /`extraKnownMarketplaces` registers the marketplace under the key `team`, but the key must be the marketplace's `name` from `team-marketplace\/\.claude-plugin\/marketplace\.json`, `team-tools`/);
+  });
+  withRepo(shareRepo({ settings: registered({ source: 'directory', path: './elsewhere' }, 'other') }), (dir) => {
+    assert.match(String(settingsHint(dir)), /`extraKnownMarketplaces` in the committed `\.claude\/settings\.json` registers no marketplace named `team-tools`\. Add `"extraKnownMarketplaces": \{ "team-tools": \{ "source": \{ "source": "directory", "path": "\.\/team-marketplace" \} \} \}`/);
+  });
+  withRepo(shareRepo({ settings: settingsWith({ enabledPlugins: { 'team-kit@team-tools': true } }) }), (dir) => {
+    assert.match(String(settingsHint(dir)), /The committed `\.claude\/settings\.json` registers no marketplace\. Add `"extraKnownMarketplaces"/);
+  });
+  withRepo(shareRepo({ settings: { ...SHARED_SETTINGS, extraKnownMarketplaces: {}, additionalMarketplaces: SHARED_SETTINGS.extraKnownMarketplaces } }), (dir) => {
+    assert.match(String(settingsHint(dir)), /sets both `extraKnownMarketplaces` and its other spelling, `additionalMarketplaces`, and Claude Code then reads only `extraKnownMarketplaces`/);
+  });
+});
+
+test('a-6 names what is wrong with enabledPlugins', () => {
+  for (const [enabledPlugins, hint] of [
+    [{ 'team-kit@team-marketplace': true }, /`enabledPlugins` turns on `team-kit@team-marketplace`, but the part after `@` must be the marketplace's `name`, `team-tools`: write `"team-kit@team-tools": true`/],
+    [{ 'team-kit@team-tools': 'true' }, /`enabledPlugins` sets `team-kit@team-tools` to `"true"`\. Use the JSON boolean `true`, without quotes/],
+    [{ 'team-kit@team-tools': false }, /turns `team-kit@team-tools` off\. Set it to `true`, so the plugin is on for everyone, and turn it off for yourself only in `\.claude\/settings\.local\.json`/],
+    [{ 'claude-code-setup@claude-plugins-official': true }, /registers `team-tools` but turns none of its plugins on\. Add `"enabledPlugins": \{ "team-kit@team-tools": true \}`/],
+    [undefined, /turns none of its plugins on/],
+  ]) {
+    withRepo(shareRepo({ settings: { ...SHARED_SETTINGS, enabledPlugins } }), (dir) => {
+      assert.match(String(settingsHint(dir)), hint, JSON.stringify(enabledPlugins));
+    });
+  }
+});
+
+test('a-6 says to create the settings, fix their JSON, or commit them, with -f when an ignore rule hides them', () => {
+  withRepo(shareRepo({ settings: null }), (dir) => {
+    assert.match(String(settingsHint(dir)), /There is no committed `\.claude\/settings\.json`\. Create it with `"extraKnownMarketplaces": \{ "team-tools": \{ "source": \{ "source": "directory", "path": "\.\/team-marketplace" \} \} \}` and `"enabledPlugins": \{ "team-kit@team-tools": true \}`/);
+  });
+  withRepo(shareRepo({ settings: '{ "enabledPlugins": }' }), (dir) => {
+    assert.match(String(settingsHint(dir)), /The committed `\.claude\/settings\.json` isn't valid JSON/);
+  });
+  // A global excludes file that ignores .claude/ hid the file from `git add`.
+  withRepo(shareRepo({
+    after: (dir) => {
+      git(dir, 'rm', '-q', '--cached', '.claude/settings.json');
+      commit(dir, 'Drop the settings', []);
+      write(dir, { '.git/global-ignore': '.claude/\n' });
+      git(dir, 'config', 'core.excludesFile', join(dir, '.git', 'global-ignore'));
+    },
+  }), (dir) => {
+    assert.match(String(settingsHint(dir)), /^`\.claude\/settings\.json` isn't committed, and line 1 of `.*global-ignore`, `\.claude\/`, ignores it\. Run `git add -f \.claude\/settings\.json` and commit it\.$/);
+  });
+  // The fix is in the working copy only.
+  withRepo(shareRepo({
+    settings: { ...SHARED_SETTINGS, enabledPlugins: {} },
+    after: (dir) => write(dir, { '.claude/settings.json': json(SHARED_SETTINGS) }),
+  }), (dir) => {
+    assert.equal(settingsHint(dir), 'Your copy of `.claude/settings.json` registers the marketplace and turns the plugin on, but that change isn\'t committed. Run `git add .claude/settings.json` and commit it.');
+  });
+});
+
+test('a-6 fails until a component of your own is in the plugin and gone from .claude/', () => {
+  withRepo(shareRepo({ move: [] }), (dir) => {
+    assert.match(String(movedHint(dir)), /The plugin holds only the example's `onboard` skill and `config-reviewer` subagent\. Move one of your own into it: a skill to `team-marketplace\/plugins\/team-kit\/skills\/<name>\/SKILL\.md`, a subagent to `team-marketplace\/plugins\/team-kit\/agents\/<name>\.md`, or a hook into `team-marketplace\/plugins\/team-kit\/hooks\/hooks\.json`/);
+  });
+  // Copied, not moved.
+  withRepo(shareRepo({ move: [], files: { [`${TEAM_KIT}/agents/test-gaps.md`]: TEST_GAPS } }), (dir) => {
+    assert.equal(movedHint(dir), '`team-marketplace/plugins/team-kit/agents/test-gaps.md` is in the plugin, but `.claude/agents/test-gaps.md` is still committed, so the subagent loads twice, as `test-gaps` and `team-kit:test-gaps`. Run `git rm .claude/agents/test-gaps.md` and commit.');
+  });
+  // The same subagent name in a file of another name.
+  withRepo(shareRepo({ move: [], files: { [`${TEAM_KIT}/agents/review/gaps.md`]: TEST_GAPS } }), (dir) => {
+    assert.match(String(movedHint(dir)), /but `\.claude\/agents\/test-gaps\.md` is still committed/);
+  });
+  // A skill moved instead of the subagent.
+  withRepo(shareRepo({ move: [['.claude/skills/tdd', 'skills/tdd']] }), (dir) => {
+    assert.equal(movedHint(dir), true);
+  });
+  // A copied skill, by its folder or by its frontmatter name on either side.
+  for (const [files, twin] of [
+    [{ [`${TEAM_KIT}/skills/tdd/SKILL.md`]: TDD_SKILL }, '.claude/skills/tdd'],
+    [{ [`${TEAM_KIT}/skills/testing/SKILL.md`]: TDD_SKILL }, '.claude/skills/tdd'],
+    [{ [`${TEAM_KIT}/skills/review/SKILL.md`]: '---\ndescription: Reviews a change.\n---\n\nReview it.\n', '.claude/skills/checklist/SKILL.md': '---\nname: review\ndescription: Reviews a change.\n---\n' }, '.claude/skills/checklist'],
+  ]) {
+    withRepo(shareRepo({ move: [], files }), (dir) => {
+      const hint = String(movedHint(dir));
+      assert.match(hint, /so the skill loads twice, as `\/(tdd|review)` and `\/team-kit:(tdd|review)`/, hint);
+      assert.ok(hint.endsWith(`Run \`git rm -r ${twin}\` and commit.`), hint);
+    });
+  }
+  // On disk in the plugin, but not committed.
+  withRepo(shareRepo({ move: [], after: (dir) => write(dir, { [`${TEAM_KIT}/skills/release/SKILL.md`]: '---\ndescription: Cuts a release.\n---\n' }) }), (dir) => {
+    assert.equal(movedHint(dir), '`team-marketplace/plugins/team-kit/skills/release/SKILL.md` isn\'t committed. Run `git add team-marketplace/plugins/team-kit/skills/release/SKILL.md` and commit it.');
+  });
+  withRepo(shareRepo({ market: { ...TEAM_MARKET, plugins: [] } }), (dir) => {
+    assert.match(String(movedHint(dir)), /No committed marketplace lists a committed plugin yet/);
+  });
+});
+
+test('a-6 accepts a hook moved into hooks/hooks.json, and fails one still in the settings, still in .claude/ or whose script isn\'t committed', () => {
+  const hooksWith = (command, args) => json({ hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command, ...(args ? { args } : {}) }] }] } });
+  const moved = { move: [[PROTECT_HOOK, 'scripts/protect-files.sh']], settings: { ...SHARED_SETTINGS, hooks: undefined } };
+  for (const [command, args] of [['"${CLAUDE_PLUGIN_ROOT}/scripts/protect-files.sh"'], ['${CLAUDE_PLUGIN_ROOT}/scripts/protect-files.sh', []], ['bash', ['${CLAUDE_PLUGIN_ROOT}/scripts/protect-files.sh']]]) {
+    withRepo(shareRepo({ ...moved, move: [...moved.move], files: { [`${TEAM_KIT}/hooks/hooks.json`]: hooksWith(command, args) } }), (dir) => {
+      const { code, out } = a6(dir);
+      assert.equal(code, 0, `${command}: ${out}`);
+    });
+  }
+  const hook = `${TEAM_KIT}/hooks/hooks.json`;
+  // Left in the settings too.
+  withRepo(shareRepo({ ...moved, settings: SHARED_SETTINGS, files: { [hook]: hooksWith('"${CLAUDE_PLUGIN_ROOT}/scripts/protect-files.sh"') } }), (dir) => {
+    assert.match(String(movedHint(dir)), /`\.claude\/settings\.json` still runs the same hook, `protect-files\.sh`, so it would run twice each time its event fires\. Remove that hook from `\.claude\/settings\.json` and commit\./);
+  });
+  withRepo(shareRepo({ move: [], settings: { ...SHARED_SETTINGS, hooks: undefined }, files: { [hook]: hooksWith('${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-files.sh', []) } }), (dir) => {
+    assert.match(String(movedHint(dir)), /The hook in `team-marketplace\/plugins\/team-kit\/hooks\/hooks\.json` still runs `\$\{CLAUDE_PROJECT_DIR\}\/\.claude\/hooks\/protect-files\.sh`, a script in `\.claude\/`\. Move the script into the plugin/);
+  });
+  withRepo(shareRepo({ move: [], settings: { ...SHARED_SETTINGS, hooks: undefined }, files: { [hook]: hooksWith('"${CLAUDE_PLUGIN_ROOT}/scripts/check.sh"') } }), (dir) => {
+    assert.equal(movedHint(dir), 'The hook in `team-marketplace/plugins/team-kit/hooks/hooks.json` runs `team-marketplace/plugins/team-kit/scripts/check.sh`, which isn\'t in the plugin. Put the script there, or fix the path after `${CLAUDE_PLUGIN_ROOT}/`, and commit.');
+  });
+  withRepo(shareRepo({
+    move: [], settings: { ...SHARED_SETTINGS, hooks: undefined }, files: { [hook]: hooksWith('"${CLAUDE_PLUGIN_ROOT}/scripts/check.sh"') },
+    after: (dir) => write(dir, { [`${TEAM_KIT}/scripts/check.sh`]: '#!/bin/bash\nexit 0\n' }),
+  }), (dir) => {
+    assert.equal(movedHint(dir), 'The hook in `team-marketplace/plugins/team-kit/hooks/hooks.json` runs `team-marketplace/plugins/team-kit/scripts/check.sh`, but it isn\'t committed. Run `git add team-marketplace/plugins/team-kit/scripts/check.sh` and commit it.');
+  });
+  for (const text of ['{ "hooks": ', json({ PreToolUse: [] })]) {
+    withRepo(shareRepo({ move: [], files: { [hook]: text } }), (dir) => {
+      assert.match(String(movedHint(dir)), /isn't valid JSON|holds no hook\. Put the entry under a top-level `hooks` key/, text);
+    });
+  }
+});
+
+test('a-6 fails while git tracks a personal file, or only an uncommitted or uncommon rule ignores it', () => {
+  withRepo(shareRepo({ gitignore: '.practice/\nCLAUDE.local.md\n', files: { '.claude/settings.local.json': '{}\n' } }), (dir) => {
+    assert.equal(personalHint(dir), 'git tracks `.claude/settings.local.json`, which is yours alone. Run `git rm --cached .claude/settings.local.json`, add the line `.claude/settings.local.json` to `.gitignore`, and commit.');
+  });
+  withRepo(shareRepo({ gitignore: '.practice/\n', files: { 'CLAUDE.local.md': '# mine\n' }, after: (dir) => git(dir, 'rm', '-q', '--cached', 'CLAUDE.local.md') }), (dir) => {
+    const hint = String(personalHint(dir));
+    assert.match(hint, /^`CLAUDE\.local\.md` is still in your last commit\. Commit its removal\. No committed `\.gitignore` ignores `\.claude\/settings\.local\.json`\./);
+  });
+  withRepo(shareRepo({ gitignore: '.practice/\n' }), (dir) => {
+    assert.equal(personalHint(dir), 'No committed `.gitignore` ignores `.claude/settings.local.json` and `CLAUDE.local.md`. Add the lines `.claude/settings.local.json` and `CLAUDE.local.md` to `.gitignore` and commit it. A rule in your global git excludes file doesn\'t count: it isn\'t in the repository.');
+  });
+  withRepo(shareRepo({ gitignore: '.practice/\nCLAUDE.local.md\n', after: (dir) => write(dir, { '.git/info/exclude': '.practice/\n.claude/settings.local.json\n' }) }), (dir) => {
+    assert.match(String(personalHint(dir)), /^Only `\.git\/info\/exclude` ignores `\.claude\/settings\.local\.json`/);
+  });
+  // Where Claude Code adds its rule: the global excludes file.
+  withRepo(shareRepo({
+    gitignore: '.practice/\nCLAUDE.local.md\n',
+    after: (dir) => {
+      write(dir, { '.git/global-ignore': '**/.claude/settings.local.json\n' });
+      git(dir, 'config', 'core.excludesFile', join(dir, '.git', 'global-ignore'));
+    },
+  }), (dir) => {
+    assert.match(String(personalHint(dir)), /^No committed `\.gitignore` ignores `\.claude\/settings\.local\.json`\..*global git excludes file doesn't count/);
+  });
+  withRepo(shareRepo({ gitignore: '.practice/\n', after: (dir) => write(dir, { '.gitignore': PERSONAL_IGNORE }) }), (dir) => {
+    const hint = String(personalHint(dir));
+    assert.match(hint, /`\.gitignore` ignores `\.claude\/settings\.local\.json`, but that rule isn't committed\. Run `git add \.gitignore` and commit it\./);
+    assert.match(hint, /`\.gitignore` ignores `CLAUDE\.local\.md`, but that rule isn't committed/);
+  });
+  for (const gitignore of ['.practice/\n*.local.json\n*.local.md\n', '.practice/\n**/.claude/settings.local.json\n/CLAUDE.local.md\n']) {
+    withRepo(shareRepo({ gitignore }), (dir) => {
+      assert.equal(personalHint(dir), true, gitignore);
+    });
+  }
+});
+
+test('a-6 reads the saved validation, and says what is wrong with it', () => {
+  const save = '`claude plugin validate ./team-marketplace/plugins/team-kit --strict --json > .practice/a-6-validate.json`';
+  const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replace(/\n/g, '\r\n'), 'utf16le')]);
+  const elsewhere = '/nonexistent-a6-checkout/claude-code-practice';
+  for (const report of [
+    (dir, plugin) => reportOf(join(realpathSync(dir), plugin)),
+    // The folder as the Learner's shell named it, through a symlink such as macOS's /tmp.
+    (dir, plugin) => reportOf(join(dir, plugin, '.claude-plugin', 'plugin.json')),
+    reportOf(`${elsewhere}/${TEAM_KIT}/.claude-plugin/plugin.json`),
+    reportOf(`C:\\Users\\me\\repo\\${TEAM_KIT.replace(/\//g, '\\')}`),
+    (dir, plugin) => utf16(json(VALID_REPORT(dir, plugin))),
+  ]) {
+    withRepo(shareRepo({ report }), (dir) => {
+      assert.equal(validateHint(dir), true, String(report));
+    });
+  }
+  const other = mkdtempSync(join(tmpdir(), 'other-'));
+  try {
+    for (const [report, hint] of [
+      [null, `There is no \`.practice/a-6-validate.json\` yet. From the repository's root, once the plugin is in place, run ${save}.`],
+      ['✔ Validation passed\n', /holds the text report\. Save the JSON one, with `--json`/],
+      ['oops', /isn't JSON\. Save the report unchanged/],
+      [[], /it has no `success`/],
+      [reportOf('x', { success: false, manifest: { errors: [{ path: 'name', message: 'Plugin name cannot contain spaces' }], warnings: ['No version'] } }), /records a validation that failed\. It reports: `Plugin name cannot contain spaces`; `No version`\. Fix what it reports, run `claude plugin validate \.\/team-marketplace\/plugins\/team-kit --strict` until it passes/],
+      [reportOf('x', { success: false, manifest: null }), /records a validation that failed\. Fix what it reports/],
+      [(dir, plugin) => reportOf(join(realpathSync(dir), plugin), { strict: false }), /records a validation without `--strict`, which lets warnings through/],
+      [reportOf(''), /has no `target`/],
+      [(dir) => reportOf(join(realpathSync(dir), MARKETPLACE_ROOT, '.claude-plugin', 'marketplace.json')), /records a validation of the marketplace, .*, which doesn't open the plugin's skill and agent files\. Validate the plugin directory/],
+      [reportOf(other), /records a validation of `.*other-.*`, outside this repository, not of a plugin directory in it \(`\.\/team-marketplace\/plugins\/team-kit`\)/],
+      [(dir) => reportOf(realpathSync(dir)), /the repository itself, not of a plugin directory in it/],
+      [(dir) => reportOf(join(realpathSync(dir), MARKETPLACE_ROOT)), /records a validation of `team-marketplace`, which isn't a committed plugin directory \(`\.\/team-marketplace\/plugins\/team-kit`\)/],
+      [reportOf(`${elsewhere}/plugins/other/.claude-plugin/plugin.json`), /which isn't on this machine and doesn't end in a committed plugin directory \(`\.\/team-marketplace\/plugins\/team-kit`\)/],
+    ]) {
+      withRepo(shareRepo({ report }), (dir) => {
+        const result = validateHint(dir);
+        if (typeof hint === 'string') assert.equal(result, hint);
+        else assert.match(String(result), hint, JSON.stringify(report));
+      });
+    }
+  } finally {
+    rmSync(other, { recursive: true, force: true });
+  }
+});
+
+test('a-6 fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
+  withRepo(() => {
+    const dir = repo({ '.gitignore': '.practice/\nnode_modules/\n', 'README.md': '# demo\n' });
+    commit(dir, 'Start');
+    return dir;
+  }, (dir) => {
+    const { code, out } = check(['a-6', '--assert', 'fail', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+  // The solutions branch: a new skill in team-kit that .claude/skills/ never
+  // had, and a validation saved with its paths scrubbed.
+  withRepo(shareRepo({
+    move: [],
+    files: { [`${TEAM_KIT}/skills/release-notes/SKILL.md`]: '---\ndescription: Drafts release notes from the commits since the last tag.\n---\n' },
+    report: reportOf(`/tmp/claude-code-practice/${TEAM_KIT}/.claude-plugin/plugin.json`),
+  }), (dir) => {
+    const { code, out } = check(['a-6', '--assert', 'pass', '--dir', dir]);
     assert.equal(code, 0, out);
   });
 });
