@@ -60,7 +60,7 @@ Lessons with a tutor: b-1.
 
 Its sections are `## start`, `## your-turn`, `## check` and `## ladder`. Each `###` heading in the first three is one lesson step: `<id> | <lesson section and step> | <where it happens>`. Work through a step's lines in order:
 - `do`, `rule`: lesson quotes. A `do` is an instruction for the learner; a `rule` is a limit for the whole step. In a step marked `answer: read-only`, a `do` that ends in `?` is a question for the learner to type: show it with the "Ask it" line.
-- `predict`: ask it as written, before the line that follows it.
+- `predict`: ask it as written, before the line that follows it. Compare the answer only when the step's `expect` is due, even if it already seems to match.
 - `observe`, `report`, `recall`: ask as written. Ask a `recall` with the lesson out of view.
 - `expect`: the lesson's stated result. Show it only when the question or check right above it is done, then compare (rule 5). Never show a line from another step.
 - `note`: show it only when the learner's answer makes it relevant.
