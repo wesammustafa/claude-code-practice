@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Checks the relative links in a folder's Markdown files.
-//   node src/cli.js [folder]
+//   node src/cli.js [folder]   (the folder defaults to the current one)
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseConfig, DEFAULTS } from './config.js';
