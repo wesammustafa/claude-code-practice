@@ -220,7 +220,11 @@ export const movedComponent = {
       }));
     if (loose) return commitHint(repo, loose);
     const tutor = plugins.map((pl) => `${pl.dir ? `${pl.dir}/` : ''}${TUTOR}`).find((p) => committed.has(p));
-    if (tutor) return `${code(tutor)} is the practice copy's \`/tutor\` skill, which came with the template, so it doesn't count as one of your own. Move it back to \`.claude/skills/tutor/\` with \`git mv\`, then move a skill, a subagent or a hook of your own into the plugin, and commit.`;
+    if (tutor) {
+      // Still committed at its own path, the plugin's tutor is a copy: remove it rather than move it back.
+      const fix = committed.has(`.claude/${TUTOR}`) ? `Remove the copy with \`git rm -r ${shell(posix.dirname(tutor))}\`` : 'Move it back to `.claude/skills/tutor/` with `git mv`';
+      return `${code(tutor)} is the practice copy's \`/tutor\` skill, which came with the template, so it doesn't count as one of your own. ${fix}, then move a skill, a subagent or a hook of your own into the plugin, and commit.`;
+    }
     const [{ dir }] = plugins;
     const at = (rest) => code(dir ? `${dir}/${rest}` : rest);
     return `The plugin holds only the example's \`onboard\` skill and \`config-reviewer\` subagent. Move one of your own into it: a skill to ${at('skills/<name>/SKILL.md')}, a subagent to ${at('agents/<name>.md')}, or a hook into ${at('hooks/hooks.json')}, as Your turn describes, with \`git mv\` so the original leaves \`.claude/\`. Then commit.`;

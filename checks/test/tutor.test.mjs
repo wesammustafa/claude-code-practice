@@ -5,7 +5,7 @@
 // the guide's job: its tutor-quotes rule compares them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { frontmatter } from '../frontmatter.mjs';
@@ -76,6 +76,10 @@ test('the tutor folder holds one SKILL.md and a Markdown step script for each le
     .sort();
   assert.deepEqual(files, ['SKILL.md', ...tutored.map((id) => `steps/${id}.md`)].sort());
   assert.ok(tutored.length > 0);
+  // SKILL.md names the tutored lessons in three places; they must agree.
+  const lists = [...skillText.matchAll(/Lessons with a tutor: (.+?)\./g)].map((m) => m[1]);
+  assert.deepEqual(lists, [tutored.join(', '), tutored.join(', ')]);
+  for (const id of tutored) assert.match(String(skill.fields.description), new RegExp(`/tutor ${id}\\b`));
   for (const id of tutored) assert.ok(lessons[id], `${id} has no check`);
 });
 
@@ -140,6 +144,9 @@ test('every FAIL hint of a tutored check matches exactly one narrow key', () => 
       });
     }
     assert.equal(seen.size, keys.length, `${id}: a narrow key matches no fixture`);
+    // Every FAIL hint the check can return has a fixture: count the check's return statements that build a hint.
+    const source = readFileSync(join(root, 'checks', 'lessons', `${id}.mjs`), 'utf8');
+    assert.equal((source.match(/return `/g) ?? []).length, fixtures.fail.length, `${id}: a FAIL hint without a fixture`);
     withRepo(() => repo(fixtures.pass), (d) => assert.equal(check([id, '--dir', d]).code, 0));
   }
 });
@@ -150,6 +157,8 @@ test('the tutor changes no check result or hint', () => {
   const withTutor = exportHead(root);
   const without = exportHead(root, SKILL);
   try {
+    assert.ok(existsSync(join(withTutor, SKILL, 'SKILL.md')), 'the commit under test has no tutor');
+    assert.ok(!existsSync(join(without, SKILL)));
     const a = normalized(check(['all', '--dir', withTutor]).out, withTutor).split('\n');
     const b = normalized(check(['all', '--dir', without]).out, without).split('\n');
     // The lines that differ first, so a failure names the item; then the order.
