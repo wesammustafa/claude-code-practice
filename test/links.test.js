@@ -23,6 +23,7 @@ test('tells external links from relative ones', () => {
   assert.equal(isExternal('docs/setup.md'), false);
 });
 
+// TODO: test that brokenLinks skips the link targets that config.ignore lists.
 test('reports only the relative links whose file is missing', () => {
   const broken = brokenLinks(samples, { files: ['.'], ignore: [] });
   assert.deepEqual(broken, [{ file: 'guide.md', line: 5, target: 'missing.md' }]);

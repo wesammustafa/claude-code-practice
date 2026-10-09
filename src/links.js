@@ -1,4 +1,5 @@
 // Finds inline Markdown links, [text](target), outside code blocks.
+// TODO: also find reference-style links, [text][ref], whose target a [ref]: line defines elsewhere on the page.
 export function findLinks(markdown) {
   const links = [];
   let inFence = false;

@@ -17,6 +17,7 @@ export function brokenLinks(root, config) {
   const files = [...new Set(config.files.flatMap((entry) => markdownFiles(root, entry)))].sort();
   for (const file of files) {
     for (const link of findLinks(readFileSync(file, 'utf8'))) {
+      // FIXME: only the #fragment is cut off, so a target with a query string, such as setup.md?plain=1, is reported as broken.
       const target = link.target.split('#')[0];
       if (!target || isExternal(link.target)) continue;
       if (config.ignore.some((prefix) => link.target.startsWith(prefix))) continue;
