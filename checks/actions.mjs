@@ -398,13 +398,15 @@ export function claudeWorkflowsAt(repo, commit) {
 // The commits in HEAD's history that changed .github/workflows/, newest
 // first, each `{ commit, files }` with the workflow files that run the
 // action at that commit; commits with none are left out, so a commit that
-// deleted the workflows doesn't hide the ones before it.
+// deleted the workflows doesn't hide the ones before it. `--full-history`
+// walks both sides of a merge: by default, git follows only the parent whose
+// workflows the merge kept, which can hide the other side's.
 export function claudeHistory(repo) {
   const cache = cacheOf(repo);
   if (!cache.history) {
     let commits = [];
     try {
-      commits = repo.gitLocal('log', '--format=%H', '--', WORKFLOWS).split('\n').filter(Boolean);
+      commits = repo.gitLocal('log', '--full-history', '--format=%H', '--', WORKFLOWS).split('\n').filter(Boolean);
     } catch {
       // No commits yet.
     }
