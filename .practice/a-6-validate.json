@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "strict": true,
+  "target": "/tmp/claude-code-practice/team-marketplace/plugins/team-kit/.claude-plugin/plugin.json",
+  "manifest": {
+    "file": "/tmp/claude-code-practice/team-marketplace/plugins/team-kit/.claude-plugin/plugin.json",
+    "type": "plugin",
+    "errors": [],
+    "warnings": [],
+    "notes": []
+  },
+  "contents": []
+}
