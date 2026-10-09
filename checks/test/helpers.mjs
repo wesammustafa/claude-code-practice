@@ -1,7 +1,7 @@
 // Shared by the checks' tests: a throwaway git repository to point a check at,
 // and the check command run the way a Learner runs it.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +35,28 @@ export function commit(dir, message, paths) {
   else if (paths.length) git('add', ...paths);
   git('commit', '-q', '--allow-empty', '-m', message);
   return git('rev-parse', 'HEAD');
+}
+
+// HEAD as git archive exports it, in a new repository with one commit, as
+// "Use this template" makes a copy. `drop` is a folder to leave out, with any
+// parent it leaves empty. It reads the commit, not the working tree: commit a
+// change before you test it.
+export function exportHead(root, drop) {
+  const dir = repo();
+  const tar = execFileSync('git', ['archive', '--format=tar', 'HEAD'], { cwd: root, maxBuffer: 1 << 28 });
+  execFileSync('tar', ['-x', '-C', dir], { input: tar });
+  if (drop) {
+    rmSync(join(dir, drop), { recursive: true, force: true });
+    for (let p = dirname(drop); p !== '.'; p = dirname(p)) {
+      try {
+        rmdirSync(join(dir, p));
+      } catch {
+        break;
+      }
+    }
+  }
+  commit(dir, 'Initial commit');
+  return dir;
 }
 
 // The runner gets the environment a Learner's shell has. NODE_TEST_CONTEXT,
