@@ -11,7 +11,7 @@ fi
 
 mkdir -p "$(dirname "$out")"
 git diff --cached | claude -p "Review this staged diff for bugs, missing tests and unclear code. List each problem as file:line and one sentence, then say whether it is ready to commit." \
-  --output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 > "$out"
+  --model sonnet --output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 > "$out"
 status=$?
 
 jq -r '.result // empty' "$out"
