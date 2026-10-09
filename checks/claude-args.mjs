@@ -4,7 +4,9 @@
 // next argument only when it isn't an option; a flag that takes a list keeps
 // taking arguments until the next option, so a prompt written after
 // `--allowedTools Read` becomes a tool name. Shared by the Advanced checks
-// that run a script with a stand-in for `claude`.
+// that run a script with a stand-in for `claude`. When a script never
+// reaches its `claude` call under the stand-in, `scriptCalls` reads the
+// call's arguments from the script's text instead.
 
 // The options `claude --help` lists at v2.1.285, and the documented ones it
 // leaves out, written as --help writes them: `<value>`, `[optional value]`
@@ -214,4 +216,204 @@ export function ruleList(values) {
     if (current) entries.push(current);
   }
   return entries;
+}
+
+// The `claude` commands in a shell script, read without running it: each
+// command's arguments, in order. Backslash line ends join lines, comments
+// go and quotes come off. `$NAME` and `${NAME}` take the value of a plain
+// assignment earlier in the script, split into words when unquoted, and
+// `${NAME:-default}` takes its default when the script never sets NAME.
+// Anything else, such as `$1` or `$(command)`, stays as written. Commands
+// inside `$(...)` and backticks count too, and a here-document's text is
+// skipped. A command that runs Claude Code by its path, such as
+// `~/.local/bin/claude`, counts as a `claude` command.
+export function scriptCalls(text) {
+  const calls = [];
+  scan(String(text ?? '').replace(/\r\n?/g, '\n'), new Map(), calls);
+  return calls;
+}
+
+// Words that can come before a command's name.
+const LEADING = new Set(['if', 'then', 'elif', 'else', 'do', 'while', 'until', '!', '{', 'exec', 'command', 'builtin', 'time', 'nohup']);
+const DECLARE = new Set(['export', 'readonly', 'local', 'declare', 'typeset']);
+const ASSIGNMENT = /^([A-Za-z_]\w*)=([\s\S]*)$/;
+const NAME = /^[A-Za-z_]\w*/;
+
+// The index just past the `close` that matches the `open` at `start`,
+// skipping quoted text; the end of `src` when there is none.
+function matching(src, start, open, close) {
+  let depth = 0;
+  for (let i = start; i < src.length; i += 1) {
+    const c = src[i];
+    if (c === '\\') i += 1;
+    else if (c === "'" || c === '"') {
+      const end = src.indexOf(c, i + 1);
+      i = end === -1 ? src.length : end;
+    } else if (c === open) depth += 1;
+    else if (c === close && (depth -= 1) === 0) return i + 1;
+  }
+  return src.length;
+}
+
+function scan(src, vars, calls) {
+  let words = [];
+  let word = null;
+  let target = false;
+  let heredocs = [];
+  const end = () => {
+    if (word !== null) {
+      if (target) target = false;
+      else words.push(word);
+    }
+    word = null;
+  };
+  const add = (value, quoted) => {
+    if (quoted || !/\s/.test(value)) {
+      word = (word ?? '') + value;
+      return;
+    }
+    // An unquoted value with spaces becomes several words.
+    value.split(/(\s+)/).forEach((part) => {
+      if (/^\s+$/.test(part)) end();
+      else if (part) word = (word ?? '') + part;
+    });
+  };
+  const finish = () => {
+    end();
+    let k = 0;
+    const assigned = [];
+    while (k < words.length) {
+      if (LEADING.has(words[k])) k += 1;
+      else if (DECLARE.has(words[k])) {
+        k += 1;
+        while (k < words.length && words[k].startsWith('-')) k += 1;
+      } else if (ASSIGNMENT.test(words[k])) {
+        assigned.push(words[k].match(ASSIGNMENT));
+        k += 1;
+      } else break;
+    }
+    if (k === words.length) for (const [, name, value] of assigned) vars.set(name, value);
+    if (words[k] === 'env') {
+      k += 1;
+      while (k < words.length && (words[k].startsWith('-') || ASSIGNMENT.test(words[k]))) k += 1;
+    }
+    if (k < words.length && /(^|\/)claude$/.test(words[k])) calls.push(words.slice(k + 1));
+    words = [];
+  };
+  // Reads a `$` expansion at `i` and returns the index after it.
+  const expand = (i, quoted) => {
+    const next = src[i + 1];
+    if (next === '(') {
+      const stop = matching(src, i + 1, '(', ')');
+      // `$((...))` is arithmetic, not a command.
+      if (src[i + 2] !== '(') scan(src.slice(i + 2, stop - 1), new Map(vars), calls);
+      add(src.slice(i, stop), true);
+      return stop;
+    }
+    // `$'...'` quotes like '...'.
+    if (next === "'" && !quoted) return i + 1;
+    if (next === '{') {
+      const stop = matching(src, i + 1, '{', '}');
+      const inner = src.slice(i + 2, stop - 1);
+      const m = inner.match(/^([A-Za-z_]\w*)(?:(:?[-=])([\s\S]*))?$/);
+      if (m && vars.has(m[1])) add(vars.get(m[1]), quoted);
+      else if (m && m[2]) add(m[3], quoted);
+      else add(src.slice(i, stop), true);
+      return stop;
+    }
+    const name = src.slice(i + 1).match(NAME)?.[0];
+    if (name) {
+      add(vars.has(name) ? vars.get(name) : `$${name}`, vars.has(name) ? quoted : true);
+      return i + 1 + name.length;
+    }
+    if (next && /[\d@*#?$!-]/.test(next)) {
+      add(`$${next}`, true);
+      return i + 2;
+    }
+    add('$', true);
+    return i + 1;
+  };
+  // Reads a backtick command at `i` and returns the index after it.
+  const backtick = (i) => {
+    const close = src.indexOf('`', i + 1);
+    const stop = close === -1 ? src.length : close + 1;
+    scan(src.slice(i + 1, close === -1 ? src.length : close), new Map(vars), calls);
+    add(src.slice(i, stop), true);
+    return stop;
+  };
+
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '\\') {
+      if (src[i + 1] !== '\n') add(src[i + 1] ?? '', true);
+      i += 2;
+    } else if (c === "'") {
+      const stop = src.indexOf("'", i + 1);
+      add(src.slice(i + 1, stop === -1 ? src.length : stop), true);
+      i = stop === -1 ? src.length : stop + 1;
+    } else if (c === '"') {
+      word ??= '';
+      i += 1;
+      while (i < src.length && src[i] !== '"') {
+        if (src[i] === '\\' && /["\\$`\n]/.test(src[i + 1] ?? '')) {
+          if (src[i + 1] !== '\n') add(src[i + 1], true);
+          i += 2;
+        } else if (src[i] === '$') i = expand(i, true);
+        else if (src[i] === '`') i = backtick(i);
+        else {
+          add(src[i], true);
+          i += 1;
+        }
+      }
+      i += 1;
+    } else if (c === '$') {
+      i = expand(i, false);
+    } else if (c === '`') {
+      i = backtick(i);
+    } else if (c === '#' && word === null) {
+      while (i < src.length && src[i] !== '\n') i += 1;
+    } else if (c === '>' || c === '<' || (c === '&' && src[i + 1] === '>')) {
+      // A file descriptor written right before the operator, as in 2>, isn't a word.
+      if (word !== null && /^\d+$/.test(word)) word = null;
+      end();
+      if (c === '<' && src[i + 1] === '<' && src[i + 2] !== '<') {
+        const m = src.slice(i).match(/^<<-?\s*(['"]?)([^\s'";|&<>()]+)\1/);
+        if (m) {
+          heredocs.push(m[2]);
+          i += m[0].length;
+          continue;
+        }
+      }
+      i += c === '&' ? 2 : 1;
+      if (src[i] === '>' || src[i] === '|' || src[i] === '<') i += 1;
+      if (src[i] === '&') {
+        i += 1;
+        while (/[\d-]/.test(src[i] ?? '')) i += 1;
+      } else target = true;
+    } else if (c === '\n' || c === ';' || c === '&' || c === '|' || c === '(' || c === ')') {
+      finish();
+      if ((c === '&' || c === '|') && src[i + 1] === c) i += 1;
+      i += 1;
+      // A here-document's text starts on the line after its operator.
+      if (c === '\n' && heredocs.length) {
+        for (const delimiter of heredocs) {
+          while (i < src.length) {
+            const stop = src.indexOf('\n', i);
+            const line = src.slice(i, stop === -1 ? src.length : stop);
+            i = stop === -1 ? src.length : stop + 1;
+            if (line.replace(/^\t+/, '') === delimiter) break;
+          }
+        }
+        heredocs = [];
+      }
+    } else if (/\s/.test(c)) {
+      end();
+      i += 1;
+    } else {
+      add(c, true);
+      i += 1;
+    }
+  }
+  finish();
 }

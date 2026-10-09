@@ -8,13 +8,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { claudeArgWords, parseYaml, readWorkflow as readActions } from '../actions.mjs';
-import { parseClaudeArgs, ruleList } from '../claude-args.mjs';
+import { parseClaudeArgs, ruleList, scriptCalls } from '../claude-args.mjs';
 import { callHints, RESULT, SCRIPT, savedRun, scriptBehavior, scriptCall } from '../lessons/a-4.mjs';
 import { chosenWorkflow, dispatchedRun, pinnedWorkflow, RUNS, WORKFLOW, workflowLimits } from '../lessons/a-5.mjs';
 import { movedComponent, personalFiles, sharedSettings, strictValidation, teamMarketplace, VALIDATE } from '../lessons/a-6.mjs';
+import { boundedScript, CAPPED, cappedRun, narrowRules, runLimits, SCRIPT as RUNNER, SLICE, sliceRun, stops, strictSandbox, wideReason } from '../lessons/a-7.mjs';
 import { nameProblem } from '../marketplace.mjs';
 import { openRepo } from '../repo.mjs';
-import { runStubbed, STUB_SESSION } from '../stub-claude.mjs';
+import { runStubbed, scratchPath, STUB_SESSION } from '../stub-claude.mjs';
 import { readWorkflow } from '../workflow-script.mjs';
 import { parseWorktrees } from '../worktrees.mjs';
 import { check, commit, repo, withRepo, write } from './helpers.mjs';
@@ -2226,6 +2227,542 @@ test('a-6 fails on an unsolved repository and passes on a solved one, as the tem
     report: reportOf(`/tmp/claude-code-practice/${TEAM_KIT}/.claude-plugin/plugin.json`),
   }), (dir) => {
     const { code, out } = check(['a-6', '--assert', 'pass', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+// A repository after lesson a-7: the bounded runner and its bounds file
+// committed, the Intermediate settings in .claude/settings.json, and two real
+// runs saved, a slice of a task and a run a limit stopped. The options
+// replace a step: `script` (null for none) is saved with `mode` and committed
+// unless `commitScript` is false; `bounds` (null for none) is the bounds
+// file, as an object or text, committed unless `commitBounds` is false;
+// `settings` is the committed .claude/settings.json (null for none);
+// `gitignore` is committed first; `slice` and `capped` (null for none) are
+// the saved runs, as objects, text or Buffers; `after` changes the
+// repository last. The items run the script with a stand-in for `claude`,
+// never Claude Code itself.
+const BOUNDS_PATH = '.claude/bounded-run.json';
+const BOUNDED_CALL = [
+  'claude -p "$1" \\',
+  '  --setting-sources project \\',
+  `  --settings ${BOUNDS_PATH} \\`,
+  '  --permission-mode dontAsk \\',
+  '  --model sonnet \\',
+  '  --max-turns 15 \\',
+  '  --max-budget-usd 2 \\',
+  '  --output-format json > "$2"',
+].join('\n');
+const BOUNDED = [
+  '#!/bin/bash',
+  `# Runs one unattended task inside the bounds in ${BOUNDS_PATH}.`,
+  'set -u',
+  'if [ $# -ne 2 ]; then',
+  '  echo \'Usage: scripts/bounded-run.sh "<task>" <result.json>\' >&2',
+  '  exit 2',
+  'fi',
+  'before=$(git rev-parse --short HEAD)',
+  BOUNDED_CALL,
+  'status=$?',
+  'jq \'{subtype, num_turns, total_cost_usd, denied: [.permission_denials[]? | .tool_input.command // .tool_name]}\' "$2"',
+  'echo "HEAD before: $before, after: $(git rev-parse --short HEAD)"',
+  'git status --short',
+  'exit "$status"',
+  '',
+].join('\n');
+const BOUNDS = {
+  permissions: {
+    allow: ['Edit(./src/**)', 'Edit(./test/**)', 'Bash(npm test *)'],
+    deny: ['Agent', 'Read(./.env)', 'Read(./.env.*)', 'Bash(git commit *)', 'Bash(git push *)'],
+  },
+  sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: false },
+};
+const PROJECT_SETTINGS = { permissions: { allow: ['Bash(npm test)'], deny: ['Read(./.env)', 'Read(./.env.*)'] }, sandbox: { enabled: true } };
+const SESSION = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const SLICE_RUN = {
+  type: 'result', subtype: 'success', is_error: false, num_turns: 9, total_cost_usd: 0.42,
+  result: 'Added test/total.test.js for total(); npm test passes. The commit was denied.',
+  session_id: SESSION, permission_denials: [{ tool_name: 'Bash', tool_use_id: 'toolu_00000000000000000000000000', tool_input: { command: 'git commit -m "Add a test for total"' } }],
+};
+const CAPPED_RUN = { type: 'result', subtype: 'error_max_budget_usd', is_error: true, num_turns: 1, total_cost_usd: 0.03, session_id: SESSION, permission_denials: [] };
+
+// The runner with each `[from, to]` replaced.
+function runner(...pairs) {
+  return pairs.reduce((text, [from, to]) => {
+    assert.ok(text.includes(from), `the runner has no ${JSON.stringify(from)}`);
+    return text.replace(from, () => to);
+  }, BOUNDED);
+}
+const runnerCall = (call) => runner([BOUNDED_CALL, call]);
+const boundsWith = (change) => {
+  const bounds = structuredClone(BOUNDS);
+  change(bounds);
+  return bounds;
+};
+
+function boundedRepo({ script = BOUNDED, mode = 0o755, commitScript = true, bounds = BOUNDS, commitBounds = true, settings = PROJECT_SETTINGS, gitignore = '.practice/\n', slice = SLICE_RUN, capped = CAPPED_RUN, after } = {}) {
+  return () => {
+    const dir = repo({ '.gitignore': gitignore, 'README.md': '# demo\n', 'src/total.js': TOTAL });
+    if (settings !== null) write(dir, { '.claude/settings.json': typeof settings === 'string' ? settings : json(settings) });
+    commit(dir, 'Start');
+    if (bounds !== null) {
+      write(dir, { [BOUNDS_PATH]: typeof bounds === 'string' ? bounds : json(bounds) });
+      if (commitBounds) commit(dir, 'Add the bounds', [BOUNDS_PATH]);
+    }
+    if (script !== null) {
+      write(dir, { [RUNNER]: script });
+      chmodSync(join(dir, RUNNER), mode);
+      if (commitScript) commit(dir, 'Add the bounded runner', [RUNNER]);
+    }
+    for (const [path, run] of [[SLICE, slice], [CAPPED, capped]]) {
+      if (run !== null) write(dir, { [path]: typeof run === 'string' || Buffer.isBuffer(run) ? run : JSON.stringify(run, null, 2) });
+    }
+    after?.(dir);
+    return dir;
+  };
+}
+
+const a7 = (dir) => check(['a-7', '--dir', dir]);
+// One item on its own, which runs only what that item needs.
+const runnerHint = (dir) => boundedScript().check(openRepo(dir));
+const limitHint = (dir) => runLimits().check(openRepo(dir));
+const ruleHint = (dir) => narrowRules().check(openRepo(dir));
+const sandboxHint = (dir) => strictSandbox().check(openRepo(dir));
+const sliceHint = (dir) => sliceRun().check(openRepo(dir));
+const cappedHint = (dir) => cappedRun().check(openRepo(dir));
+// The first four items, which read the committed runner and bounds, from
+// one run of it.
+const committedHints = (dir) => {
+  const opened = openRepo(dir);
+  return [boundedScript(), runLimits(), narrowRules(), strictSandbox()].map((item) => item.check(opened));
+};
+
+test('a-7 passes for the lesson\'s runner and bounds, committed, and a slice and a capped run saved', () => {
+  withRepo(boundedRepo(), (dir) => {
+    const { code, out } = a7(dir);
+    assert.equal(code, 0, out);
+    assert.match(out, /6 of 6 passed/);
+  });
+});
+
+test('a-7 says to write the runner, commit it or make it executable', () => {
+  withRepo(boundedRepo({ script: null }), (dir) => {
+    const { code, out } = a7(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /There is no `scripts\/bounded-run\.sh`\. Write it as the lesson shows, then commit it\./);
+    assert.match(out, /Commit `scripts\/bounded-run\.sh` first: the check runs the committed script\./);
+  });
+  withRepo(boundedRepo({ commitScript: false }), (dir) => {
+    assert.equal(runnerHint(dir), '`scripts/bounded-run.sh` isn\'t committed. Run `git add scripts/bounded-run.sh` and commit it.');
+  });
+  withRepo(boundedRepo({ mode: 0o644 }), (dir) => {
+    const { code, out } = a7(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /isn't executable\. Run `chmod \+x scripts\/bounded-run\.sh`, then `git add scripts\/bounded-run\.sh` and commit\. On Windows, run `git update-index --chmod=\+x scripts\/bounded-run\.sh`/);
+    assert.match(out, /5 of 6 passed/);
+  });
+});
+
+test('a-7 runs the committed runner, not the working copy, and points out uncommitted changes', () => {
+  withRepo(boundedRepo({ script: runner(['--permission-mode dontAsk', '--permission-mode auto']), after: (dir) => write(dir, { [RUNNER]: BOUNDED }) }), (dir) => {
+    assert.match(String(runnerHint(dir)), /It runs in `auto` mode: use `--permission-mode dontAsk`, so every call that would ask for permission is denied\. Your copy of `scripts\/bounded-run\.sh` has changes that aren't committed: if they fix this, commit them\./);
+  });
+  withRepo(boundedRepo({ after: (dir) => write(dir, { [RUNNER]: runner(['--permission-mode dontAsk', '--permission-mode auto']) }) }), (dir) => {
+    assert.equal(runnerHint(dir), true);
+  });
+});
+
+test('a-7 accepts the call written in other ways', () => {
+  const inline = `'${JSON.stringify(BOUNDS)}'`;
+  for (const script of [
+    // --flag=value, and the flags in another order.
+    runnerCall(`claude --output-format=json --max-turns=15 --max-budget-usd=2.50 --permission-mode=dontAsk --settings=${BOUNDS_PATH} -p "$1" > "$2"`),
+    // Values in variables, quoted and not.
+    runner(['set -u\n', 'set -u\nturns=15\nbudget=0.5\nbounds=.claude/bounded-run.json\n'], ['--max-turns 15', '--max-turns "$turns"'], ['--max-budget-usd 2', '--max-budget-usd $budget'], [`--settings ${BOUNDS_PATH}`, '--settings "$bounds"']),
+    // The flags in an array.
+    runnerCall(`limits=(--max-turns 15 --max-budget-usd .5)\nclaude -p "$1" --settings ${BOUNDS_PATH} --permission-mode dontAsk "\${limits[@]}" --output-format json > "$2"`),
+    // From the repository's root, with the settings file's full path.
+    runnerCall(`root=$(git rev-parse --show-toplevel)\ncd "$root" || exit 1\nclaude -p "$1" --settings "$root/${BOUNDS_PATH}" --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    // From another folder, with a relative path from there.
+    runnerCall(`out=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")\ncd scripts || exit 1\nclaude -p "$1" --settings ../${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$out"`),
+    // The task on stdin, or inside a longer prompt.
+    runnerCall(`printf '%s\\n' "$1" | claude -p --settings ${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    runnerCall(`claude -p "Do this task, and only this: $1 Then stop." --settings ${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    // A runner that checks its bounds file before the run.
+    runner(['set -u\n', `set -u\njq empty ${BOUNDS_PATH} || { echo "No valid ${BOUNDS_PATH}." >&2; exit 1; }\n`]),
+    // The bounds inline, and the rules as flags.
+    runnerCall(`claude -p "$1" --settings ${inline} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    runnerCall(`claude -p "$1" --settings '${JSON.stringify({ sandbox: BOUNDS.sandbox })}' --allowedTools "Edit(./src/**)" "Bash(npm test)" --disallowedTools "Bash(git commit:*),Bash(git push:*)" --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+  ]) {
+    withRepo(boundedRepo({ script }), (dir) => {
+      assert.deepEqual(committedHints(dir), [true, true, true, true], script);
+    });
+  }
+});
+
+test('a-7 names what the first item finds wrong with the call', () => {
+  for (const [from, to, hint] of [
+    ['--permission-mode dontAsk', '--permission-mode bypassPermissions', /It runs in `bypassPermissions` mode: use `--permission-mode dontAsk`/],
+    ['--permission-mode dontAsk', '--permission-mode dontask', /Write `dontAsk` as Claude Code spells it, not `dontask`\./],
+    ['--permission-mode dontAsk', '--permission-mode', /`--permission-mode` has no mode after it, so it takes `--model` as its value: write `--permission-mode dontAsk`\./],
+    ['--output-format json', '--output-format', /`--output-format` has no format after it: write `--output-format json`\./],
+    ['  --permission-mode dontAsk \\\n', '', /It sets no permission mode: add `--permission-mode dontAsk`/],
+    ['--permission-mode dontAsk', '--dangerously-skip-permissions', /Drop `--dangerously-skip-permissions`: it is the same as `--permission-mode bypassPermissions`, which skips your permission checks\. It sets no permission mode/],
+    ['--permission-mode dontAsk', '--permission-mode dontAsk --allow-dangerously-skip-permissions', /Drop `--allow-dangerously-skip-permissions`: a bounded run never switches to `bypassPermissions`\./],
+    ['--permission-mode dontAsk', '--permissionMode dontAsk', /Claude Code doesn't know `--permissionMode`, so it stops with an error before the run starts: write `--permission-mode`\./],
+    ['--output-format json', '--output-format text', /It asks for `--output-format text`: use `json`, so the result path holds the run's result as one JSON object\./],
+    ['--output-format json', '--output-format stream-json --verbose', /It asks for `--output-format stream-json`: use `json`/],
+    ['  --output-format json > "$2"', '  > "$2"', /It doesn't ask for JSON: add `--output-format json`\./],
+  ]) {
+    withRepo(boundedRepo({ script: runner([from, to]) }), (dir) => {
+      assert.match(String(runnerHint(dir)), hint, to);
+    });
+  }
+});
+
+test('a-7 checks that the task reaches claude -p as its prompt, and the JSON lands where the second argument says', () => {
+  for (const [script, hint] of [
+    [runner(['claude -p "$1"', 'claude -p $1']), /It passes the task without quotes, so the shell splits it into words and Claude gets only the first\. Write `"\$1"`, in double quotes\./],
+    [runner(['claude -p "$1"', 'claude -p "Add the missing tests."']), /The task in its first argument never reaches `claude -p`\. Pass it as the prompt, right after `-p`/],
+    [runner(['claude -p "$1"', 'claude -p --allowedTools "Edit(./src/**)" "$1"']), /The task ends up in the value of `--allowed-tools`, not in the prompt\. Write the prompt right after `-p`/],
+    [runner(['--output-format json > "$2"', '--output-format json > .practice/a-7-slice.json']), /It saved the JSON `claude -p` printed to `\.practice\/a-7-slice\.json`, not to the path in its second argument\. Redirect only its standard output to the path in the second argument: `claude -p "\$1" \.\.\. > "\$2"`\./],
+    [runner(['--output-format json > "$2"', '--output-format json > /dev/null']), /It didn't save the JSON `claude -p` printed to the path in its second argument\./],
+    [runner(['--output-format json > "$2"', '--output-format json | jq .result > "$2"']), /The file at the path in its second argument isn't the JSON `claude -p` printed\./],
+  ]) {
+    withRepo(boundedRepo({ script }), (dir) => {
+      assert.match(String(runnerHint(dir)), hint);
+    });
+  }
+});
+
+test('a-7 wants one claude -p call, and says how a runner that never makes one ended', () => {
+  withRepo(boundedRepo({ script: runner(['status=$?\n', `status=$?\n${BOUNDED_CALL.replace('> "$2"', '> /dev/null')}\n`]) }), (dir) => {
+    assert.match(String(runnerHint(dir)), /With one task, it ran `claude -p` 2 times\. Run it once\./);
+  });
+  withRepo(boundedRepo({ script: runner(['claude -p "$1"', 'claude "$1"']) }), (dir) => {
+    assert.match(String(runnerHint(dir)), /Run as `scripts\/bounded-run\.sh "<task>" <result\.json>`, `scripts\/bounded-run\.sh` ran `claude` without `-p` \(or `--print`\), which starts an interactive session and waits for you\./);
+  });
+  withRepo(boundedRepo({ script: runner(['set -u\n', 'set -u\nclaude --version > /dev/null || exit 1\n']) }), (dir) => {
+    assert.equal(runnerHint(dir), true);
+  });
+  // A runner with another interface: the stand-in sees no call, so the
+  // other items read the call from the script's text.
+  withRepo(boundedRepo({ script: runner(['if [ $# -ne 2 ]', 'if [ $# -ne 3 ]']) }), (dir) => {
+    assert.match(String(runnerHint(dir)), /Run as `scripts\/bounded-run\.sh "<task>" <result\.json>`, `scripts\/bounded-run\.sh` never ran `claude -p`\. It exited with 2: Usage: scripts\/bounded-run\.sh "<task>" <result\.json> Make the script take the task as its first argument and the result path as its second\./);
+    assert.deepEqual(committedHints(dir).slice(1), [true, true, true]);
+  });
+  withRepo(boundedRepo({ script: runner(['if [ $# -ne 2 ]', 'if [ $# -ne 3 ]'], ['--max-turns 15', '--max-turns "$TURNS"'], ['--max-budget-usd 2', '--max-budget-usd 0']) }), (dir) => {
+    assert.match(String(limitHint(dir)), /`--max-turns \$TURNS` gets its value from a variable the check can't work out: write the number in the script\. `--max-budget-usd 0` isn't above 0/);
+  });
+  withRepo(boundedRepo({ script: '#!/bin/bash\necho "Not written yet." >&2\nexit 1\n' }), (dir) => {
+    const hints = committedHints(dir);
+    assert.match(String(hints[0]), /never ran `claude -p`\. It exited with 1: Not written yet\./);
+    for (const hint of hints.slice(1)) assert.match(String(hint), /`scripts\/bounded-run\.sh` never ran `claude -p`, and the check found no `claude -p` call in its text\. It exited with 1: Not written yet\./);
+  });
+});
+
+test('a-7 refuses to run a runner that could reach the real Claude Code, and reads its call from the text', () => {
+  const outside = mkdtempSync(join(tmpdir(), 'a7-ran-'));
+  const ran = join(outside, 'ran');
+  try {
+    for (const [script, why] of [
+      [runner(['claude -p "$1"', '~/.local/bin/claude -p "$1"']), /calls Claude Code by its path, `~\/\.local\/bin\/claude`/],
+      [runner(['claude -p "$1"', 'npx @anthropic-ai/claude-code -p "$1"']), /runs Claude Code through `npx`/],
+      [runner(['set -u\n', 'set -u\nPATH="$HOME/.local/bin:$PATH"\n']), /changes `PATH`/],
+    ]) {
+      withRepo(boundedRepo({ script: script.replace('set -u\n', () => `set -u\ntouch "${ran}"\n`) }), (dir) => {
+        const [first, ...rest] = committedHints(dir);
+        assert.match(String(first), why);
+        assert.match(String(first), /which the stand-in can't replace, so the check didn't run it\./);
+        assert.equal(existsSync(ran), false, `the check ran ${script}`);
+        if (!/npx/.test(script)) assert.deepEqual(rest, [true, true, true]);
+      });
+    }
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
+  withRepo(boundedRepo({ script: BOUNDED.replace(/\n/g, '\r\n') }), (dir) => {
+    assert.match(String(runnerHint(dir)), /The committed `scripts\/bounded-run\.sh` has Windows line ends \(CRLF\), which bash can't run\./);
+    assert.equal(limitHint(dir), true);
+  });
+});
+
+test('a-7 says what is wrong with the settings file the call names', () => {
+  withRepo(boundedRepo({ script: runner([`  --settings ${BOUNDS_PATH} \\\n`, '']) }), (dir) => {
+    assert.match(String(runnerHint(dir)), /It passes no settings file: add `--settings` with the committed file that holds the bounds, such as `--settings \.claude\/bounded-run\.json`\./);
+    assert.match(String(sandboxHint(dir)), /The run gets no settings file, so nothing turns the sandbox on: pass the bounds file with `--settings`/);
+  });
+  withRepo(boundedRepo({ commitBounds: false }), (dir) => {
+    const hint = String(runnerHint(dir));
+    assert.match(hint, /`\.claude\/bounded-run\.json` isn't committed\. Run `git add \.claude\/bounded-run\.json` and commit it\. The run reads its bounds from that file\./);
+    assert.equal(ruleHint(dir), hint.match(/`\.claude\/bounded-run\.json` isn't committed\.[^]*that file\./)[0]);
+  });
+  // An ignore rule for .claude/, such as a global one, needs git add -f.
+  withRepo(boundedRepo({ settings: null, gitignore: '.practice/\n.claude/\n', commitBounds: false }), (dir) => {
+    assert.match(String(runnerHint(dir)), /isn't committed, and line 2 of `\.gitignore`, `\.claude\/`, ignores it\. Run `git add -f \.claude\/bounded-run\.json` and commit it\./);
+  });
+  withRepo(boundedRepo({ bounds: null }), (dir) => {
+    assert.match(String(runnerHint(dir)), /`--settings` names `\.claude\/bounded-run\.json`, which doesn't exist\. Save the bounds there, as the lesson shows, and commit the file\./);
+  });
+  withRepo(boundedRepo({ bounds: '{ "permissions": { "allow": [ } }\n' }), (dir) => {
+    assert.match(String(sandboxHint(dir)), /The committed `\.claude\/bounded-run\.json` isn't valid JSON: /);
+  });
+  withRepo(boundedRepo({ script: runner([`--settings ${BOUNDS_PATH}`, '--settings ~/bounded-run.json']) }), (dir) => {
+    assert.match(String(runnerHint(dir)), /`--settings` names `[^`]*\/bounded-run\.json`, which is outside your repository\. Pass a file committed in it/);
+  });
+  withRepo(boundedRepo({ script: runner([`--settings ${BOUNDS_PATH}`, '--settings \'{"sandbox": {"enabled": true,}}\'']) }), (dir) => {
+    assert.match(String(runnerHint(dir)), /The inline `--settings` JSON isn't valid JSON: /);
+  });
+});
+
+test('a-7 names each turn and spend limit that is missing or not a usable number', () => {
+  for (const [from, to, hint] of [
+    ['  --max-turns 15 \\\n', '', /^It sets no turn limit: add `--max-turns` with a whole number of 1 or more\.$/],
+    ['  --max-budget-usd 2 \\\n', '', /^It sets no spend limit: add `--max-budget-usd` with an amount in US dollars, above what a slice of the task costs\.$/],
+    ['--max-turns 15', '--max-turns 0', /`--max-turns 0` is below 1: write a whole number of 1 or more\./],
+    ['--max-turns 15', '--max-turns abc', /`--max-turns abc` isn't a whole number: write one of 1 or more\./],
+    ['--max-turns 15', '--max-turns 7.5', /`--max-turns 7\.5` isn't a whole number/],
+    ['--max-turns 15', '--max-turns "$TURNS"', /`--max-turns` has no number after it: write a whole number of 1 or more\./],
+    ['--max-turns 15', '--max-turns', /`--max-turns` has no number after it, so it takes `--max-budget-usd` as its value: write a whole number of 1 or more\. .*It sets no spend limit/],
+    ['--max-turns 15', '--max_turns 15', /Claude Code doesn't know `--max_turns`, so it stops with an error before the run starts: write `--max-turns`\./],
+    ['--max-budget-usd 2', '--max-budget-usd 0', /`--max-budget-usd 0` isn't above 0: write an amount in US dollars, above what a slice of the task costs\./],
+    ['--max-budget-usd 2', '--max-budget-usd -1', /`--max-budget-usd -1` isn't an amount: write a number of US dollars, without a `\$` sign\./],
+    ['--max-budget-usd 2', '--max-budget-usd abc', /`--max-budget-usd abc` isn't an amount/],
+    ['--max-budget-usd 2', '--max-budget-usd \'$2\'', /`--max-budget-usd \$2` isn't an amount: write a number of US dollars, without a `\$` sign\./],
+  ]) {
+    withRepo(boundedRepo({ script: runner(['set -u\n', ''], [from, to]) }), (dir) => {
+      assert.match(String(limitHint(dir)), hint, to);
+    });
+  }
+  // A flag commented out inside the continued command ends the command
+  // there, so neither it nor the flags after it reach claude.
+  withRepo(boundedRepo({ script: runner(['  --max-turns 15 \\', '  # --max-turns 15 \\']) }), (dir) => {
+    const hint = String(limitHint(dir));
+    assert.match(hint, /It sets no turn limit/);
+    assert.match(hint, /It sets no spend limit/);
+  });
+});
+
+test('a-7 tells a rule for one folder or one command from a wider one', () => {
+  for (const rule of ['Edit(./src/**)', 'Edit(src/**)', 'Edit(/test/**)', 'Edit(docs/guide.md)', 'Read(./docs/**)', 'Bash(npm test)', 'Bash(npm test *)', 'Bash(npm run lint:*)', 'WebFetch(domain:example.com)', 'mcp__github__get_issue', 'Agent(Explore)', 'Workflow(todo-check)']) {
+    assert.equal(wideReason(rule), null, rule);
+  }
+  for (const [rule, why] of [
+    ['Bash', 'lets every command through'],
+    ['Bash(*)', 'lets every command through'],
+    ['Bash(npm *)', 'lets every `npm` command through, whatever its arguments'],
+    ['Bash(npm:*)', 'lets every `npm` command through, whatever its arguments'],
+    ['Bash(npm*)', 'lets every `npm` command through, whatever its arguments'],
+    ['Bash(* --version)', 'starts with a wildcard, so it matches commands of every program'],
+    ['Edit', 'lets the run edit any file'],
+    ['Write', 'lets the run edit any file'],
+    ['Read', 'lets the run read any file'],
+    ['Edit(**)', 'lets the run edit any file'],
+    ['Edit(./**)', 'lets the run edit files in every folder of the project'],
+    ['Edit(/**)', 'lets the run edit files in every folder of the project'],
+    ['Edit(**/*.ts)', 'lets the run edit files in every folder of the project'],
+    ['Edit(../**)', 'lets the run edit files outside the project'],
+    ['Edit(//**)', 'lets the run edit files anywhere on the disk'],
+    ['Edit(~/**)', 'lets the run edit files anywhere in your home folder'],
+    ['WebFetch', 'lets every use of `WebFetch` through'],
+    ['WebFetch(domain:*)', 'lets the run fetch from every domain'],
+    ['Workflow', 'lets every use of `Workflow` through'],
+    ['mcp__github', 'lets every tool of that MCP server through'],
+    ['mcp__github__*', 'matches every tool whose name fits it'],
+  ]) {
+    assert.equal(wideReason(rule), why, rule);
+  }
+});
+
+test('a-7 counts a deny rule as stopping a git command only when it matches every form of it', () => {
+  for (const rule of ['Bash(git push *)', 'Bash(git push:*)', 'Bash(git push*)', 'Bash(git *)', 'Bash(git:*)', 'Bash', 'Bash(*)', '*']) {
+    assert.equal(stops(rule, 'git push'), true, rule);
+  }
+  for (const rule of ['Bash(git push)', 'Bash(git push origin *)', 'Bash(git * push *)', 'Bash(git pull *)', 'Bash(git commit *)', 'Read(./.git/**)', 'Bash(gitpush *)']) {
+    assert.equal(stops(rule, 'git push'), false, rule);
+  }
+});
+
+test('a-7 names allow rules wider than one folder or one command, wherever the run reads them', () => {
+  withRepo(boundedRepo({ bounds: boundsWith((b) => b.permissions.allow.push('Bash(npm *)', 'Edit(**)')) }), (dir) => {
+    assert.equal(ruleHint(dir), '`Bash(npm *)` in `.claude/bounded-run.json` lets every `npm` command through, whatever its arguments. `Edit(**)` in `.claude/bounded-run.json` lets the run edit any file. Allow one folder or one command per rule, as in `Edit(./src/**)` or `Bash(npm test *)`.');
+  });
+  withRepo(boundedRepo({ script: runner(['--permission-mode dontAsk', '--permission-mode dontAsk --allowedTools "Read,Edit(./src/**)"']) }), (dir) => {
+    assert.match(String(ruleHint(dir)), /^`Read` in `--allowedTools` lets the run read any file\. Allow one folder/);
+  });
+  withRepo(boundedRepo({ bounds: boundsWith((b) => b.permissions.allow.push('Bash(git push *)')) }), (dir) => {
+    assert.match(String(ruleHint(dir)), /`Bash\(git push \*\)` in `\.claude\/bounded-run\.json` lets the run use `git push`\. Take it out: the deny rules must stop it\./);
+  });
+  // A trusted folder adds the project's allow rules to the run's.
+  withRepo(boundedRepo({ settings: { ...PROJECT_SETTINGS, permissions: { allow: ['Bash(npm *)'] } } }), (dir) => {
+    assert.match(String(ruleHint(dir)), /`Bash\(npm \*\)` in `\.claude\/settings\.json` lets every `npm` command through/);
+  });
+  // Unless the run leaves the project's settings files out.
+  withRepo(boundedRepo({ script: runner(['--setting-sources project', '--setting-sources user']), settings: { permissions: { allow: ['Bash(npm *)'] } } }), (dir) => {
+    assert.equal(ruleHint(dir), true);
+  });
+  withRepo(boundedRepo({ settings: '{ "permissions": \n' }), (dir) => {
+    assert.match(String(ruleHint(dir)), /^The committed `\.claude\/settings\.json` isn't valid JSON: /);
+  });
+});
+
+test('a-7 fails bounds that allow nothing of their own', () => {
+  const hint = /Nothing the run is given allows a single call, so in `dontAsk` mode it can't edit a file or run your tests, and a `-p` run in a folder you never trusted leaves out the allow rules in `\.claude\/settings\.json`\./;
+  withRepo(boundedRepo({ bounds: boundsWith((b) => delete b.permissions.allow) }), (dir) => {
+    assert.match(String(ruleHint(dir)), hint);
+  });
+});
+
+test('a-7 wants deny rules that stop git commit and git push with any arguments, from the file, the flags or the project', () => {
+  withRepo(boundedRepo({ bounds: boundsWith((b) => { b.permissions.deny = ['Bash(git commit:*)', 'Bash(git push:*)']; }) }), (dir) => {
+    assert.equal(ruleHint(dir), true);
+  });
+  withRepo(boundedRepo({ bounds: boundsWith((b) => { b.permissions.deny = ['Bash(git commit *)', 'Bash(git push)']; }) }), (dir) => {
+    assert.equal(ruleHint(dir), '`Bash(git push)` in `.claude/bounded-run.json` matches only the bare `git push`, not `git push origin main`. Write `Bash(git push *)`: the trailing ` *` also matches the bare command.');
+  });
+  withRepo(boundedRepo({ bounds: boundsWith((b) => { b.permissions.deny = ['Read(./.env)']; }) }), (dir) => {
+    assert.equal(ruleHint(dir), 'No deny rule stops `git commit`: add `"Bash(git commit *)"` to `permissions.deny` in the settings file. No deny rule stops `git push`: add `"Bash(git push *)"` to `permissions.deny` in the settings file.');
+  });
+  withRepo(boundedRepo({ bounds: boundsWith((b) => { b.permissions.deny = []; }), script: runner(['--permission-mode dontAsk', '--permission-mode dontAsk --disallowedTools "Bash(git commit *)" "Bash(git push *)"']) }), (dir) => {
+    assert.equal(ruleHint(dir), true);
+  });
+  // Deny rules in .claude/settings.json hold whether or not the folder is trusted.
+  const projectDeny = { ...PROJECT_SETTINGS, permissions: { ...PROJECT_SETTINGS.permissions, deny: ['Bash(git commit *)', 'Bash(git push *)'] } };
+  withRepo(boundedRepo({ bounds: boundsWith((b) => { b.permissions.deny = []; }), settings: projectDeny }), (dir) => {
+    assert.equal(ruleHint(dir), true);
+  });
+  withRepo(boundedRepo({ bounds: boundsWith((b) => { b.permissions.deny = []; }), settings: projectDeny, script: runner(['--setting-sources project', '--setting-sources user']) }), (dir) => {
+    assert.match(String(ruleHint(dir)), /No deny rule stops `git commit`/);
+  });
+  withRepo(boundedRepo({ bounds: boundsWith((b) => { b.permissions.deny = ['Bash(git commit *)']; }), after: (dir) => write(dir, { [BOUNDS_PATH]: json(BOUNDS) }) }), (dir) => {
+    assert.match(String(ruleHint(dir)), /No deny rule stops `git push`.*Your copy of `\.claude\/bounded-run\.json` has changes that aren't committed: if they fix this, commit them\./);
+  });
+});
+
+test('a-7 names each sandbox setting the bounds file leaves out', () => {
+  for (const [key, hint] of [
+    ['enabled', /Set `"enabled": true` under `sandbox`: the sandbox is off unless a settings file turns it on\./],
+    ['failIfUnavailable', /Set `"failIfUnavailable": true`: without it, a run whose sandbox can't start runs commands unsandboxed\./],
+    ['allowUnsandboxedCommands', /Set `"allowUnsandboxedCommands": false`: without it, Claude can retry a command the sandbox blocked outside the sandbox\./],
+    ['autoAllowBashIfSandboxed', /Set `"autoAllowBashIfSandboxed": false`: without it, sandboxed commands run without your allow rules or permission mode deciding, and only deny rules can stop one\./],
+  ]) {
+    withRepo(boundedRepo({ bounds: boundsWith((b) => delete b.sandbox[key]) }), (dir) => {
+      const result = String(sandboxHint(dir));
+      assert.match(result, /^In `\.claude\/bounded-run\.json`: /);
+      assert.match(result, hint, key);
+      assert.equal(result.match(/Set `/g).length, 1, result);
+    });
+  }
+  withRepo(boundedRepo({ bounds: boundsWith((b) => { b.sandbox.enabled = 'true'; b.sandbox.autoAllowBashIfSandboxed = true; }) }), (dir) => {
+    assert.match(String(sandboxHint(dir)), /Set `"enabled": true`.*Set `"autoAllowBashIfSandboxed": false`/);
+  });
+  withRepo(boundedRepo({ bounds: boundsWith((b) => delete b.sandbox) }), (dir) => {
+    assert.equal(sandboxHint(dir), '`.claude/bounded-run.json` has no `sandbox` settings. Add `"sandbox": {"enabled": true, "failIfUnavailable": true, "allowUnsandboxedCommands": false, "autoAllowBashIfSandboxed": false}`.');
+  });
+  // The sandbox in .claude/settings.json isn't the run's bounds file.
+  withRepo(boundedRepo({ bounds: boundsWith((b) => delete b.sandbox), settings: { ...PROJECT_SETTINGS, sandbox: BOUNDS.sandbox } }), (dir) => {
+    assert.match(String(sandboxHint(dir)), /has no `sandbox` settings/);
+  });
+});
+
+test('a-7 reads the saved slice, and says what is wrong with it', () => {
+  const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replace(/\n/g, '\r\n'), 'utf16le')]);
+  const stream = [{ type: 'system', subtype: 'init', session_id: SESSION, permissionMode: 'dontAsk' }, { type: 'assistant', session_id: SESSION, message: { content: [] } }, SLICE_RUN].map((m) => JSON.stringify(m)).join('\n');
+  for (const slice of [`﻿${JSON.stringify(SLICE_RUN)}`, utf16(JSON.stringify(SLICE_RUN, null, 2)), `${stream}\n`, { ...SLICE_RUN, total_cost_usd: 1.99 }]) {
+    withRepo(boundedRepo({ slice }), (dir) => {
+      assert.equal(sliceHint(dir), true);
+    });
+  }
+  for (const [slice, hint] of [
+    [null, /^There is no `\.practice\/a-7-slice\.json` yet: run your script on a slice of the task, as the lesson's Worked example does: `scripts\/bounded-run\.sh "<a small part of the task>" \.practice\/a-7-slice\.json`\.$/],
+    ['Added a test for total(). npm test passes.\n', /`\.practice\/a-7-slice\.json` isn't JSON\. Save only what `claude -p --output-format json` prints to its standard output there\. Then run the slice again\./],
+    [`${stream.split('\n').slice(0, 2).join('\n')}\n`, /`\.practice\/a-7-slice\.json` holds no result: the run didn't finish\./],
+    [{ ...SLICE_RUN, type: 'assistant' }, /isn't the result of a `claude -p` run with `--output-format json`/],
+    [{ ...SLICE_RUN, session_id: STUB_SESSION }, /holds the check's stand-in reply, not a real run/],
+    [{ ...SLICE_RUN, subtype: 'error_max_budget_usd', is_error: true }, /The slice stopped at your spend limit \(`error_max_budget_usd`\), so the limit is below what one slice costs\. Raise `--max-budget-usd` in `scripts\/bounded-run\.sh` and commit it\. Then run the slice again\./],
+    [{ ...SLICE_RUN, subtype: 'error_max_turns', is_error: true }, /The slice stopped at your turn limit \(`error_max_turns`\) before it finished\. Raise `--max-turns` in `scripts\/bounded-run\.sh`, or give it a smaller slice\./],
+    [{ ...SLICE_RUN, subtype: 'error_during_execution', is_error: true }, /The slice ended with `error_during_execution`, not `success`/],
+    [{ ...SLICE_RUN, is_error: true, result: 'Not logged in · Please run /login' }, /The slice run failed: "Not logged in · Please run \/login"\. Fix what it says\./],
+    [{ ...SLICE_RUN, total_cost_usd: undefined }, /has no cost estimate in `total_cost_usd`, which is what the slice is for/],
+    [{ ...SLICE_RUN, num_turns: undefined }, /has no turn count in `num_turns`/],
+    [{ ...SLICE_RUN, total_cost_usd: 2.37 }, /The slice cost an estimated \$2\.37 \(`total_cost_usd`\), and your spend limit, `--max-budget-usd 2`, isn't above it\. Set the limit above what the slice cost, scaled to the whole task, and commit `scripts\/bounded-run\.sh`\./],
+    [{ ...SLICE_RUN, total_cost_usd: 2 }, /isn't above it/],
+  ]) {
+    withRepo(boundedRepo({ slice }), (dir) => {
+      assert.match(String(sliceHint(dir)), hint, JSON.stringify(slice));
+    });
+  }
+  withRepo(boundedRepo({ script: runner(['  --max-budget-usd 2 \\\n', '']) }), (dir) => {
+    assert.equal(sliceHint(dir), 'The check can\'t read a spend limit from `scripts/bounded-run.sh` (see the second item), so it can\'t compare the slice\'s cost with it.');
+  });
+});
+
+test('a-7 reads the saved capped run, and wants it stopped by a limit', () => {
+  const stream = [{ type: 'system', subtype: 'init', session_id: SESSION }, { ...CAPPED_RUN, subtype: 'error_max_turns', total_cost_usd: 0.01 }].map((m) => JSON.stringify(m)).join('\n');
+  for (const capped of [CAPPED_RUN, { ...CAPPED_RUN, subtype: 'error_max_turns' }, `${stream}\n`]) {
+    withRepo(boundedRepo({ capped }), (dir) => {
+      assert.equal(cappedHint(dir), true);
+    });
+  }
+  for (const [capped, hint] of [
+    [null, /^There is no `\.practice\/a-7-capped\.json` yet: run the lesson's step that gives a run a limit too small to finish, which saves its JSON there\.$/],
+    ['Error: Reached max turns (1)\n', /`\.practice\/a-7-capped\.json` isn't JSON\./],
+    [{ ...CAPPED_RUN, session_id: STUB_SESSION }, /holds the check's stand-in reply, not a real run/],
+    [{ ...CAPPED_RUN, subtype: 'success', is_error: false }, /The run in `\.practice\/a-7-capped\.json` finished \(`success`\), so no limit stopped it\. Give it a limit too small for the task, such as `--max-turns 1`\. Then run the lesson's step that stops a run at a limit again\./],
+    [{ ...CAPPED_RUN, subtype: 'error_during_execution' }, /ended with `error_during_execution`, not at a limit \(`error_max_turns` or `error_max_budget_usd`\)/],
+  ]) {
+    withRepo(boundedRepo({ capped }), (dir) => {
+      assert.match(String(cappedHint(dir)), hint, JSON.stringify(capped));
+    });
+  }
+});
+
+test('the script reader finds each claude call as the shell would pass it', () => {
+  const text = [
+    '#!/bin/bash',
+    '# claude -p "a comment, not a call"',
+    'turns=15',
+    'export FLAGS="--output-format json --model sonnet"',
+    'if [ $# -ne 2 ]; then echo "usage: claude -p <task>" >&2; exit 2; fi',
+    'claude -p "$1" \\',
+    '  --settings .claude/bounded-run.json \\',
+    '  --max-turns "$turns" --max-budget-usd ${BUDGET:-2} $FLAGS 2>&1 > "$2"',
+    'version=$(claude --version)',
+    'printf "%s" "$1" | ~/.local/bin/claude -p --allowedTools \'Bash(npm test *)\' "Edit(./src/**)"',
+    'cat <<EOF',
+    'claude -p "inside a here-document"',
+    'EOF',
+    'claude -p "$1" \\',
+    '  # --max-turns 5',
+    '  --output-format json',
+    '',
+  ].join('\n');
+  assert.deepEqual(scriptCalls(text), [
+    ['-p', '$1', '--settings', '.claude/bounded-run.json', '--max-turns', '15', '--max-budget-usd', '2', '--output-format', 'json', '--model', 'sonnet'],
+    ['--version'],
+    ['-p', '--allowedTools', 'Bash(npm test *)', 'Edit(./src/**)'],
+    ['-p', '$1'],
+  ]);
+  assert.deepEqual(scriptCalls('claude -p "$(cat prompt.txt)" --max-turns=$N\r\n'), [['-p', '$(cat prompt.txt)', '--max-turns=$N']]);
+});
+
+test('the stand-in records the folder each call ran in, and maps a path argument into the scratch repository', () => {
+  const script = '#!/usr/bin/env bash\nclaude -p a --settings .claude/x.json\ncd src && claude -p b --settings ../.claude/x.json --add-dir "$PWD/.."\nclaude -p c --settings /etc/hosts\n';
+  withRepo(boundedRepo({ script }), (dir) => {
+    const run = runStubbed(openRepo(dir), RUNNER, { commit: { 'src/a.js': '' } });
+    assert.deepEqual(run.calls.map((c) => c.cwd), ['', 'src', 'src']);
+    assert.deepEqual(run.calls.map((c) => scratchPath(run, c, c.argv[3])), ['.claude/x.json', '.claude/x.json', null]);
+    assert.equal(scratchPath(run, run.calls[1], run.calls[1].argv[5]), '');
+  });
+});
+
+test('a-7 fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
+  withRepo(boundedRepo({ script: null, bounds: null, slice: null, capped: null }), (dir) => {
+    const { code, out } = check(['a-7', '--assert', 'fail', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+  withRepo(boundedRepo(), (dir) => {
+    const { code, out } = check(['a-7', '--assert', 'pass', '--dir', dir]);
     assert.equal(code, 0, out);
   });
 });
