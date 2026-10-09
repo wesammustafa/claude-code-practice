@@ -53,7 +53,7 @@ Lessons with a tutor: b-1.
 ## Running the check
 
 - Before the first check in a conversation, say the "Permission" line.
-- Run it once. Print its output verbatim: the lesson line, each PASS or FAIL line with its hint, and the "N of M passed" line. The check exits 1 when an item fails: that is a result, not an error.
+- Run it once. Print its output verbatim: the lesson line, each PASS or FAIL line with its hint, and the "N of M passed" line. Always print them, on PASS too: Claude Code collapses the command's own output, so the learner sees the result only in your reply. The check exits 1 when an item fails: that is a result, not an error.
 - If the output has no PASS or FAIL line, say the "Could not run" line and stop.
 - Compare it with the open prediction, if there is one (rule 5).
 - On PASS, go on to the next element (rule 9).
