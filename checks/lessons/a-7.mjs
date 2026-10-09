@@ -16,7 +16,7 @@ import { realpathSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, sep } from 'node:path';
 import { parseClaudeArgs, ruleList, scriptCalls } from '../claude-args.mjs';
 import { committedMode, missingJq } from '../hooks.mjs';
-import { commitHint, headText } from '../marketplace.mjs';
+import { commitHint, headText, parseJson } from '../marketplace.mjs';
 import { notRun, runStubbed, scratchPath, stderrTail, STUB_SESSION, TIME_LIMIT } from '../stub-claude.mjs';
 
 export const title = 'Put bounds on autonomous runs';
@@ -179,12 +179,8 @@ function loadSettings(repo, call) {
   if (text === null) {
     return { hint: repo.exists(path) ? `${commitHint(repo, path)} The run reads its bounds from that file.` : `\`--settings\` names ${code(path)}, which doesn't exist. Save the bounds there, as the lesson shows, and commit the file.` };
   }
-  let value;
-  try {
-    value = JSON.parse(text);
-  } catch (error) {
-    return { hint: `The committed ${code(path)} isn't valid JSON: ${error.message}${pending(repo, path)}` };
-  }
+  const { value, error } = parseJson(text);
+  if (error) return { hint: `The committed ${code(path)} isn't valid JSON: ${error}${pending(repo, path)}` };
   if (!isObject(value)) return { hint: `The committed ${code(path)} isn't a JSON object.${pending(repo, path)}` };
   return { value, path, label: code(path) };
 }
@@ -392,12 +388,9 @@ function loadsProject(call) {
 function projectSettings(repo) {
   const text = headText(repo, PROJECT);
   if (text === null) return {};
-  try {
-    const value = JSON.parse(text);
-    return isObject(value) ? { value } : { hint: `The committed ${code(PROJECT)} isn't a JSON object.` };
-  } catch (error) {
-    return { hint: `The committed ${code(PROJECT)} isn't valid JSON: ${error.message}` };
-  }
+  const { value, error } = parseJson(text);
+  if (error) return { hint: `The committed ${code(PROJECT)} isn't valid JSON: ${error}` };
+  return isObject(value) ? { value } : { hint: `The committed ${code(PROJECT)} isn't a JSON object.` };
 }
 
 function ruleProblems(repo, call) {

@@ -9,7 +9,7 @@
 // Seeing a run stop at the turn cap is self-checked. The Advanced capstone
 // reuses these items with its own result file.
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { parseClaudeArgs, ruleList } from '../claude-args.mjs';
 import { committedMode, missingJq } from '../hooks.mjs';
 import { notRun, runStubbed, stderrTail, STUB_SESSION, TIME_LIMIT } from '../stub-claude.mjs';
@@ -30,7 +30,8 @@ const code = (text) => `\`${text}\``;
 const quoted = (text) => (text.length > 120 ? `${text.slice(0, 120)}...` : text).replace(/\s+/g, ' ').trim();
 
 // What the scratch repository holds, and what the stand-in answers, in each
-// run: a review of a staged change; the same without an argument; `claude`
+// run: a review of a staged change; the same without an argument, in a
+// repository without `.practice/`, as a fresh copy is; `claude`
 // exiting non-zero with an error on stderr and no JSON, as it does for a
 // flag it can't read; JSON that says the run failed while `claude` exits 0;
 // and nothing staged. The two failures test the script's two exit rules
@@ -38,7 +39,7 @@ const quoted = (text) => (text.length > 120 ? `${text.slice(0, 120)}...` : text)
 // that isn't staged.
 const SCENARIOS = {
   review: { stage: true, args: (out) => [join(out, OUT)], reply: (m) => ({ subtype: 'success', is_error: false, result: m.review, num_turns: 1 }) },
-  noArgument: { stage: true, args: () => [], reply: (m) => ({ subtype: 'success', is_error: false, result: m.review, num_turns: 1 }) },
+  noArgument: { stage: true, practice: false, args: () => [], reply: (m) => ({ subtype: 'success', is_error: false, result: m.review, num_turns: 1 }) },
   failed: { stage: true, args: (out) => [join(out, OUT)], reply: () => null, stderr: 'error: the stand-in for claude failed before the run', exit: 1 },
   isError: { stage: true, args: (out) => [join(out, OUT)], reply: () => ({ subtype: 'success', is_error: true, result: 'The stand-in reports a failed run.', num_turns: 1 }) },
   nothingStaged: { stage: false, args: (out) => [join(out, OUT)], reply: (m) => ({ subtype: 'success', is_error: false, result: m.review, num_turns: 1 }) },
@@ -62,6 +63,7 @@ function plan(name) {
       reply: s.reply(m) && { type: 'result', session_id: STUB_SESSION, total_cost_usd: 0, permission_denials: [], ...s.reply(m) },
       stderr: s.stderr,
       exit: s.exit ?? 0,
+      practice: s.practice ?? true,
     },
   };
 }
@@ -172,12 +174,13 @@ export function callHints(argv) {
   return problems;
 }
 
-export function committedScript(script) {
+// `guide` is where the page describes the script.
+export function committedScript(script, guide = 'the lesson\'s Your turn') {
   return {
     text: `${code(script)} is committed and executable`,
     check(repo) {
       const mode = committedMode(repo, script);
-      if (mode === null) return repo.exists(script) ? `${code(script)} isn't committed. Run \`git add ${script}\` and commit it.` : `There is no ${code(script)}. Write it as the lesson's Your turn describes, then commit it.`;
+      if (mode === null) return repo.exists(script) ? `${code(script)} isn't committed. Run \`git add ${script}\` and commit it.` : `There is no ${code(script)}. Write it as ${guide} describes, then commit it.`;
       if (mode === '100755') return true;
       if (mode === '100644') return `${code(script)} isn't executable. Run \`chmod +x ${script}\`, then \`git add ${script}\` and commit. On Windows, run \`git update-index --chmod=+x ${script}\` and commit.`;
       return `${code(script)} is committed as ${mode === '120000' ? 'a symbolic link' : 'something other than a file'}. Commit the script file itself, and make it executable.`;
@@ -242,6 +245,8 @@ function defaultProblems(run, fallback) {
   if (run.timedOut) return [`Run without an argument, it ${timedOut}.`];
   const saved = run.saved[fallback];
   if (saved === undefined) {
+    const folder = posix.dirname(fallback);
+    if (run.stderr.includes(fallback) && /No such file or directory/.test(run.stderr)) return [`Run without an argument in a fresh copy, where ${code(`${folder}/`)} doesn't exist yet, it couldn't write ${code(fallback)}. Create the folder first, as \`mkdir -p "$(dirname "$out")"\` does.`];
     const how = run.status !== 0 ? ` (it exited with ${exitOf(run)}${stderrTail(run) ? `: ${stderrTail(run)}` : ''})` : '';
     return [`Run without an argument, it didn't save the JSON to ${code(fallback)}${how}. Use that path when there is no argument: \`out="\${1:-${fallback}}"\`.`];
   }

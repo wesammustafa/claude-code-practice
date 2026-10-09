@@ -41,7 +41,7 @@ const PATH = {
 // the way to the pattern that fits.
 const JOBS = {
   1: { pattern: 'subagents', why: [
-    "No: reading three whole files would fill your conversation with text you won't need again, and only one short list needs to come back.",
+    'No: reading the files in your conversation would crowd it, and you only need the findings.',
     'No: each reviewer checks its own file and reports what it found.',
     'No: three files, checked once, with no step that verifies the findings.',
   ] },
@@ -55,7 +55,7 @@ const JOBS = {
   ] },
   4: { pattern: 'agent team', why: [
     'No: three investigators work at the same time, each on a theory of its own.',
-    "Yes: the investigators challenge each other's findings until they agree, and teammates in an agent team message each other directly.",
+    "Yes: the investigators message each other as they work to challenge each other's findings, and an agent team's teammates message each other directly.",
   ] },
 };
 

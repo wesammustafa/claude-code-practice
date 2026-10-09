@@ -7,8 +7,11 @@
 // prints a canned reply and exits with a set code. HOME and
 // CLAUDE_CONFIG_DIR point at empty folders and the credential variables are
 // removed, so even a real Claude Code would find no sign-in. A script that
-// could reach the real one anyway, by its path, through a package runner or
-// by changing PATH, is refused before it runs.
+// could reach the real one anyway, by its path, through a package runner, by
+// changing PATH or through a login shell or a profile that sets PATH anew, is
+// refused before it runs. On Windows itself nothing runs: there `bash` can be
+// WSL's launcher, which doesn't hand the stand-in's PATH, HOME and
+// CLAUDE_CONFIG_DIR to the script.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
@@ -31,6 +34,9 @@ const REACHES = [
   [/[^\s'"`=;|&(){}<>]*\/claude(?:\.exe)?(?=$|[\s'"`;|&)])/m, (m) => `calls Claude Code by its path, \`${m[0]}\``],
   [/(?:^|[\s;&|(`$'"])claude\.exe\b/m, () => 'calls `claude.exe`'],
   [/(?:^|[\s;&|({`])(?:(?:export|declare|typeset|local|readonly)\s+(?:-\w+\s+)*)?PATH\+?=/m, () => 'changes `PATH`'],
+  [/(?:^|[\s;&|(`$'"])(?:[\w./-]*\/)?(?:ba|da|k|z|fi)?sh\s+(?:-[A-Za-z]*\s+|--[\w-]+\s+)*?(?:-[A-Za-z]*l[A-Za-z]*|--login)(?=$|[\s'"`;|&)])/m, () => 'starts a login shell, with `-l` or `--login`'],
+  [/(?:^|[\s;&|(`])(?:\.|source)\s+["']?(\/etc\/z?profile(?:\.d\/[^\s'"`;|&)]*)?)/m, (m) => `reads \`${m[1]}\``],
+  [/\bpath_helper\b/, () => 'runs `path_helper`'],
 ];
 
 // Why the committed text can't run under the stand-in, or null.
@@ -126,8 +132,11 @@ function calls(dir, roots) {
 // takes `out`, an empty folder outside the repository, and returns the
 // script's arguments; `reply` is what the stand-in prints (nothing when
 // null), `stderr` what it prints to stderr and `exit` its exit code.
+// `practice: false` leaves `.practice/` out, as in a fresh copy, and
+// `platform` stands in for `process.platform`.
 //
-// Returns `{ missing }` when HEAD lacks the script, `{ crlf }` when it has
+// Returns `{ windows }` on Windows, where it runs nothing, `{ missing }` when
+// HEAD lacks the script, `{ crlf }` when it has
 // Windows line ends, or `{ refused }` with why it would reach the real
 // Claude Code; otherwise `{ status, signal, timedOut, error, stdout, stderr,
 // calls, saved, roots }`: `calls` holds each call's `argv`, `stdin` and
@@ -135,7 +144,8 @@ function calls(dir, roots) {
 // root, null outside it); `saved` the files left under `out/` and the
 // scratch `.practice/`, by those paths; and `roots` the scratch
 // repository's path, for `scratchPath`.
-export function runStubbed(repo, script, { args = () => [], commit = {}, stage = {}, change = {}, reply = {}, stderr = '', exit = 0, timeout = TIME_LIMIT } = {}) {
+export function runStubbed(repo, script, { args = () => [], commit = {}, stage = {}, change = {}, reply = {}, stderr = '', exit = 0, timeout = TIME_LIMIT, practice = true, platform = process.platform } = {}) {
+  if (platform === 'win32') return { windows: true };
   let text;
   try {
     text = execFileSync('git', ['show', `HEAD:${script}`], { cwd: repo.dir, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -150,7 +160,7 @@ export function runStubbed(repo, script, { args = () => [], commit = {}, stage =
   try {
     const dir = join(base, 'repo');
     const out = join(base, 'out');
-    for (const folder of ['bin', 'calls', 'home', 'config', 'out', 'repo/.practice']) mkdirSync(join(base, folder), { recursive: true });
+    for (const folder of ['bin', 'calls', 'home', 'config', 'out', practice ? 'repo/.practice' : 'repo']) mkdirSync(join(base, folder), { recursive: true });
     writeFileSync(join(base, 'bin', 'claude'), stub(base));
     chmodSync(join(base, 'bin', 'claude'), 0o755);
     writeFileSync(join(base, 'reply.json'), reply === null ? '' : `${JSON.stringify(reply)}\n`);
@@ -170,7 +180,6 @@ export function runStubbed(repo, script, { args = () => [], commit = {}, stage =
     if (Object.keys(stage).length) git('add', '--', ...Object.keys(stage));
     write(dir, change);
 
-    const detached = process.platform !== 'win32';
     const run = spawnSync('bash', [script, ...args(out)], {
       cwd: dir,
       env: scrubbed({ HOME: join(base, 'home'), CLAUDE_CONFIG_DIR: join(base, 'config'), PATH: `${join(base, 'bin')}${delimiter}${process.env.PATH ?? ''}` }),
@@ -179,9 +188,9 @@ export function runStubbed(repo, script, { args = () => [], commit = {}, stage =
       timeout,
       killSignal: 'SIGKILL',
       // Its own process group, so whatever the script left running stops too.
-      detached,
+      detached: true,
     });
-    if (detached && run.pid) {
+    if (run.pid) {
       try {
         process.kill(-run.pid, 'SIGKILL');
       } catch {
@@ -216,6 +225,7 @@ export function scratchPath(run, call, path) {
 
 // The hint for a script the stand-in didn't run, or null when it ran.
 export function notRun(run, script) {
+  if (run.windows) return `The check didn't run \`${script}\`: it runs scripts with bash and a stand-in for \`claude\` only from WSL 2, macOS or Linux, not from Windows itself. Run the check there.`;
   if (run.missing) return `Commit \`${script}\` first: the check runs the committed script.`;
   if (run.crlf) return `The committed \`${script}\` has Windows line ends (CRLF), which bash can't run. Save it with LF line ends (your editor has a setting for this), then commit it again.`;
   if (run.refused) return `The check runs your script with a stand-in for \`claude\`, found by name on \`PATH\`, so it never spends your usage. \`${script}\` ${run.refused}, which the stand-in can't replace, so the check didn't run it. Call \`claude\` by name, leave \`PATH\` as it is, and commit.`;

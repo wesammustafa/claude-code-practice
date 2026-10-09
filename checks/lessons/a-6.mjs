@@ -13,7 +13,7 @@ import { frontmatter } from '../frontmatter.mjs';
 import { committedIgnore, ignoreHint } from '../ignore.mjs';
 import {
   commitHint, committedFiles, committedMarketplaces, committedSettings, headText, marketplaceHint,
-  passingMarketplaces, pluginComponents, pluginFolders, registration, relativePath, uncommittedFiles,
+  parseJson, passingMarketplaces, pluginComponents, pluginFolders, registration, relativePath, uncommittedFiles,
 } from '../marketplace.mjs';
 
 export const title = 'Share your setup with a team';
@@ -47,16 +47,26 @@ function listedPlugins(repo) {
 // The plugin a hint names: the first that passes, or the example's.
 const mainPlugin = (repo) => listedPlugins(repo)[0] ?? EXAMPLE;
 
-export const teamMarketplace = {
-  text: 'a committed team marketplace lists a plugin by a relative path, and the entry\'s name matches the `name` in the plugin\'s `plugin.json`',
-  check: (repo) => (passingMarketplaces(repo).length ? true : marketplaceHint(repo)),
+// What the hints say to do when there is no marketplace or no settings yet,
+// as the lesson's page says it. The Advanced capstone passes its own.
+const LESSON = {
+  marketplace: 'Download the example marketplace into `team-marketplace/`, as the Worked example shows',
+  settings: 'as the Worked example shows',
 };
+
+export function marketplaceItem(page = LESSON) {
+  return {
+    text: 'a committed team marketplace lists a plugin by a relative path, and the entry\'s name matches the `name` in the plugin\'s `plugin.json`',
+    check: (repo) => (passingMarketplaces(repo).length ? true : marketplaceHint(repo, page.marketplace)),
+  };
+}
 
 // Whether the working copy of the settings would pass where the committed
 // one doesn't: then the fix only needs committing.
 function pendingSettings(repo, marketplaces) {
+  // repo.read drops a byte-order mark, which the committed text keeps.
   const text = repo.read(SETTINGS);
-  if (text === null || text.trimEnd() === (headText(repo, SETTINGS) ?? '').trimEnd()) return false;
+  if (text === null || text.trimEnd() === (headText(repo, SETTINGS) ?? '').replace(/^\uFEFF/, '').trimEnd()) return false;
   try {
     return registration(JSON.parse(text), marketplaces).ok;
   } catch {
@@ -64,11 +74,11 @@ function pendingSettings(repo, marketplaces) {
   }
 }
 
-function settingsHint(repo, settings, marketplaces) {
+function settingsHint(repo, settings, marketplaces, page) {
   if (settings === null) {
     if (repo.exists(SETTINGS)) return commitHint(repo, SETTINGS);
     const [m] = marketplaces;
-    return `There is no committed ${code(SETTINGS)}. Create it with \`"extraKnownMarketplaces": { "${m.name}": { "source": { "source": "directory", "path": "${relativePath(m.root)}" } } }\` and \`"enabledPlugins": { "${m.plugins[0].name}@${m.name}": true }\`, as the Worked example shows, and commit it.`;
+    return `There is no committed ${code(SETTINGS)}. Create it with \`"extraKnownMarketplaces": { "${m.name}": { "source": { "source": "directory", "path": "${relativePath(m.root)}" } } }\` and \`"enabledPlugins": { "${m.plugins[0].name}@${m.name}": true }\`, ${page.settings}, and commit it.`;
   }
   if (settings.error) return `The committed ${code(SETTINGS)} isn't valid JSON: ${settings.error}`;
   if (!isObject(settings.value)) return `The committed ${code(SETTINGS)} isn't a JSON object.`;
@@ -76,18 +86,23 @@ function settingsHint(repo, settings, marketplaces) {
   return result.ok ? null : result.hint;
 }
 
-export const sharedSettings = {
-  text: 'the committed `.claude/settings.json` registers that marketplace by a relative path and turns the plugin on',
-  check(repo) {
-    const marketplaces = passingMarketplaces(repo);
-    if (!marketplaces.length) return 'No committed marketplace passes the item above yet, so the check can\'t tell which one `.claude/settings.json` should register. Fix that first.';
-    const settings = committedSettings(repo);
-    const hint = settingsHint(repo, settings, marketplaces);
-    if (hint === null) return true;
-    if (settings !== null && pendingSettings(repo, marketplaces)) return `Your copy of ${code(SETTINGS)} registers the marketplace and turns the plugin on, but that change isn't committed. Run \`git add ${SETTINGS}\` and commit it.`;
-    return hint;
-  },
-};
+export function settingsItem(page = LESSON) {
+  return {
+    text: 'the committed `.claude/settings.json` registers that marketplace by a relative path and turns the plugin on',
+    check(repo) {
+      const marketplaces = passingMarketplaces(repo);
+      if (!marketplaces.length) return 'No committed marketplace passes the item above yet, so the check can\'t tell which one `.claude/settings.json` should register. Fix that first.';
+      const settings = committedSettings(repo);
+      const hint = settingsHint(repo, settings, marketplaces, page);
+      if (hint === null) return true;
+      if (settings !== null && pendingSettings(repo, marketplaces)) return `Your copy of ${code(SETTINGS)} registers the marketplace and turns the plugin on, but that change isn't committed. Run \`git add ${SETTINGS}\` and commit it.`;
+      return hint;
+    },
+  };
+}
+
+export const teamMarketplace = marketplaceItem();
+export const sharedSettings = settingsItem();
 
 // The frontmatter fields of a committed file.
 const fieldsOf = (repo, path) => frontmatter(headText(repo, path) ?? '')?.fields ?? {};
@@ -144,13 +159,9 @@ function projectSetup(repo, files) {
 // Whether a plugin's hooks/hooks.json holds a hook moved out of .claude/:
 // `{ ok }` or `{ hint }`.
 function reviewHooks(repo, plugin, path, project, committed) {
-  let value;
-  try {
-    value = JSON.parse(headText(repo, path) ?? '');
-  } catch (error) {
-    return { hint: `The committed ${code(path)} isn't valid JSON: ${error.message}` };
-  }
-  const list = handlers(value?.hooks);
+  const parsed = parseJson(headText(repo, path) ?? '');
+  if (parsed.error) return { hint: `The committed ${code(path)} isn't valid JSON: ${parsed.error}` };
+  const list = handlers(parsed.value?.hooks);
   if (!list.length) return { hint: `The committed ${code(path)} holds no hook. Put the entry under a top-level \`hooks\` key, in the same shape as in a settings file.` };
   const problems = [];
   const theirs = project.hooks.map((h) => ({ command: commandOf(h), names: scripts(h).map((s) => posix.basename(s)) }));

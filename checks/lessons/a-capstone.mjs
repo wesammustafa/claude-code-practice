@@ -11,7 +11,7 @@ import { ignoresWorktrees, mergedWorktrees } from './a-1.mjs';
 import { savedWorkflow } from './a-3.mjs';
 import { committedScript, savedRun, SCRIPT, scriptBehavior, scriptCall } from './a-4.mjs';
 import { boundedWorkflow, chosenWorkflow } from './a-5.mjs';
-import { sharedSettings, teamMarketplace } from './a-6.mjs';
+import { marketplaceItem, settingsItem } from './a-6.mjs';
 import { testsPass, nothingUncommitted } from './b-3.mjs';
 
 export const title = 'Advanced capstone';
@@ -22,6 +22,14 @@ export const REVIEW = '.github/workflows/claude-review.yml';
 // The brief's review runs on each pull request; a workflow started by hand,
 // such as lesson 5's, never stands in for it.
 export const CI = { triggers: ['pull_request'], file: REVIEW, guide: 'part 5 of `capstone/advanced-brief.md`' };
+// Where the brief describes the review script and the team's plugin, for the
+// hints of the lessons' items, which name the lessons' own sections.
+const SCRIPT_GUIDE = 'part 2 of `capstone/advanced-brief.md`';
+const PLUGIN_GUIDE = 'part 3 of `capstone/advanced-brief.md`';
+const PLUGIN = {
+  marketplace: `Put a marketplace with one plugin of yours in \`team-marketplace/\`, as ${PLUGIN_GUIDE} describes`,
+  settings: `as ${PLUGIN_GUIDE} describes`,
+};
 
 // A Claude API key or OAuth token written out, as lesson 5's check spots one
 // in a workflow file. checks/ holds the checks' own made-up keys.
@@ -35,7 +43,7 @@ const short = (sha) => sha.slice(0, 7);
 function keysAt(repo, commit) {
   let out;
   try {
-    out = repo.git('grep', '--no-color', '-I', '-n', '-z', '-E', KEY, commit, '--', '.', OWN);
+    out = repo.gitLocal('grep', '--no-color', '-I', '-n', '-z', '-E', KEY, commit, '--', '.', OWN);
   } catch (error) {
     if (error.status === 1) return [];
     throw error;
@@ -76,14 +84,14 @@ export const items = [
   ignoresWorktrees,
   mergedWorktrees(SNAPSHOT),
   savedWorkflow({ needArgs: false, needAgentCall: true }),
-  committedScript(SCRIPT),
+  committedScript(SCRIPT, SCRIPT_GUIDE),
   scriptCall(SCRIPT),
   scriptBehavior(SCRIPT),
   savedRun(RUN, SCRIPT),
   boundedWorkflow(CI),
   noCommittedKey,
-  teamMarketplace,
-  sharedSettings,
+  marketplaceItem(PLUGIN),
+  settingsItem(PLUGIN),
   testsPass,
   nothingUncommitted,
 ];

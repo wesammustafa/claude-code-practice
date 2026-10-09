@@ -356,7 +356,7 @@ const z = (text) => text.split('\0').filter(Boolean);
 
 function listFiles(repo, commit) {
   try {
-    return z(repo.git('ls-tree', '-z', commit, '--', `${WORKFLOWS}/`))
+    return z(repo.gitLocal('ls-tree', '-z', commit, '--', `${WORKFLOWS}/`))
       .map((entry) => entry.match(/^\d+ (\w+) ([0-9a-f]+)\t(.*)$/s))
       .filter((m) => m && m[1] === 'blob' && WORKFLOW_FILE.test(m[3]))
       .map((m) => ({ blob: m[2], path: m[3] }));
@@ -381,7 +381,7 @@ export function claudeWorkflowsAt(repo, commit) {
       if (!cache.blobs.has(blob)) {
         let text = '';
         try {
-          text = repo.git('cat-file', 'blob', blob);
+          text = repo.gitLocal('cat-file', 'blob', blob);
         } catch {
           // An object missing from a partial clone reads as an empty file.
         }
@@ -404,7 +404,7 @@ export function claudeHistory(repo) {
   if (!cache.history) {
     let commits = [];
     try {
-      commits = repo.git('log', '--format=%H', '--', WORKFLOWS).split('\n').filter(Boolean);
+      commits = repo.gitLocal('log', '--format=%H', '--', WORKFLOWS).split('\n').filter(Boolean);
     } catch {
       // No commits yet.
     }
