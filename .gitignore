@@ -8,3 +8,6 @@ node_modules/
 # JetBrains IDEs keep project settings here; the checks would count the
 # folder as an uncommitted change.
 .idea/
+
+# The worktrees `claude --worktree` makes: each is a checkout of its own.
+.claude/worktrees/
