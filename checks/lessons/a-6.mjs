@@ -25,6 +25,9 @@ const PERSONAL = ['.claude/settings.local.json', 'CLAUDE.local.md'];
 // already holds.
 const EXAMPLE = { name: 'team-kit', dir: 'team-marketplace/plugins/team-kit' };
 const KIT = new Set(['skills/onboard/SKILL.md', 'agents/config-reviewer.md']);
+// The /tutor skill the practice template ships in .claude/skills/tutor/. Moving
+// it into the plugin doesn't move a component of the Learner's own.
+const TUTOR = 'skills/tutor/SKILL.md';
 // Words of a hook command that name an interpreter, not the script it runs.
 const INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'node', 'python', 'python3', 'env', 'deno', 'bun', 'ruby', 'perl', 'pwsh']);
 const PLUGIN_ROOT = /^\$\{?CLAUDE_PLUGIN_ROOT\}?\/(.+)$/;
@@ -193,7 +196,7 @@ export const movedComponent = {
     const tried = [];
     for (const plugin of plugins) {
       const { skills, agents, hooks } = pluginComponents(files, plugin.dir);
-      for (const { path, rel } of skills.filter((s) => !KIT.has(s.rel))) {
+      for (const { path, rel } of skills.filter((s) => !KIT.has(s.rel) && s.rel !== TUTOR)) {
         const [name] = skillNames(repo, path, true);
         const twin = project.skills.find((s) => s.names.includes(name));
         tried.push(twin ? { hint: `${code(path)} is in the plugin, but ${code(twin.path)} is still committed, so the skill loads twice, as \`/${name}\` and \`/${plugin.name}:${name}\`. Run \`git rm -r ${shell(posix.dirname(twin.path))}\` and commit.` } : { ok: rel });
@@ -211,8 +214,13 @@ export const movedComponent = {
     const component = /^(?:skills\/[^/]+\/SKILL\.md|agents\/.+\.md|hooks\/hooks\.json)$/;
     const loose = ['skills/*/SKILL.md', 'agents/**/*.md', 'hooks/hooks.json']
       .flatMap((pattern) => uncommittedFiles(repo, pattern))
-      .find((p) => plugins.some((pl) => p.startsWith(pl.dir ? `${pl.dir}/` : '') && component.test(p.slice(pl.dir ? pl.dir.length + 1 : 0))));
+      .find((p) => plugins.some((pl) => {
+        const rel = p.slice(pl.dir ? pl.dir.length + 1 : 0);
+        return p.startsWith(pl.dir ? `${pl.dir}/` : '') && component.test(rel) && rel !== TUTOR;
+      }));
     if (loose) return commitHint(repo, loose);
+    const tutor = plugins.map((pl) => `${pl.dir ? `${pl.dir}/` : ''}${TUTOR}`).find((p) => committed.has(p));
+    if (tutor) return `${code(tutor)} is the practice copy's \`/tutor\` skill, which came with the template, so it doesn't count as one of your own. Move it back to \`.claude/skills/tutor/\` with \`git mv\`, then move a skill, a subagent or a hook of your own into the plugin, and commit.`;
     const [{ dir }] = plugins;
     const at = (rest) => code(dir ? `${dir}/${rest}` : rest);
     return `The plugin holds only the example's \`onboard\` skill and \`config-reviewer\` subagent. Move one of your own into it: a skill to ${at('skills/<name>/SKILL.md')}, a subagent to ${at('agents/<name>.md')}, or a hook into ${at('hooks/hooks.json')}, as Your turn describes, with \`git mv\` so the original leaves \`.claude/\`. Then commit.`;

@@ -2167,6 +2167,17 @@ test('a-6 fails until a component of your own is in the plugin and gone from .cl
   });
 });
 
+test('a-6 doesn\'t count the practice copy\'s /tutor skill as a component you moved', () => {
+  const tutor = { [`${TEAM_KIT}/skills/tutor/SKILL.md`]: '---\nname: tutor\ndescription: Coaches you through one lesson.\ndisable-model-invocation: true\n---\n\nTutor.\n' };
+  withRepo(shareRepo({ move: [], files: tutor }), (dir) => {
+    assert.equal(movedHint(dir), '`team-marketplace/plugins/team-kit/skills/tutor/SKILL.md` is the practice copy\'s `/tutor` skill, which came with the template, so it doesn\'t count as one of your own. Move it back to `.claude/skills/tutor/` with `git mv`, then move a skill, a subagent or a hook of your own into the plugin, and commit.');
+  });
+  // Moved together with one of your own, it doesn't stop the item passing.
+  withRepo(shareRepo({ files: tutor }), (dir) => {
+    assert.equal(movedHint(dir), true);
+  });
+});
+
 test('a-6 accepts a hook moved into hooks/hooks.json, and fails one still in the settings, still in .claude/ or whose script isn\'t committed', () => {
   const hooksWith = (command, args) => json({ hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command, ...(args ? { args } : {}) }] }] } });
   const moved = { move: [[PROTECT_HOOK, 'scripts/protect-files.sh']], settings: { ...SHARED_SETTINGS, hooks: undefined } };
