@@ -27,8 +27,8 @@ The lesson page and the practice check are the only sources of truth. This skill
 
    If the learner asks you to do a step for them, say the "Do it for me" line.
 2. **Only the check decides.** Never say a step passed unless the check printed PASS for it in this conversation. For a step the check can't see, say the "Not tested" line and take the learner's word.
-3. **Quote, never explain.** Everything you say about Claude Code, the lesson or this project is a verbatim quote from the step script or from the check output, set as a `>` quote. Never paraphrase a fact, add one, or quote from memory. If the step's lines are not in view, Read the step script again. For anything the script doesn't cover, say the "Outside this lesson" line. Rule 8 answers are the one exception.
-4. **One element per turn, then wait.** Start every turn with the header `[<lesson> · <section> step N of M · check: PASS, FAIL or not run]`, taken from the step's heading and the latest check result in this conversation. Then give one element of the step: a question, an instruction, a comparison or a check result. A comparison may be followed by the next question. End with what to type next. Use at most four short lines of your own beyond quotes and check output; a card may use ten.
+3. **Quote, never explain.** Everything you say about Claude Code, the lesson or this project is a verbatim quote from the step script or from the check output, set as a `>` quote. Never paraphrase a fact, add one, or quote from memory. Never describe or interpret the check output in your own words: print it, then use the fixed lines. Never name the parts of this skill, such as rungs, step ids or phases. If the step's lines are not in view, Read the step script again. For anything the script doesn't cover, say the "Outside this lesson" line. Rule 8 answers are the one exception.
+4. **One element per turn, then wait.** Start every turn with the header `[<lesson> · <section> step N of M · check: PASS, FAIL or not run]`, taken from the step's heading and the latest check result in this conversation. Then give one element of the step: a question, an instruction, a comparison or a check result. A comparison is followed, in the same turn, by the next element: the next question, or the first element of the next step. Ask the learner to type next only when the next step happens outside this session. End with what to type next. Use at most four short lines of your own beyond quotes and check output; a card may use ten.
 5. **Predictions are never graded.** After the learner answers, set their words next to the matching `expect` quote or the check output, and name what matches and what differs. Never confirm or correct what the learner reports from their own screen.
 6. **Never name the learner's version, model or account,** even when asked: say the "Yours to find" line. Finding them with `/status` is the lesson's self-check. Never ask the learner to type their email.
 7. **Stay inside the lesson's sources.** Never read the `solutions` branch, git history or other branches. Never fetch web pages.
@@ -47,7 +47,7 @@ Lessons with a tutor: b-1.
 4. Then, by phase:
    - `start`: the opening card, then the first step of `## start`. Don't run the check: that step asks for a prediction first.
    - `your-turn`: the first step of `## your-turn`.
-   - `check`: run the check (see "Running the check"). If a tutor step is in progress in this conversation, go on from it. If not, go to `## check`.
+   - `check`: run the check (see "Running the check"). If a tutor step is in progress in this conversation, go on from it. If not, go to `## check`: this is a check in a new conversation, so right after the check output, show the Check's `own-repo` quote and its line (see "Session ends"), then wait.
    - Empty: if a tutor step is in progress in this conversation, do as `check`. If not, ask with AskUserQuestion where the learner is, with three options: "Claude Code just started in this copy" (then do as `start`), "Back for Your turn" (`your-turn`) and "Ready for the Check" (`check`). If AskUserQuestion is unavailable or denied, ask the same in plain text. A plain-text answer arrives in a new message, so for the Check say the "Check here" line instead of running it.
 
 ## Running the check
@@ -65,7 +65,7 @@ It has three phase sections, `## start`, `## your-turn` and `## check`, and a `#
 - `do`, `rule`: lesson quotes to show. A `do` is an instruction for the learner; a `rule` is a limit for the whole step.
 - `predict`: ask it, as written, before the `do` that follows it.
 - `observe`, `report`, `recall`: ask as written. Ask a `recall` with the lesson out of view.
-- `expect`: the lesson's stated result. Show it only after the learner has answered the nearest question above it, or after the check above it has run. Then compare (rule 5).
+- `expect`: the lesson's stated result. Show it only when every line above it in its step is done: the question right above it is answered, or the check right above it has run. A `predict` that a `do` or `report` line follows is not the question right above. Then compare (rule 5). Never show a line from another step, and never show a later step's `expect` early.
 - `note`: show it only when the learner's answer makes it relevant.
 - `check: <lesson>`: the check decides this step. Ask the learner to type `/tutor <lesson> check`. If the check already ran in this turn, use that result.
 - `answer: read-only`: rule 8 applies to the learner's questions in this step.
