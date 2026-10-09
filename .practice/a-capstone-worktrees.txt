@@ -1,0 +1,12 @@
+worktree /tmp/claude-code-practice
+HEAD d31ae5befbd5554bca02d41e0c658db500fe5d13
+branch refs/heads/advanced-solutions
+
+worktree /tmp/claude-code-practice/.claude/worktrees/review-script
+HEAD 2a76283692054f9bc7cf46dac27fda0c0ba8e2c9
+branch refs/heads/worktree-review-script
+
+worktree /tmp/claude-code-practice/.claude/worktrees/team-kit
+HEAD 5c0898291dfa442508139749c298cabbee3a29f7
+branch refs/heads/worktree-team-kit
+
