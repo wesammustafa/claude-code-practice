@@ -2787,7 +2787,7 @@ test('a-7 reads the saved capped run, and wants it stopped by a limit', () => {
     [null, /^There is no `\.practice\/a-7-capped\.json` yet: run the lesson's step that gives a run a limit too small to finish, which saves its JSON there\.$/],
     ['Error: Reached max turns (1)\n', /`\.practice\/a-7-capped\.json` isn't JSON\./],
     [{ ...CAPPED_RUN, session_id: STUB_SESSION }, /holds the check's stand-in reply, not a real run/],
-    [{ ...CAPPED_RUN, subtype: 'success', is_error: false }, /The run in `\.practice\/a-7-capped\.json` finished \(`success`\), so no limit stopped it\. Give it a limit too small for the task, such as `--max-turns 1`\. Then run the lesson's step that stops a run at a limit again\./],
+    [{ ...CAPPED_RUN, subtype: 'success', is_error: false }, /The run in `\.practice\/a-7-capped\.json` finished \(`success`\), so no limit stopped it\. Give it a limit too small for the task, such as `--max-budget-usd 0\.01`, as the lesson's step 4 does\. Then run the lesson's step that stops a run at a limit again\./],
     [{ ...CAPPED_RUN, subtype: 'error_during_execution' }, /ended with `error_during_execution`, not at a limit \(`error_max_turns` or `error_max_budget_usd`\)/],
   ]) {
     withRepo(boundedRepo({ capped }), (dir) => {
