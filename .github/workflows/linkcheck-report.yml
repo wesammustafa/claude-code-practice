@@ -1,0 +1,33 @@
+name: Link check report
+
+# Started by hand. Claude runs the link checker on samples/ and explains each
+# broken link on the run's summary page, without changing any files.
+on:
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The job token can only read; github_token below makes Claude use it.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      # v1.0.237, which installs Claude Code v2.1.285.
+      - uses: anthropics/claude-code-action@fd1c128679612beff4ca259c78021c506e8aa7a7
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: |
+            Run `npm run linkcheck -- samples`. For each broken link it reports,
+            explain in one or two sentences why the link is broken and what would
+            fix it. Don't change any files.
+          claude_args: |
+            --model sonnet
+            --max-turns 8
+            --allowedTools "Bash(npm run linkcheck *)"
+          display_report: true
