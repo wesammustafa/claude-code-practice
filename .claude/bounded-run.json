@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": ["Edit(./src/**)", "Edit(./test/**)", "Bash(npm test *)"],
+    "deny": ["Agent", "Read(./.env)", "Read(./.env.*)", "Bash(git commit *)", "Bash(git push *)"]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false
+  }
+}
