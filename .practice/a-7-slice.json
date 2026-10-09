@@ -1,1 +1,106 @@
-{"duration_api_ms":40450,"stop_reason":"end_turn","session_id":"00000000-0000-0000-0000-000000000000","total_cost_usd":0.1846214,"usage":{"input_tokens":14,"cache_creation_input_tokens":18230,"cache_read_input_tokens":142560,"output_tokens":1830,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":18230,"ephemeral_5m_input_tokens":0},"inference_geo":"global","iterations":[],"speed":"standard","fallback_credit":null},"modelUsage":{"claude-sonnet-5-5":{"inputTokens":14,"outputTokens":1830,"cacheReadInputTokens":142560,"cacheCreationInputTokens":18230,"webSearchRequests":0,"costUSD":0.1846214,"contextWindow":1000000,"maxOutputTokens":128000,"thinkingTokens":0,"canonicalModel":"claude-sonnet-5-5","provider":"firstParty","costBasis":"list"}},"permission_denials":[{"tool_name":"Bash","tool_use_id":"toolu_000000000000000000000000","tool_input":{"command":"git add test/slug.test.js && git commit -m \"Test that slugify trims the spaces around a heading\"","description":"Commit the new test"}}],"terminal_reason":"completed","fast_mode_state":"off","fast_mode_disabled_reason":"sdk_opt_in_required","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"is_error":false,"num_turns":6,"subtype":"success","api_error_status":null,"result":"Added a test to `test/slug.test.js` that checks `slugify` trims the spaces around a heading: `'  Getting Started  '` becomes `'getting-started'`. `npm test` passes: 17 tests, 0 failures.\n\nI couldn't commit it: this run's settings deny `git commit`. The test is in your working tree, uncommitted, for you to review and commit.","type":"result","duration_ms":41250,"uuid":"00000000-0000-0000-0000-000000000000","queued_turn_count":0,"result_index":0}
+{
+  "duration_api_ms": 20189,
+  "stop_reason": "end_turn",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "total_cost_usd": 0.07376039999999999,
+  "usage": {
+    "input_tokens": 12,
+    "cache_creation_input_tokens": 9692,
+    "cache_read_input_tokens": 109142,
+    "output_tokens": 1314,
+    "output_tokens_details": {
+      "thinking_tokens": 228
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9692,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 235,
+        "cache_read_input_tokens": 20837,
+        "cache_creation_input_tokens": 285,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 285
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 12,
+      "outputTokens": 1314,
+      "cacheReadInputTokens": 109142,
+      "cacheCreationInputTokens": 9692,
+      "webSearchRequests": 0,
+      "costUSD": 0.07376039999999999,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 228,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [
+    {
+      "tool_name": "Bash",
+      "tool_use_id": "toolu_01Do8DtHKEQhCnc2aPUEGD4m",
+      "tool_input": {
+        "command": "git add test/links.test.js && git commit -q -m \"Test that findLinks skips tilde-fenced code\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\" && git log --oneline -1"
+      }
+    }
+  ],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "is_error": false,
+  "num_turns": 7,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "I added the test and `npm test` passes (10 of 10), but the commit didn't happen because the permission prompt for `git add` and `git commit` was denied. I didn't try another way around it.\n\nBoth `findLinks` and `isExternal` already had tests, so no function in `src/links.js` was untested. I added a test for an untested branch of `findLinks` instead. It checks that links inside a `~~~` fence are skipped and that link detection resumes after the fence closes. The test is in `test/links.test.js`.\n\nThe change is unstaged. To commit it, you can run this yourself, or tell me to retry:\n\n```\ngit add test/links.test.js && git commit -m \"Test that findLinks skips tilde-fenced code\"\n```",
+  "ttft_ms": 2191,
+  "type": "result",
+  "duration_ms": 21900,
+  "uuid": "00000000-0000-0000-0000-000000000000",
+  "ttft_stream_ms": 1371,
+  "time_to_request_ms": 55,
+  "first_content_frame_ms": 1372,
+  "queued_turn_count": 0,
+  "result_index": 0
+}
