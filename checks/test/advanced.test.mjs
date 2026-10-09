@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { readWorkflow } from '../workflow-script.mjs';
 import { parseWorktrees } from '../worktrees.mjs';
 import { check, commit, repo, withRepo, write } from './helpers.mjs';
 
@@ -550,6 +551,386 @@ test('a-2 fails on an unsolved repository and passes on a solved one, as the tem
   });
   withRepo(patternRepo(), (dir) => {
     const { code, out } = check(['a-2', '--assert', 'pass', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+});
+
+// A repository after lesson a-3: TODO and FIXME comments in two folders, the
+// saved workflow committed in .claude/workflows/, and a report from each run
+// by name. The options replace a step: `script` (null for none) is saved at
+// `path` and committed unless `commitScript` is false; `globalIgnore`
+// becomes the repository's excludes file, standing in for a global one;
+// each report is text, a Buffer, a function of the folder, or null for none;
+// `after` changes the working tree last.
+const TODO_CHECK = [
+  '// Run with: /todo-check on <folder>',
+  'export const meta = {',
+  "  name: 'todo-check',",
+  "  description: 'Report the TODO and FIXME comments in a folder that still apply to the current code',",
+  '  phases: [',
+  "    { title: 'Find', detail: 'list every TODO and FIXME comment in the folder' },",
+  "    { title: 'Verify', detail: 'one agent per comment checks it against the code' },",
+  '  ],',
+  '}',
+  '',
+  'const folder = Array.isArray(args) ? args[0] : args',
+  "if (!folder) throw new Error('Name a folder: Run /todo-check on <folder>')",
+  '',
+  "phase('Find')",
+  'const found = await agent(`List every TODO and FIXME comment under ${folder}/, each as a path from the repository root, a line number and the comment.`, {',
+  "  schema: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: { type: 'object' } } } },",
+  '})',
+  '',
+  "phase('Verify')",
+  'const checked = await pipeline(found.items, (item) =>',
+  '  agent(`Does the comment at ${item.path}:${item.line} still apply to the current code? ${item.text}`, {',
+  '    label: `${item.path}:${item.line}`,',
+  "    schema: { type: 'object', required: ['applies', 'why'], properties: { applies: { type: 'boolean' }, why: { type: 'string' } } },",
+  '  }).then((verdict) => verdict && { ...item, ...verdict }),',
+  ')',
+  '',
+  "return checked.filter((c) => c?.applies).map((c) => `${c.path}:${c.line}: ${c.why}`).join('\\n')",
+  '',
+].join('\n');
+const TOTAL = 'export function total(items) {\n  // TODO: round to cents before summing\n  return items.reduce((sum, i) => sum + i.price, 0);\n}\n';
+const TOTAL_TEST = "import { test } from 'node:test';\n\n// FIXME: cover an empty list\ntest('total', () => {});\n";
+const RUN1 = 'src\n\n- `src/total.js:2`: still applies, the sum is not rounded yet.\n';
+const RUN2 = 'test\n\n- test/total.test.js:3: still applies, no test covers an empty list.\n';
+const WORKFLOW_PATH = '.claude/workflows/todo-check.js';
+
+function workflowRepo({ script = TODO_CHECK, path = WORKFLOW_PATH, commitScript = true, globalIgnore, reports = [RUN1, RUN2], after } = {}) {
+  return () => {
+    const dir = repo({ 'README.md': '# demo\n', 'src/total.js': TOTAL, 'test/total.test.js': TOTAL_TEST });
+    if (globalIgnore) {
+      write(dir, { '.git/global-ignore': globalIgnore });
+      git(dir, 'config', 'core.excludesFile', join(dir, '.git', 'global-ignore'));
+    }
+    commit(dir, 'Start');
+    for (const [i, text] of (Array.isArray(script) ? script : [script]).entries()) {
+      if (text === null) continue;
+      const at = Array.isArray(path) ? path[i] : path;
+      write(dir, { [at]: text });
+      if (commitScript) commit(dir, `Add ${at}`, [at]);
+    }
+    for (const [i, report] of reports.entries()) {
+      if (report !== null) write(dir, { [`.practice/a-3-run${i + 1}.md`]: typeof report === 'function' ? report(dir) : report });
+    }
+    after?.(dir);
+    return dir;
+  };
+}
+
+const a3 = (dir) => check(['a-3', '--dir', dir]);
+const withMeta = (meta) => TODO_CHECK.replace(/export const meta = \{[\s\S]*?\n\}\n/, `export const meta = ${meta}\n`);
+
+test('a-3 passes for a committed workflow that reads args and two reports on two folders', () => {
+  withRepo(workflowRepo(), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 0, out);
+    assert.match(out, /3 of 3 passed/);
+  });
+});
+
+test('a-3 accepts a workflow in a package\'s own .claude/workflows/, and comments before meta', () => {
+  const commented = `/*\n * Finds TODO and FIXME comments.\n */\n\n// Run with: /todo-check on src\n${TODO_CHECK}`;
+  withRepo(workflowRepo({ script: commented, path: 'packages/web/.claude/workflows/todo-check.js' }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('a-3 says how to save a workflow when there is none', () => {
+  withRepo(workflowRepo({ script: null }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /There is no workflow script in `\.claude\/workflows\/`\. When a workflow run finishes, run `\/workflows`, select the run, press `s`/);
+  });
+});
+
+test('a-3 says to commit a workflow that is only in the working tree, naming the rule that ignores it', () => {
+  withRepo(workflowRepo({ commitScript: false }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.claude\/workflows\/todo-check\.js` isn't committed\. Run `git add \.claude\/workflows\/todo-check\.js` and commit it\./);
+  });
+  withRepo(workflowRepo({ commitScript: false, globalIgnore: '.claude/\n' }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /isn't committed, and line 1 of `[^`]*global-ignore`, `\.claude\/`, ignores it\. Run `git add -f \.claude\/workflows\/todo-check\.js` and commit it\./);
+  });
+});
+
+test('a-3 reads only .js files directly in .claude/workflows/, and says where to move another', () => {
+  for (const path of ['.claude/workflows/todo-check.mjs', '.claude/workflows/team/todo-check.js']) {
+    withRepo(workflowRepo({ path }), (dir) => {
+      const { code, out } = a3(dir);
+      assert.equal(code, 1, `${path}: ${out}`);
+      assert.ok(out.includes(`\`${path}\` is under \`.claude/workflows/\`, but the check reads only \`.js\` files directly in that folder`), out);
+      assert.match(out, /Move it to `\.claude\/workflows\/todo-check\.js` and commit\./);
+    });
+  }
+});
+
+test('a-3 fails when meta is not the script\'s first statement', () => {
+  withRepo(workflowRepo({ script: `const folder = args\n${TODO_CHECK}` }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /doesn't start with `export const meta`: its code starts with `const folder = args`\. Claude Code needs `export const meta = \{ \.\.\. \}` as the script's first statement/);
+  });
+});
+
+test('a-3 fails for a meta with anything but literal values, naming it and the line', () => {
+  for (const [meta, what] of [
+    ["{\n  ...base,\n  name: 'todo-check',\n  description: 'Report TODOs',\n}", 'Line 3 of `.claude/workflows/todo-check.js`: `meta` holds a spread, `...`.'],
+    ["{\n  name: 'todo-check',\n  description: describe('todo'),\n}", '`meta` holds a function call, `describe(...)`.'],
+    ["{\n  name: NAME,\n  description: 'Report TODOs',\n}", '`meta` holds a variable, `NAME`.'],
+    ["{\n  name,\n  description: 'Report TODOs',\n}", '`meta` holds a variable, `name`.'],
+    ["{\n  name: 'todo-check',\n  description: `Report ${KIND}`,\n}", '`meta` holds a template string with `${...}`.'],
+    ["{\n  name: 'todo-' + 'check',\n  description: 'Report TODOs',\n}", '`meta` holds an expression, `+`.'],
+    ["{\n  name: 'todo-check',\n  description: () => 'Report TODOs',\n}", 'Line 4 of `.claude/workflows/todo-check.js`: `meta` holds a function.'],
+    ["makeMeta('todo-check')", '`meta` holds something other than an object literal.'],
+  ]) {
+    withRepo(workflowRepo({ script: withMeta(meta) }), (dir) => {
+      const { code, out } = a3(dir);
+      assert.equal(code, 1, `${meta}: ${out}`);
+      assert.ok(out.includes(what), `${meta}: missing "${what}" in ${out}`);
+      assert.match(out, /Claude Code drops `\/<name>` from `\/` autocomplete/);
+    });
+  }
+});
+
+test('a-3 fails for a meta without a name or a description', () => {
+  withRepo(workflowRepo({ script: withMeta("{ name: 'todo-check' }") }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`meta` in `\.claude\/workflows\/todo-check\.js` needs a non-empty `description` string\. Add it and commit\./);
+  });
+  withRepo(workflowRepo({ script: withMeta("{ name: '', description: 42 }") }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /needs a non-empty `name` string and a non-empty `description` string\. Add them and commit\./);
+  });
+});
+
+test('a-3 prints a compile error with its line, and never runs the script', () => {
+  const broken = `${TODO_CHECK}const late = await agent(\nlet x = 1\n`;
+  const lines = broken.split('\n').length - 1;
+  withRepo(workflowRepo({ script: broken }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.ok(out.includes(`doesn't compile (line ${lines}): missing ) after argument list`), out);
+  });
+  const touches = "export const meta = { name: 'x', description: 'Touches a file' }\nrequire('node:fs').writeFileSync('ran.txt', 'ran')\nreturn args\n";
+  withRepo(workflowRepo({ script: touches }), (dir) => {
+    a3(dir);
+    assert.equal(execFileSync('ls', [dir], { encoding: 'utf8' }).includes('ran.txt'), false);
+  });
+});
+
+test('a-3 fails when the script never reads the args global, saying why', () => {
+  const noArgs = TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  for (const [script, why] of [
+    [noArgs, /never reads `args`, so it can't take a folder as input/],
+    [noArgs.replace("const folder = 'src'", "// TODO: read the folder from args\nconst folder = 'args'"), /mentions `args` only in a comment, a string or a property name/],
+    [noArgs.replace("const folder = 'src'", "const folder = options.args\nconst options = { args: 'src' }"), /mentions `args` only in a comment, a string or a property name/],
+    [noArgs.replace("const folder = 'src'", "const args = 'src'\nconst folder = args"), /Line 11 of `\.claude\/workflows\/todo-check\.js` declares its own `args`/],
+  ]) {
+    withRepo(workflowRepo({ script }), (dir) => {
+      const { code, out } = a3(dir);
+      assert.equal(code, 1, out);
+      assert.match(out, why);
+      assert.match(out, /Run `\/workflow-authoring`, ask Claude to change the script so it reads the folder from `args`, run `\/reload-skills`, and commit\./);
+    });
+  }
+});
+
+test('a-3 counts args read in a template, a ternary, a call or an object shorthand', () => {
+  for (const read of ['const folder = `${args}`', 'const folder = args ? args : "src"', 'const folder = String(args)', 'const { folder } = { folder: args }', 'const input = { args }; const folder = input.args']) {
+    withRepo(workflowRepo({ script: TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', read) }), (dir) => {
+      const { code, out } = a3(dir);
+      assert.equal(code, 0, `${read}: ${out}`);
+    });
+  }
+});
+
+test('a-3 points out uncommitted changes to a committed script that fails', () => {
+  const noArgs = TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { [WORKFLOW_PATH]: TODO_CHECK }) }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /never reads `args`/);
+    assert.match(out, /Your copy of `\.claude\/workflows\/todo-check\.js` has changes that aren't committed: if they fix this, commit them\./);
+  });
+});
+
+test('a-3 passes when any committed script meets the item, and otherwise speaks of the one that got furthest', () => {
+  const noArgs = TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  const paths = ['.claude/workflows/a-first.js', '.claude/workflows/b-second.js'];
+  withRepo(workflowRepo({ script: [`const x = 1\n${TODO_CHECK}`, TODO_CHECK], path: paths }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 0, out);
+  });
+  withRepo(workflowRepo({ script: [`const x = 1\n${TODO_CHECK}`, noArgs], path: paths }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.claude\/workflows\/b-second\.js` never reads `args`/);
+    assert.doesNotMatch(out, /a-first/);
+  });
+  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { '.claude/workflows/fixed.js': TODO_CHECK }) }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /never reads `args`.* Also, `\.claude\/workflows\/fixed\.js` isn't committed\. Run `git add \.claude\/workflows\/fixed\.js` and commit it\./);
+  });
+});
+
+test('a-3 says where to save the reports when there are none, and which one is missing', () => {
+  withRepo(workflowRepo({ reports: [null, null] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /There are no reports yet\. Run your saved workflow by name on a folder, then ask Claude to save the report to `\.practice\/a-3-run1\.md` with the folder on its first line/);
+    assert.match(out, /There are no reports to read yet/);
+  });
+  withRepo(workflowRepo({ reports: [RUN1, null] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /There is no `\.practice\/a-3-run2\.md`\. Run your saved workflow by name on a different folder/);
+    assert.match(out, /PASS {2}every cited `path:line` exists/);
+  });
+  withRepo(workflowRepo({ reports: [RUN1, '\n  \n'] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.practice\/a-3-run2\.md` is empty/);
+  });
+});
+
+test('a-3 finds the folder on a heading, in backticks, with ./ or a trailing slash, or after a label', () => {
+  for (const first of ['# src', '## `src/`', './src', 'src\\', '**Folder:** `src/`', 'TODO and FIXME report for src.']) {
+    withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, first), RUN2] }), (dir) => {
+      const { code, out } = a3(dir);
+      assert.equal(code, 0, `${first}: ${out}`);
+    });
+  }
+  withRepo(workflowRepo({ reports: [(dir) => RUN1.replace(/^src/, `${dir}/src`), RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('a-3 fails when both reports name the same folder, however it is written', () => {
+  withRepo(workflowRepo({ reports: [RUN1, RUN1.replace(/^src/, './src/')] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /Both reports name `src`\. Run your saved workflow on a second, different folder/);
+  });
+});
+
+test('a-3 fails for a first line that names no folder, or the repository\'s root', () => {
+  withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, '# TODO report'), RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /The first line of `\.practice\/a-3-run1\.md`, "# TODO report", names no folder in this repository/);
+  });
+  withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, '.'), RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /The first line of `\.practice\/a-3-run1\.md` names the repository's root/);
+  });
+});
+
+test('a-3 reads citations in backticks, with ./, with backslashes, as a full path, with a column and as a link, and skips URLs and times', () => {
+  const forms = (dir) => [
+    '# src',
+    '',
+    '- `src/total.js:2`',
+    '- ./src/total.js:2: rounds',
+    '- src\\total.js:2',
+    `- ${dir}/src/total.js:2`,
+    '- **src/total.js:2:5**',
+    '- [total.js](src/total.js#L2)',
+    '- at:src/total.js:2',
+    '',
+    'Served at http://localhost:8080 and localhost:3000 at 10:30, see https://example.com/src/a.js#L40.',
+  ].join('\n');
+  withRepo(workflowRepo({ reports: [forms, RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
+test('a-3 fails for a cited file outside the report\'s folder', () => {
+  withRepo(workflowRepo({ reports: [`${RUN1}- test/total.test.js:3: also applies\n`, RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.practice\/a-3-run1\.md` cites `test\/total\.test\.js:3`, outside `src\/`, the folder on its first line\. Check that the workflow reads the folder from `args`/);
+  });
+});
+
+test('a-3 fails for a report with no citation, and for paths written from inside the folder', () => {
+  withRepo(workflowRepo({ reports: ['src\n\nNothing in this folder still applies.\n', RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.practice\/a-3-run1\.md` cites no `path:line`\. Each item the workflow reports needs one, from the repository's root, such as `src\/<file>:<line>`\./);
+  });
+  withRepo(workflowRepo({ reports: ['src\n\n- total.js:2: still applies\n', RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /cites `total\.js:2`, a path from inside `src\/`\. Each `path:line` must start at the repository's root, as `src\/total\.js:2` does/);
+    assert.match(out, /`total\.js:2` is a path from inside `src\/`; from the root it's `src\/total\.js:2`/);
+  });
+});
+
+test('a-3 fails when a cited line moved after an edit, and says to run the workflow again', () => {
+  withRepo(workflowRepo({ after: (dir) => write(dir, { 'src/total.js': `// Sums prices.\n${TOTAL}` }) }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /PASS {2}`\.practice\/a-3-run1\.md` and `\.practice\/a-3-run2\.md` name two different folders/);
+    assert.match(out, /`src\/total\.js:2` holds no `TODO` or `FIXME`\. If the code changed after the run, run the workflow again and save a new report/);
+  });
+});
+
+test('a-3 names up to three cited lines that fail, a missing file and a line past the end among them', () => {
+  const bad = 'src\n\n- src/total.js:2\n- src/gone.js:4\n- src/total.js:40\n- src/total.js:1\n- src/total.js:3\n- src/total.js:0\n';
+  withRepo(workflowRepo({ reports: [bad, RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /There is no `src\/gone\.js` for `src\/gone\.js:4`; `src\/total\.js:40` is past the end of `src\/total\.js`, which has 4 lines; `src\/total\.js:1` holds no `TODO` or `FIXME`; and 2 more\./);
+  });
+  withRepo(workflowRepo({ reports: [`${RUN1}- src/total.js:0\n`, RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`src\/total\.js:0` names line 0, but lines start at 1\./);
+  });
+});
+
+test('a-3 reads reports saved with CRLF line ends, a UTF-8 byte-order mark, or as UTF-16 by Windows PowerShell', () => {
+  const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replace(/\n/g, '\r\n'), 'utf16le')]);
+  for (const reports of [[RUN1.replace(/\n/g, '\r\n'), RUN2.replace(/\n/g, '\r\n')], [`\uFEFF${RUN1}`, `\uFEFF${RUN2}`], [utf16(RUN1), utf16(RUN2)]]) {
+    withRepo(workflowRepo({ reports }), (dir) => {
+      const { code, out } = a3(dir);
+      assert.equal(code, 0, out);
+    });
+  }
+});
+
+test('the workflow reader can require an agent() call, as the Advanced capstone does', () => {
+  const noArgs = TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  assert.equal(readWorkflow(noArgs, { needAgentCall: true }).ok, true);
+  assert.equal(readWorkflow(noArgs, { needArgs: true }).problem, 'args');
+  const meta = "export const meta = { name: 'review', description: 'Review each file' }\n";
+  for (const body of ['return args', "return tools.agent('x')", 'function agent() {}\nreturn 1', "// agent('x')\nconst s = \"agent('y')\""]) {
+    assert.equal(readWorkflow(`${meta}${body}\n`, { needAgentCall: true }).problem, 'agent', body);
+  }
+  assert.equal(readWorkflow(`${meta}return parallel([() => agent('a'), () => agent('b')])\n`, { needAgentCall: true }).ok, true);
+  assert.deepEqual(readWorkflow(`${meta}return 1\n`).meta, { name: 'review', description: 'Review each file' });
+});
+
+test('a-3 fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
+  withRepo(workflowRepo({ script: null, reports: [null, null] }), (dir) => {
+    const { code, out } = check(['a-3', '--assert', 'fail', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+  withRepo(workflowRepo(), (dir) => {
+    const { code, out } = check(['a-3', '--assert', 'pass', '--dir', dir]);
     assert.equal(code, 0, out);
   });
 });
