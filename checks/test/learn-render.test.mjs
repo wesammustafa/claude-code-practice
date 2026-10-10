@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render } from '../../learn/lib/render.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
-import { theme } from '../../learn/lib/theme.mjs';
+import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
 import { allScreens, driver, root } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
@@ -104,4 +104,27 @@ test('review fixes: paths are quoted and measured, toasts show everywhere, no hi
   // The welcome screen states no command of its own.
   const welcome = render(driver().state, { cols: 100, rows: 30 }, t).map(strip).join('\n');
   assert.doesNotMatch(welcome, /\$ claude\b/);
+});
+
+test('every label on a colored block reaches 4.5:1 contrast, and marks on a dark background 3:1', () => {
+  // xterm's 256-color values and WCAG's relative luminance.
+  const rgb = (n) => {
+    if (n >= 232) return Array(3).fill(8 + (n - 232) * 10);
+    const c = (v) => (v ? 55 + v * 40 : 0);
+    return [c(Math.floor((n - 16) / 36)), c(Math.floor((n - 16) / 6) % 6), c((n - 16) % 6)];
+  };
+  const lum = (n) => rgb(n).map((v) => v / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const ratio = (a, b) => {
+    const [hi, lo] = [lum(COLORS[a][0]), lum(COLORS[b][0])].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const pills = [['accentBg', 'white'], ['chipBg', 'white'], ['okBg', 'white'], ['warn', 'black'], ['dimBg', 'dimText'],
+    ...Object.values(TIER_STYLE).map((x) => [x.bg, x.fgOnBg])];
+  for (const [bg, fg] of pills) assert.ok(ratio(bg, fg) >= 4.5, `${fg} on ${bg}: ${ratio(bg, fg).toFixed(2)}:1`);
+  // A dark terminal background, like the screenshots': xterm's 233.
+  COLORS.darkBg = [233, 30];
+  for (const token of ['faint', 'muted', 'text', 'code', 'key', 'ok', 'warn', 'guided', 'hinted', 'challenge']) {
+    assert.ok(ratio(token, 'darkBg') >= 3, `${token} on a dark background: ${ratio(token, 'darkBg').toFixed(2)}:1`);
+  }
+  delete COLORS.darkBg;
 });
