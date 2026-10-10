@@ -374,3 +374,13 @@ test('review fixes: a result that misses an item, or leaves a slow one for r, de
   d.key('r');
   assert.equal(d.effects.at(-1).slow, true, 'r runs slow items too');
 });
+
+test('review fixes: closing the map the app opened on opens its lesson', () => {
+  // Every lesson in the app is done, so the app opens on the map, at the next
+  // lesson, which has no content file yet.
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true } } } });
+  assert.equal(d.state.view, 'map');
+  d.key('m');
+  assert.equal(d.state.view, 'checkonly');
+  assert.equal(d.state.lesson, 'b-2');
+});
