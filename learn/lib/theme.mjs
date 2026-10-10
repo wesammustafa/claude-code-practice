@@ -2,14 +2,15 @@
 // with a symbol or a word, so meaning survives NO_COLOR and color blindness.
 
 // Each token: a 256-color index, then the 16-color foreground code (a
-// background adds 10).
-const COLORS = {
+// background adds 10). On the usual dark background, text and pills reach
+// 4.5:1 contrast and other marks 3:1.
+export const COLORS = {
   accent: [213, 95], accentBg: [127, 95],
   key: [81, 96], code: [117, 96], codeBg: [236, 90],
   ok: [78, 92], okBg: [29, 32], warn: [221, 93], bad: [203, 91],
-  text: [252, 37], white: [231, 97], muted: [245, 90], faint: [240, 90],
-  chipBg: [238, 90], gold: [220, 93], dimBg: [239, 90], dimText: [250, 37],
-  guidedBg: [33, 34], guided: [75, 94], hintedBg: [98, 35], hinted: [141, 95],
+  text: [252, 37], white: [231, 97], muted: [245, 90], faint: [242, 90],
+  chipBg: [238, 90], gold: [220, 93], dimBg: [239, 90], dimText: [252, 37],
+  guidedBg: [26, 34], guided: [75, 94], hintedBg: [98, 35], hinted: [141, 95],
   challengeBg: [202, 33], challenge: [209, 33], black: [16, 30],
   heat2: [111, 94], heat4: [177, 95],
 };
