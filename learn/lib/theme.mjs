@@ -6,7 +6,7 @@
 // 4.5:1 contrast and other marks 3:1.
 export const COLORS = {
   accent: [213, 95], accentBg: [127, 95],
-  key: [81, 96], code: [117, 96], codeBg: [236, 90],
+  key: [81, 96], code: [117, 96], codeBg: [236, 90], prompt: [248, 37],
   ok: [78, 92], okBg: [29, 32], warn: [221, 93], bad: [203, 91],
   text: [252, 37], white: [231, 97], muted: [245, 90], faint: [242, 90],
   chipBg: [238, 90], gold: [220, 93], dimBg: [239, 90], dimText: [252, 37],
