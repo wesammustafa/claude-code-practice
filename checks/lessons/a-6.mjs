@@ -25,8 +25,9 @@ const PERSONAL = ['.claude/settings.local.json', 'CLAUDE.local.md'];
 // already holds.
 const EXAMPLE = { name: 'team-kit', dir: 'team-marketplace/plugins/team-kit' };
 const KIT = new Set(['skills/onboard/SKILL.md', 'agents/config-reviewer.md']);
-// The /tutor skill the practice template ships in .claude/skills/tutor/. Moving
-// it into the plugin doesn't move a component of the Learner's own.
+// The /tutor skill that earlier versions of the practice template shipped in
+// .claude/skills/tutor/, which an older copy may still hold. Moving it into the
+// plugin doesn't move a component of the Learner's own.
 const TUTOR = 'skills/tutor/SKILL.md';
 // Words of a hook command that name an interpreter, not the script it runs.
 const INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'node', 'python', 'python3', 'env', 'deno', 'bun', 'ruby', 'perl', 'pwsh']);
