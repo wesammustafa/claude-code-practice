@@ -11,6 +11,21 @@ Independent community guide. Not affiliated with Anthropic.
 
 You need Node.js LTS and git. There is nothing to install with npm: the app and its checks use only Node.js itself.
 
+## Learn step by step
+
+Run the learning app in one terminal, and use Claude Code in a second terminal beside it:
+
+```bash
+npm run learn
+```
+
+It shows one step of a lesson at a time, watches your copy, and turns a step green as soon as your work is there. The help shrinks as you go: every command at first, then hints, then only the goal. Beginner lesson 1 is in the app so far; for the other Beginner lessons, it watches the lesson's check while you follow the page.
+
+- Keys: arrows or numbers to choose, `enter` to go on, `h` for a hint, `m` for the map of lessons, `q` to quit. Your place is saved in `.practice/learn.json`.
+- If PowerShell refuses to run `npm`, run `npm.cmd run learn`.
+- Odd symbols or colors? Set `LEARN_PLAIN=1` (in PowerShell, `$env:LEARN_PLAIN=1`) before `npm run learn`. The app also follows `NO_COLOR`.
+- The app has no AI in it and changes none of your work: it reads your files, runs `git status` and the lesson's check, and writes only its own file.
+
 ## Check your work
 
 Each core lesson and each capstone ends with a check. Run it from the root of your copy:
@@ -44,7 +59,7 @@ npm test
 
 To scan only some files, or to skip some links, put a `linkcheck.json` in the folder you check: `files` lists the files and folders to scan, and `ignore` the link targets to skip, matched by how they start.
 
-The app is `src/`, `test/` and `samples/`. The rest belongs to the course: `checks/` holds the checks, `capstone/` the capstone briefs, `.claude/skills/tutor/` the optional `/tutor` coach for Beginner lesson 1, and `.github/` the workflows. The **Assert checks** workflow does its work only in the template repository: in your copy its job is skipped, which GitHub shows as a skipped check, so you can commit your exercises on any branch, `main` included.
+The app is `src/`, `test/` and `samples/`. The rest belongs to the course: `checks/` holds the checks, `learn/` the step-by-step learning app, `capstone/` the capstone briefs, `.claude/skills/tutor/` the optional `/tutor` coach for Beginner lesson 1, and `.github/` the workflows. The **Assert checks** workflow does its work only in the template repository: in your copy its job is skipped, which GitHub shows as a skipped check, so you can commit your exercises on any branch, `main` included.
 
 ## In a Codespace
 

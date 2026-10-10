@@ -1,0 +1,26 @@
+   B1   Install, sign in and look around                               GUIDED ★☆☆
+  ●━━●━━●──○──○──○──○   ◇──◇──◇   ☆──☆                                step 3 of 12
+  ────────────────────────────────────────────────────────────────────────────────
+
+  ╭─  💻 in your other terminal  ─────────────────────────────────────────────────
+  │
+  │  Save the version
+  │  Go to your practice copy and save that output for the check:
+  │
+  │   $ cd /home/sam/claude-code-practice
+  │   $ mkdir -p .practice                              ✔ .practice/ exists
+  │   $ claude --version > .practice/version.txt
+  │
+  │  Done when .practice/version.txt holds a line such as X.Y.Z (Claude Code).
+  │
+  │  👀 Watching .practice/version.txt. I'll turn green the moment it's right.
+  ╰───────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+  ────────────────────────────────────────────────────────────────────────────────
+  r check now    w why    m map    ? more    q quit
