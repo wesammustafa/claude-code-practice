@@ -59,7 +59,7 @@ npm test
 
 To scan only some files, or to skip some links, put a `linkcheck.json` in the folder you check: `files` lists the files and folders to scan, and `ignore` the link targets to skip, matched by how they start.
 
-The app is `src/`, `test/` and `samples/`. The rest belongs to the course: `checks/` holds the checks, `learn/` the step-by-step learning app, `capstone/` the capstone briefs, `.claude/skills/tutor/` the optional `/tutor` coach for Beginner lesson 1, and `.github/` the workflows. The **Assert checks** workflow does its work only in the template repository: in your copy its job is skipped, which GitHub shows as a skipped check, so you can commit your exercises on any branch, `main` included.
+The app is `src/`, `test/` and `samples/`. The rest belongs to the course: `checks/` holds the checks, `learn/` the step-by-step learning app, `capstone/` the capstone briefs, and `.github/` the workflows. The **Assert checks** workflow does its work only in the template repository: in your copy its job is skipped, which GitHub shows as a skipped check, so you can commit your exercises on any branch, `main` included.
 
 ## In a Codespace
 
