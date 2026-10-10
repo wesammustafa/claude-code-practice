@@ -57,7 +57,7 @@ npm run linkcheck -- samples
 npm test
 ```
 
-The app is `src/`, `test/` and `samples/`. The rest belongs to the course: `checks/` holds the checks, `learn/` the step-by-step learning app, `capstone/` the capstone briefs, `.claude/skills/tutor/` the optional `/tutor` coach for Beginner lesson 1, and `.github/` the workflows. The **Assert checks** workflow does its work only in the template repository: in your copy its job is skipped, which GitHub shows as a skipped check, so you can commit your exercises on any branch, `main` included.
+The app is `src/`, `test/` and `samples/`. The rest belongs to the course: `checks/` holds the checks, `learn/` the step-by-step learning app, `capstone/` the capstone briefs, and `.github/` the workflows. The **Assert checks** workflow does its work only in the template repository: in your copy its job is skipped, which GitHub shows as a skipped check, so you can commit your exercises on any branch, `main` included.
 
 ## In a Codespace
 
