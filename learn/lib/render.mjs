@@ -108,7 +108,7 @@ function chip(t, cmd, where, w) {
   }
   if (part || !parts.length) parts.push(part);
   return parts.map((part, i) => {
-    const text = ` ${t.fg('muted', i ? ' ' : prompt)} ${t.fg('code', part)}`;
+    const text = ` ${t.fg('prompt', i ? ' ' : prompt)} ${t.fg('code', part)}`;
     const padded = text + ' '.repeat(Math.max(1, w - width(text)));
     return t.depth > 1 ? t.bg('codeBg', padded) : padded;
   });

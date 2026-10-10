@@ -119,6 +119,7 @@ test('every label on a colored block reaches 4.5:1 contrast, and marks on a dark
     return (hi + 0.05) / (lo + 0.05);
   };
   const pills = [['accentBg', 'white'], ['chipBg', 'white'], ['okBg', 'white'], ['warn', 'black'], ['dimBg', 'dimText'],
+    ['codeBg', 'code'], ['codeBg', 'prompt'],
     ...Object.values(TIER_STYLE).map((x) => [x.bg, x.fgOnBg])];
   for (const [bg, fg] of pills) assert.ok(ratio(bg, fg) >= 4.5, `${fg} on ${bg}: ${ratio(bg, fg).toFixed(2)}:1`);
   // A dark terminal background, like the screenshots': xterm's 233.
