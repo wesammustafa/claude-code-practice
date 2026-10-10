@@ -504,7 +504,9 @@ function onKey(s, ev, effects) {
 }
 
 function closeMap(s, effects) {
-  s.view = s.mapReturn ?? 'intro';
+  // The map the app opened on has no screen behind it: open its lesson.
+  if (!s.mapReturn) return startLesson(s, s.lesson, effects);
+  s.view = s.mapReturn;
   if (s.view === 'step' && s.beat) {
     // Re-run what the beat waits on: files may have changed meanwhile.
     const w = watching(s);
