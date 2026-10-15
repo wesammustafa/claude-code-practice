@@ -23,6 +23,12 @@ function plan(s) {
 const where = (s) => `${s.lesson} ${stepOf(s).id}`;
 const onStep = (s) => s.view === 'step' || s.view === 'levelup';
 
+// The "more help" line, read off the card as drawn at rest (render has no
+// clock) at 80x24, where the line is never dropped.
+const FULL = theme({ tty: true, depth: 8, unicode: true, links: false, win32: false });
+const flat = (text) => text.replace(/[^A-Za-z0-9]/g, '');
+const showsMoreHelp = (s) => flat(render(s, { cols: 80, rows: 24 }, FULL).map(strip).join('')).includes(flat(C.eased));
+
 // The driver, with `look(state)` after every event the learner causes.
 const watched = (d, look) => ({
   get state() { return d.state; },
@@ -72,15 +78,33 @@ function exactEverywhere(look) {
   });
   return taken;
 }
-// b-4 opened from the map with nothing done, played to its end.
-function b4FromMap(look) {
+// A lesson opened from the map with nothing done, played to its end.
+// `first(d)` plays the first warm-up, where given.
+function fromMap(id, look, first) {
   const d = watched(driver({ course, saved: { format: 1, welcomed: true, lessons: {} } }), look);
   d.key('m');
-  while (course[d.state.mapCursor].id !== 'b-4') d.key('down');
+  while (course[d.state.mapCursor].id !== id) d.key('down');
   d.key('enter');
-  assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'b-4']);
-  playUntil(d, (s) => s.lesson === 'b-4' && s.view === 'complete');
+  assert.deepEqual([d.state.view, d.state.lesson], ['intro', id]);
+  d.key('enter');
+  first?.(d);
+  playUntil(d, (s) => s.lesson === id && s.view === 'complete');
 }
+const b4FromMap = (look) => fromMap('b-4', look);
+// b-2 from the map, R1 (start) answered right the first time.
+const b2Recalled = (look) => fromMap('b-2', look, (d) => {
+  assert.deepEqual([stepOf(d.state).id, stepOf(d.state).skill], ['R1', 'start']);
+});
+// b-3 from the map, R1 (plan-mode) typed wrong twice: the ease waits past
+// W1, GUIDED on a first meeting, for Y1.
+const b3Missed = (look) => fromMap('b-3', look, (d) => {
+  assert.deepEqual([stepOf(d.state).id, stepOf(d.state).skill], ['R1', 'plan-mode']);
+  for (const word of ['tab', 'tab']) {
+    for (const c of word) d.key(c, c);
+    d.key('enter');
+  }
+  assert.deepEqual(d.state.eased, ['plan-mode']);
+});
 
 test('in order, with no hints: every tier equals the course plan', () => {
   const met = new Set();
@@ -108,7 +132,8 @@ test('in order, taking the exact command on every non-guided step: no step ever 
 
 test('b-4 opened from the map with nothing done: each step gets a first meeting\'s tier, and the Check is CHALLENGE', () => {
   // A first meeting: a worked example is GUIDED, a turn HINTED, the last turn
-  // the app checks CHALLENGE. No step is done, so no b-4 skill was met.
+  // the app checks CHALLENGE. No step is done, and b-4's warm-ups recall no
+  // skill b-4 uses, so no b-4 skill was met.
   const first = { W1: 'guided', W2: 'guided', W3: 'guided', W4: 'guided', W5: 'guided', W6: 'guided', W7: 'guided', Y1: 'hinted', Y2: 'hinted', Y3: 'hinted', Y4: 'hinted', Y5: 'challenge', C: 'challenge' };
   const idx = course.findIndex((l) => l.id === 'b-4');
   assert.deepEqual(contents[idx].steps.map((x) => x.id), Object.keys(first));
@@ -124,11 +149,26 @@ test('b-4 opened from the map with nothing done: each step gets a first meeting\
   for (const id of Object.keys(first)) assert.ok(met.has(id), `${id} was met`);
 });
 
-// The "more help" line, read off the card as drawn at rest (render has no
-// clock) at 80x24, where the line is never dropped.
-const FULL = theme({ tty: true, depth: 8, unicode: true, links: false, win32: false });
-const flat = (text) => text.replace(/[^A-Za-z0-9]/g, '');
-const showsMoreHelp = (s) => flat(render(s, { cols: 80, rows: 24 }, FULL).map(strip).join('')).includes(flat(C.eased));
+test('opened from the map with nothing done: a warm-up right the first time puts its skill on the plan, one missed waits past a GUIDED step', () => {
+  // b-2: R1 recalls start, so W1 gets the plan; every other step a first meeting.
+  const b2 = course.findIndex((l) => l.id === 'b-2');
+  const recalled = ruleTiers(contents, b2, (k, skill) => skill === 'start');
+  assert.deepEqual([recalled[0], ruleTiers(contents, b2)[0], ruleTiers(contents, b2, () => false)[0]], ['hinted', 'hinted', 'guided'], 'W1 (start)');
+  const met = new Set();
+  b2Recalled((s) => {
+    if (!onStep(s) || stepOf(s).part === 'Warm-up') return;
+    assert.deepEqual(tiersOf(s).slice(s.progress[s.lesson].warm.length), recalled, where(s));
+    met.add(stepOf(s).id);
+  });
+  assert.ok(met.has('W1'));
+  // b-3: plan-mode was missed, so W1 stays GUIDED with no line, and Y1, HINTED
+  // on a first meeting, takes the ease. The line opens a step's first beat.
+  const seen = { W1: new Set(), Y1: new Set() };
+  b3Missed((s) => {
+    if (s.view === 'step' && s.pos.beat === 0 && seen[stepOf(s).id]) seen[stepOf(s).id].add(`${tierOf(s)} ${showsMoreHelp(s) ? 'with' : 'without'} the line`);
+  });
+  assert.deepEqual(Object.fromEntries(Object.entries(seen).map(([id, x]) => [id, [...x]])), { W1: ['guided without the line'], Y1: ['guided with the line'] });
+});
 
 test('throughout every run: a card with the "more help" line gives one tier more help than it would without the ease', () => {
   const shown = new Set();
@@ -142,7 +182,10 @@ test('throughout every run: a card with the "more help" line gives one tier more
   };
   inOrder(look);
   b4FromMap(look);
+  b2Recalled(look);
   assert.equal(shown.size, 0, `a learner who needed no help saw the line on ${[...shown].join(', ')}`);
+  b3Missed(look);
+  assert.ok(shown.has('b-3 Y1'), 'the missed warm-up\'s ease landed on Y1');
   exactEverywhere(look);
   assert.ok(shown.size > 5, `the line showed on ${[...shown].join(', ')}`);
 });
