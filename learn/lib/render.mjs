@@ -4,7 +4,7 @@
 import { banner, bannerWidth, burst, confetti, pip } from './art.mjs';
 import { C } from './copy.mjs';
 import {
-  answerKey, authoredTier, beatOf, contentOf, hintAvailable, lessonOf, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, authoredTier, beatOf, contentOf, finishedOn, hintAvailable, lessonOf, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -532,8 +532,10 @@ function stepView(ctx) {
       }
     }
     const firstBeat = step.beats.findIndex((b) => b.kind !== 'predict');
-    if (tier === 'challenge' && OWN_PARTS.has(step.part) && s.pos.beat === firstBeat) rows.push(SPACER, t.fg('muted', C.noCommands));
-    else if (stepNote(s) && s.pos.beat === firstBeat && !done) rows.push(SPACER, ...para(t, hintAvailable(s) ? C.doneBefore.hinted : C.doneBefore.challenge, inner, 'muted'));
+    // "Done before" only after a step on this skill that the learner finished.
+    const before = finishedOn(s, step.skill);
+    if (tier === 'challenge' && OWN_PARTS.has(step.part) && s.pos.beat === firstBeat) rows.push(SPACER, ...para(t, before ? `${C.noCommands} ${C.doneEachPart}` : C.noCommands, inner, 'muted'));
+    else if (before && stepNote(s) && s.pos.beat === firstBeat && !done) rows.push(SPACER, ...para(t, hintAvailable(s) ? C.doneBefore.hinted : C.doneBefore.challenge, inner, 'muted'));
     if (hideRuns && beat.lines.some((l) => l.key === 'run') && !done) rows.push(...para(t, C.pressH, inner, 'muted'));
   }
   if (beat.winNote && t.caps.win32) rows.push(...quoted(beat.winNote));

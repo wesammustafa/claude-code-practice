@@ -102,6 +102,13 @@ next: b-3
 - goal: "Run the check."
 `;
 
+// A lesson finished on the path: complete, with every one of its own steps
+// done. Help fades only for what the learner did, so a seed without `done`
+// is a learner who skipped the lesson.
+export const finished = (l) => ({ complete: true, done: l.content.steps.map((x) => x.id) });
+// Every lesson in the app before `id`, finished.
+export const finishedBefore = (id, lessons = course) => Object.fromEntries(lessons.slice(0, lessons.findIndex((l) => l.id === id)).filter((l) => l.content).map((l) => [l.id, finished(l)]));
+
 // Lesson 1 alone by default; lessonScreens passes the whole course.
 export function driver({ saved = null, facts = {}, course: lessons = b1Only } = {}) {
   let now = 1_000;
@@ -268,7 +275,7 @@ export function lessonScreens(id, lessons = course) {
   const out = [];
   const warm = l.content.warmup.slice(0, 2).map((w) => w.id);
   const steps = [...warm.map((w) => l.content.warmup.find((x) => x.id === w)), ...l.content.steps];
-  const complete = Object.fromEntries(lessons.filter((x) => x.content && lessons.indexOf(x) < lessons.indexOf(l)).map((x) => [x.id, { complete: true }]));
+  const complete = finishedBefore(id, lessons);
   steps.forEach((step) => step.beats.forEach((beat, b) => {
     const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { ...complete, [id]: { step: step.id, beat: b, warm, levels: ['hinted', 'challenge'] } } } });
     d.key('enter');
