@@ -100,6 +100,7 @@ export const C = {
   lessonDone: (label) => `${label} done! You practised:`,
   badge: (name) => `New badge: ${name}`,
   checkedSummary: (n, m) => `The lesson's check passes: ${n} of ${m} item${m === 1 ? '' : 's'}`,
+  handover: 'You did every task without the exact command.',
   answeredSummary: (n) => `${n} question${n === 1 ? '' : 's'} answered`,
   yourClimb: 'Your climb',
   nextUp: 'Next up',
