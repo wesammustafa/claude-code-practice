@@ -3,7 +3,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadCourse, parseLesson } from '../../learn/lib/content.mjs';
-import { DEFER_MS, initialState, reduce } from '../../learn/lib/flow.mjs';
+import { DEFER_MS, hintAvailable, IDLE_MS, initialState, reduce, rungsOf } from '../../learn/lib/flow.mjs';
 import { versionSaved } from '../lessons/b-1.mjs';
 import { openRepo } from '../repo.mjs';
 import { repo, withRepo, write } from './helpers.mjs';
@@ -245,11 +245,13 @@ export function lessonScreens(id, lessons = course) {
     } else if (v.kind === 'file') {
       d.send({ type: 'file', path: v.path, line: null, stamp: '' });
       out.push([`${at} waiting`, d.state]);
+      climb(d, at, out);
       d.send({ type: 'file', path: v.path, line: 'src/config.js', stamp: 'x' });
       out.push([`${at} done`, d.state]);
     } else if (v.kind === 'git-clean') {
       d.send({ type: 'git', paths: ['src/config.js', 'test/config.test.js'] });
       out.push([`${at} dirty`, d.state]);
+      climb(d, at, out);
       d.send({ type: 'git', paths: [] });
       out.push([`${at} clean`, d.state]);
     } else if (beat.ask && beat.kind !== 'type') {
@@ -263,18 +265,23 @@ export function lessonScreens(id, lessons = course) {
     } else if (beat.kind === 'type') {
       d.key('enter');
       out.push([`${at} revealed`, d.state]);
-    } else if (rungsAt(d)) {
-      for (let i = 0; i < 6 && !d.state.beat?.confirm; i++) {
-        d.send({ type: 'key', name: 'h', ch: 'h', wait: 3_000 });
-        d.send({ type: 'flush', wait: 400 });
-        out.push([`${at} hint ${i + 1}`, d.state]);
-      }
-      if (d.state.beat?.confirm) {
-        d.key('y');
-        out.push([`${at} bottom`, d.state]);
-      }
-    }
+    } else climb(d, at, out);
   }));
   return out;
 }
 const rungsAt = (d) => d.state.view === 'step' && d.state.beat && !['done', 'already'].includes(d.state.beat.status);
+// Every rung behind h, the bottom line too. Where a CHALLENGE beat keeps its
+// hints for a try that can't come here, two quiet minutes open them.
+function climb(d, at, out) {
+  if (!rungsAt(d) || !rungsOf(d.state).length) return;
+  if (!hintAvailable(d.state)) d.send({ type: 'tick', wait: IDLE_MS + 1_000 });
+  for (let i = 0; i < 6 && hintAvailable(d.state) && !d.state.beat?.confirm; i++) {
+    d.send({ type: 'key', name: 'h', ch: 'h', wait: 3_000 });
+    d.send({ type: 'flush', wait: 400 });
+    out.push([`${at} hint ${i + 1}`, d.state]);
+  }
+  if (d.state.beat?.confirm) {
+    d.key('y');
+    out.push([`${at} bottom`, d.state]);
+  }
+}
