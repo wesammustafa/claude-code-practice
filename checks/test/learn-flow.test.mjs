@@ -874,10 +874,10 @@ const midway = (id, step, { eased = [], beat = 0, ...extra } = {}) => {
 const at5 = (id) => (s) => ['step', 'levelup'].includes(s.view) && s.lesson === 'b-5' && stepOf(s)?.id === id;
 
 test('an ease lands only where it changes the help: a GUIDED step keeps it waiting for the next one', () => {
-  const d = midway('b-5', 'W3');
+  const d = midway('b-5', 'W4');
   bottomRung(d);
   assert.deepEqual(d.state.eased, ['memory']);
-  playUntil(d, at5('W4'));
+  playUntil(d, at5('W5'));
   assert.equal(tierOf(d.state), 'guided');
   assert.equal(d.state.beat.eased, false, 'no "more help" line on a step that is GUIDED anyway');
   assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
@@ -890,10 +890,10 @@ test('an ease lands only where it changes the help: a GUIDED step keeps it waiti
 });
 
 test('an ease lands only where it changes the help: the level-up forecast agrees with where it lands', () => {
-  const d = midway('b-5', 'W3');
+  const d = midway('b-5', 'W4');
   bottomRung(d);
-  playUntil(d, at5('W5'));
-  assert.equal(d.state.view, 'step', 'no level-up at W5: Y1 will get more help');
+  playUntil(d, at5('W6'));
+  assert.equal(d.state.view, 'step', 'no level-up at W6: Y1 will get more help');
   assert.equal(stepNote(d.state), 'hinted');
   // From here to the end, a level-up shows only where no later step gets more
   // help, and a step's own line only where one does.
@@ -923,7 +923,7 @@ test('an ease lands only where it changes the help: the level-up forecast agrees
 });
 
 test('an ease lands only where it changes the help: hints short of the exact command neither add nor clear one', () => {
-  const d = midway('b-5', 'W3', { eased: ['memory'] });
+  const d = midway('b-5', 'W4', { eased: ['memory'] });
   const l = course.find((x) => x.id === 'b-5');
   const items = [{ index: 0, text: l.items[0], pass: false, hint: `${l.items[0]} is not there yet.` }];
   d.send({ type: 'check', lesson: 'b-5', items });
@@ -972,7 +972,7 @@ test('an ease lands only where it changes the help: in a lesson played again, ev
   while (d.state.mapCursor !== to) d.key('up');
   d.key('enter');
   d.key('enter');
-  playUntil(d, at5('W3'));
+  playUntil(d, at5('W4'));
   bottomRung(d);
   assert.deepEqual(d.state.eased, ['memory']);
   playUntil(d, at5('Y1'));
@@ -1223,15 +1223,47 @@ test('fading counts only what this learner did: b-4 opened from the map with not
   assert.equal(ownTiers(path.state, 'b-4')[0], 'challenge');
 });
 
+test('b-5 opens at CHALLENGE on starting Claude Code, and /init comes in a GUIDED step (Q10)', () => {
+  const d = fromMap('b-5', finishedBefore('b-5'));
+  const tiers = ownTiers(d.state, 'b-5');
+  assert.deepEqual(tiers.slice(0, 2), ['challenge', 'guided']);
+  assert.deepEqual(['guided', 'hinted', 'challenge'].map((t) => tiers.filter((x) => x === t).length), [4, 6, 4]);
+  d.key('enter');
+  playUntil(d, atStep('W1'));
+  assert.equal(stepOf(d.state).skill, 'start');
+  assert.equal(tierOf(d.state), 'challenge');
+  playUntil(d, atStep('W2'));
+  assert.equal(stepOf(d.state).skill, 'memory');
+  assert.equal(tierOf(d.state), 'guided');
+  assert.ok(stepOf(d.state).beats.some((b) => b.lines.some((l) => l.key === 'run' && l.text === '/init')));
+});
+
+// Pins what a b-5 save from before the split does today, until the owner
+// chooses (ticket 135): every old id is still a step, so nothing starts over.
+test('b-5 saved before the W1 split: each saved step id now names the step after it', () => {
+  const old = (p) => driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-5'), 'b-5': { warm: [], ...p } } } });
+  // Old W6 (Check the new file), beat 1, with old W1 to W5 done.
+  const d = old({ step: 'W6', beat: 1, done: ['W1', 'W2', 'W3', 'W4', 'W5'], easedSteps: { W5: true } });
+  assert.equal(d.state.view, 'resume');
+  assert.deepEqual(d.state.progress['b-5'].done, ['W1', 'W2', 'W3', 'W4', 'W5']);
+  assert.deepEqual(d.state.progress['b-5'].easedSteps, { W5: true });
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).title, d.state.pos.beat], ['Ask for a new file', 1]);
+  // Old W1 after /init: its beat is past the new W1, which opens on the clean-copy check.
+  const w1 = old({ step: 'W1', beat: 3 });
+  w1.key('enter');
+  assert.deepEqual([stepOf(w1.state).id, w1.state.pos.beat, beatOf(w1.state).verify.kind], ['W1', 0, 'git-clean']);
+});
+
 test('fading counts only what this learner did: a lesson marked complete with nothing done counts for nothing', () => {
   // The seeded b-5 run: b-1 to b-4 complete, with no step done.
   const skipped = Object.fromEntries(['b-1', 'b-2', 'b-3', 'b-4'].map((id) => [id, { complete: true, done: [] }]));
   const d = fromMap('b-5', skipped);
   d.key('enter');
-  playUntil(d, atStep('W6'));
+  playUntil(d, atStep('W7'));
   assert.equal(stepOf(d.state).skill, 'commit');
   assert.equal(stepOf(d.state).tier, 'hinted');
-  assert.equal(tierOf(d.state), 'guided', 'W6, HINTED on the plan, opens GUIDED');
+  assert.equal(tierOf(d.state), 'guided', 'W7, HINTED on the plan, opens GUIDED');
 });
 
 test('fading counts only what this learner did: on the path every Beginner lesson keeps the course plan', () => {
@@ -1479,7 +1511,7 @@ test('g is one notch more help: an ease waiting on a step g covers waits for a l
 test('g is one notch more help: an ease that landed on the level-up step goes back to waiting', () => {
   // b-5: the memory ease makes Y1 GUIDED, so Y2 (snapshot, eased to HINTED)
   // is where the help stays lower.
-  const d = midway('b-5', 'W3', { eased: ['snapshot'] });
+  const d = midway('b-5', 'W4', { eased: ['snapshot'] });
   bottomRung(d);
   playUntil(d, (s) => s.view === 'levelup');
   assert.equal(stepOf(d.state).id, 'Y2');
