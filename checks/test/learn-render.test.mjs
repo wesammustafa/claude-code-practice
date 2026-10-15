@@ -518,3 +518,111 @@ test('the next screen counts the questions in the steps this learner finished', 
   assert.ok(questions(some) > 0 && questions(some) < 9);
   assert.equal(count(at(some.map((x) => x.id)), 80, 24), String(questions(some)));
 });
+
+// The capstone handover line (Q11): it reports the unaided result, and only
+// when that play showed no exact command.
+const HANDOVER = 'You did every task without the exact command.';
+const playedTo = (id, saved = finishedBefore(id)) => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: saved } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === id);
+  return d;
+};
+
+test('the capstone\'s next screen says "You did every task without the exact command." under the check summary', () => {
+  const d = playedTo('b-capstone');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const lines = plainAt(d, cols, rows).split('\n');
+    const at = lines.findIndex((l) => l.includes("The lesson's check passes: 7 of 7 items"));
+    assert.ok(at > 0, `${cols}x${rows}: no check summary`);
+    assert.equal(lines[at + 1].trim(), HANDOVER, `${cols}x${rows}`);
+  }
+});
+
+test('the capstone handover line hides after a bottom rung anywhere in the capstone, a break included', () => {
+  const cap = lessonById('b-capstone');
+  const before = finishedBefore('b-capstone');
+  const hidden = new Set();
+  for (const step of cap.content.steps) {
+    step.beats.forEach((_, beat) => {
+      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, 'b-capstone': { step: step.id, beat, warm: [] } } } });
+      d.key('enter');
+      // Where h waits for a try that can't come here, two quiet minutes open it.
+      if (!hintAvailable(d.state)) d.send({ type: 'tick', wait: IDLE_MS + 1_000 });
+      bottomRung(d);
+      if (d.state.progress['b-capstone'].bottomAt !== step.id) return;
+      playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-capstone');
+      for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(!plainAt(d, cols, rows).includes(HANDOVER), `${step.id}.${beat} at ${cols}x${rows}`);
+      hidden.add(step.id);
+    });
+  }
+  // The capstone's exact commands: T4's bottom line, and the tests item's on
+  // T5's check.
+  assert.deepEqual([...hidden], ['T4', 'T5']);
+  // A bottom rung saved before a break still counts for this play.
+  const resumed = playedTo('b-capstone', { ...before, 'b-capstone': { step: 'T6', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5'], bottomAt: 'T2' } });
+  assert.ok(!plainAt(resumed, 80, 24).includes(HANDOVER));
+  // The intro's enter starts a new play: a replay with no exact command shows it.
+  const replay = playedTo('b-capstone', { ...before, 'b-capstone': { ...finished(cap), bottomAt: 'T2' } });
+  assert.ok(plainAt(replay, 80, 24).includes(HANDOVER));
+});
+
+test('the capstone handover line never shows on b-1 to b-5, even with no exact command shown', () => {
+  for (const id of ['b-1', 'b-2', 'b-3', 'b-4', 'b-5']) {
+    const d = playedTo(id);
+    assert.equal(d.state.progress[id].bottomAt, null, id);
+    for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(!plainAt(d, cols, rows).includes(HANDOVER), `${id} at ${cols}x${rows}`);
+  }
+});
+
+test('the capstone handover line is a plain row: no art of its own, whole in every mode and size, a toast included', () => {
+  const shown = playedTo('b-capstone').state;
+  const toasted = { ...shown, toast: { kind: 'save', message: 'EACCES: permission denied, open /home/sam/claude-code-practice/.practice/learn.json' } };
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    const t = theme(caps);
+    for (const [cols, rows] of SIZES) {
+      for (const [label, state] of [['next', shown], ['next with a toast', toasted]]) {
+        const lines = render(state, { cols, rows }, t);
+        const where = `${label} at ${cols}x${rows} (${capName})`;
+        assert.equal(lines.length, rows, where);
+        for (const line of lines) assert.ok(width(line) <= cols - 1, `${where}: ${strip(line)}`);
+        const row = lines.map(strip).find((l) => l.includes(HANDOVER));
+        assert.ok(row, `${where}: no handover line`);
+        assert.equal(row.trim(), HANDOVER, `${where}: ${row}`);
+      }
+    }
+  }
+});
+
+// A celebration depends on the event, never on the help: the capstone with
+// the exact command on T4's check celebrates as the play without it.
+test('the capstone celebrates the same with or without the exact command: step done, complete and next', () => {
+  const play = (bottom) => {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-capstone') } });
+    const seen = {};
+    while (!(d.state.view === 'next' && d.state.lesson === 'b-capstone')) {
+      const s = d.state;
+      if (bottom && s.view === 'step' && stepOf(s).id === 'T4' && s.pos.beat === 2 && !s.progress['b-capstone'].bottomAt) bottomRung(d);
+      const done = d.state.view === 'step' && ['done', 'already'].includes(d.state.beat.status);
+      if (done || d.state.view === 'complete') {
+        const where = done ? `${stepOf(d.state).id}.${d.state.pos.beat}` : 'complete';
+        seen[where] = [[60, 20], [80, 24]].map(([cols, rows]) => plainAt(d, cols, rows)).join('\n');
+      }
+      playUntil(d, (x) => x !== s);
+    }
+    seen.next = [[60, 20], [80, 24]].map(([cols, rows]) => plainAt(d, cols, rows)).join('\n');
+    return [d.state.progress['b-capstone'].bottomAt, seen];
+  };
+  const [none, plain] = play(false);
+  const [used, helped] = play(true);
+  assert.equal(none, null);
+  assert.equal(used, 'T4');
+  for (const where of ['T1.4', 'T2.2', 'T3.2', 'T4.2', 'T5.2', 'T6.2', 'complete']) assert.ok(plain[where], `no ${where} done screen`);
+  assert.deepEqual(Object.keys(helped), Object.keys(plain));
+  for (const where of Object.keys(plain).filter((k) => k !== 'next')) assert.equal(helped[where], plain[where], where);
+  // The next screen differs only by the handover line (and the blank row
+  // that fills in below).
+  const lines = (text) => text.split('\n').map((l) => l.trim()).filter(Boolean);
+  assert.ok(lines(plain.next).includes(HANDOVER));
+  assert.ok(!lines(helped.next).includes(HANDOVER));
+  assert.deepEqual(lines(plain.next).filter((l) => l !== HANDOVER), lines(helped.next));
+});
