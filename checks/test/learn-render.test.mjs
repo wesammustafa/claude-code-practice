@@ -698,7 +698,9 @@ test('every step-done screen keeps its 🔥 line and its bottom border at 60x20 
         const fire = lines.findIndex((l) => l.includes(`${t.lead('fire')}${C.session(state.session + 1)}`) || l.includes(`${t.lead('fire')}${C.session(state.session)}`));
         assert.ok(fire > 0, `${where}: no session line\n${lines.join('\n')}`);
         assert.equal(lines[fire + 1].trim()[0], t.glyph.bl, `${where}: the bottom border follows the session line\n${lines.join('\n')}`);
-        assert.ok(!lines.some((l) => l.includes(C.doneWhen)), `${where} shows "Done when"`);
+        // The evidence line replaces it; with no evidence line it is optional.
+        const beat = beatOf(state);
+        if (beat.evidence && state.beat.evidence && !beat.verify.all) assert.ok(!lines.some((l) => l.includes(C.doneWhen)), `${where} shows "Done when"`);
       }
     }
   }
@@ -900,6 +902,162 @@ test('lines that a narrow window cut by width now wrap: no screen cuts a line at
         const lines = render(state, { cols, rows }, t).map(strip);
         assert.ok(!lines.some(widthCut(t, cols)), `${label} at ${cols}x${rows} (${capName}) cuts a line:\n${lines.filter(widthCut(t, cols)).join('\n')}`);
       }
+    }
+  }
+});
+
+test('a done beat keeps its "Done when" where no evidence line replaces it, and a hidden line leaves no double spacer', async () => {
+  const { lessonScreens, course } = await import('./learn-drive.mjs');
+  const t = theme(CAPS.full);
+  const cap = new Map(lessonScreens('b-capstone', course));
+  const b5 = new Map(lessonScreens('b-5', course));
+  // Capstone T1.1 is beat 1 of 5 and has no evidence key: it shows only "Done."
+  const first = render(cap.get('b-capstone T1.1 done'), { cols: 80, rows: 24 }, t).map(strip);
+  assert.ok(first.some((l) => l.includes(`${C.doneWhen}git show HEAD:CLAUDE.md shows it.`)), first.join('\n'));
+  // At 60x20 it is optional, so it may drop; the card keeps its border.
+  const small = render(cap.get('b-capstone T1.1 done'), { cols: 60, rows: 20 }, t).map(strip);
+  assert.ok(small.some((l) => l.trim().startsWith(t.glyph.bl)) && !small.some((l) => /^\s*│  …$/.test(l)), small.join('\n'));
+  // b-5 W4's "Done when" is a say line; its evidence line replaces it, and
+  // the rail shows one spacer where the line was.
+  for (const label of ['b-5 W4.0 done', 'b-5 Y3.0 done']) {
+    const lines = render(b5.get(label), { cols: 80, rows: 40 }, t).map(strip);
+    assert.ok(!lines.some((l) => l.includes(C.doneWhen)), `${label}: ${lines.join('\n')}`);
+    assert.ok(lines.some((l) => l.includes(' holds ')), `${label}: no evidence line`);
+    assert.ok(!lines.some((l, i) => l.trim() === t.glyph.rail && lines[i + 1]?.trim() === t.glyph.rail), `${label}: two spacers in a row\n${lines.join('\n')}`);
+  }
+  // Waiting, the say line shows.
+  assert.ok(render(b5.get('b-5 W4.0 waiting'), { cols: 80, rows: 40 }, t).map(strip).some((l) => l.includes(C.doneWhen)));
+});
+
+test('no card on any screen draws two spacers in a row', async () => {
+  const t = theme(CAPS.full);
+  for (const [label, state] of await everyScreen()) {
+    const lines = render(state, { cols: 80, rows: 60 }, t).map(strip);
+    assert.ok(!lines.some((l, i) => l.trim() === t.glyph.rail && lines[i + 1]?.trim() === t.glyph.rail), `${label}: ${lines.join('\n')}`);
+  }
+});
+
+// A card's bottom border: its corner, then rule to the end. (In ASCII the
+// top border starts with the same two characters.)
+const cardBottom = (t) => (l) => l.trim().length > 2 && l.trim() === `${t.glyph.bl}${t.glyph.rule.repeat(l.trim().length - 1)}`;
+
+// The toasts a step card can show, as the reducer sets them.
+const TOAST_KINDS = [{ kind: 'stray' }, { kind: 'hintsLater', try: 'r' }, { kind: 'pickFirst' }];
+
+test('kept rows never drop for a toast: the toast gives up its blank row, then goes', async () => {
+  const all = await everyScreen();
+  for (const capName of ['full', 'ascii']) {
+    const t = theme(CAPS[capName]);
+    const box = `${t.glyph.rail}  ${t.glyph.bar}`;
+    for (const toast of TOAST_KINDS) {
+      for (const [label, base] of all) {
+        if (base.view !== 'step' || base.overlay) continue;
+        const state = { ...base, toast };
+        const where = `${label} with a ${toast.kind} toast at 60x20 (${capName})`;
+        const tall = render(state, { cols: 60, rows: 80 }, t).map(strip);
+        const lines = render(state, { cols: 60, rows: 20 }, t).map(strip);
+        const show = `\n${lines.join('\n')}`;
+        assert.equal(lines.length, 20, where);
+        for (const row of tall.filter((l) => l.includes(box))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
+        assert.equal(lines.filter(cardBottom(t)).length, 1, `${where}: the card's bottom border is gone${show}`);
+        assert.equal(lines.at(-1), tall.at(-1), `${where}: the key bar`);
+      }
+    }
+  }
+  // W2 stuck keeps its feedback whole and the toast too, which gives up its
+  // blank row; W5 wrong has no room for the toast, so it goes.
+  const t = theme(CAPS.full);
+  const at = (label) => render({ ...screens.find(([l]) => l === label)[1], toast: { kind: 'stray' } }, { cols: 60, rows: 20 }, t).map(strip);
+  const stuck = at('W2 stuck');
+  assert.ok(flatText(stuck.join('')).includes(flatText(C.fixThenPick)) && stuck.some((l) => l.includes('looks like a command')), stuck.join('\n'));
+  // The toast's last row sits on the rule: its blank row went.
+  assert.ok(stuck.at(-3).includes('not here.'), stuck.join('\n'));
+  const wrong = at('W5 wrong');
+  assert.ok(!wrong.some((l) => l.includes('looks like a command')) && wrong.some((l) => l.includes(C.notQuite)), wrong.join('\n'));
+});
+
+test('a `…` cut inside a card keeps the rail: every row between the card\'s borders starts with it', async () => {
+  const all = await everyScreen();
+  for (const capName of ['full', 'ascii']) {
+    const t = theme(CAPS[capName]);
+    for (const toast of [null, { kind: 'stray' }]) {
+      for (const [label, base] of all) {
+        if (!['step', 'checkonly'].includes(base.view) || base.overlay) continue;
+        const lines = render(toast ? { ...base, toast } : base, { cols: 60, rows: 20 }, t).map(strip);
+        const bottom = lines.findIndex(cardBottom(t));
+        const top = lines.findIndex((l) => l.trim().startsWith(`${t.glyph.tl}${t.glyph.rule}`));
+        assert.ok(top > 0 && bottom > top, `${label} (${capName}): ${lines.join('\n')}`);
+        for (const l of lines.slice(top + 1, bottom)) assert.equal(l.trim()[0], t.glyph.rail, `${label}${toast ? ' with a toast' : ''} (${capName}): "${l}"\n${lines.join('\n')}`);
+      }
+    }
+  }
+});
+
+// The step screens a 60x20 window still cuts with a `…`: a hint box or
+// feedback that leaves the card's teaching no room, and in ASCII on Windows
+// the capstone's Windows notes. teach-merged 1.5 scopes "no teaching line is
+// cut" to the intro, complete and next screens; this list keeps the step
+// screens' count from growing unseen.
+const CUT_AT_60X20 = {
+  full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4',
+    'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
+    'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)'],
+  ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-2 Y5.3 hint 2', 'b-3 W6.2 hint 1', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2',
+    'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1', 'b-capstone T3.1 hint 1',
+    'b-capstone T6.1 hint 1', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W6.2 hint 1 (skipped)', 'b-4 W4.2 hint 1 (skipped)',
+    'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
+    'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
+    'b-capstone T1.2 hint 1 (skipped)', 'b-capstone T3.1 hint 1 (skipped)', 'b-capstone T6.1 hint 1 (skipped)'],
+};
+
+test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
+  const all = await everyScreen();
+  for (const capName of ['full', 'ascii']) {
+    const t = theme(CAPS[capName]);
+    const marker = (l) => l.trim() === t.glyph.ellipsis || l.trim() === `${t.glyph.rail}  ${t.glyph.ellipsis}`;
+    const cut = (cols, rows) => all.filter(([, s]) => render(s, { cols, rows }, t).map(strip).some(marker)).map(([l]) => l);
+    assert.deepEqual(cut(60, 20), CUT_AT_60X20[capName], capName);
+    assert.deepEqual(cut(80, 24), [], capName);
+  }
+});
+
+test('fit: each run of cut rows gets its own `…`, a lone row is never swapped for one, and kept rows stay', async () => {
+  const { fit } = await import('../../learn/lib/render.mjs');
+  const keep = (text) => ({ keep: true, text });
+  const body = ['a1', 'a2', 'a3', keep('Q'), keep('o1'), 'b1', 'b2', keep('F'), 'c1'];
+  // Two rows over: a lone c1 would free nothing, so b1 and b2 go under one
+  // `…`; then a2 and a3 go under a second.
+  assert.deepEqual(fit(body, 8, false, '…'), ['a1', 'a2', 'a3', 'Q', 'o1', '…', 'F', 'c1']);
+  assert.deepEqual(fit(body, 7, false, '…'), ['a1', '…', 'Q', 'o1', '…', 'F', 'c1']);
+  // Kept rows alone are taller than the room: they stay, and the caller
+  // makes room.
+  assert.deepEqual(fit([keep('Q'), 'x', 'y', keep('F')], 2, false, '…'), ['Q', '…', 'F']);
+  // Inside a card the `…` carries the rail.
+  assert.deepEqual(fit([{ text: '| a', rail: '|' }, { text: '| b', rail: '|' }, keep('| F')], 2, false, '…'), ['|  …', '| F']);
+});
+
+test('the map keeps a spacer above its footer at 60x20 once the lesson rows close up', () => {
+  const lines = render(screens.find(([l]) => l === 'map')[1], { cols: 60, rows: 20 }, theme(CAPS.full)).map(strip);
+  const last = lines.findIndex((l) => l.includes('Beginner capstone'));
+  assert.equal(lines[last + 1], '', lines.join('\n'));
+  assert.ok(lines[last + 2].includes('Each lesson reuses'), lines.join('\n'));
+});
+
+// Rows `cut` may shorten by design: a lesson title in the header and on the
+// map (one-row labels; spec 3.1) and the evidence line (the file's own text).
+test('no line is cut by width anywhere in a row at 60x20 or 80x24, apart from the one-row labels', async () => {
+  const all = await everyScreen();
+  const t = theme(CAPS.full);
+  for (const [cols, rows] of SHORT) {
+    for (const [label, state] of all) {
+      const lines = render(state, { cols, rows }, t).map(strip);
+      const head = state.view === 'map' ? -1 : (rows >= 28 ? 1 : 0);
+      lines.forEach((l, i) => {
+        if (!l.includes('…') || i === head || l.trim() === '…' || /^\s*│  …$/.test(l) || l.includes(C.checking)) return;
+        if (state.view === 'map' && /^\s*[❯ ] [✔○] /.test(l)) return;
+        if (/ holds |^\s*│ .*\S…$/.test(l) && state.beat?.status === 'done') return;
+        assert.fail(`${label} at ${cols}x${rows}, row ${i + 1}: ${l}\n${lines.join('\n')}`);
+      });
     }
   }
 });
