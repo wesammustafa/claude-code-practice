@@ -52,14 +52,24 @@ test('front matter: the page, its title and Stamp, the Stuck link and the next l
   }
 });
 
+// A page step split in two: the second step keeps the page step's number.
+const SPLIT = {
+  'b-5 W2': 'Q10: page step 1 splits so /init comes in a GUIDED step after Claude Code starts at CHALLENGE',
+};
+
 test('steps are numbered as on the page, one part after the other', () => {
   const prefix = { 'Worked example': 'W', 'Your turn': 'Y', 'The task': 'T' };
+  const split = [];
   for (const [id, l] of Object.entries(parsed)) {
     for (const part of Object.keys(prefix)) {
       const steps = l.steps.filter((s) => s.part === part);
       steps.forEach((s, i) => {
-        assert.equal(s.n, i + 1, `${id} ${s.id}`);
-        assert.equal(s.of, steps.length, `${id} ${s.id}: says "of ${s.of}"`);
+        const before = i ? steps[i - 1].n : 0;
+        if (SPLIT[`${id} ${s.id}`]) {
+          assert.equal(s.n, before, `${id} ${s.id}: a split step keeps step ${before}`);
+          split.push(`${id} ${s.id}`);
+        } else assert.equal(s.n, before + 1, `${id} ${s.id}: step ${s.n} after step ${before}`);
+        assert.equal(s.of, steps.at(-1).n, `${id} ${s.id}: says "of ${s.of}"`);
         assert.equal(s.id, `${prefix[part]}${i + 1}`);
       });
     }
@@ -70,6 +80,7 @@ test('steps are numbered as on the page, one part after the other', () => {
       for (const b of s.beats) if (b.verify.since) assert.ok(l.steps.some((x) => x.id === b.verify.since), `${id} ${s.id}: fresh since an unknown step ${b.verify.since}`);
     }
   }
+  assert.deepEqual(split, Object.keys(SPLIT), 'a split names a step that is no longer there');
 });
 
 test('warm-ups: questions from an earlier lesson, numbered, from memory', () => {
@@ -307,6 +318,22 @@ test('help: above GUIDED, every action with no command on its card has a rung be
   });
   assert.deepEqual(bare, [], 'nothing behind h');
   assert.deepEqual(exempt, Object.keys(NO_RUNG), 'an exemption names a beat that still has nothing behind h');
+});
+
+test('help: above GUIDED, no card runs a slash command', () => {
+  const shown = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    const steps = [...c.warmup.map((s) => [s, 'challenge']), ...c.steps.map((s, k) => [s, rule[k]])];
+    for (const [s, tier] of steps) {
+      if (tier === 'guided') continue;
+      s.beats.forEach((b, n) => {
+        for (const l of b.lines) if (l.key === 'run' && l.text.startsWith('/')) shown.push(`${c.lesson} ${s.id}.${n}: ${l.text}`);
+      });
+    }
+  });
+  assert.deepEqual(shown, [], 'a slash command on the card above GUIDED');
 });
 
 test('the Check\'s recall question files a miss under a skill the course has taught', () => {
