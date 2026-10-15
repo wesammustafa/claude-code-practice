@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { rungsOf } from '../../learn/lib/flow.mjs';
+import { C } from '../../learn/lib/copy.mjs';
+import { rungsOf, tierOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
@@ -280,5 +281,24 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
     const b = bar(d.state, cols, rows);
     assert.match(b, /h hint/, `${cols}x${rows}: h replaces r once tried`);
     assert.doesNotMatch(b, / r /);
+  }
+});
+
+test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
+  const done = Object.fromEntries(['b-1', 'b-2', 'b-3', 'b-4'].map((id) => [id, { complete: true }]));
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, eased: ['memory'], lessons: { ...done, 'b-5': { step: 'Y1', beat: 0, warm: ['R1', 'R2'], levels: ['hinted', 'challenge'] } } } });
+  d.key('enter');
+  assert.equal(d.state.beat.eased, true);
+  assert.equal(tierOf(d.state), 'guided');
+  assert.match(C.eased, /you needed help with it last time\.$/);
+  const flat = (text) => text.replace(/[^A-Za-z0-9]/g, '');
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    for (const [cols, rows] of [[60, 20], [80, 24]]) {
+      const lines = render(d.state, { cols, rows }, theme(caps)).map(strip);
+      const where = `${cols}x${rows} (${capName})`;
+      assert.ok(flat(lines.join('')).includes(flat(C.eased)), `${where}: ${lines.join('\n')}`);
+      assert.ok(!lines.some((l) => /(…|\.\.\.)$/.test(l) && width(l) === cols - 1), `${where} cuts a line`);
+      assert.ok(!lines.some((l) => ['…', '...'].includes(l.trim())), `${where} drops lines`);
+    }
   }
 });

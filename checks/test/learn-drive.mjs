@@ -3,7 +3,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadCourse, parseLesson } from '../../learn/lib/content.mjs';
-import { DEFER_MS, hintAvailable, IDLE_MS, initialState, reduce, rungsOf } from '../../learn/lib/flow.mjs';
+import { beatOf, DEFER_MS, hintAvailable, IDLE_MS, initialState, lessonOf, reduce, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
 import { versionSaved } from '../lessons/b-1.mjs';
 import { openRepo } from '../repo.mjs';
 import { repo, withRepo, write } from './helpers.mjs';
@@ -121,6 +121,54 @@ export function driver({ saved = null, facts = {}, course: lessons = b1Only } = 
   };
   const key = (name, ch) => press(name, ch);
   return { send, key, press, effects, get state() { return state; }, get now() { return now; } };
+}
+
+// Plays on as a learner who needs no help, until `stop(state)` holds: the
+// right pick, the answer typed, every check failing once then passing, a
+// clean tree, enter past every level-up and lesson end.
+export function playUntil(d, stop) {
+  for (let i = 0; i < 2_000 && !stop(d.state); i++) {
+    const s = d.state;
+    if (s.view !== 'step') {
+      d.key('enter');
+      continue;
+    }
+    const beat = beatOf(s);
+    const v = beat.verify;
+    if (['done', 'already'].includes(s.beat.status)) d.key('enter');
+    else if (beat.kind === 'type') {
+      for (const c of beat.accept[0]) d.key(c === ' ' ? 'space' : c.toLowerCase(), c);
+      d.key('enter');
+    } else if (beat.ask && beat.options.length) d.key(String(beat.options.findIndex((o) => beat.kind === 'predict' || ['right', 'option', 'other'].includes(o.kind)) + 1));
+    else if (v.kind === 'check') {
+      const l = lessonOf(s);
+      const items = (v.all ? l.items.map((_, k) => k) : v.items).map((index) => ({ index, text: l.items[index], pass: false, hint: `${l.items[index]} is not there yet.` }));
+      d.send({ type: 'check', lesson: s.lesson, items, path: beat.evidence ?? null, stamp: 'a' });
+      d.send({ type: 'check', lesson: s.lesson, items: items.map((it) => ({ ...it, pass: true, hint: '' })), path: beat.evidence ?? null, stamp: 'b' });
+    } else if (v.kind === 'file') {
+      d.send({ type: 'file', path: v.path, line: null, stamp: 'a' });
+      d.send({ type: 'file', path: v.path, line: 'src/config.js', stamp: 'b' });
+    } else if (v.kind === 'git-clean') {
+      if (beat.doneLabel) d.key('space');
+      d.send({ type: 'git', paths: [] });
+    } else d.key('space');
+  }
+  if (!stop(d.state)) throw new Error(`playUntil: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);
+}
+
+// Climbs the hints on the beat on screen to the exact command and says y.
+// A check beat fails first, so its ladder's rungs are there too.
+export function bottomRung(d) {
+  const v = beatOf(d.state).verify;
+  if (v.kind === 'check') {
+    const l = lessonOf(d.state);
+    const items = (v.all ? l.items.map((_, k) => k) : v.items).map((index) => ({ index, text: l.items[index], pass: false, hint: `${l.items[index]} is not there yet.` }));
+    d.send({ type: 'check', lesson: d.state.lesson, items });
+    d.key('r');
+    d.send({ type: 'check', lesson: d.state.lesson, items });
+  }
+  for (let i = 0; i < 8 && !d.state.beat.confirm; i++) d.key('h');
+  d.key('y');
 }
 
 // Every screen of lesson 1, in order, as [label, state] pairs.

@@ -85,7 +85,7 @@ export const C = {
   emptyShows: 'Not sure? Press enter on an empty line to see the answer.',
   checkPasses: (n, m) => [`passes: ${n} of ${m} item${m === 1 ? '' : 's'}.`],
   runItToo: (place) => `Run it ${place} too: you will see the same result.`,
-  eased: 'A little more help on this one: you asked for it last time.',
+  eased: 'A little more help on this one: you needed help with it last time.',
   stray: "That looks like a command. Type it in your other terminal, not here.",
 
   levelUp: 'LEVEL UP',
