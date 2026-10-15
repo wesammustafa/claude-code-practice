@@ -122,12 +122,13 @@ export function rungsOf(s) {
 }
 
 // What the learner tries before h opens a hint at CHALLENGE: r on a beat the
-// app checks, a pick on a scored question, or nothing (null) where nothing
-// can fail, so h answers at once.
+// app checks, a pick on a question with a wrong answer, or nothing (null)
+// where nothing can fail, so h answers at once.
 export function tryFirst(s) {
   const beat = beatOf(s);
   if (['check', 'file', 'git-clean'].includes(beat.verify.kind)) return 'r';
-  return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' ? 'pick' : null;
+  const canMiss = beat.options.some((o) => o.kind === 'wrong' || o.kind === 'decoy');
+  return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' && canMiss ? 'pick' : null;
 }
 
 export function hintAvailable(s) {
@@ -363,8 +364,10 @@ function pick(s, index, effects) {
     effects.push({ type: 'save' });
     return;
   }
+  // Saying it went wrong is a try too, so hints may open.
   if (opt.kind === 'stuck') {
     st.feedback = { kind: 'stuck', because: opt.because };
+    st.unlocked = true;
     return;
   }
   // A wrong pick or a decoy: explain once, reveal on the second. It is a

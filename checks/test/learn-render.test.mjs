@@ -250,3 +250,21 @@ test('h at CHALLENGE: nothing sits in front of h during the 2 second lock', () =
   assert.equal(d.state.beat.rung, 0, 'h inside the lock opens nothing');
   assert.deepEqual(render(d.state, { cols: 80, rows: 24 }, t), before);
 });
+
+test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', () => {
+  const t = theme(CAPS.full);
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y4', beat: 0, levels: ['hinted', 'challenge'] } } } });
+  d.key('enter');
+  d.send({ type: 'git', paths: ['notes.md'] });
+  d.key('h');
+  const bar = (state, cols, rows) => strip(render(state, { cols, rows }, t).at(-1));
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    assert.match(bar(d.state, cols, rows), /space .* r check now .*q quit/, `${cols}x${rows}`);
+  }
+  d.key('r');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const b = bar(d.state, cols, rows);
+    assert.match(b, /h hint/, `${cols}x${rows}: h replaces r once tried`);
+    assert.doesNotMatch(b, / r /);
+  }
+});

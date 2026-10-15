@@ -4,7 +4,7 @@
 import { banner, bannerWidth, burst, confetti, pip } from './art.mjs';
 import { C } from './copy.mjs';
 import {
-  answerKey, authoredTier, beatOf, contentOf, hintAvailable, lessonOf, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, WARMUPS,
+  answerKey, authoredTier, beatOf, contentOf, hintAvailable, lessonOf, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -746,7 +746,9 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   const why = beat.why.length ? key('w', C.k.why) : null;
   if (v === 'self' || v === 'none' || beat.kind === 'self' || (v === 'git-clean' && beat.doneLabel)) {
     const k = v === 'none' ? 'enter' : 'space';
-    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint, why, key('m', C.k.map), key('q', C.k.quit)];
+    // A done-label git beat at CHALLENGE: r is the try that opens h, so offer it.
+    const r = !hint && tier === 'challenge' && tryFirst(s) === 'r' && !st.unlocked && rungsOf(s).length ? key('r', C.k.checkNow) : null;
+    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, key('m', C.k.map), key('q', C.k.quit)];
   }
   const r = st.status === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
   return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), key('q', C.k.quit)];

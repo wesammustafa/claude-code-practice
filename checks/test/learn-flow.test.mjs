@@ -730,7 +730,7 @@ test('h at CHALLENGE: every beat waits for a try only where a try can show', () 
         const where = `${l.id} ${step.id}.${b}`;
         if (tierOf(d.state) !== 'challenge' || beat.kind === 'type' || !rungsOf(d.state).length || ['done', 'already'].includes(d.state.beat.status)) return;
         const watched = ['check', 'file', 'git-clean'].includes(beat.verify.kind);
-        const scored = Boolean(beat.ask) && beat.kind !== 'predict';
+        const scored = Boolean(beat.ask) && beat.kind !== 'predict' && beat.options.some((o) => ['wrong', 'decoy'].includes(o.kind));
         d.key('h');
         if (watched || scored) {
           assert.equal(d.state.toast?.kind, 'hintsLater', where);
@@ -812,6 +812,50 @@ test('h at CHALLENGE: on a question the first wrong pick is the try, and a guess
   d.key('2');
   assert.equal(d.state.beat.feedback.kind, 'wrong');
   assert.equal(d.state.beat.unlocked, true);
+  d.key('h');
+  assert.equal(d.state.beat.rung, 0);
+});
+
+// A question nothing can fail (no wrong or decoy option), and a stuck option
+// on one that can.
+const DEMO_SELF_REPORT = DEMO_B2.replace(/## warm-up[\s\S]*$/, `## steps
+
+### C | Check | Check
+- tier: challenge
+- skill: check
+- where: claude
+- beat: do
+- do: "Run it."
+- ask: Did it work?
+- right: "It worked"
+- stuck: I got an error
+- because: "That's the fix."
+- hint: "A hint for the run."
+- beat: ask
+- ask: Which one?
+- right: "One"
+- stuck: Something odd
+- because: "That's the odd one."
+- wrong: "Three"
+- because: "Three is something else."
+- hint: "A hint for the question."
+`);
+
+test('h at CHALLENGE: a question with no wrong answer opens at once, and a stuck pick is a try', () => {
+  const demo = courseWith({ 'b-2': DEMO_SELF_REPORT });
+  const d = open('b-2', 'C', {}, demo);
+  assert.equal(tierOf(d.state), 'challenge');
+  d.key('h');
+  assert.equal(d.state.toast, null, 'right or stuck: no pick can fail, so nothing waits');
+  assert.equal(d.state.beat.rung, 0);
+  d.key('1');
+  d.key('enter');
+  assert.equal(beatOf(d.state).kind, 'ask');
+  d.key('h');
+  assert.deepEqual([d.state.toast?.kind, d.state.toast?.try], ['hintsLater', 'pick']);
+  d.key('2');
+  assert.equal(d.state.beat.feedback.kind, 'stuck');
+  assert.equal(d.state.beat.unlocked, true, 'saying it went wrong is a try');
   d.key('h');
   assert.equal(d.state.beat.rung, 0);
 });
