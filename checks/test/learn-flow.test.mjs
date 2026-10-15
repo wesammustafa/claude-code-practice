@@ -961,3 +961,21 @@ test('an ease lands only where it changes the help: one no later Beginner step u
   assert.deepEqual(d.state.eased, ['rewind']);
   assert.deepEqual(snapshot(d.state).eased, ['rewind']);
 });
+
+test('an ease lands only where it changes the help: in a lesson played again, every step is done, so it waits', () => {
+  const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, { complete: true }]));
+  const b5 = course.find((l) => l.id === 'b-5').content.steps.map((x) => x.id);
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...done, 'b-5': { complete: true, done: b5 } } } });
+  const to = course.findIndex((l) => l.id === 'b-5');
+  while (d.state.mapCursor !== to) d.key('up');
+  d.key('enter');
+  d.key('enter');
+  playUntil(d, at5('W3'));
+  bottomRung(d);
+  assert.deepEqual(d.state.eased, ['memory']);
+  playUntil(d, at5('Y1'));
+  assert.equal(tierOf(d.state), 'hinted', 'Y1 opens on the plan');
+  assert.equal(d.state.beat.eased, false);
+  assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
+  assert.deepEqual(d.state.eased, ['memory'], 'the ease waits for a step not yet done');
+});

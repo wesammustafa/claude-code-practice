@@ -156,17 +156,21 @@ export function playUntil(d, stop) {
   if (!stop(d.state)) throw new Error(`playUntil: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);
 }
 
+// A check beat on screen FAILs, and FAILs again on r.
+export function failCheck(d) {
+  const v = beatOf(d.state).verify;
+  if (v.kind !== 'check') return;
+  const l = lessonOf(d.state);
+  const items = (v.all ? l.items.map((_, k) => k) : v.items).map((index) => ({ index, text: l.items[index], pass: false, hint: `${l.items[index]} is not there yet.` }));
+  d.send({ type: 'check', lesson: d.state.lesson, items });
+  d.key('r');
+  d.send({ type: 'check', lesson: d.state.lesson, items });
+}
+
 // Climbs the hints on the beat on screen to the exact command and says y.
 // A check beat fails first, so its ladder's rungs are there too.
 export function bottomRung(d) {
-  const v = beatOf(d.state).verify;
-  if (v.kind === 'check') {
-    const l = lessonOf(d.state);
-    const items = (v.all ? l.items.map((_, k) => k) : v.items).map((index) => ({ index, text: l.items[index], pass: false, hint: `${l.items[index]} is not there yet.` }));
-    d.send({ type: 'check', lesson: d.state.lesson, items });
-    d.key('r');
-    d.send({ type: 'check', lesson: d.state.lesson, items });
-  }
+  failCheck(d);
   for (let i = 0; i < 8 && !d.state.beat.confirm; i++) d.key('h');
   d.key('y');
 }
