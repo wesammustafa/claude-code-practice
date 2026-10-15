@@ -1238,6 +1238,23 @@ test('b-5 opens at CHALLENGE on starting Claude Code, and /init comes in a GUIDE
   assert.ok(stepOf(d.state).beats.some((b) => b.lines.some((l) => l.key === 'run' && l.text === '/init')));
 });
 
+// Pins what a b-5 save from before the split does today, until the owner
+// chooses (ticket 135): every old id is still a step, so nothing starts over.
+test('b-5 saved before the W1 split: each saved step id now names the step after it', () => {
+  const old = (p) => driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-5'), 'b-5': { warm: [], ...p } } } });
+  // Old W6 (Check the new file), beat 1, with old W1 to W5 done.
+  const d = old({ step: 'W6', beat: 1, done: ['W1', 'W2', 'W3', 'W4', 'W5'], easedSteps: { W5: true } });
+  assert.equal(d.state.view, 'resume');
+  assert.deepEqual(d.state.progress['b-5'].done, ['W1', 'W2', 'W3', 'W4', 'W5']);
+  assert.deepEqual(d.state.progress['b-5'].easedSteps, { W5: true });
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).title, d.state.pos.beat], ['Ask for a new file', 1]);
+  // Old W1 after /init: its beat is past the new W1, which opens on the clean-copy check.
+  const w1 = old({ step: 'W1', beat: 3 });
+  w1.key('enter');
+  assert.deepEqual([stepOf(w1.state).id, w1.state.pos.beat, beatOf(w1.state).verify.kind], ['W1', 0, 'git-clean']);
+});
+
 test('fading counts only what this learner did: a lesson marked complete with nothing done counts for nothing', () => {
   // The seeded b-5 run: b-1 to b-4 complete, with no step done.
   const skipped = Object.fromEntries(['b-1', 'b-2', 'b-3', 'b-4'].map((id) => [id, { complete: true, done: [] }]));
