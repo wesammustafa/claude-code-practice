@@ -331,17 +331,22 @@ function chooseWarmups(s) {
 // A question answered wrong, or shown, marks its skill for a warm-up later;
 // a warm-up on that skill answered right at once clears the mark, unless it
 // was missed again in this sitting. A beat may name the skill it recalls.
+// A warm-up is recall from memory, so it also sets the help: a miss there
+// eases the skill, and a right answer at once cancels a waiting ease.
 const skillOf = (s) => beatOf(s).skill ?? stepOf(s).skill;
 function missed(s, effects) {
   const skill = skillOf(s);
   if (!s.missed.includes(skill)) s.missed.push(skill);
+  if (stepOf(s).part === 'Warm-up' && !s.eased.includes(skill)) s.eased.push(skill);
   if (!s.missedNow.includes(skill)) s.missedNow.push(skill);
   effects.push({ type: 'save' });
 }
 function recalled(s) {
   const st = s.beat;
   const skill = skillOf(s);
-  if (stepOf(s).part === 'Warm-up' && !st.wrongs.length && !st.typedWrong && !s.missedNow.includes(skill)) s.missed = s.missed.filter((k) => k !== skill);
+  if (stepOf(s).part !== 'Warm-up' || st.wrongs.length || st.typedWrong || s.missedNow.includes(skill)) return;
+  s.missed = s.missed.filter((k) => k !== skill);
+  s.eased = s.eased.filter((k) => k !== skill);
 }
 
 // ---- questions ---------------------------------------------------------------

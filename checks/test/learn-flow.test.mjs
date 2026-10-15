@@ -979,3 +979,142 @@ test('an ease lands only where it changes the help: in a lesson played again, ev
   assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
   assert.deepEqual(d.state.eased, ['memory'], 'the ease waits for a step not yet done');
 });
+
+// A Beginner lesson at its intro, with every lesson before it done; enter
+// starts it with the first two warm-ups in the file's order.
+const fresh = (id, top = {}) => {
+  const before = course.slice(0, course.findIndex((l) => l.id === id)).filter((l) => l.content);
+  const d = driver({ course, saved: { format: 1, welcomed: true, ...top, lessons: Object.fromEntries(before.map((l) => [l.id, { complete: true }])) } });
+  assert.equal(d.state.view, 'intro');
+  assert.equal(d.state.lesson, id);
+  d.key('enter');
+  return d;
+};
+const atStep = (id) => (s) => s.view === 'step' && stepOf(s)?.id === id;
+const optionOf = (d, kind) => String(beatOf(d.state).options.findIndex((o) => o.kind === kind) + 1);
+const typeIn = (d, text) => {
+  for (const c of text) d.key(c === ' ' ? 'space' : c, c);
+  return d.key('enter');
+};
+
+test('warm-ups set the help: b-3 R1 typed wrong twice opens W1 GUIDED, with the line', () => {
+  const d = fresh('b-3');
+  assert.equal(stepOf(d.state).id, 'R1');
+  assert.equal(stepOf(d.state).skill, 'plan-mode');
+  typeIn(d, 'tab');
+  typeIn(d, 'tab');
+  assert.equal(d.state.beat.revealed, true);
+  assert.deepEqual(d.state.eased, ['plan-mode']);
+  assert.ok(d.state.missed.includes('plan-mode'), 'the warm-up mark stays too');
+  playUntil(d, atStep('W1'));
+  assert.equal(tierOf(d.state), 'guided', 'W1, HINTED on the plan, opens GUIDED');
+  assert.equal(d.state.beat.eased, true, 'with the "more help" line');
+  assert.deepEqual(d.state.progress['b-3'].easedSteps, { W1: true });
+  assert.deepEqual(d.state.eased, []);
+  // Without the miss, W1 is HINTED.
+  const right = fresh('b-3');
+  playUntil(right, atStep('W1'));
+  assert.equal(tierOf(right.state), 'hinted');
+  assert.equal(right.state.beat.eased, false);
+});
+
+test('warm-ups set the help: b-2 R1 (start) shown with s opens W1 GUIDED, with the line', () => {
+  const d = fresh('b-2');
+  assert.equal(stepOf(d.state).id, 'R1');
+  assert.equal(stepOf(d.state).skill, 'start');
+  d.key('s');
+  assert.equal(d.state.beat.revealed, true);
+  assert.deepEqual(d.state.eased, ['start']);
+  playUntil(d, atStep('W1'));
+  assert.equal(stepOf(d.state).skill, 'start');
+  assert.equal(tierOf(d.state), 'guided');
+  assert.equal(d.state.beat.eased, true);
+  assert.deepEqual(d.state.eased, []);
+});
+
+test('warm-ups set the help: a warm-up answered right the first time cancels a waiting ease', () => {
+  const d = fresh('b-2', { eased: ['start'], missed: ['start'] });
+  assert.equal(stepOf(d.state).id, 'R1');
+  const out = d.key(optionOf(d, 'right'));
+  assert.equal(d.state.beat.status, 'done');
+  assert.deepEqual(d.state.eased, []);
+  assert.deepEqual(d.state.missed, []);
+  assert.ok(out.some((e) => e.type === 'save'));
+  assert.deepEqual(snapshot(d.state).eased, []);
+  playUntil(d, atStep('W1'));
+  assert.equal(tierOf(d.state), 'hinted', 'W1 opens on the plan');
+  assert.equal(d.state.beat.eased, false, 'with no line');
+  assert.deepEqual(d.state.progress['b-2'].easedSteps, {});
+});
+
+test('warm-ups set the help: answered wrong and then right, the ease stays', () => {
+  const d = fresh('b-2');
+  d.key(optionOf(d, 'wrong'));
+  assert.equal(d.state.beat.status, 'waiting');
+  d.key(optionOf(d, 'right'));
+  assert.equal(d.state.beat.status, 'done');
+  assert.deepEqual(d.state.eased, ['start']);
+  playUntil(d, atStep('W1'));
+  assert.equal(tierOf(d.state), 'guided');
+  assert.equal(d.state.beat.eased, true);
+  // A typed warm-up too: b-5 R2 (context) wrong, then right.
+  const t = fresh('b-5');
+  playUntil(t, atStep('R2'));
+  typeIn(t, '/compact');
+  assert.equal(t.state.beat.status, 'waiting');
+  typeIn(t, '/context');
+  assert.equal(t.state.beat.status, 'done');
+  assert.deepEqual(t.state.eased, ['context']);
+});
+
+test('warm-ups set the help: every kind of miss adds the ease, an empty answer too', () => {
+  // A wrong pick.
+  const pickWrong = fresh('b-5');
+  pickWrong.key(optionOf(pickWrong, 'wrong'));
+  assert.deepEqual(pickWrong.state.eased, ['start']);
+  // An empty answer shows it.
+  const empty = fresh('b-5');
+  playUntil(empty, atStep('R2'));
+  empty.key('enter');
+  assert.equal(empty.state.beat.revealed, true);
+  assert.deepEqual(empty.state.eased, ['context']);
+  // One miss, one skill: a second wrong pick doesn't add it twice.
+  const twice = fresh('b-3');
+  playUntil(twice, atStep('R2'));
+  typeIn(twice, 'q');
+  typeIn(twice, 'q');
+  assert.deepEqual(twice.state.eased, ['status']);
+});
+
+test('warm-ups set the help: misses inside a lesson only mark a warm-up, and a guess touches nothing', () => {
+  const d = at('W5');
+  d.key('1');
+  assert.equal(d.state.beat.feedback.kind, 'wrong');
+  assert.ok(d.state.missed.includes('status'));
+  assert.deepEqual(d.state.eased, [], 'a lesson\'s own question eases nothing');
+  d.key('s');
+  assert.deepEqual(d.state.eased, []);
+  const guess = at('W4');
+  guess.key('1');
+  assert.equal(guess.state.beat.status, 'done');
+  assert.deepEqual(guess.state.missed, []);
+  assert.deepEqual(guess.state.eased, []);
+  // In a lesson with warm-ups, a step's own wrong pick eases nothing either.
+  const w = fresh('b-2');
+  playUntil(w, atStep('W1'));
+  assert.equal(beatOf(w.state).kind, 'do');
+  playUntil(w, (s) => s.view === 'step' && beatOf(s).ask && beatOf(s).kind !== 'predict' && beatOf(s).options.some((o) => o.kind === 'wrong'));
+  w.key(optionOf(w, 'wrong'));
+  assert.ok(w.state.missed.length > 0);
+  assert.deepEqual(w.state.eased, []);
+});
+
+test('warm-ups set the help: the ease is saved at once', () => {
+  const d = fresh('b-3');
+  const out = d.key('x', 'x');
+  assert.ok(!out.some((e) => e.type === 'save'), 'typing alone saves nothing');
+  const miss = typeIn(d, '');
+  assert.equal(d.state.beat.typedWrong, 1);
+  assert.ok(miss.some((e) => e.type === 'save'), 'the miss saves');
+  assert.deepEqual(snapshot(d.state).eased, ['plan-mode']);
+});
