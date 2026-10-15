@@ -702,7 +702,7 @@ function footerRows(ctx, { beat, step, content, isLastBeat }) {
     } else if (st.status === 'fail' && hintAvailable(s)) rows.push(...para(t, C.pressH, inner - 2, 'muted').map((x) => `  ${x}`));
     else if (st.idle && hintAvailable(s)) rows.push(t.fg('warn', C.stuckOffer));
   }
-  if (st.eased && !['done', 'already'].includes(st.status) && s.pos.beat === 0) rows.push(t.fg('muted', C.eased));
+  if (st.eased && !['done', 'already'].includes(st.status) && s.pos.beat === 0) rows.push(...para(t, C.eased, inner, 'muted'));
   return rows;
 }
 

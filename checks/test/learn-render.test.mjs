@@ -5,11 +5,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { rungsOf } from '../../learn/lib/flow.mjs';
+import { C } from '../../learn/lib/copy.mjs';
+import { hintAvailable, IDLE_MS, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, course as allCourse, driver, root } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, driver, failCheck, playUntil, root } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -281,4 +282,62 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
     assert.match(b, /h hint/, `${cols}x${rows}: h replaces r once tried`);
     assert.doesNotMatch(b, / r /);
   }
+});
+
+// Every step a real bottom rung eases, in a real play from that rung on, with
+// and without less help: the "more help" line wraps whole wherever the card
+// fits the window. A 60x20 card can be taller than the window (b-2 Y3 under
+// less help, or most steps with a hint box open), and then its last rows give
+// way to a `…` whether or not the step is eased; 142's drop order keeps the
+// line there.
+test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
+  assert.match(C.eased, /you needed help with it last time\.$/);
+  const flat = (text) => text.replace(/[^A-Za-z0-9]/g, '');
+  const whole = new Set();
+  const check = (d, where) => {
+    for (const [capName, caps] of Object.entries(CAPS)) {
+      for (const [cols, rows] of [[60, 20], [80, 24]]) {
+        const lines = render(d.state, { cols, rows }, theme(caps)).map(strip);
+        const at = `${where} at ${cols}x${rows} (${capName})`;
+        const dropped = lines.some((l) => ['…', '...'].includes(l.trim()));
+        assert.ok(!dropped || cols === 60, `${at} drops lines`);
+        if (dropped) continue;
+        assert.ok(flat(lines.join('')).includes(flat(C.eased)), `${at}: ${lines.join('\n')}`);
+        assert.ok(!lines.some((l) => /(…|\.\.\.)$/.test(l) && width(l) === cols - 1), `${at} cuts a line`);
+        if (cols === 60) whole.add(where);
+      }
+    }
+  };
+  const landed = new Set();
+  for (const [li, lesson] of allCourse.entries()) {
+    if (!lesson.content) continue;
+    const before = Object.fromEntries(allCourse.slice(0, li).filter((l) => l.content).map((l) => [l.id, { complete: true }]));
+    for (const step of lesson.content.steps) {
+      step.beats.forEach((_, beat) => {
+        for (const lessHelp of [false, true]) {
+          const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: step.id, beat, warm: [], lessHelp } } } });
+          d.key('enter');
+          bottomRung(d);
+          if (!d.state.eased.length) continue;
+          playUntil(d, (s) => s.beat?.eased || (s.lesson === 'b-capstone' && s.view === 'complete'));
+          if (d.state.view !== 'step') continue;
+          const where = `${d.state.lesson} ${stepOf(d.state).id}${lessHelp ? ' (less help)' : ''}`;
+          if (landed.has(where)) continue;
+          landed.add(where);
+          check(d, where);
+          failCheck(d);
+          check(d, `${where} after a FAIL`);
+          d.send({ type: 'tick', wait: IDLE_MS + 1_000 });
+          check(d, `${where} after two quiet minutes`);
+          if (!hintAvailable(d.state)) continue;
+          d.key('h');
+          d.send({ type: 'tick', wait: 3_000 });
+          d.key('h');
+          check(d, `${where} with a hint open`);
+        }
+      });
+    }
+  }
+  // At 60x20 the line fits whole as the step opens on every one of these.
+  for (const where of ['b-1 Y1', 'b-2 C', 'b-3 Y2', 'b-4 Y3', 'b-5 Y1', 'b-5 W4 (less help)', 'b-capstone T6']) assert.ok(whole.has(where), where);
 });

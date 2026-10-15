@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { beatOf, hintAvailable, normalize, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { parseLesson } from '../../learn/lib/content.mjs';
-import { b1Item, b1Only, course, courseWith, DEMO_B2, driver } from './learn-drive.mjs';
+import { snapshot } from '../../learn/lib/store.mjs';
+import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, playUntil } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
@@ -858,4 +859,123 @@ test('h at CHALLENGE: a question with no wrong answer opens at once, and a stuck
   assert.equal(d.state.beat.unlocked, true, 'saying it went wrong is a try');
   d.key('h');
   assert.equal(d.state.beat.rung, 0);
+});
+
+// A Beginner lesson opened at a saved step, with every lesson before it done.
+const midway = (id, step, { eased = [], beat = 0, ...extra } = {}) => {
+  const before = course.slice(0, course.findIndex((l) => l.id === id)).filter((l) => l.content);
+  const lessons = { ...Object.fromEntries(before.map((l) => [l.id, { complete: true }])), [id]: { step, beat, warm: [], ...extra } };
+  const d = driver({ course, saved: { format: 1, welcomed: true, eased, lessons } });
+  d.key('enter');
+  return d;
+};
+const at5 = (id) => (s) => ['step', 'levelup'].includes(s.view) && s.lesson === 'b-5' && stepOf(s)?.id === id;
+
+test('an ease lands only where it changes the help: a GUIDED step keeps it waiting for the next one', () => {
+  const d = midway('b-5', 'W3');
+  bottomRung(d);
+  assert.deepEqual(d.state.eased, ['memory']);
+  playUntil(d, at5('W4'));
+  assert.equal(tierOf(d.state), 'guided');
+  assert.equal(d.state.beat.eased, false, 'no "more help" line on a step that is GUIDED anyway');
+  assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
+  assert.deepEqual(d.state.eased, ['memory'], 'the ease waits');
+  playUntil(d, at5('Y1'));
+  assert.equal(d.state.view, 'step');
+  assert.equal(tierOf(d.state), 'guided', 'Y1, HINTED on the plan, opens GUIDED');
+  assert.equal(d.state.beat.eased, true);
+  assert.deepEqual(d.state.eased, []);
+});
+
+test('an ease lands only where it changes the help: the level-up forecast agrees with where it lands', () => {
+  const d = midway('b-5', 'W3');
+  bottomRung(d);
+  playUntil(d, at5('W5'));
+  assert.equal(d.state.view, 'step', 'no level-up at W5: Y1 will get more help');
+  assert.equal(stepNote(d.state), 'hinted');
+  // From here to the end, a level-up shows only where no later step gets more
+  // help, and a step's own line only where one does.
+  const rank = (t) => ['guided', 'hinted', 'challenge'].indexOf(t);
+  const seen = new Map();
+  playUntil(d, (s) => {
+    if (s.view === 'step' && !seen.has(stepOf(s).id)) seen.set(stepOf(s).id, { tier: tierOf(s), note: stepNote(s), up: null });
+    if (s.view === 'levelup' && !seen.has(stepOf(s).id)) seen.set(stepOf(s).id, { tier: s.levelTo, note: null, up: s.levelTo });
+    return s.view === 'complete';
+  });
+  const played = [...seen.values()];
+  assert.ok(played.some((x) => x.up), 'a level-up shows later on');
+  played.forEach((x, i) => {
+    const later = played.slice(i + 1);
+    if (x.up) assert.ok(later.every((y) => rank(y.tier) >= rank(x.up)), `level-up at ${[...seen.keys()][i]}`);
+    if (x.note) assert.ok(later.some((y) => rank(y.tier) < rank(x.tier)), `line at ${[...seen.keys()][i]}`);
+  });
+  // The step whose bottom rung set an ease gets none of it, in the forecast
+  // too: back from the Check, Y6 is where the help stays lower.
+  const c = midway('b-5', 'C', { levels: ['hinted', 'challenge'] });
+  bottomRung(c);
+  assert.deepEqual(c.state.eased, ['check']);
+  c.key('b');
+  assert.equal(stepOf(c.state).id, 'Y6');
+  assert.equal(tiersOf(c.state).at(-1), 'challenge');
+  assert.equal(stepNote(c.state), null, 'no line: the Check will not come back easier');
+});
+
+test('an ease lands only where it changes the help: hints short of the exact command neither add nor clear one', () => {
+  const d = midway('b-5', 'W3', { eased: ['memory'] });
+  const l = course.find((x) => x.id === 'b-5');
+  const items = [{ index: 0, text: l.items[0], pass: false, hint: `${l.items[0]} is not there yet.` }];
+  d.send({ type: 'check', lesson: 'b-5', items });
+  d.key('r');
+  d.send({ type: 'check', lesson: 'b-5', items });
+  d.key('h');
+  d.key('h');
+  assert.equal(d.state.beat.rung, 1);
+  assert.equal(d.state.beat.confirm, false);
+  assert.deepEqual(d.state.eased, ['memory'], 'still waiting');
+  assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
+  const y = midway('b-5', 'Y1');
+  y.key('h');
+  assert.equal(y.state.beat.rung, 0);
+  assert.deepEqual(y.state.eased, [], 'nothing added');
+});
+
+test('an ease lands only where it changes the help: playing a lesson again starts from the plan', () => {
+  const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, { complete: true }]));
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...done, 'b-5': { complete: true, warm: ['R1', 'R2'], easedSteps: { Y1: true } } } } });
+  assert.equal(d.state.view, 'map');
+  const to = course.findIndex((l) => l.id === 'b-5');
+  while (d.state.mapCursor !== to) d.key('up');
+  d.key('enter');
+  assert.equal(d.state.view, 'intro');
+  assert.deepEqual(d.state.progress['b-5'].easedSteps, { Y1: true });
+  d.key('enter');
+  assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
+});
+
+test('an ease lands only where it changes the help: one no later Beginner step uses stays saved (Q12)', () => {
+  const d = midway('b-4', 'Y4', { beat: 1 });
+  bottomRung(d);
+  assert.deepEqual(d.state.eased, ['rewind']);
+  playUntil(d, (s) => s.lesson === 'b-capstone' && s.view === 'complete');
+  assert.equal(d.state.progress['b-5'].complete, true);
+  assert.deepEqual(d.state.eased, ['rewind']);
+  assert.deepEqual(snapshot(d.state).eased, ['rewind']);
+});
+
+test('an ease lands only where it changes the help: in a lesson played again, every step is done, so it waits', () => {
+  const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, { complete: true }]));
+  const b5 = course.find((l) => l.id === 'b-5').content.steps.map((x) => x.id);
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...done, 'b-5': { complete: true, done: b5 } } } });
+  const to = course.findIndex((l) => l.id === 'b-5');
+  while (d.state.mapCursor !== to) d.key('up');
+  d.key('enter');
+  d.key('enter');
+  playUntil(d, at5('W3'));
+  bottomRung(d);
+  assert.deepEqual(d.state.eased, ['memory']);
+  playUntil(d, at5('Y1'));
+  assert.equal(tierOf(d.state), 'hinted', 'Y1 opens on the plan');
+  assert.equal(d.state.beat.eased, false);
+  assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
+  assert.deepEqual(d.state.eased, ['memory'], 'the ease waits for a step not yet done');
 });

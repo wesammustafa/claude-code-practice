@@ -184,18 +184,23 @@ function stampFresh(s, effects) {
 }
 
 // A skill that needed the bottom rung comes back one tier easier, once: at
-// the next step that asks for it.
+// the next step that asks for it where the ease changes the help.
 function markEased(s, index) {
   const step = stepsOf(s)[index];
+  if (!s.eased.includes(step.skill) || !easeLands(s, index)) return;
+  s.progress[s.lesson].easedSteps[step.id] = true;
+  s.eased = s.eased.filter((k) => k !== step.skill);
+}
+
+// Whether an ease waiting on step `index`'s skill would give it more help. Not
+// on a warm-up, which is always from memory, a finished step, the rest of the
+// step whose bottom rung set it, a step already eased, or a GUIDED step, which
+// shows every command anyway: there the ease waits for the next step.
+export function easeLands(s, index, tiers = tiersOf(s)) {
+  const step = stepsOf(s)[index];
   const p = s.progress[s.lesson];
-  // A warm-up is always from memory: the ease waits for the lesson's own step.
-  if (step.part === 'Warm-up') return;
-  // Nor does the rest of the step whose bottom rung it was.
-  if (p.bottomAt === step.id) return;
-  if (s.eased.includes(step.skill) && !p.easedSteps[step.id] && !p.done.includes(step.id)) {
-    p.easedSteps[step.id] = true;
-    s.eased = s.eased.filter((k) => k !== step.skill);
-  }
+  if (step.part === 'Warm-up' || p.done.includes(step.id) || p.bottomAt === step.id || p.easedSteps[step.id]) return false;
+  return tiers[index] !== 'guided';
 }
 
 function openStep(s, index, effects) {
@@ -226,19 +231,19 @@ function openStep(s, index, effects) {
 
 // Whether step `index` gives less help than the one before, and whether the
 // help stays that low for the rest of the lesson. An ease still pending for a
-// later step's skill counts: that step will come back one tier easier.
+// later step's skill counts where it will land: that step comes back one tier
+// easier.
 function climb(s, index, tiers = tiersOf(s), steps = stepsOf(s)) {
   const rank = (t) => TIERS.indexOf(t);
   const prev = index > 0 ? tiers[index - 1] : null;
   const harder = Boolean(prev) && rank(tiers[index]) > rank(prev);
   const pending = new Set(s.eased);
-  const done = new Set(s.progress[s.lesson].done);
   const stays = steps.slice(index + 1).every((step, k) => {
     if (step.part === 'Warm-up') return true;
     let r = rank(tiers[index + 1 + k]);
-    if (pending.has(step.skill) && !done.has(step.id)) {
+    if (pending.has(step.skill) && easeLands(s, index + 1 + k, tiers)) {
       pending.delete(step.skill);
-      r = Math.max(0, r - 1);
+      r -= 1;
     }
     return r >= rank(tiers[index]);
   });
@@ -738,11 +743,12 @@ const VIEWS = {
     else if (DIGIT.test(ch ?? '') && Number(ch) <= 2) s.cursor = Number(ch) - 1;
     else if (name === 'enter') {
       // A finished lesson played again keeps its badge and its ticks, but
-      // every fresh check waits for new work.
+      // every fresh check waits for new work and the help starts from the plan.
       const p = s.progress[s.lesson];
       p.lessHelp = s.cursor === 1;
       p.stamps = {};
       p.bottomAt = null;
+      p.easedSteps = {};
       chooseWarmups(s);
       openStep(s, 0, effects);
     } else return false;
