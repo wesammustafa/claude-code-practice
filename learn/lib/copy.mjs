@@ -1,6 +1,8 @@
 // The app's own words. They state no Claude Code fact: every fact on screen
-// is a quote from the lesson's content file. A test keeps commands, versions
-// and model names out of this file.
+// is a quote from the lesson's content file. Tests keep commands, versions,
+// model names and any claim the app can't back out of this file.
+// A celebration praises the work, not how it was done: a string a
+// celebration shows goes on CELEBRATIONS in checks/test/learn-content.test.mjs.
 export const C = {
   appName: 'Claude Code practice',
   pathLabel: (done, total) => `Beginner path · ${done} of ${total} done`,
@@ -18,7 +20,7 @@ export const C = {
   gitBroken: (error) => `git isn't working here: ${error}. This isn't your work: install git, then start this app again.`,
 
   youllBeAble: "You'll be able to",
-  helpShrinks: 'The help shrinks as you get better:',
+  helpShrinks: 'The help shrinks each time a skill comes back:',
   stair: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
   startLesson: (n) => `Start lesson ${n}`,
   startCapstone: 'Start the capstone',
@@ -95,7 +97,7 @@ export const C = {
   nextCounts: (h, c) => `Still to come: ${[h && `${h} hinted step${h === 1 ? '' : 's'}`, c && `${c} challenge${c === 1 ? '' : 's'}`].filter(Boolean).join(' and ')}.`,
 
   complete: 'COMPLETE',
-  lessonDone: (label) => `${label} done! You can now:`,
+  lessonDone: (label) => `${label} done! You practised:`,
   badge: (name) => `New badge: ${name}`,
   checkedSummary: (n, m) => `The lesson's check passes: ${n} of ${m} item${m === 1 ? '' : 's'}`,
   answeredSummary: (n) => `${n} question${n === 1 ? '' : 's'} answered`,

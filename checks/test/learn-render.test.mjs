@@ -493,3 +493,28 @@ test('fading counts only what this learner did: a replay\'s intro shows the help
   assert.equal(tierOf(old.state), tierOf(clean.state));
   assert.equal(old.state.progress['b-3'].warm.join(), clean.state.progress['b-3'].warm.join());
 });
+
+// Words that claim only what the app saw.
+test('the next screen counts the questions in the steps this learner finished', () => {
+  const b4 = lessonById('b-4');
+  const questions = (steps) => steps.flatMap((st) => st.beats).filter((b) => b.ask && b.kind !== 'predict').length;
+  const count = (d, cols, rows) => plainAt(d, cols, rows).match(/(\d+) questions? answered/)?.[1];
+  // A full play: every question in the play, warm-ups too, as before.
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-4');
+  const p = d.state.progress['b-4'];
+  const played = [...p.warm.map((id) => b4.content.warmup.find((w) => w.id === id)), ...b4.content.steps];
+  assert.ok(played.every((st) => p.done.includes(st.id)));
+  assert.equal(questions(played), 9, 'every question beat in the play');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.equal(count(d, cols, rows), '9', `${cols}x${rows}`);
+  // The same play marked complete with no step done: the app saw no answer.
+  const at = (done) => ({ state: { ...d.state, progress: { ...d.state.progress, 'b-4': { ...p, done } } } });
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    assert.ok(!plainAt(at([]), cols, rows).includes('9 questions answered'), `${cols}x${rows}`);
+    assert.equal(count(at([]), cols, rows), '0', `${cols}x${rows}`);
+  }
+  // Part of it: only the steps done count.
+  const some = played.slice(0, 5);
+  assert.ok(questions(some) > 0 && questions(some) < 9);
+  assert.equal(count(at(some.map((x) => x.id)), 80, 24), String(questions(some)));
+});
