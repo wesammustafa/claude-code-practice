@@ -17,6 +17,33 @@ badge: Beginner
 - can: "read the whole diff before committing"
 - can: "keep a session on track"
 
+## warm-up
+
+### R1 | Warm-up | Rules for this project
+- tier: challenge
+- skill: memory
+- from: b-5
+- where: claude
+- beat: ask
+- ask: You want rules for this project only. Which file do you put them in?
+- wrong: "the user file in `~/.claude/`"
+- because: "Don't pick the user file in `~/.claude/`: it applies to all your projects"
+- right: "the `./CLAUDE.md` in this folder"
+- reveal: "type `/memory` and choose **Project instructions**, the `./CLAUDE.md` in this folder."
+
+### R2 | Warm-up | A change that went wrong
+- tier: challenge
+- skill: rewind
+- from: b-4
+- where: claude
+- beat: type
+- ask: A change Claude made went the wrong way. Which command do you run?
+- accept: /rewind
+- wrong: "/resume"
+- because: "Picks up an earlier conversation"
+- hint: "Goes back to an earlier prompt, restoring the code, the conversation or both"
+- reveal: "Rewind. Type `/rewind`, or press `Esc` twice with an empty prompt."
+
 ## steps
 
 ### T1 | The task step 1 of 6 | Get ready

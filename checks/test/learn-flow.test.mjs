@@ -958,14 +958,33 @@ test('an ease lands only where it changes the help: playing a lesson again start
   assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
 });
 
+// The capstone's warm-ups recall b-4 and b-5 skills its steps never use (D12).
 test('an ease lands only where it changes the help: one no later Beginner step uses stays saved (Q12)', () => {
-  const d = midway('b-4', 'Y4', { beat: 1 });
-  bottomRung(d);
-  assert.deepEqual(d.state.eased, ['rewind']);
+  const toWarmup = () => {
+    const d = midway('b-4', 'Y4', { beat: 1 });
+    bottomRung(d);
+    assert.deepEqual(d.state.eased, ['rewind']);
+    playUntil(d, (s) => s.lesson === 'b-capstone' && s.view === 'step' && stepOf(s).skill === 'rewind');
+    assert.equal(d.state.progress['b-5'].complete, true);
+    assert.equal(stepOf(d.state).part, 'Warm-up');
+    assert.deepEqual(d.state.eased, ['rewind']);
+    return d;
+  };
+  // Missed at the capstone's warm-up: no step there uses it, so it stays.
+  const d = toWarmup();
+  for (let i = 0; i < 2; i++) {
+    for (const c of '/resume') d.key(c, c);
+    d.key('enter');
+  }
+  assert.equal(d.state.beat.answer.kind, 'revealed');
   playUntil(d, (s) => s.lesson === 'b-capstone' && s.view === 'complete');
-  assert.equal(d.state.progress['b-5'].complete, true);
+  assert.deepEqual(d.state.progress['b-capstone'].easedSteps, {});
   assert.deepEqual(d.state.eased, ['rewind']);
   assert.deepEqual(snapshot(d.state).eased, ['rewind']);
+  // Recalled there at once: the waiting ease is cancelled.
+  const r = toWarmup();
+  playUntil(r, (s) => s.lesson === 'b-capstone' && s.view === 'complete');
+  assert.deepEqual(r.state.eased, []);
 });
 
 test('an ease lands only where it changes the help: in a lesson played again, every step is done, so it waits', () => {
@@ -1089,6 +1108,21 @@ test('warm-ups set the help: every kind of miss adds the ease, an empty answer t
   typeIn(twice, 'q');
   typeIn(twice, 'q');
   assert.deepEqual(twice.state.eased, ['status']);
+});
+
+// The warm-up closure test counts these questions as ones that can mark a
+// skill missed.
+test('s on a question with no wrong option still marks its skill for a warm-up, and on a guess it does nothing', () => {
+  const d = at('W2');
+  assert.deepEqual(beatOf(d.state).options.map((o) => o.kind), ['right', 'stuck', 'other']);
+  d.key('s');
+  assert.equal(d.state.beat.answer.kind, 'revealed');
+  assert.deepEqual(d.state.missed, ['install']);
+  const guess = at('W4');
+  assert.equal(beatOf(guess.state).kind, 'predict');
+  guess.key('s');
+  assert.equal(guess.state.beat.answer, null);
+  assert.deepEqual(guess.state.missed, []);
 });
 
 test('warm-ups set the help: misses inside a lesson only mark a warm-up, and a guess touches nothing', () => {
