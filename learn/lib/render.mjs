@@ -50,7 +50,7 @@ export function render(s, size, t) {
 
 const TOASTS = {
   stray: { emoji: 'wave', color: 'accent', text: () => C.stray },
-  hintsLater: { emoji: 'hint', color: 'accent', text: () => C.hintsLater },
+  hintsLater: { emoji: 'hint', color: 'accent', text: (x) => C.hintsLater(x.try) },
   pickFirst: { emoji: 'guess', color: 'accent', text: () => C.pickFirst },
   save: { emoji: 'broken', color: 'warn', text: (x) => C.saveFailed(x.message) },
 };

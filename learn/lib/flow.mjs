@@ -121,12 +121,22 @@ export function rungsOf(s) {
   return rungs;
 }
 
+// What the learner tries before h opens a hint at CHALLENGE: r on a beat the
+// app checks, a pick on a scored question, or nothing (null) where nothing
+// can fail, so h answers at once.
+export function tryFirst(s) {
+  const beat = beatOf(s);
+  if (['check', 'file', 'git-clean'].includes(beat.verify.kind)) return 'r';
+  return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' ? 'pick' : null;
+}
+
 export function hintAvailable(s) {
   if (s.view !== 'step' || !s.beat || ['done', 'already'].includes(s.beat.status)) return false;
   if (beatOf(s).kind === 'type') return false;
   const rungs = rungsOf(s);
   if (!rungs.length || s.beat.rung >= rungs.length - 1) return false;
-  if (tierOf(s) === 'challenge') return s.beat.status === 'fail' || s.beat.unlocked;
+  // A FAIL, r, a first wrong pick or two quiet minutes set `unlocked`.
+  if (tierOf(s) === 'challenge' && tryFirst(s)) return s.beat.unlocked;
   return true;
 }
 
@@ -357,8 +367,10 @@ function pick(s, index, effects) {
     st.feedback = { kind: 'stuck', because: opt.because };
     return;
   }
-  // A wrong pick or a decoy: explain once, reveal on the second.
+  // A wrong pick or a decoy: explain once, reveal on the second. It is a
+  // try, so hints may open.
   if (!st.wrongs.includes(index)) st.wrongs.push(index);
+  st.unlocked = true;
   missed(s, effects);
   if (st.wrongs.length >= 2) return reveal(s, effects);
   st.feedback = { kind: 'wrong', because: opt.because, point: beat.point };
@@ -776,6 +788,8 @@ const VIEWS = {
       const w = watching(s);
       if (!w) return false;
       st.explicit = true;
+      // Asking for a check is a try, whatever the check says.
+      st.unlocked = true;
       // A slow item takes a while: show that it runs.
       if (st.slowWait) Object.assign(st, { status: 'opening', slowWait: false });
       if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true });
@@ -786,9 +800,9 @@ const VIEWS = {
       }
       return true;
     }
-    // At CHALLENGE, hints wait for a first try: say so instead of ignoring h.
-    if (name === 'h' && !hintAvailable(s) && tierOf(s) === 'challenge' && !done && beat.kind !== 'type' && rungsOf(s).length) {
-      s.toast = { kind: 'hintsLater', until: s.now + TOAST_MS };
+    // At CHALLENGE, hints wait for a first try: name it instead of ignoring h.
+    if (name === 'h' && !hintAvailable(s) && tierOf(s) === 'challenge' && !done && tryFirst(s) && !st.unlocked && rungsOf(s).length) {
+      s.toast = { kind: 'hintsLater', try: tryFirst(s), until: s.now + TOAST_MS };
       return true;
     }
     if (name === 'h' && hintAvailable(s)) {

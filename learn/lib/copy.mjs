@@ -57,7 +57,7 @@ export const C = {
   beatDone: 'Done.',
   already: 'Already done: the check already passes, so this step counts.',
   alreadyCheck: 'The check already passes, so this step counts.',
-  hintsLater: 'From memory now: hints open after your first check (press r) or two quiet minutes.',
+  hintsLater: (via) => (via === 'pick' ? 'Try it first: pick an answer, then h works.' : 'Try it first: press r to check, then h works.'),
   pickFirst: 'Pick an answer first: a number, or the arrows.',
   why: 'Why this matters, in the lesson\'s words:',
 
@@ -90,7 +90,7 @@ export const C = {
 
   levelUp: 'LEVEL UP',
   toHinted: ["You've done each of these once, with every command shown.", 'From here you get the goal. Press h when you want a hint.'],
-  toChallenge: ['From memory now: just the goal.', 'Hints open after your first try.'],
+  toChallenge: ['From memory now: just the goal.', 'Try it first, then press h if you need a hint.'],
   nextCounts: (h, c) => `Still to come: ${[h && `${h} hinted step${h === 1 ? '' : 's'}`, c && `${c} challenge${c === 1 ? '' : 's'}`].filter(Boolean).join(' and ')}.`,
 
   complete: 'COMPLETE',

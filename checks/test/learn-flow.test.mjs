@@ -2,9 +2,9 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hintAvailable, normalize, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { beatOf, hintAvailable, normalize, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { parseLesson } from '../../learn/lib/content.mjs';
-import { b1Item, b1Only, courseWith, DEMO_B2, driver } from './learn-drive.mjs';
+import { b1Item, b1Only, course, courseWith, DEMO_B2, driver } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
@@ -701,4 +701,117 @@ test('real-run fixes: a question starts with nothing picked, and h says when hin
   c.key('h');
   assert.equal(c.state.toast?.kind, 'hintsLater');
   assert.equal(c.state.beat.rung, -1);
+});
+
+// A saved place in the whole course, opened.
+const open = (id, step, extra = {}, lessons = course) => {
+  const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { [id]: { step, beat: 0, warm: [], ...extra } } } });
+  d.key('enter');
+  return d;
+};
+
+test('h at CHALLENGE: a beat nothing checks opens the first hint at once', () => {
+  for (const [id, step] of [['b-capstone', 'T5'], ['b-4', 'Y5']]) {
+    const d = open(id, step);
+    assert.equal(tierOf(d.state), 'challenge', `${id} ${step}`);
+    assert.equal(beatOf(d.state).verify.kind, 'self');
+    d.key('h');
+    assert.equal(d.state.beat.rung, 0, `${id} ${step}.0 opens rung 0 with no tick`);
+    assert.equal(d.state.toast, null);
+  }
+});
+
+test('h at CHALLENGE: every beat waits for a try only where a try can show', () => {
+  for (const l of course.filter((x) => x.content)) {
+    for (const step of l.content.steps) {
+      step.beats.forEach((beat, b) => {
+        const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { [l.id]: { step: step.id, beat: b, warm: [] } } } });
+        d.key('enter');
+        const where = `${l.id} ${step.id}.${b}`;
+        if (tierOf(d.state) !== 'challenge' || beat.kind === 'type' || !rungsOf(d.state).length || ['done', 'already'].includes(d.state.beat.status)) return;
+        const watched = ['check', 'file', 'git-clean'].includes(beat.verify.kind);
+        const scored = Boolean(beat.ask) && beat.kind !== 'predict';
+        d.key('h');
+        if (watched || scored) {
+          assert.equal(d.state.toast?.kind, 'hintsLater', where);
+          assert.equal(d.state.toast.try, watched ? 'r' : 'pick', where);
+          assert.equal(d.state.beat.rung, -1, where);
+        } else assert.ok(d.state.beat.rung === 0 || d.state.beat.confirm, `${where} opens at once`);
+      });
+    }
+  }
+});
+
+test('h at CHALLENGE: on a done-label git beat, r is the try', () => {
+  const d = at('Y4', { levels: ['hinted', 'challenge'] });
+  assert.equal(tierOf(d.state), 'challenge');
+  d.send({ type: 'git', paths: ['notes.md'] });
+  d.key('h');
+  assert.deepEqual([d.state.toast?.kind, d.state.toast?.try], ['hintsLater', 'r']);
+  assert.equal(d.state.beat.rung, -1, 'nothing opens before a try');
+  d.key('r');
+  d.send({ type: 'git', paths: ['notes.md'] });
+  assert.equal(d.state.beat.status, 'waiting', 'the tree still decides nothing until the session ends');
+  d.key('h');
+  assert.equal(d.state.beat.rung, 0);
+});
+
+test('h at CHALLENGE: on a stale fresh beat, r is the try', () => {
+  const path = '.practice/b-5-rule.txt';
+  const d = open('b-5', 'Y2', { stamps: { 'Y2.0': 'a' } });
+  assert.equal(tierOf(d.state), 'challenge');
+  d.send({ type: 'file', path, line: '// linkcheck source.', stamp: 'a' });
+  assert.equal(d.state.beat.status, 'waiting');
+  d.key('h');
+  assert.equal(d.state.beat.rung, -1);
+  d.key('r');
+  assert.deepEqual(d.effects.at(-1), { type: 'file', path });
+  d.send({ type: 'file', path, line: '// linkcheck source.', stamp: 'a' });
+  assert.equal(d.state.beat.status, 'waiting', 'an unchanged file is still not done');
+  d.key('h');
+  assert.equal(d.state.beat.rung, 0);
+});
+
+const DEMO_ASK = DEMO_B2.replace(/## warm-up[\s\S]*$/, `## steps
+
+### C | Check | Check
+- tier: challenge
+- skill: check
+- where: claude
+- beat: predict
+- ask: Guess: which one?
+- right: "One"
+- option: "Two"
+- hint: "A hint for the guess."
+- beat: ask
+- ask: Which one?
+- right: "One"
+- wrong: "Two"
+- because: "Two is something else."
+- wrong: "Three"
+- because: "Three is something else."
+- hint: "A hint for the question."
+`);
+
+test('h at CHALLENGE: on a question the first wrong pick is the try, and a guess gates nothing', () => {
+  const demo = courseWith({ 'b-2': DEMO_ASK });
+  const guess = open('b-2', 'C', {}, demo);
+  assert.equal(tierOf(guess.state), 'challenge');
+  assert.equal(beatOf(guess.state).kind, 'predict');
+  guess.key('h');
+  assert.equal(guess.state.beat.rung, 0, 'a guess has nothing to try first');
+  const d = open('b-2', 'C', {}, demo);
+  d.key('1');
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.beat.unlocked, false, 'a guess unlocks nothing');
+  d.key('enter');
+  assert.equal(beatOf(d.state).kind, 'ask');
+  d.key('h');
+  assert.deepEqual([d.state.toast?.kind, d.state.toast?.try], ['hintsLater', 'pick']);
+  assert.equal(d.state.beat.rung, -1);
+  d.key('2');
+  assert.equal(d.state.beat.feedback.kind, 'wrong');
+  assert.equal(d.state.beat.unlocked, true);
+  d.key('h');
+  assert.equal(d.state.beat.rung, 0);
 });
