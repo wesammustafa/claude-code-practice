@@ -132,6 +132,17 @@ function moreHelp(p, steps) {
   const from = steps.findIndex((x) => x.id === p.moreHelpAt);
   return steps.map((step, i) => from !== -1 && i >= from && step.part !== 'Check');
 }
+// Whether g on the level-up on screen gives any step more help. Not on the
+// Check, which stays CHALLENGE, nor after an earlier g, which covers every
+// step this one would: so g never moves `moreHelpAt` later and takes back
+// help already given.
+export function moreHelpGives(s) {
+  const p = s.progress[s.lesson];
+  const step = stepOf(s);
+  const easedSteps = Object.fromEntries(Object.entries(p.easedSteps).filter(([id]) => id !== step.id));
+  const after = tiersOf({ ...s, progress: { ...s.progress, [s.lesson]: { ...p, moreHelpAt: step.id, easedSteps } } });
+  return tiersOf(s).some((t, i) => TIERS.indexOf(after[i]) < TIERS.indexOf(t));
+}
 export function authoredTier(s) {
   const step = stepOf(s);
   if (step.part === 'Warm-up') return 'challenge';
@@ -866,7 +877,8 @@ const VIEWS = {
     const p = s.progress[s.lesson];
     if (name === 'enter' || name === 'g') {
       if (!p.levels.includes(s.levelTo)) p.levels.push(s.levelTo);
-      if (name === 'g') {
+      // g where it gives nothing goes on like enter.
+      if (name === 'g' && moreHelpGives(s)) {
         const step = stepOf(s);
         p.moreHelpAt = step.id;
         // g gives this step the help an ease that landed here gave, so the

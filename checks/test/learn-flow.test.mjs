@@ -2,7 +2,7 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asStarted, beatOf, DEFER_MS, hintAvailable, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
@@ -1400,6 +1400,39 @@ test('g is one notch more help: on the HINTED level-up, every later step but the
   const played = tiersOf(d.state);
   for (const id of ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7']) assert.equal(tierAt(played, id), tierAt(before, id), id);
   assert.deepEqual(mix(played), [10, 1, 1]);
+});
+
+test('g is one notch more help: g on the Check\'s level-up after it gives nothing and takes nothing back', () => {
+  const d = toY1();
+  d.key('g');
+  // Y4 is HINTED now, so the Check is where the help goes down to CHALLENGE.
+  playUntil(d, (s) => s.view === 'levelup');
+  assert.equal(stepOf(d.state).id, 'C');
+  assert.equal(d.state.levelTo, 'challenge');
+  assert.equal(moreHelpGives(d.state), false, 'the Check stays CHALLENGE, so g has nothing to give');
+  d.key('g');
+  assert.equal(d.state.view, 'step', 'g there goes on like enter');
+  assert.equal(d.state.progress['b-1'].moreHelpAt, 'Y1', 'the first g still counts from Y1');
+  assert.equal(tierOf(d.state), 'challenge');
+  playUntil(d, (s) => s.view === 'next');
+  const played = tiersOf(d.state);
+  for (const id of ['Y1', 'Y2', 'Y3']) assert.equal(tierAt(played, id), 'guided', id);
+  assert.equal(tierAt(played, 'Y4'), 'hinted');
+  assert.deepEqual(mix(played), [10, 1, 1]);
+});
+
+test('g is one notch more help: a later level-up never moves it later', () => {
+  // A save with g counted from Y1 and no level-up seen yet: Y4 levels up to
+  // HINTED, which the g from Y1 gives it already.
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y3', beat: 0, moreHelpAt: 'Y1', levels: [] } } } });
+  d.key('enter');
+  playUntil(d, (s) => s.view === 'levelup');
+  assert.equal(stepOf(d.state).id, 'Y4');
+  assert.equal(moreHelpGives(d.state), false);
+  d.key('g');
+  assert.equal(d.state.view, 'step');
+  assert.equal(d.state.progress['b-1'].moreHelpAt, 'Y1');
+  for (const id of ['Y1', 'Y2', 'Y3']) assert.equal(tierAt(tiersOf(d.state), id), 'guided', id);
 });
 
 test('g is one notch more help: on the CHALLENGE level-up too, and it stays for the rest of the play', () => {
