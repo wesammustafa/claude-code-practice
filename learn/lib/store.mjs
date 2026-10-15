@@ -17,6 +17,8 @@ export function loadState(root) {
   }
 }
 
+const stepId = (x) => (typeof x === 'string' && /^[WYTCR]\d*$/.test(x) ? x : null);
+
 // Keeps only what the app saves, so a hand-edited or newer file can't
 // smuggle anything in.
 export function sanitize(data) {
@@ -30,13 +32,14 @@ export function sanitize(data) {
       answers: Object.fromEntries(Object.entries(p.answers ?? {}).filter(([k, v]) => typeof k === 'string' && typeof v === 'string').map(([k, v]) => [k, v.slice(0, 200)])),
       levels: Array.isArray(p.levels) ? p.levels.filter((x) => ['hinted', 'challenge'].includes(x)) : [],
       lessHelp: p.lessHelp === true,
-      keepGuided: p.keepGuided === true,
+      // A file from before `moreHelpAt` saved `keepGuided`: it counts from the saved step.
+      moreHelpAt: stepId(p.moreHelpAt) ?? (p.keepGuided === true ? stepId(p.step) : null),
       easedSteps: Object.fromEntries(Object.entries(p.easedSteps ?? {}).filter(([, v]) => v === true)),
       complete: p.complete === true,
       warm: Array.isArray(p.warm) ? p.warm.filter((x) => typeof x === 'string' && /^R\d+$/.test(x)) : [],
       recalled: Array.isArray(p.recalled) ? p.recalled.filter((x) => typeof x === 'string' && /^R\d+$/.test(x)) : [],
       stamps: Object.fromEntries(Object.entries(p.stamps ?? {}).filter(([k, v]) => typeof k === 'string' && typeof v === 'string').map(([k, v]) => [k, v.slice(0, 120)])),
-      bottomAt: typeof p.bottomAt === 'string' && /^[WYTCR]\d*$/.test(p.bottomAt) ? p.bottomAt : null,
+      bottomAt: stepId(p.bottomAt),
     };
   }
   return {
