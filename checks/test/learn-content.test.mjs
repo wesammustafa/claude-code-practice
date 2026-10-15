@@ -97,15 +97,7 @@ test('the app\'s own words name no command or code that the step\'s quotes don\'
       }
     }
   }
-  // Every string the app's own words can produce.
-  const words = [];
-  const walk = (v) => {
-    if (typeof v === 'string') words.push(v);
-    else if (typeof v === 'function') walk(v('x', 1, 'y', 'z'));
-    else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
-  };
-  walk(C);
+  const words = copyWords(C);
   assert.ok(words.length > 50);
   for (const w of words) {
     assert.doesNotMatch(w, /`/, `copy.mjs: "${w}" holds a code span`);
@@ -113,6 +105,65 @@ test('the app\'s own words name no command or code that the step\'s quotes don\'
     assert.doesNotMatch(w, /\d+\.\d+\.\d+/, `copy.mjs: "${w}" names a version`);
     assert.doesNotMatch(w, /\b(Opus|Sonnet|Haiku|Fable)\b|claude-[a-z]+-\d/, `copy.mjs: "${w}" names a model`);
   }
+});
+
+// Every string the app's own words can produce: each function runs with
+// every mix of a few arguments, so each branch it has gives its string.
+function copyWords(value) {
+  const words = new Set();
+  const args = ['x', 'pick', 0, 1, 2];
+  const tuples = (n) => (n === 0 ? [[]] : tuples(n - 1).flatMap((t) => args.map((a) => [...t, a])));
+  const walk = (v) => {
+    if (typeof v === 'string') words.add(v);
+    else if (typeof v === 'function') tuples(Math.max(v.length, 1)).forEach((t) => walk(v(...t)));
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  walk(value);
+  return [...words];
+}
+
+// The screen says only what the app saw: no copy claims the app adapts or
+// knows the learner, praises the person, or names work the app doesn't do.
+const BANNED = [
+  /master/i, /\bZPD\b/i, /adapt/i,
+  /\b(genius|natural|talented|brilliant|smart|clever)\b/i, /\byou(?:'re| are) (?:a |so )/i,
+  /personali[sz]/i, /tailor/i, /learns? (about )?you/i,
+  /\bThinking\b/i, /\bAnaly[sz]ing\b/i, /Preparing your lesson/i, /Loading your progress/i,
+];
+// A celebration praises the work, never how it was done: no speed, no
+// streak, no "no hints". "quick question" is a where label, not one of these.
+const CELEBRATION_BANNED = /\b(first try|no hints?|fast|quick(?:ly)?|streak)\b/i;
+const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'holds', 'already', 'alreadyCheck', 'guessRight', 'right', 'nowYouKnow',
+  'levelUp', 'toHinted', 'toChallenge', 'nextCounts', 'complete', 'lessonDone', 'badge', 'checkedSummary', 'answeredSummary', 'notchHarder'];
+const claims = (copy) => {
+  const out = [];
+  for (const w of copyWords(copy)) for (const re of BANNED) if (re.test(w)) out.push(`"${w}" matches ${re}`);
+  for (const k of CELEBRATIONS) for (const w of copyWords(copy[k])) if (CELEBRATION_BANNED.test(w)) out.push(`${k}: "${w}" matches ${CELEBRATION_BANNED}`);
+  return out;
+};
+
+test('the app\'s own words claim only what the app saw', () => {
+  for (const k of CELEBRATIONS) assert.ok(k in C, `copy.mjs has no ${k}`);
+  assert.deepEqual(claims(C), []);
+  assert.equal(C.helpShrinks, 'The help shrinks each time a skill comes back:');
+  assert.equal(C.lessonDone('B1'), 'B1 done! You practised:');
+  // Each pattern catches a string that breaks it, wherever it sits.
+  for (const bad of ['You mastered plan mode.', 'The app adapts to you.', 'Adapting the help.', 'This is your ZPD.',
+    'A natural!', "You're a star.", 'Clever!', 'You are so good at this.', 'Your personalised path', 'Help tailored for you', 'The app learns about you.',
+    'Thinking…', 'Analyzing your work…', 'Analysing', 'Preparing your lesson…', 'Loading your progress…']) {
+    assert.equal(claims({ x: bad }).length, 1, bad);
+    assert.equal(claims({ ...C, k: { ...C.k, x: () => [bad] } }).length, 1, `${bad}, in a function's array`);
+  }
+  for (const bad of ['Done on the first try!', 'No hints needed!', 'No hint used.', 'That was fast.', 'Quick work!', 'Done quickly.', 'A 3 step streak']) {
+    assert.equal(claims({ ...C, stepDone: () => bad }).length, 1, `${bad}, on a celebration`);
+    assert.equal(claims({ ...C, levelUp: [bad] }).length, 1, `${bad}, on the level-up`);
+    assert.deepEqual(claims({ ...C, notYet: bad }), [], `${bad}, off a celebration`);
+  }
+  // A branch counts too: the walk reaches each one.
+  assert.equal(claims({ x: (via) => (via === 'pick' ? 'You mastered it.' : 'Fine.') }).length, 1);
+  assert.equal(claims({ ...C, nextCounts: (h, c) => (h === 0 && c === 2 ? 'A fast finish.' : 'Fine.') }).length, 1);
+  assert.equal(C.where.ask, 'quick question', 'the where label stays off the celebration list');
 });
 
 test('questions: one right answer, a reason for every wrong one, real files in decoys', () => {

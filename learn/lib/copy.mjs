@@ -18,7 +18,7 @@ export const C = {
   gitBroken: (error) => `git isn't working here: ${error}. This isn't your work: install git, then start this app again.`,
 
   youllBeAble: "You'll be able to",
-  helpShrinks: 'The help shrinks as you get better:',
+  helpShrinks: 'The help shrinks each time a skill comes back:',
   stair: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
   startLesson: (n) => `Start lesson ${n}`,
   startCapstone: 'Start the capstone',
@@ -95,7 +95,7 @@ export const C = {
   nextCounts: (h, c) => `Still to come: ${[h && `${h} hinted step${h === 1 ? '' : 's'}`, c && `${c} challenge${c === 1 ? '' : 's'}`].filter(Boolean).join(' and ')}.`,
 
   complete: 'COMPLETE',
-  lessonDone: (label) => `${label} done! You can now:`,
+  lessonDone: (label) => `${label} done! You practised:`,
   badge: (name) => `New badge: ${name}`,
   checkedSummary: (n, m) => `The lesson's check passes: ${n} of ${m} item${m === 1 ? '' : 's'}`,
   answeredSummary: (n) => `${n} question${n === 1 ? '' : 's'} answered`,

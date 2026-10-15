@@ -369,8 +369,9 @@ const VIEWS = {
     const content = contentOf(s);
     const results = s.checks[s.lesson]?.items;
     const total = stepsOf(s).length;
-    const answered = stepsOf(s).flatMap((st) => st.beats.map((b, i) => [st, b, i]))
-      .filter(([, b]) => b.ask && b.kind !== 'predict').length;
+    // Only the questions in steps this learner finished: the app saw those.
+    const answered = stepsOf(s).filter((st) => s.progress[s.lesson].done.includes(st.id)).flatMap((st) => st.beats)
+      .filter((b) => b.ask && b.kind !== 'predict').length;
     const nextLesson = content.next ? lessonOf(s, content.next) : null;
     const body = [];
     if (results) body.push(lead(t, 'verified', t.fg('ok', C.checkedSummary(results.filter((r) => r.pass).length, results.length))));
