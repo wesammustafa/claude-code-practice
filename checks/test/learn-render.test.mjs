@@ -248,6 +248,35 @@ test('h at CHALLENGE: the toast names the try and fits; the level-up says to try
   }
 });
 
+test('both level-ups show "g more help" in the key bar, at 60x20 and 80x24', () => {
+  const t = theme(CAPS.full);
+  const bars = { 'level up hinted': "enter let's go g more help q quit", 'level up challenge': 'enter bring it on g more help q quit' };
+  for (const [label, bar] of Object.entries(bars)) {
+    const state = screens.find(([l]) => l === label)[1];
+    for (const [cols, rows] of [[60, 20], [80, 24]]) {
+      const lines = render(state, { cols, rows }, t);
+      assert.equal(strip(lines.at(-1)).trim().replace(/\s+/g, ' '), bar, `${label} at ${cols}x${rows}`);
+      assert.ok(!lines.some((l) => strip(l).includes('keep it guided')));
+    }
+  }
+});
+
+test('the Check\'s level-up shows no "g more help": g has nothing to give there', () => {
+  const t = theme(CAPS.full);
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W7', beat: 2, done: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6'] } } } });
+  d.key('enter');
+  d.send({ type: 'git', paths: [] });
+  d.key('enter');
+  d.key('g');
+  playUntil(d, (s) => s.view === 'levelup');
+  assert.equal(stepOf(d.state).id, 'C');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const lines = render(d.state, { cols, rows }, t);
+    assert.equal(lines.length, rows);
+    assert.equal(strip(lines.at(-1)).trim().replace(/\s+/g, ' '), 'enter bring it on q quit', `${cols}x${rows}`);
+  }
+});
+
 test('h at CHALLENGE: nothing sits in front of h during the 2 second lock', () => {
   const t = theme(CAPS.full);
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-capstone': { step: 'T5', beat: 0, warm: [] } } }, course: allCourse });

@@ -12,7 +12,7 @@ const SWALLOW_MS = 800;
 const TOAST_MS = 5_000;
 
 const clone = (x) => structuredClone(x);
-const blankProgress = () => ({ step: null, beat: 0, done: [], answers: {}, levels: [], lessHelp: false, keepGuided: false, easedSteps: {}, complete: false, warm: [], recalled: [], stamps: {}, bottomAt: null });
+const blankProgress = () => ({ step: null, beat: 0, done: [], answers: {}, levels: [], lessHelp: false, moreHelpAt: null, easedSteps: {}, complete: false, warm: [], recalled: [], stamps: {}, bottomAt: null });
 // How many warm-up questions open a lesson that has them.
 export const WARMUPS = 2;
 
@@ -29,6 +29,7 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
       const steps = playOrder(l.content, pr);
       const ids = new Set(steps.map((s) => s.id));
       pr.done = pr.done.filter((id) => ids.has(id));
+      if (!ids.has(pr.moreHelpAt)) pr.moreHelpAt = null;
       const step = steps.find((x) => x.id === pr.step);
       if (!step) Object.assign(pr, { step: null, beat: 0 });
       else if (!(pr.beat >= 0 && pr.beat < step.beats.length)) pr.beat = 0;
@@ -109,19 +110,38 @@ export function doneBefore(s) {
 // memory, so it is always CHALLENGE and counts toward no skill's fading.
 // Help fades only for what this learner did: an earlier lesson counts toward
 // a skill once they finished a step on it there, and every lesson does once a
-// warm-up on it was right the first time.
+// warm-up on it was right the first time. g on a level-up and an ease each
+// give a step one tier more help, and together still one.
 export function tiersOf(s, id = s.lesson) {
   const contents = s.course.map((l) => l.content);
   const idx = s.course.findIndex((l) => l.id === id);
   const p = s.progress[id];
   const h = history(s);
   const rule = ruleTiers(contents, idx, (k, skill) => h.steps.has(`${k} ${skill}`) || h.recalled.has(skill));
-  return stepsOf(s, id).map((step) => {
+  const steps = stepsOf(s, id);
+  const more = moreHelp(p, steps);
+  return steps.map((step, i) => {
     if (step.part === 'Warm-up') return 'challenge';
-    if (p.keepGuided && step.part !== 'Check') return 'guided';
     const t = rule[contents[idx].steps.indexOf(step)];
-    return effectiveTier(t, { lessHelp: p.lessHelp, eased: Boolean(p.easedSteps[step.id]) });
+    return effectiveTier(t, { lessHelp: p.lessHelp, eased: more[i] || Boolean(p.easedSteps[step.id]) });
   });
+}
+// Which steps g on a level-up gives one tier more help: the step it was
+// pressed on and every one after it in play order, but the Check.
+function moreHelp(p, steps) {
+  const from = steps.findIndex((x) => x.id === p.moreHelpAt);
+  return steps.map((step, i) => from !== -1 && i >= from && step.part !== 'Check');
+}
+// Whether g on the level-up on screen gives any step more help. Not on the
+// Check, which stays CHALLENGE, nor after an earlier g, which covers every
+// step this one would: so g never moves `moreHelpAt` later and takes back
+// help already given.
+export function moreHelpGives(s) {
+  const p = s.progress[s.lesson];
+  const step = stepOf(s);
+  const easedSteps = Object.fromEntries(Object.entries(p.easedSteps).filter(([id]) => id !== step.id));
+  const after = tiersOf({ ...s, progress: { ...s.progress, [s.lesson]: { ...p, moreHelpAt: step.id, easedSteps } } });
+  return tiersOf(s).some((t, i) => TIERS.indexOf(after[i]) < TIERS.indexOf(t));
 }
 export function authoredTier(s) {
   const step = stepOf(s);
@@ -243,12 +263,15 @@ function markEased(s, index) {
 
 // Whether an ease waiting on step `index`'s skill would give it more help. Not
 // on a warm-up, which is always from memory, a finished step, the rest of the
-// step whose bottom rung set it, a step already eased, or a GUIDED step, which
-// shows every command anyway: there the ease waits for the next step.
+// step whose bottom rung set it, a step already eased, a step g already gives
+// one tier more help, or a GUIDED step, which shows every command anyway:
+// there the ease waits for the next step.
 export function easeLands(s, index, tiers = tiersOf(s)) {
-  const step = stepsOf(s)[index];
+  const steps = stepsOf(s);
+  const step = steps[index];
   const p = s.progress[s.lesson];
   if (step.part === 'Warm-up' || p.done.includes(step.id) || p.bottomAt === step.id || p.easedSteps[step.id]) return false;
+  if (moreHelp(p, steps)[index]) return false;
   return tiers[index] !== 'guided';
 }
 
@@ -313,6 +336,7 @@ function startPlay(p) {
   p.bottomAt = null;
   p.easedSteps = {};
   p.recalled = [];
+  p.moreHelpAt = null;
 }
 // The state as the intro's enter will leave the lesson, so the intro shows
 // the help the play will give, not the eases and recalls of an earlier play.
@@ -853,7 +877,17 @@ const VIEWS = {
     const p = s.progress[s.lesson];
     if (name === 'enter' || name === 'g') {
       if (!p.levels.includes(s.levelTo)) p.levels.push(s.levelTo);
-      if (name === 'g') p.keepGuided = true;
+      // g where it gives nothing goes on like enter.
+      if (name === 'g' && moreHelpGives(s)) {
+        const step = stepOf(s);
+        p.moreHelpAt = step.id;
+        // g gives this step the help an ease that landed here gave, so the
+        // ease waits for a later step.
+        if (p.easedSteps[step.id]) {
+          delete p.easedSteps[step.id];
+          if (!s.eased.includes(step.skill)) s.eased.push(step.skill);
+        }
+      }
       s.view = 'step';
       openBeat(s, effects);
       return true;
