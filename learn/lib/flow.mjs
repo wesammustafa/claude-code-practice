@@ -12,7 +12,7 @@ const SWALLOW_MS = 800;
 const TOAST_MS = 5_000;
 
 const clone = (x) => structuredClone(x);
-const blankProgress = () => ({ step: null, beat: 0, done: [], answers: {}, levels: [], lessHelp: false, keepGuided: false, easedSteps: {}, complete: false, warm: [], stamps: {}, bottomAt: null });
+const blankProgress = () => ({ step: null, beat: 0, done: [], answers: {}, levels: [], lessHelp: false, keepGuided: false, easedSteps: {}, complete: false, warm: [], recalled: [], stamps: {}, bottomAt: null });
 // How many warm-up questions open a lesson that has them.
 export const WARMUPS = 2;
 
@@ -25,6 +25,7 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
       // Unknown step ids from an older content file start that lesson's place over.
       const pr = progress[l.id];
       pr.warm = pr.warm.filter((id) => l.content.warmup.some((w) => w.id === id));
+      pr.recalled = pr.recalled.filter((id) => l.content.warmup.some((w) => w.id === id));
       const steps = playOrder(l.content, pr);
       const ids = new Set(steps.map((s) => s.id));
       pr.done = pr.done.filter((id) => ids.has(id));
@@ -71,13 +72,50 @@ export const stepsOf = (s, id = s.lesson) => (contentOf(s, id) ? playOrder(conte
 export const stepOf = (s) => stepsOf(s)[s.pos.step];
 export const beatOf = (s) => stepOf(s).beats[s.pos.beat];
 
+// What this learner did with each skill: `steps` holds "k skill" for each
+// lesson k where they finished one of its own steps on it (warm-ups aside),
+// `finished` those skills, and `recalled` the skills of the warm-ups they
+// answered right the first time, in any lesson.
+function history(s) {
+  const steps = new Set();
+  const finished = new Set();
+  const recalled = new Set();
+  s.course.forEach((l, k) => {
+    if (!l.content) return;
+    const p = s.progress[l.id];
+    for (const step of l.content.steps) {
+      if (!p.done.includes(step.id)) continue;
+      steps.add(`${k} ${step.skill}`);
+      finished.add(step.skill);
+    }
+    for (const id of p.recalled) {
+      const w = l.content.warmup.find((x) => x.id === id);
+      for (const b of w?.beats ?? []) recalled.add(b.skill ?? w.skill);
+    }
+  });
+  return { steps, finished, recalled };
+}
+// Whether the learner did what the step on screen asks again: finished a
+// step on its skill, in any lesson. A capstone step draws on every lesson
+// before it, so there it takes a finished step on every skill they teach.
+export function doneBefore(s) {
+  const { finished } = history(s);
+  if (!s.lesson.endsWith('capstone')) return finished.has(stepOf(s).skill);
+  const idx = s.course.findIndex((l) => l.id === s.lesson);
+  return s.course.slice(0, idx).every((l) => (l.content?.steps ?? []).every((x) => finished.has(x.skill)));
+}
+
 // Each step's tier in play order. A warm-up recalls an earlier lesson from
 // memory, so it is always CHALLENGE and counts toward no skill's fading.
+// Help fades only for what this learner did: an earlier lesson counts toward
+// a skill once they finished a step on it there, and every lesson does once a
+// warm-up on it was right the first time.
 export function tiersOf(s, id = s.lesson) {
   const contents = s.course.map((l) => l.content);
   const idx = s.course.findIndex((l) => l.id === id);
   const p = s.progress[id];
-  const rule = ruleTiers(contents, idx);
+  const h = history(s);
+  const rule = ruleTiers(contents, idx, (k, skill) => h.steps.has(`${k} ${skill}`) || h.recalled.has(skill));
   return stepsOf(s, id).map((step) => {
     if (step.part === 'Warm-up') return 'challenge';
     if (p.keepGuided && step.part !== 'Check') return 'guided';
@@ -269,6 +307,21 @@ export function stepNote(s) {
   return harder && !stays ? tierOf(s) : null;
 }
 
+// What the intro's enter clears, so a play starts its help from the plan.
+function startPlay(p) {
+  p.stamps = {};
+  p.bottomAt = null;
+  p.easedSteps = {};
+  p.recalled = [];
+}
+// The state as the intro's enter will leave the lesson, so the intro shows
+// the help the play will give, not the eases and recalls of an earlier play.
+export function asStarted(s) {
+  const p = { ...s.progress[s.lesson] };
+  startPlay(p);
+  return { ...s, progress: { ...s.progress, [s.lesson]: p } };
+}
+
 export function startLesson(s, id, effects) {
   s.lesson = id;
   s.overlay = null;
@@ -329,11 +382,20 @@ function back(s, effects) {
 }
 
 // Picks the lesson's warm-up questions as it starts: questions on a skill the
-// learner missed before come first, then the rest in the file's order.
+// learner missed before come first, then skills whose help hasn't faded for
+// them (no step finished on it in an earlier lesson, and not recalled), then
+// the rest, each in the file's order. While the pool has other skills, no
+// two questions ask the same one.
 export function pickWarmups(s, id = s.lesson) {
-  const pool = contentOf(s, id).warmup;
-  const missed = pool.filter((w) => s.missed.includes(w.skill));
-  return [...missed, ...pool.filter((w) => !missed.includes(w))].slice(0, WARMUPS).map((w) => w.id);
+  const h = history(s);
+  const idx = s.course.findIndex((l) => l.id === id);
+  const met = (skill) => h.recalled.has(skill) || s.course.some((_, k) => k < idx && h.steps.has(`${k} ${skill}`));
+  const rank = (w) => (s.missed.includes(w.skill) ? 0 : met(w.skill) ? 2 : 1);
+  const ranked = [...contentOf(s, id).warmup].sort((a, b) => rank(a) - rank(b));
+  const picked = [];
+  for (const w of ranked) if (picked.length < WARMUPS && !picked.some((x) => x.skill === w.skill)) picked.push(w);
+  for (const w of ranked) if (picked.length < WARMUPS && !picked.includes(w)) picked.push(w);
+  return picked.map((w) => w.id);
 }
 function chooseWarmups(s) {
   s.progress[s.lesson].warm = pickWarmups(s);
@@ -344,7 +406,8 @@ function chooseWarmups(s) {
 // was missed again in this sitting. A beat may name the skill it recalls.
 // A warm-up is recall from memory, so its first answer in a play also sets
 // the help: a miss eases the skill, and a right answer at once cancels a
-// waiting ease. Asked again (gone back to, or after a quit), it is not.
+// waiting ease and joins the lesson's `recalled`, so the skill's help fades
+// on the course plan. Asked again (gone back to, or after a quit), it is not.
 const skillOf = (s) => beatOf(s).skill ?? stepOf(s).skill;
 const warmKey = (s) => `${s.lesson}.${stepOf(s).id}`;
 function firstAnswer(s) {
@@ -373,6 +436,8 @@ function recalled(s) {
   if (!first || st.wrongs.length || st.typedWrong || s.missedNow.includes(skill)) return;
   s.missed = s.missed.filter((k) => k !== skill);
   s.eased = s.eased.filter((k) => k !== skill);
+  const p = s.progress[s.lesson];
+  if (!p.recalled.includes(stepOf(s).id)) p.recalled.push(stepOf(s).id);
 }
 
 // ---- questions ---------------------------------------------------------------
@@ -777,9 +842,7 @@ const VIEWS = {
       // every fresh check waits for new work and the help starts from the plan.
       const p = s.progress[s.lesson];
       p.lessHelp = s.cursor === 1;
-      p.stamps = {};
-      p.bottomAt = null;
-      p.easedSteps = {};
+      startPlay(p);
       s.answeredNow = s.answeredNow.filter((k) => !k.startsWith(`${s.lesson}.`));
       chooseWarmups(s);
       openStep(s, 0, effects);

@@ -2,16 +2,18 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { beatOf, hintAvailable, normalize, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { asStarted, beatOf, hintAvailable, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
-import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, playUntil } from './learn-drive.mjs';
+import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, finished, finishedBefore, playUntil } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
   d.key('enter');
   return d;
 };
+// Lesson 1 finished on the path, every step of it done.
+const b1Done = finished(course.find((l) => l.id === 'b-1'));
 const missing = b1Item(null);
 const empty = b1Item('');
 const passed = b1Item('2.1.285 (Claude Code)\n');
@@ -380,7 +382,7 @@ test('review fixes: a result that misses an item decides nothing, and a slow ite
 
 // Lessons after the first: warm-ups, a third terminal, and fresh checks.
 const demo = courseWith({ 'b-2': DEMO_B2 });
-const onB2 = (b2 = {}, top = {}) => driver({ course: demo, saved: { format: 1, welcomed: true, ...top, lessons: { 'b-1': { complete: true }, 'b-2': b2 } } });
+const onB2 = (b2 = {}, top = {}) => driver({ course: demo, saved: { format: 1, welcomed: true, ...top, lessons: { 'b-1': b1Done, 'b-2': b2 } } });
 const item = (pass, hint = '') => ({ index: 0, text: 'x', pass, hint });
 
 test('the grammar: warm-ups in their own section, a fresh check names its file, three places to type', () => {
@@ -457,7 +459,7 @@ test('a fresh check waits for new work, not for what an earlier step left behind
   r.send({ type: 'check', lesson: 'b-2', items: [item(true)], path, stamp: 'B' });
   assert.equal(r.state.beat.status, 'already');
   // Playing the lesson again from its start forgets the old files.
-  const again = onB2({ complete: true, warm: ['R1', 'R2'], stamps: { 'Y1.0': 'A' } });
+  const again = onB2({ ...finished(demo.find((l) => l.id === 'b-2')), warm: ['R1', 'R2'], stamps: { 'Y1.0': 'A' } });
   assert.equal(again.state.view, 'map');
   again.key('up');
   again.key('enter');
@@ -469,7 +471,7 @@ test('a fresh check waits for new work, not for what an earlier step left behind
 test('review fixes: closing the map the app opened on opens its lesson', () => {
   // Every lesson in the app is done, so the app opens on the map, at the next
   // lesson, which has no content file yet.
-  const d = driver({ course: b1Only, saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true } } } });
+  const d = driver({ course: b1Only, saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done } } });
   assert.equal(d.state.view, 'map');
   d.key('m');
   assert.equal(d.state.view, 'checkonly');
@@ -478,7 +480,7 @@ test('review fixes: closing the map the app opened on opens its lesson', () => {
 
 test('a file check is done once its file holds a line, and a fresh one once it changed', () => {
   const text = DEMO_B2.replace('- verify: check 0 fresh\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', '- verify: file .practice/b-2-plan.txt fresh');
-  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true }, 'b-2': { warm: ['R1', 'R2'], done: ['R1', 'R2'], step: 'W1', beat: 0 } } } });
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R2'], done: ['R1', 'R2'], step: 'W1', beat: 0 } } } });
   d.key('enter');
   d.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: true, hint: '' }] });
   assert.equal(d.state.beat.status, 'already');
@@ -504,7 +506,7 @@ test('a file check is done once its file holds a line, and a fresh one once it c
 
 test('fresh since: the file is compared with how it was when an earlier step opened', () => {
   const text = DEMO_B2.replace('- verify: check 0 fresh', '- verify: check 0 fresh since W1');
-  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true }, 'b-2': { warm: ['R1'], step: 'R1', beat: 0 } } } });
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1'], step: 'R1', beat: 0 } } } });
   d.key('enter');
   d.key('1');
   const out = d.key('enter');
@@ -558,7 +560,7 @@ const SAW = DEMO_B2.replace(/## steps[\s\S]*$/, `## steps
 `);
 
 test('a level-up shows only when the help stays lower; a single harder step gets a line instead', () => {
-  const d = driver({ course: courseWith({ 'b-2': SAW }), saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true }, 'b-2': { warm: [], step: 'W1', beat: 0 } } } });
+  const d = driver({ course: courseWith({ 'b-2': SAW }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: [], step: 'W1', beat: 0 } } } });
   d.key('enter');
   assert.deepEqual(tiersOf(d.state), ['guided', 'hinted', 'guided', 'hinted', 'challenge']);
   d.key('space');
@@ -597,7 +599,7 @@ test('review fixes: a slow item clears an old "not yet", and r shows the run', (
 
 test('review fixes: a warm-up leaves an ease for the lesson\'s own step, and a missed mark is saved', () => {
   const text = DEMO_B2.replace('### W1 | Worked example step 1 of 1 | Save the list\n- tier: guided\n- skill: snapshot', '### W1 | Worked example step 1 of 1 | Save the list\n- tier: hinted\n- skill: status');
-  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, eased: ['status'], lessons: { 'b-1': { complete: true } } } });
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, eased: ['status'], lessons: { 'b-1': b1Done } } });
   d.key('enter');
   assert.equal(stepOf(d.state).id, 'R1');
   assert.equal(d.state.beat.eased, false, 'no "more help" line on a warm-up');
@@ -613,7 +615,7 @@ test('review fixes: a warm-up leaves an ease for the lesson\'s own step, and a m
   assert.equal(stepOf(d.state).id, 'W1');
   assert.equal(tierOf(d.state), 'guided', 'W1 comes back one tier easier');
   // Back to a warm-up just missed, answered right: the mark stays for later.
-  const r = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true }, 'b-2': { warm: ['R1', 'R3'], step: 'R1', beat: 0 } } } });
+  const r = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R3'], step: 'R1', beat: 0 } } } });
   r.key('enter');
   r.key('2');
   r.key('1');
@@ -627,7 +629,7 @@ test('review fixes: a warm-up leaves an ease for the lesson\'s own step, and a m
 
 test('review fixes: a recall question marks the skill it recalls, and an unreadable file decides nothing', () => {
   const text = DEMO_B2.replace('- accept: claude --version', '- skill: save-version\n- accept: claude --version').replace('- skill: save-version\n- from: b-1', '- skill: check\n- from: b-1');
-  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true }, 'b-2': { warm: ['R2'], step: 'R2', beat: 0 } } } });
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R2'], step: 'R2', beat: 0 } } } });
   d.key('enter');
   for (const c of 'claude') d.key(c, c);
   d.key('enter');
@@ -666,7 +668,7 @@ test('review fixes: a FAIL about a slow item keeps its hints when a poll leaves 
 
 test('review fixes: a bottom rung eases its skill from the next step on, not the rest of its own step', () => {
   const text = DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n', '- where: shell\n- beat: do\n- verify: self\n- goal: "Open a terminal."\n- bottom: "git status"\n- beat: do\n- verify: check 0\n');
-  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true }, 'b-2': { warm: [], step: 'W1', beat: 0 } } } });
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: [], step: 'W1', beat: 0 } } } });
   d.key('enter');
   d.key('h');
   assert.equal(d.state.beat.confirm, true);
@@ -706,7 +708,7 @@ test('real-run fixes: a question starts with nothing picked, and h says when hin
 
 // A saved place in the whole course, opened.
 const open = (id, step, extra = {}, lessons = course) => {
-  const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { [id]: { step, beat: 0, warm: [], ...extra } } } });
+  const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore(id, lessons), [id]: { step, beat: 0, warm: [], ...extra } } } });
   d.key('enter');
   return d;
 };
@@ -726,7 +728,7 @@ test('h at CHALLENGE: every beat waits for a try only where a try can show', () 
   for (const l of course.filter((x) => x.content)) {
     for (const step of l.content.steps) {
       step.beats.forEach((beat, b) => {
-        const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { [l.id]: { step: step.id, beat: b, warm: [] } } } });
+        const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore(l.id), [l.id]: { step: step.id, beat: b, warm: [] } } } });
         d.key('enter');
         const where = `${l.id} ${step.id}.${b}`;
         if (tierOf(d.state) !== 'challenge' || beat.kind === 'type' || !rungsOf(d.state).length || ['done', 'already'].includes(d.state.beat.status)) return;
@@ -863,8 +865,7 @@ test('h at CHALLENGE: a question with no wrong answer opens at once, and a stuck
 
 // A Beginner lesson opened at a saved step, with every lesson before it done.
 const midway = (id, step, { eased = [], beat = 0, ...extra } = {}) => {
-  const before = course.slice(0, course.findIndex((l) => l.id === id)).filter((l) => l.content);
-  const lessons = { ...Object.fromEntries(before.map((l) => [l.id, { complete: true }])), [id]: { step, beat, warm: [], ...extra } };
+  const lessons = { ...finishedBefore(id), [id]: { step, beat, warm: [], ...extra } };
   const d = driver({ course, saved: { format: 1, welcomed: true, eased, lessons } });
   d.key('enter');
   return d;
@@ -940,8 +941,8 @@ test('an ease lands only where it changes the help: hints short of the exact com
 });
 
 test('an ease lands only where it changes the help: playing a lesson again starts from the plan', () => {
-  const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, { complete: true }]));
-  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...done, 'b-5': { complete: true, warm: ['R1', 'R2'], easedSteps: { Y1: true } } } } });
+  const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, finished(l)]));
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...done, 'b-5': { ...done['b-5'], warm: ['R1', 'R2'], easedSteps: { Y1: true } } } } });
   assert.equal(d.state.view, 'map');
   const to = course.findIndex((l) => l.id === 'b-5');
   while (d.state.mapCursor !== to) d.key('up');
@@ -963,7 +964,7 @@ test('an ease lands only where it changes the help: one no later Beginner step u
 });
 
 test('an ease lands only where it changes the help: in a lesson played again, every step is done, so it waits', () => {
-  const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, { complete: true }]));
+  const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, finished(l)]));
   const b5 = course.find((l) => l.id === 'b-5').content.steps.map((x) => x.id);
   const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...done, 'b-5': { complete: true, done: b5 } } } });
   const to = course.findIndex((l) => l.id === 'b-5');
@@ -983,8 +984,7 @@ test('an ease lands only where it changes the help: in a lesson played again, ev
 // A Beginner lesson at its intro, with every lesson before it done; enter
 // starts it with the first two warm-ups in the file's order.
 const fresh = (id, top = {}) => {
-  const before = course.slice(0, course.findIndex((l) => l.id === id)).filter((l) => l.content);
-  const d = driver({ course, saved: { format: 1, welcomed: true, ...top, lessons: Object.fromEntries(before.map((l) => [l.id, { complete: true }])) } });
+  const d = driver({ course, saved: { format: 1, welcomed: true, ...top, lessons: finishedBefore(id) } });
   assert.equal(d.state.view, 'intro');
   assert.equal(d.state.lesson, id);
   d.key('enter');
@@ -1190,4 +1190,182 @@ test('warm-ups set the help: going back to a warm-up asks nothing new of the hel
   assert.equal(stepOf(again.state).id, 'R1');
   again.key('s');
   assert.deepEqual(again.state.eased, ['start']);
+});
+
+// A Beginner lesson opened from the map, at its intro, with `lessons` saved.
+const fromMap = (id, lessons = {}, top = {}) => {
+  const d = driver({ course, saved: { format: 1, welcomed: true, ...top, lessons } });
+  if (d.state.view !== 'map') d.key('m');
+  const to = course.findIndex((l) => l.id === id);
+  while (d.state.mapCursor !== to) d.key('down');
+  d.key('enter');
+  assert.deepEqual([d.state.view, d.state.lesson], ['intro', id]);
+  return d;
+};
+const lessonOfId = (id) => course.find((l) => l.id === id);
+// The learner's tiers for a lesson's own steps, warm-ups aside.
+const ownTiers = (s, id) => tiersOf(s, id).filter((_, i) => i >= s.progress[id].warm.length);
+
+test('fading counts only what this learner did: b-4 opened from the map with nothing done', () => {
+  const steps = lessonOfId('b-4').content.steps;
+  const d = fromMap('b-4');
+  const tiers = ownTiers(d.state, 'b-4');
+  assert.equal(steps[0].skill, 'start');
+  assert.equal(steps[0].tier, 'challenge', 'W1 is CHALLENGE on the course plan');
+  assert.equal(tiers[0], 'guided', 'W1 opens GUIDED for a learner who never finished a start step');
+  assert.equal(tiers.at(-1), 'challenge', 'the Check stays CHALLENGE');
+  d.key('enter');
+  playUntil(d, atStep('W1'));
+  assert.equal(tierOf(d.state), 'guided');
+  // On the path, W1 keeps the plan.
+  const path = fromMap('b-4', finishedBefore('b-4'));
+  assert.equal(ownTiers(path.state, 'b-4')[0], 'challenge');
+});
+
+test('fading counts only what this learner did: a lesson marked complete with nothing done counts for nothing', () => {
+  // The seeded b-5 run: b-1 to b-4 complete, with no step done.
+  const skipped = Object.fromEntries(['b-1', 'b-2', 'b-3', 'b-4'].map((id) => [id, { complete: true, done: [] }]));
+  const d = fromMap('b-5', skipped);
+  d.key('enter');
+  playUntil(d, atStep('W6'));
+  assert.equal(stepOf(d.state).skill, 'commit');
+  assert.equal(stepOf(d.state).tier, 'hinted');
+  assert.equal(tierOf(d.state), 'guided', 'W6, HINTED on the plan, opens GUIDED');
+});
+
+test('fading counts only what this learner did: on the path every Beginner lesson keeps the course plan', () => {
+  for (const l of course.filter((x) => x.content)) {
+    const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
+    assert.deepEqual(ownTiers(d.state, l.id), l.content.steps.map((x) => x.tier), l.id);
+    // With nothing done, every lesson after the first gives more help somewhere,
+    // and the capstone none.
+    const none = driver({ course, saved: { format: 1, welcomed: true } });
+    const rank = (t) => ['guided', 'hinted', 'challenge'].indexOf(t);
+    const skipped = ownTiers(none.state, l.id);
+    const authored = l.content.steps.map((x) => x.tier);
+    skipped.forEach((t, i) => assert.ok(rank(t) <= rank(authored[i]), `${l.id} ${l.content.steps[i].id}`));
+    if (l.id === 'b-1' || l.id === 'b-capstone') assert.deepEqual(skipped, authored, l.id);
+    else assert.notDeepEqual(skipped, authored, l.id);
+  }
+});
+
+test('fading counts only what this learner did: warm-ups ask missed skills, then unmet ones, then the file order', () => {
+  // b-4's pool: R1 review-diff (b-3), R2 exit (b-1), R3 approve-edits (b-2),
+  // R4 run-tests (b-3).
+  assert.deepEqual(lessonOfId('b-4').content.warmup.map((w) => w.skill), ['review-diff', 'exit', 'approve-edits', 'run-tests']);
+  const b12 = { 'b-1': finished(lessonOfId('b-1')), 'b-2': finished(lessonOfId('b-2')) };
+  const d = fromMap('b-4', b12);
+  assert.deepEqual(pickWarmups(d.state, 'b-4'), ['R1', 'R4'], 'b-3 skipped: its skills first');
+  d.key('enter');
+  assert.deepEqual(d.state.progress['b-4'].warm, ['R1', 'R4']);
+  const m = fromMap('b-4', b12, { missed: ['approve-edits'] });
+  assert.deepEqual(pickWarmups(m.state, 'b-4'), ['R3', 'R1'], 'a missed skill comes first');
+  // A learner who skipped everything still gets two.
+  const none = fromMap('b-4');
+  none.key('enter');
+  assert.deepEqual(none.state.progress['b-4'].warm, ['R1', 'R2']);
+  assert.deepEqual(none.state.view, 'step');
+  assert.equal(stepOf(none.state).part, 'Warm-up');
+});
+
+test('fading counts only what this learner did: with no misses and every skill met, b-3 asks plan-mode and status', () => {
+  const d = fresh('b-3');
+  const warm = d.state.progress['b-3'].warm;
+  assert.deepEqual(warm, ['R1', 'R2']);
+  assert.deepEqual(warm.map((id) => lessonOfId('b-3').content.warmup.find((w) => w.id === id).skill), ['plan-mode', 'status']);
+});
+
+test('fading counts only what this learner did: a warm-up right the first time puts its skill back on the plan', () => {
+  const b3 = lessonOfId('b-3').content;
+  const plan = b3.steps.filter((x) => x.skill === 'plan-mode');
+  const planTiers = (s) => ownTiers(s, 'b-3').filter((_, i) => b3.steps[i].skill === 'plan-mode');
+  // b-1 done, b-2 skipped: plan-mode is unmet, so W1 opens GUIDED.
+  const d = fromMap('b-3', { 'b-1': finished(lessonOfId('b-1')) });
+  assert.equal(planTiers(d.state)[0], 'guided');
+  assert.notDeepEqual(planTiers(d.state), plan.map((x) => x.tier));
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'R1');
+  assert.equal(stepOf(d.state).skill, 'plan-mode');
+  const out = typeIn(d, beatOf(d.state).accept[0]);
+  assert.equal(d.state.beat.status, 'done');
+  assert.deepEqual(d.state.progress['b-3'].recalled, ['R1']);
+  assert.ok(out.some((e) => e.type === 'save'));
+  assert.deepEqual(planTiers(d.state), plan.map((x) => x.tier), 'every plan-mode step is on the course plan');
+  // It survives a resume.
+  const r = reopen(d);
+  assert.deepEqual(r.state.progress['b-3'].recalled, ['R1']);
+  assert.deepEqual(planTiers(r.state), plan.map((x) => x.tier));
+  playUntil(r, atStep('W1'));
+  assert.equal(tierOf(r.state), plan[0].tier);
+  // A replay clears it.
+  playUntil(r, (st) => st.view === 'complete');
+  assert.deepEqual(r.state.progress['b-3'].recalled, ['R1', 'R3'], 'R3 was right the first time too');
+  r.key('m');
+  r.key('enter');
+  assert.equal(r.state.view, 'intro');
+  r.key('enter');
+  assert.deepEqual(r.state.progress['b-3'].recalled, []);
+  assert.equal(planTiers(r.state)[0], 'guided');
+});
+
+test('fading counts only what this learner did: a replay asks again the warm-up that puts its skill back on the plan', () => {
+  // b-1 done, b-2 skipped, b-3 finished with R1 (plan-mode) recalled. The
+  // replay clears the recall, and b-3's own steps don't fade b-3's help, so
+  // plan-mode is unmet again and R1 comes first.
+  const d = fromMap('b-3', { 'b-1': finished(lessonOfId('b-1')), 'b-3': { ...finished(lessonOfId('b-3')), recalled: ['R1'] } });
+  assert.equal(ownTiers(d.state, 'b-3')[0], 'hinted', 'before the replay, the recall keeps W1 on the plan');
+  const preview = asStarted(d.state);
+  const shown = { warm: pickWarmups(preview), tiers: ownTiers(preview, 'b-3') };
+  d.key('enter');
+  assert.deepEqual(d.state.progress['b-3'].recalled, []);
+  assert.deepEqual(d.state.progress['b-3'].warm, ['R1', 'R3']);
+  assert.deepEqual(ownTiers(d.state, 'b-3')[0], 'guided');
+  // What the intro shows is what the play starts with.
+  assert.deepEqual(shown, { warm: d.state.progress['b-3'].warm, tiers: ownTiers(d.state, 'b-3') });
+  // R1 right the first time puts W1 back on the plan.
+  typeIn(d, beatOf(d.state).accept[0]);
+  assert.equal(ownTiers(d.state, 'b-3')[0], 'hinted');
+});
+
+test('fading counts only what this learner did: two warm-ups ask two skills while the pool has two', () => {
+  // b-3's pool: R1 plan-mode, R2 status, R3 and R4 approve-edits.
+  const pool = lessonOfId('b-3').content.warmup;
+  assert.deepEqual(pool.map((w) => w.skill), ['plan-mode', 'status', 'approve-edits', 'approve-edits']);
+  // Plan-mode and status met, approve-edits not: one approve-edits question, then the file order.
+  const d = fromMap('b-3', { 'b-1': finished(lessonOfId('b-1')), 'b-2': { complete: false, done: ['W2'] } });
+  assert.deepEqual(pickWarmups(d.state, 'b-3'), ['R3', 'R1']);
+  // A missed skill too.
+  const m = fromMap('b-3', finishedBefore('b-3'), { missed: ['approve-edits'] });
+  assert.deepEqual(pickWarmups(m.state, 'b-3'), ['R3', 'R1']);
+  // A pool of one skill still gives two.
+  const one = courseWith({ 'b-2': DEMO_B2.replace(/- skill: save-version/g, '- skill: status').replace(/- skill: exit/g, '- skill: status') });
+  const o = driver({ course: one, saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(lessonOfId('b-1')) } } });
+  assert.equal(pickWarmups(o.state, 'b-2').length, 2);
+});
+
+test('fading counts only what this learner did: a warm-up right after a miss, or asked again, adds nothing to recalled', () => {
+  const d = fromMap('b-3', { 'b-1': finished(lessonOfId('b-1')) });
+  d.key('enter');
+  typeIn(d, 'tab');
+  typeIn(d, beatOf(d.state).accept[0]);
+  assert.equal(d.state.beat.status, 'done');
+  assert.deepEqual(d.state.progress['b-3'].recalled, []);
+  // Gone back to and answered right: still not the first answer.
+  playUntil(d, atStep('W1'));
+  assert.deepEqual(d.state.progress['b-3'].recalled, ['R3'], 'R3, right the first time, joins it');
+  backTo(d, 'R1');
+  typeIn(d, beatOf(d.state).accept[0]);
+  assert.deepEqual(d.state.progress['b-3'].recalled, ['R3']);
+  // A lesson's own question never joins it.
+  const own = at('W5');
+  own.key(optionOf(own, 'right'));
+  assert.deepEqual(own.state.progress['b-1'].recalled, []);
+});
+
+test('fading counts only what this learner did: an old save loads with an empty recalled list, and unknown ids drop', () => {
+  const old = driver({ course, saved: { format: 1, welcomed: true, lessons: { 'b-3': { step: 'R1', beat: 0, warm: ['R1', 'R2'] } } } });
+  assert.deepEqual(old.state.progress['b-3'].recalled, []);
+  assert.deepEqual(old.state.progress['b-4'].recalled, []);
+  const gone = driver({ course, saved: { format: 1, welcomed: true, lessons: { 'b-3': { recalled: ['R1', 'R9'] } } } });
+  assert.deepEqual(gone.state.progress['b-3'].recalled, ['R1'], 'a warm-up no longer in the file is dropped');
 });

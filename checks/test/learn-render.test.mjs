@@ -6,11 +6,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { C } from '../../learn/lib/copy.mjs';
-import { beatOf, hintAvailable, IDLE_MS, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
+import { beatOf, hintAvailable, IDLE_MS, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, driver, failCheck, playUntil, root } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, playUntil, root } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -136,7 +136,7 @@ test('lessons after the first: page links, Windows bottom lines, slow checks and
   const { courseWith, DEMO_B2 } = await import('./learn-drive.mjs');
   const text = DEMO_B2.replace('- goal: "Save it again."', '- goal: "Save it again."\n- note: "See [Watch out](#watch-out) and [lesson 5](05-project-memory.md#worked-example)."\n- bottom: "printf x > a.txt"\n- win: "Set-Content a.txt x"');
   const course = courseWith({ 'b-2': text });
-  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true }, 'b-2': { warm: ['R1', 'R2'], step: 'Y1', beat: 0, levels: ['challenge'] } } } });
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(allCourse.find((l) => l.id === 'b-1')), 'b-2': { warm: ['R1', 'R2'], step: 'Y1', beat: 0, levels: ['challenge'] } } } });
   d.key('enter');
   const draw = (caps) => render(d.state, { cols: 100, rows: 40 }, theme({ ...CAPS.full, ...caps })).join('\n');
   const links = [...draw({ links: true }).matchAll(/\x1b\]8;;([^\x07]*)\x07/g)].map((m) => m[1]).filter(Boolean);
@@ -164,7 +164,9 @@ const FIRST_RUNG_CUT = {
   'b-capstone T1.2 hint 1 at 60x20 (ascii)': 'the Windows note fills the card; 142\'s drop order keeps the hint box',
 };
 
-test('every lesson in the app: every beat fits the window, and nothing is cut at 80x24 or larger', async () => {
+// Every lesson after the first, on the path and with every lesson before it
+// skipped, so the steps that drop to GUIDED show their bottom lines too.
+for (const skipped of [false, true]) test(`every lesson in the app${skipped ? ', with nothing done before it' : ''}: every beat fits the window, and nothing is cut at 80x24 or larger`, async () => {
   const { lessonScreens, course } = await import('./learn-drive.mjs');
   const ids = course.filter((l) => l.content && l.id !== 'b-1').map((l) => l.id);
   // Only letters and digits, so the box's edges, a wrap and ASCII stand-ins
@@ -172,7 +174,7 @@ test('every lesson in the app: every beat fits the window, and nothing is cut at
   const flat = (text) => text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[^A-Za-z0-9]/g, '');
   const cut = [];
   for (const id of ids) {
-    const all = lessonScreens(id);
+    const all = lessonScreens(id, course, { skipped });
     assert.ok(all.length > 10, `${id}: ${all.length} screens`);
     for (const [capName, caps] of Object.entries(CAPS)) {
       const t = theme(caps);
@@ -207,7 +209,7 @@ test('real-run fixes: prompts wrap at spaces, a short list stays in "not yet", a
   const { courseWith, DEMO_B2 } = await import('./learn-drive.mjs');
   const prompt = 'Add src/external.js with a function countExternal(markdown) that returns how many of the links findLinks finds are external, according to isExternal.';
   const text = DEMO_B2.replace('- run: "git status --porcelain > .practice/b-2-before.txt"', `- run: "${prompt}"`);
-  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': { complete: true }, 'b-2': { warm: [], step: 'W1', beat: 0 } } } });
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(allCourse.find((l) => l.id === 'b-1')), 'b-2': { warm: [], step: 'W1', beat: 0 } } } });
   d.key('enter');
   for (const cols of [60, 80]) {
     const plain = render(d.state, { cols, rows: 30 }, theme(CAPS.full)).map(strip).join('\n');
@@ -314,9 +316,9 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
   const whole = new Set();
   const check = (d, where) => easedLineWhole(d, where, whole);
   const landed = new Set();
-  for (const [li, lesson] of allCourse.entries()) {
+  for (const lesson of allCourse) {
     if (!lesson.content) continue;
-    const before = Object.fromEntries(allCourse.slice(0, li).filter((l) => l.content).map((l) => [l.id, { complete: true }]));
+    const before = finishedBefore(lesson.id);
     for (const step of lesson.content.steps) {
       step.beats.forEach((_, beat) => {
         for (const lessHelp of [false, true]) {
@@ -351,9 +353,9 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
 // there: where its ease lands, the line is whole as the step opens.
 test('a missed warm-up: the "more help" line wraps whole where its ease lands', () => {
   const whole = new Set();
-  for (const [li, lesson] of allCourse.entries()) {
+  for (const lesson of allCourse) {
     if (!lesson.content) continue;
-    const before = Object.fromEntries(allCourse.slice(0, li).filter((l) => l.content).map((l) => [l.id, { complete: true }]));
+    const before = finishedBefore(lesson.id);
     for (const w of lesson.content.warmup) {
       const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: w.id, beat: 0, warm: [w.id] } } } });
       d.key('enter');
@@ -367,4 +369,98 @@ test('a missed warm-up: the "more help" line wraps whole where its ease lands', 
   }
   // In b-2, b-3 and b-5 the ease lands on the same lesson's W1, whole at 60x20.
   for (const where of ['b-2 W1 from b-2 R1', 'b-3 W1 from b-3 R1', 'b-5 W1 from b-5 R1']) assert.ok(whole.has(where), where);
+});
+
+// Fading counts only what this learner did.
+const lessonById = (id) => allCourse.find((l) => l.id === id);
+const plainAt = (d, cols, rows) => render(d.state, { cols, rows }, theme(CAPS.full)).map(strip).join('\n');
+
+test('fading counts only what this learner did: a skipped skill opens GUIDED with its exact command on the card', () => {
+  // The seeded b-5 run: b-1 to b-4 complete, with no step done.
+  const skipped = Object.fromEntries(['b-1', 'b-2', 'b-3', 'b-4'].map((id) => [id, { complete: true, done: [] }]));
+  const cmd = 'git rev-parse HEAD > .practice/b-5-commit.txt';
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...skipped, 'b-5': { step: 'W6', beat: 1, warm: [] } } } });
+  d.key('enter');
+  assert.equal(tierOf(d.state), 'guided');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(plainAt(d, cols, rows).includes(cmd), `${cols}x${rows}`);
+  // On the path W6 is HINTED: the command waits behind h.
+  const path = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-5'), 'b-5': { step: 'W6', beat: 1, warm: [] } } } });
+  path.key('enter');
+  assert.equal(tierOf(path.state), 'hinted');
+  assert.ok(!plainAt(path, 80, 24).includes(cmd));
+});
+
+test('fading counts only what this learner did: "done each part before" only after a finished step on every part', async () => {
+  const { courseWith, DEMO_B2 } = await import('./learn-drive.mjs');
+  assert.equal(C.noCommands, 'No commands this time.');
+  assert.equal(C.doneEachPart, "You've done each part before.");
+  const flat = (text) => text.replace(/\s+/g, ' ');
+  const t2 = lessonById('b-capstone').content.steps.find((x) => x.id === 'T2');
+  const beat = t2.beats.findIndex((b) => b.kind !== 'predict');
+  const open = (lessons) => {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...lessons, 'b-capstone': { step: 'T2', beat, warm: [] } } } });
+    d.key('enter');
+    assert.equal(tierOf(d.state), 'challenge', 'the capstone never drops to GUIDED');
+    return d;
+  };
+  const none = open({});
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const text = flat(plainAt(none, cols, rows));
+    assert.ok(text.includes(C.noCommands), `${cols}x${rows}`);
+    assert.ok(!text.includes(C.doneEachPart), `${cols}x${rows}: no history, so no "done before"`);
+  }
+  // A capstone step draws on every lesson before it: a finished step on its
+  // own skill alone is not each part.
+  const some = open({ 'b-2': { complete: true, done: ['W2'] } });
+  assert.equal(lessonById('b-2').content.steps.find((x) => x.id === 'W2').skill, t2.skill);
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(!flat(plainAt(some, cols, rows)).includes(C.doneEachPart), `${cols}x${rows}`);
+  const did = open(finishedBefore('b-capstone'));
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(plainAt(did, cols, rows).includes(`${C.noCommands} ${C.doneEachPart}`), `${cols}x${rows}`);
+  // T1 saves the version (b-1), but also commits a CLAUDE.md (b-5): a learner
+  // who did only b-1 hasn't done each part.
+  const b1 = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(lessonById('b-1')), 'b-capstone': { step: 'T1', beat: 0, warm: [] } } } });
+  b1.key('enter');
+  assert.equal(stepOf(b1.state).skill, 'save-version');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const text = flat(plainAt(b1, cols, rows));
+    assert.ok(text.includes(C.noCommands) && !text.includes(C.doneEachPart), `${cols}x${rows}`);
+  }
+  // A harder step's line, too: a skill put on the plan by a warm-up, with no
+  // step finished on it, gets no "You've done this before".
+  const text = DEMO_B2.replace(/## steps[\s\S]*$/, ['## steps', '',
+    '### W1 | Worked example step 1 of 3 | New', '- tier: guided', '- skill: brand-new', '- where: claude', '- beat: do', '- verify: self', '- goal: "Do it."', '',
+    '### W2 | Worked example step 2 of 3 | Old', '- tier: hinted', '- skill: status', '- where: claude', '- beat: do', '- verify: self', '- goal: "Do it."', '',
+    '### W3 | Worked example step 3 of 3 | New again', '- tier: guided', '- skill: other-new', '- where: claude', '- beat: do', '- verify: self', '- goal: "Do it."', '',
+    '### C | Check | Check', '- tier: challenge', '- skill: check', '- where: terminal', '- beat: do', '- verify: self', '- goal: "Do it."', ''].join('\n'));
+  const saw = courseWith({ 'b-2': text });
+  const atW2 = (b1, recalled) => {
+    const d = driver({ course: saw, saved: { format: 1, welcomed: true, lessons: { 'b-1': b1, 'b-2': { warm: [], recalled, step: 'W2', beat: 0 } } } });
+    d.key('enter');
+    assert.equal(stepNote(d.state), 'hinted');
+    return flat(plainAt(d, 80, 24));
+  };
+  assert.match(atW2(finished(lessonById('b-1')), []), /You've done this before/);
+  assert.doesNotMatch(atW2({ complete: true, done: [] }, ['R1']), /You've done this before/, 'R1 (status) was recalled, but no status step was finished');
+});
+
+test('fading counts only what this learner did: a replay\'s intro shows the help the play starts with', () => {
+  // b-1 done, b-2 skipped, b-3 finished with R1 and R2 recalled: the enter
+  // clears the recalls, so the intro already leaves them out.
+  const b3 = lessonById('b-3');
+  const replay = (recalled) => {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(lessonById('b-1')), 'b-3': { ...finished(b3), recalled } } } });
+    if (d.state.view !== 'map') d.key('m');
+    while (d.state.mapCursor !== allCourse.indexOf(b3)) d.key('down');
+    d.key('enter');
+    assert.equal(d.state.view, 'intro');
+    return d;
+  };
+  const old = replay(['R1', 'R2']);
+  const clean = replay([]);
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.equal(plainAt(old, cols, rows), plainAt(clean, cols, rows), `${cols}x${rows}`);
+  // And the play then starts at the tiers the intro drew.
+  old.key('enter');
+  clean.key('enter');
+  assert.equal(tierOf(old.state), tierOf(clean.state));
+  assert.equal(old.state.progress['b-3'].warm.join(), clean.state.progress['b-3'].warm.join());
 });

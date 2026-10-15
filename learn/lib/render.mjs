@@ -4,7 +4,7 @@
 import { banner, bannerWidth, burst, confetti, pip } from './art.mjs';
 import { C } from './copy.mjs';
 import {
-  answerKey, authoredTier, beatOf, contentOf, hintAvailable, lessonOf, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, lessonOf, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -153,8 +153,10 @@ function chip(t, cmd, where, w) {
 }
 
 // The steps a lesson will play and their tiers. Before a lesson starts, the
-// warm-ups it would pick stand in for the ones it picks on enter.
-function planned(s) {
+// warm-ups it would pick stand in for the ones it picks on enter, and the
+// tiers are the ones the play will start with.
+function planned(state) {
+  const s = state.view === 'intro' ? asStarted(state) : state;
   const content = contentOf(s);
   if (s.view !== 'intro' || !content.warmup.length) return { steps: stepsOf(s), tiers: tiersOf(s) };
   const own = tiersOf(s).filter((_, i) => stepsOf(s)[i].part !== 'Warm-up');
@@ -281,7 +283,7 @@ const VIEWS = {
     const warmups = Math.min(WARMUPS, content.warmup.length);
     // The climb is the lesson's own steps: warm-ups are recall, not new help.
     const steps = stepsOf(s);
-    const m = mix(tiersOf(s).filter((_, i) => steps[i].part !== 'Warm-up'));
+    const m = mix(tiersOf(asStarted(s)).filter((_, i) => steps[i].part !== 'Warm-up'));
     const n = s.course.findIndex((l) => l.id === s.lesson) + 1;
     const label = s.lesson.endsWith('capstone') ? C.startCapstone : C.startLesson(n);
     const option = (i, text) => (s.cursor === i
@@ -532,8 +534,10 @@ function stepView(ctx) {
       }
     }
     const firstBeat = step.beats.findIndex((b) => b.kind !== 'predict');
-    if (tier === 'challenge' && OWN_PARTS.has(step.part) && s.pos.beat === firstBeat) rows.push(SPACER, t.fg('muted', C.noCommands));
-    else if (stepNote(s) && s.pos.beat === firstBeat && !done) rows.push(SPACER, ...para(t, hintAvailable(s) ? C.doneBefore.hinted : C.doneBefore.challenge, inner, 'muted'));
+    // "Done before" only when the app saw the learner do it.
+    const before = doneBefore(s);
+    if (tier === 'challenge' && OWN_PARTS.has(step.part) && s.pos.beat === firstBeat) rows.push(SPACER, ...para(t, before ? `${C.noCommands} ${C.doneEachPart}` : C.noCommands, inner, 'muted'));
+    else if (before && stepNote(s) && s.pos.beat === firstBeat && !done) rows.push(SPACER, ...para(t, hintAvailable(s) ? C.doneBefore.hinted : C.doneBefore.challenge, inner, 'muted'));
     if (hideRuns && beat.lines.some((l) => l.key === 'run') && !done) rows.push(...para(t, C.pressH, inner, 'muted'));
   }
   if (beat.winNote && t.caps.win32) rows.push(...quoted(beat.winNote));
