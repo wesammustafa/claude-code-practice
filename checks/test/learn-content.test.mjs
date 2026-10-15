@@ -7,9 +7,9 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GUIDE, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
-import { C } from '../../learn/lib/copy.mjs';
+import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { lessons } from '../lessons/index.mjs';
-import { ruleTiers } from '../../learn/lib/tiers.mjs';
+import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
 import { root } from './learn-drive.mjs';
 
 const dir = join(root, 'learn', 'lessons');
@@ -201,6 +201,35 @@ test('the app\'s own words claim only what the app saw', () => {
     assert.equal(claims(copy).length, 1, `${k}, on a celebration`);
   }
   assert.equal(C.where.ask, 'quick question', 'the where label stays off the celebration list');
+});
+
+// One name for each thing (TERMS in copy.mjs). An older name is an alias,
+// and so is any table of the three tiers that words them differently.
+const ALIASES = [/practice folder/i, /\byour copy\b/i, /\bgoal and hints\b/i, /\bgoal only\b/i];
+const aliases = (copy) => {
+  const out = copyWords(copy).flatMap((w) => ALIASES.filter((re) => re.test(w)).map((re) => `"${w}" matches ${re}`));
+  const walk = (v, at) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+    const keys = Object.keys(v);
+    if (keys.length === TIERS.length && TIERS.every((k) => typeof v[k] === 'string')) {
+      if (TIERS.some((k) => v[k] !== TERMS.tierHelp[k])) out.push(`${at} describes the tiers a second way`);
+    } else for (const k of keys) walk(v[k], at ? `${at}.${k}` : k);
+  };
+  walk(copy, '');
+  return out;
+};
+
+test('one name for each thing: the app\'s words use no alias of a TERMS name', () => {
+  assert.equal(TERMS.practiceCopy, 'practice copy');
+  assert.deepEqual(TERMS.tierHelp, { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' });
+  assert.deepEqual(aliases(C), []);
+  assert.equal(C.pip1, "I'm Pip. I watch your practice copy and light up");
+  assert.equal(C.cleanCopy, 'Your practice copy is clean: nothing to commit.');
+  for (const bad of ["I'm Pip. I watch your practice folder and light up", 'Your copy is clean: nothing to commit.', 'goal and hints', 'goal only']) {
+    assert.equal(aliases({ ...C, x: bad }).length, 1, bad);
+  }
+  assert.equal(aliases({ ...C, legend: { guided: 'all commands', hinted: 'hints on h', challenge: 'nothing more' } }).length, 1, 'a second tier description');
+  assert.deepEqual(aliases({ ...C, legend: { ...TERMS.tierHelp } }), [], 'the same words again are no alias');
 });
 
 test('every word the levelup, complete and next screens read is on the celebration list', () => {

@@ -25,8 +25,11 @@ const SPACER = spacer();
 const kept = (rows) => rows.map((text) => ({ keep: true, text }));
 // Optional rows: teaching the learner can also reach another way, such as
 // behind a key, repeats with no compact form, and a done beat's satisfied
-// "Done when" line.
-const optional = (rows) => rows.map((text) => ({ optional: true, text }));
+// "Done when" line. The rows of one call are one sentence: they drop whole.
+const optional = (rows) => {
+  const whole = {};
+  return rows.map((text) => ({ optional: true, text, whole }));
+};
 // A block that gives way whole, below 24 rows only: a repeat compacts to
 // `alt`, decoration leaves `alt` behind.
 const repeat = (rows, alt) => ({ block: 'repeat', rows, alt });
@@ -78,8 +81,9 @@ export function render(s, size, t) {
 // The body in `room` rows. What gives way, in order: below 24 rows repeats
 // compact; spacers drop one at a time from the bottom; below 24 rows
 // decoration gives way, from the top; optional teaching drops from the
-// bottom; then teaching rows are cut from the bottom, each run of cut rows
-// under one `…`. Kept rows stay, so the list can still be taller than `room`.
+// bottom, a sentence at a time; then teaching rows are cut from the bottom,
+// each run of cut rows under one `…`. Kept rows stay, so the list can
+// still be taller than `room`.
 export function fit(body, room, short, more) {
   let list = body;
   const size = (l = list) => l.reduce((n, r) => n + (r?.block ? r.rows.length : 1), 0);
@@ -109,7 +113,7 @@ export function fit(body, room, short, more) {
   while (list.length > room) {
     const i = list.findLastIndex((r) => r?.optional);
     if (i < 0) break;
-    list = list.filter((_, k) => k !== i);
+    list = list.filter((r, k) => k !== i && !(r?.whole && r.whole === list[i].whole));
   }
   if (list.length > room) {
     const teaching = list.flatMap((r, i) => (typeof r === 'string' || !(r.keep || r.optional || r.spacer) ? [i] : []));
@@ -490,7 +494,7 @@ const VIEWS = {
     const nextIdx = s.course.findIndex((l) => !s.progress[l.id].complete);
     // The legend's items run on under "Help:" when one row can't hold them.
     const legend = [];
-    for (const item of TIERS.map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.mapLegend[k])}`)) {
+    for (const item of TIERS.map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.tierHelp[k])}`)) {
       const last = legend.at(-1);
       if (last !== undefined && width(`${last}   ${item}`) <= W - 7) legend[legend.length - 1] = `${last}   ${item}`;
       else legend.push(item);
@@ -577,7 +581,7 @@ function staircase(ctx, m, done) {
   const { t } = ctx;
   const [g, h, c] = m;
   const glyphs = (tier, n) => t.fg(done ? 'ok' : TIER_STYLE[tier].tint, t.glyph[TIER_STYLE[tier].on].repeat(n));
-  const row = (indent, tier, n) => `${' '.repeat(indent)}${glyphs(tier, n)}   ${tierPill(t, tier)}   ${t.fg('muted', C.stair[tier])}`;
+  const row = (indent, tier, n) => `${' '.repeat(indent)}${glyphs(tier, n)}   ${tierPill(t, tier)}   ${t.fg('muted', C.tierHelp[tier])}`;
   const out = [];
   if (c) out.push(row(g + h + 4, 'challenge', c));
   if (h) out.push(row(g + 2, 'hinted', h));
@@ -598,6 +602,14 @@ function mixBar(ctx, lesson, cells) {
 }
 
 // ---- the step card -----------------------------------------------------------
+// The level's first warm-up: the first step a lesson plays, when it is a
+// warm-up and the lesson is the first of its level with warm-ups. It comes
+// from the content and the step's place alone: nothing is saved.
+function firstWarmupOfLevel(s) {
+  if (s.pos.step !== 0 || stepOf(s).part !== 'Warm-up') return false;
+  return s.course.find((l) => l.id[0] === s.lesson[0] && l.content?.warmup.length)?.id === s.lesson;
+}
+
 function stepView(ctx) {
   const { s, t, inner } = ctx;
   const content = contentOf(s);
@@ -613,6 +625,7 @@ function stepView(ctx) {
   const inlineBottom = tier === 'guided' && authored !== 'guided';
   const rows = [t.bold(t.fg('white', beat.kind === 'type' && step.part === 'Check' ? C.lastQuestion : step.title))];
   if (step.part === 'Warm-up') rows.push(t.fg('muted', C.warmup(s.course.findIndex((l) => l.id === step.from) + 1)));
+  if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
   const quoted = (text, color = 'muted') => para(t, text, inner, color, { quote: true });
   // A satisfied "Done when": hidden where the evidence line replaces it, and
   // otherwise optional, since the card already says the step is done.
