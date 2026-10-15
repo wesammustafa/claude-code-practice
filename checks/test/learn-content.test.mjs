@@ -233,6 +233,55 @@ test('the Check\'s recall question files a miss under a skill the course has tau
   assert.deepEqual(untagged, [], 'a Check question\'s skill is one a step so far uses');
 });
 
+// Questions whose options keep a natural order, so their right answer's
+// place says nothing; each with its reason.
+const NATURAL_ORDER = {
+  'b-2 W2.0': 'One, Two, Three are counts, in counting order',
+};
+
+test('questions give no cue: not by length, quotes, bold, code or place', () => {
+  const plain = (t) => t.replace(/\*\*|`/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  const cues = [];
+  for (const [id, l] of Object.entries(parsed)) {
+    const slots = [];
+    for (const step of allSteps(l)) {
+      step.beats.forEach((b, n) => {
+        // Predictions count too: a cue gives a guess away as well.
+        const opts = b.options.filter((o) => o.kind !== 'other' && o.kind !== 'stuck');
+        const r = opts.findIndex((o) => o.kind === 'right');
+        if (!b.ask || r < 0 || opts.length < 2) return;
+        const at = `${id} ${step.id}.${n}`;
+        const others = opts.filter((_, k) => k !== r);
+        const len = plain(opts[r].text).length;
+        const longest = Math.max(...others.map((o) => plain(o.text).length));
+        if (len > 1.25 * longest && len - longest > 10) cues.push(`${at}: the right option is the longest`);
+        if (opts[r].quoted && others.every((o) => !o.quoted)) cues.push(`${at}: the right option is the only quote`);
+        for (const [mark, re] of [['bold', /\*\*/], ['a code span', /`/]]) {
+          if (re.test(opts[r].text) && others.every((o) => !re.test(o.text))) cues.push(`${at}: ${mark} marks the right option alone`);
+        }
+        if (!NATURAL_ORDER[at]) slots.push({ at: r === 0 ? 'first' : r === opts.length - 1 ? 'last' : 'middle', three: opts.length >= 3 });
+      });
+    }
+    if (slots.length >= 4) {
+      for (const slot of ['first', 'middle', 'last']) {
+        const k = slots.filter((x) => x.at === slot).length;
+        if (k / slots.length > 0.6) cues.push(`${id}: ${k} of ${slots.length} right answers come ${slot}`);
+      }
+    }
+    const three = slots.filter((x) => x.three);
+    if (three.length >= 4) {
+      const k = three.filter((x) => x.at === 'middle').length;
+      if (k / three.length > 0.5) cues.push(`${id}: ${k} of ${three.length} right answers with three or more options sit in the middle`);
+    }
+  }
+  assert.deepEqual(cues, []);
+  for (const at of Object.keys(NATURAL_ORDER)) {
+    const [id, ref] = at.split(' ');
+    const [sid, n] = ref.split('.');
+    assert.ok(allSteps(parsed[id]).find((s) => s.id === sid)?.beats[n]?.options.length, `${at}: the exemption names no question`);
+  }
+});
+
 test('no key-shaped string, em dash or emoji variation selector under learn/', () => {
   const all = execFileSync('git', ['ls-files', '-co', '--exclude-standard', 'learn'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
   assert.ok(all.length > 5);

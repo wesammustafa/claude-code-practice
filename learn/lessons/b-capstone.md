@@ -84,7 +84,7 @@ badge: Beginner
 - hint: "write a failing test that reproduces the issue, then fix it"
 - beat: ask
 - ask: What does the plan on screen change?
-- right: "two source files and at least one test file"
+- right: two source files and at least one test file
 - option: one source file and at least one test file
 - stuck: source files, but no test file
 - because: "Ask for a plan that adds the test and runs it before changing the code, so you see it fail"
@@ -97,9 +97,9 @@ badge: Beginner
 - where: shell
 - beat: predict
 - safety: plan-approval
-- ask: Guess: the final plan is on screen. What do you do first?
+- ask: Guess: if Claude asks you to approve the final plan, what do you do first?
 - option: Approve the plan
-- right: Save what git sees, from another terminal
+- right: Save what git sees
 - option: Ask Claude to run the tests
 - reveal: "`.practice/capstone-before.txt`, saved while the plan was on screen, lists no changed files."
 - beat: do
@@ -128,11 +128,11 @@ badge: Beginner
 - note: "To read the test output, not only Claude's summary, press `Ctrl+O` as in [lesson 3](03-first-change.md#worked-example), and `Esc` to go back"
 - beat: ask
 - ask: What did the new test do?
-- right: "fail, then pass after the fix"
 - option: it passed the first time it ran
 - because: "write a failing test that reproduces the issue, then fix it"
 - option: it never ran
 - because: "Ask for a plan that adds the test and runs it before changing the code, so you see it fail"
+- right: it failed, then passed
 - other: I saw something different
 - reveal: "Watch the new test fail, then pass after the fix."
 - beat: do
