@@ -168,6 +168,20 @@ test('saved state: recalled keeps only warm-up ids, and an old file loads with n
   });
 });
 
+test('saved state: moreHelpAt keeps a step id, an old keepGuided maps to the saved step, anything else drops', () => {
+  const one = (p) => sanitize({ lessons: { 'b-1': p } }).lessons['b-1'];
+  assert.equal(one({ keepGuided: true, step: 'Y1' }).moreHelpAt, 'Y1');
+  assert.equal(one({ keepGuided: true, step: 'Y1' }).keepGuided, undefined, 'keepGuided is not saved again');
+  assert.equal(one({ moreHelpAt: 'Y3', step: 'Y4' }).moreHelpAt, 'Y3');
+  assert.equal(one({ moreHelpAt: 'C' }).moreHelpAt, 'C');
+  for (const bad of [true, 3, 'y1', '../Y1', 'Y1 ', '', null]) assert.equal(one({ moreHelpAt: bad }).moreHelpAt, null, String(bad));
+  assert.equal(one({ keepGuided: true }).moreHelpAt, null, 'no saved step, nothing to map to');
+  assert.equal(one({ keepGuided: true, step: '../x' }).moreHelpAt, null);
+  assert.equal(one({ keepGuided: 'yes', step: 'Y1' }).moreHelpAt, null);
+  assert.equal(one({ keepGuided: false, step: 'Y1' }).moreHelpAt, null);
+  assert.equal(one({}).moreHelpAt, null);
+});
+
 test('without a terminal it prints the path as plain text and exits 0', () => {
   const { NODE_TEST_CONTEXT, ...env } = process.env;
   const r = spawnSync(process.execPath, [join(root, 'learn', 'app.mjs')], { input: '', encoding: 'utf8', env });

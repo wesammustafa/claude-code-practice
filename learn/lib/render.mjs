@@ -334,7 +334,7 @@ const VIEWS = {
         SPACER,
         ` ${lead(t, 'level', t.bold(t.fg(TIER_STYLE[s.levelTo].tint, C.nextCounts(toChallenge ? 0 : counts('hinted'), counts('challenge')))))}`,
       ],
-      keys: [mainKey('enter', toChallenge ? C.k.bringIt : C.k.letsGo, TIER_STYLE[s.levelTo].bg, TIER_STYLE[s.levelTo].fgOnBg), toChallenge ? null : key('g', C.k.keepGuided), key('q', C.k.quit)],
+      keys: [mainKey('enter', toChallenge ? C.k.bringIt : C.k.letsGo, TIER_STYLE[s.levelTo].bg, TIER_STYLE[s.levelTo].fgOnBg), key('g', C.k.moreHelp), key('q', C.k.quit)],
     };
   },
 

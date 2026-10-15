@@ -2,9 +2,10 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asStarted, beatOf, hintAvailable, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { asStarted, beatOf, DEFER_MS, hintAvailable, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
+import { mix } from '../../learn/lib/tiers.mjs';
 import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, finished, finishedBefore, playUntil } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
@@ -176,7 +177,7 @@ test('a git step with a done-label decides only after the learner says the sessi
   assert.equal(w7.state.beat.status, 'done', 'without a done-label the clean tree is enough');
 });
 
-test('difficulty: the level-up shows once per tier, "less help" hides the commands, g keeps it guided', () => {
+test('difficulty: the level-up shows once per tier, "less help" hides the commands, g gives more help', () => {
   const d = at('W7', { beat: 2, done: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6'] });
   d.send({ type: 'git', paths: [] });
   d.key('enter');
@@ -210,7 +211,7 @@ test('difficulty: the level-up shows once per tier, "less help" hides the comman
   g.send({ type: 'git', paths: [] });
   g.key('enter');
   g.key('g');
-  assert.equal(g.state.progress['b-1'].keepGuided, true);
+  assert.equal(g.state.progress['b-1'].moreHelpAt, 'Y1');
   assert.equal(tierOf(g.state), 'guided');
 });
 
@@ -320,7 +321,7 @@ test('review fixes: a command typed into the app window does nothing', () => {
   lv.key('enter');
   assert.equal(lv.state.view, 'levelup');
   typed(lv, 'git status');
-  assert.equal(lv.state.progress['b-1'].keepGuided, false, 'the g in git does not keep it guided');
+  assert.equal(lv.state.progress['b-1'].moreHelpAt, null, 'the g in git does not ask for more help');
   // A single letter still works, a moment later.
   const one = at('W5');
   one.press('s');
@@ -1368,4 +1369,120 @@ test('fading counts only what this learner did: an old save loads with an empty 
   assert.deepEqual(old.state.progress['b-4'].recalled, []);
   const gone = driver({ course, saved: { format: 1, welcomed: true, lessons: { 'b-3': { recalled: ['R1', 'R9'] } } } });
   assert.deepEqual(gone.state.progress['b-3'].recalled, ['R1'], 'a warm-up no longer in the file is dropped');
+});
+
+// Lesson 1 at its HINTED level-up (Y1), every step before it done.
+const toY1 = (eased = []) => {
+  const d = driver({ saved: { format: 1, welcomed: true, eased, lessons: { 'b-1': { step: 'W7', beat: 2, done: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6'] } } } });
+  d.key('enter');
+  d.send({ type: 'git', paths: [] });
+  d.key('enter');
+  return d;
+};
+const b1Ids = course.find((l) => l.id === 'b-1').content.steps.map((x) => x.id);
+const tierAt = (tiers, id) => tiers[b1Ids.indexOf(id)];
+
+test('g is one notch more help: on the HINTED level-up, every later step but the Check, and the climb keeps the rest', () => {
+  const d = toY1();
+  assert.equal(d.state.view, 'levelup');
+  assert.equal(d.state.levelTo, 'hinted');
+  const before = tiersOf(d.state);
+  assert.equal(tierAt(before, 'Y4'), 'challenge');
+  d.key('g');
+  assert.equal(d.state.view, 'step');
+  assert.equal(d.state.progress['b-1'].moreHelpAt, 'Y1');
+  const after = tiersOf(d.state);
+  for (const id of ['Y1', 'Y2', 'Y3']) assert.equal(tierAt(after, id), 'guided', id);
+  assert.equal(tierAt(after, 'Y4'), 'hinted', 'one notch, not GUIDED');
+  assert.equal(tierAt(after, 'C'), 'challenge', 'the Check stays CHALLENGE');
+  playUntil(d, (s) => s.view === 'next');
+  // "Your climb" draws the lesson as it was played.
+  const played = tiersOf(d.state);
+  for (const id of ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7']) assert.equal(tierAt(played, id), tierAt(before, id), id);
+  assert.deepEqual(mix(played), [10, 1, 1]);
+});
+
+test('g is one notch more help: on the CHALLENGE level-up too, and it stays for the rest of the play', () => {
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y3', beat: 0, levels: ['hinted'] } } } });
+  d.key('enter');
+  playUntil(d, (s) => s.view === 'levelup');
+  assert.equal(stepOf(d.state).id, 'Y4');
+  assert.equal(d.state.levelTo, 'challenge');
+  d.key('g');
+  assert.equal(d.state.view, 'step');
+  assert.equal(d.state.progress['b-1'].moreHelpAt, 'Y4');
+  assert.equal(tierOf(d.state), 'hinted');
+  assert.ok(d.state.progress['b-1'].levels.includes('challenge'), 'the level-up shows once');
+  playUntil(d, (s) => stepOf(s)?.id === 'C');
+  assert.equal(d.state.view, 'step', 'no second level-up at the Check');
+  assert.equal(tierOf(d.state), 'challenge');
+});
+
+test('g is one notch more help: both keys work on the level-up\'s first frame', () => {
+  const g = toY1();
+  g.send({ type: 'key', name: 'g', ch: 'g', wait: 0 });
+  g.send({ type: 'flush', wait: DEFER_MS + 50 });
+  assert.equal(g.state.view, 'step');
+  assert.equal(g.state.progress['b-1'].moreHelpAt, 'Y1');
+  const enter = toY1();
+  enter.send({ type: 'key', name: 'enter', wait: 0 });
+  assert.equal(enter.state.view, 'step');
+  assert.equal(enter.state.progress['b-1'].moreHelpAt, null);
+});
+
+test('g is one notch more help: an ease waiting on a step g covers waits for a later step', () => {
+  // Y4 (ask) is CHALLENGE on the plan: the waiting ease would make it HINTED,
+  // which g does already.
+  const d = toY1(['ask']);
+  assert.equal(d.state.view, 'levelup');
+  d.key('g');
+  playUntil(d, (s) => stepOf(s)?.id === 'Y4');
+  assert.equal(tierOf(d.state), 'hinted');
+  assert.equal(d.state.beat.eased, false, 'no "more help" line: g gave it');
+  assert.deepEqual(d.state.progress['b-1'].easedSteps, {});
+  assert.deepEqual(d.state.eased, ['ask'], 'the ease waits');
+});
+
+test('g is one notch more help: an ease that landed on the level-up step goes back to waiting', () => {
+  // b-5: the memory ease makes Y1 GUIDED, so Y2 (snapshot, eased to HINTED)
+  // is where the help stays lower.
+  const d = midway('b-5', 'W3', { eased: ['snapshot'] });
+  bottomRung(d);
+  playUntil(d, (s) => s.view === 'levelup');
+  assert.equal(stepOf(d.state).id, 'Y2');
+  assert.equal(d.state.progress['b-5'].easedSteps.Y2, true);
+  d.key('g');
+  assert.equal(tierOf(d.state), 'hinted', 'g gives the same help the ease gave');
+  assert.equal(d.state.beat.eased, false);
+  assert.equal(d.state.progress['b-5'].easedSteps.Y2, undefined);
+  assert.deepEqual(d.state.eased, ['snapshot']);
+});
+
+test('g is one notch more help: the level-up forecast agrees that a covered step takes no ease', () => {
+  // Back at Y1 after g on Y4's level-up, with an ease waiting on Y4's skill.
+  const d = driver({ saved: { format: 1, welcomed: true, eased: ['ask'], lessons: { 'b-1': { step: 'Y1', beat: 0, levels: ['hinted', 'challenge'], moreHelpAt: 'Y4' } } } });
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'Y1');
+  // Y1 is HINTED after GUIDED W7, and nothing later gets less: Y4 is HINTED
+  // with g, and the ease will not land there.
+  assert.equal(stepNote(d.state), null);
+  playUntil(d, (s) => stepOf(s)?.id === 'Y4');
+  assert.equal(tierOf(d.state), 'hinted');
+  assert.deepEqual(d.state.eased, ['ask']);
+});
+
+test('g is one notch more help: playing the lesson again starts without it', () => {
+  const done = { ...finished(course.find((l) => l.id === 'b-1')), moreHelpAt: 'Y1' };
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': done } } });
+  const to = d.state.course.findIndex((l) => l.id === 'b-1');
+  while (d.state.mapCursor !== to) d.key('up');
+  d.key('enter');
+  assert.equal(d.state.view, 'intro');
+  assert.equal(tiersOf(asStarted(d.state))[b1Ids.indexOf('Y1')], 'hinted', 'the intro shows the plan');
+  d.key('enter');
+  assert.equal(d.state.progress['b-1'].moreHelpAt, null);
+  assert.equal(tierAt(tiersOf(d.state), 'Y4'), 'challenge');
+  // A step id the lesson no longer has is dropped as the app starts.
+  const old = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y2', moreHelpAt: 'Y9' } } } });
+  assert.equal(old.state.progress['b-1'].moreHelpAt, null);
 });

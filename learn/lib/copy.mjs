@@ -147,7 +147,7 @@ export const C = {
     itsOpen: "it's open", quit: 'quit', choose: 'choose', start: 'start', map: 'map', more: 'more', checkNow: 'check now',
     checkAgain: 'check again', moreHelp: 'more help', help: 'help', hint: 'hint', anotherHint: 'another hint', why: 'why', back: 'back',
     next: 'next', nextTo: (title) => `next: ${title}`, answer: 'answer', showAnswer: 'show answer', letsGo: "let's go",
-    bringIt: 'bring it on', keepGuided: 'keep it guided', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
+    bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
     continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', yes: 'show it', no: 'not yet', page: 'lesson page', clear: 'clear',
   },
 };
