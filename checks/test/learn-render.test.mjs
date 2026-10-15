@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { C } from '../../learn/lib/copy.mjs';
-import { hintAvailable, IDLE_MS, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
+import { beatOf, hintAvailable, IDLE_MS, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
@@ -290,24 +290,29 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
 // less help, or most steps with a hint box open), and then its last rows give
 // way to a `…` whether or not the step is eased; 142's drop order keeps the
 // line there.
+// Renders the eased step on screen at 60x20 and 80x24 in every colour mode:
+// the line is whole wherever the card fits, and `whole` collects the places
+// where it fits at 60x20 too.
+function easedLineWhole(d, where, whole) {
+  const flat = (text) => text.replace(/[^A-Za-z0-9]/g, '');
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    for (const [cols, rows] of [[60, 20], [80, 24]]) {
+      const lines = render(d.state, { cols, rows }, theme(caps)).map(strip);
+      const at = `${where} at ${cols}x${rows} (${capName})`;
+      const dropped = lines.some((l) => ['…', '...'].includes(l.trim()));
+      assert.ok(!dropped || cols === 60, `${at} drops lines`);
+      if (dropped) continue;
+      assert.ok(flat(lines.join('')).includes(flat(C.eased)), `${at}: ${lines.join('\n')}`);
+      assert.ok(!lines.some((l) => /(…|\.\.\.)$/.test(l) && width(l) === cols - 1), `${at} cuts a line`);
+      if (cols === 60) whole.add(where);
+    }
+  }
+}
+
 test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
   assert.match(C.eased, /you needed help with it last time\.$/);
-  const flat = (text) => text.replace(/[^A-Za-z0-9]/g, '');
   const whole = new Set();
-  const check = (d, where) => {
-    for (const [capName, caps] of Object.entries(CAPS)) {
-      for (const [cols, rows] of [[60, 20], [80, 24]]) {
-        const lines = render(d.state, { cols, rows }, theme(caps)).map(strip);
-        const at = `${where} at ${cols}x${rows} (${capName})`;
-        const dropped = lines.some((l) => ['…', '...'].includes(l.trim()));
-        assert.ok(!dropped || cols === 60, `${at} drops lines`);
-        if (dropped) continue;
-        assert.ok(flat(lines.join('')).includes(flat(C.eased)), `${at}: ${lines.join('\n')}`);
-        assert.ok(!lines.some((l) => /(…|\.\.\.)$/.test(l) && width(l) === cols - 1), `${at} cuts a line`);
-        if (cols === 60) whole.add(where);
-      }
-    }
-  };
+  const check = (d, where) => easedLineWhole(d, where, whole);
   const landed = new Set();
   for (const [li, lesson] of allCourse.entries()) {
     if (!lesson.content) continue;
@@ -340,4 +345,26 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
   }
   // At 60x20 the line fits whole as the step opens on every one of these.
   for (const where of ['b-1 Y1', 'b-2 C', 'b-3 Y2', 'b-4 Y3', 'b-5 Y1', 'b-5 W4 (less help)', 'b-capstone T6']) assert.ok(whole.has(where), where);
+});
+
+// Every warm-up missed (shown with s, or an empty answer), in a real play from
+// there: where its ease lands, the line is whole as the step opens.
+test('a missed warm-up: the "more help" line wraps whole where its ease lands', () => {
+  const whole = new Set();
+  for (const [li, lesson] of allCourse.entries()) {
+    if (!lesson.content) continue;
+    const before = Object.fromEntries(allCourse.slice(0, li).filter((l) => l.content).map((l) => [l.id, { complete: true }]));
+    for (const w of lesson.content.warmup) {
+      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: w.id, beat: 0, warm: [w.id] } } } });
+      d.key('enter');
+      d.key(beatOf(d.state).kind === 'type' ? 'enter' : 's');
+      assert.equal(d.state.beat.revealed, true, `${lesson.id} ${w.id}`);
+      assert.ok(d.state.eased.includes(w.skill), `${lesson.id} ${w.id} eases ${w.skill}`);
+      playUntil(d, (s) => s.beat?.eased || (s.lesson === 'b-capstone' && s.view === 'complete'));
+      if (d.state.view !== 'step') continue;
+      easedLineWhole(d, `${d.state.lesson} ${stepOf(d.state).id} from ${lesson.id} ${w.id}`, whole);
+    }
+  }
+  // In b-2, b-3 and b-5 the ease lands on the same lesson's W1, whole at 60x20.
+  for (const where of ['b-2 W1 from b-2 R1', 'b-3 W1 from b-3 R1', 'b-5 W1 from b-5 R1']) assert.ok(whole.has(where), where);
 });
