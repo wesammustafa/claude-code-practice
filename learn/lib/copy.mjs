@@ -1,6 +1,8 @@
 // The app's own words. They state no Claude Code fact: every fact on screen
-// is a quote from the lesson's content file. A test keeps commands, versions
-// and model names out of this file.
+// is a quote from the lesson's content file. Tests keep commands, versions,
+// model names and any claim the app can't back out of this file.
+// A celebration praises the work, not how it was done: a string a
+// celebration shows goes on CELEBRATIONS in checks/test/learn-content.test.mjs.
 export const C = {
   appName: 'Claude Code practice',
   pathLabel: (done, total) => `Beginner path · ${done} of ${total} done`,

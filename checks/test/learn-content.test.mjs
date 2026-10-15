@@ -108,15 +108,20 @@ test('the app\'s own words name no command or code that the step\'s quotes don\'
 });
 
 // Every string the app's own words can produce: each function runs with
-// every mix of a few arguments, so each branch it has gives its string.
+// every mix of a few arguments, so a branch on one of them gives its string.
+// The arguments are the values the app passes: a via, a beat kind, a tier,
+// and counts of none, one and many. A branch on any other value is unseen.
+const COPY_ARGS = ['x', 'pick', 'r', 'check', 'file', 'git-clean', 'predict', 'guided', 'hinted', 'challenge', 0, 1, 2, 3, 10];
+const tuples = (n) => (n === 0 ? [[]] : tuples(n - 1).flatMap((t) => COPY_ARGS.map((a) => [...t, a])));
+const calls = new WeakMap();
 function copyWords(value) {
   const words = new Set();
-  const args = ['x', 'pick', 0, 1, 2];
-  const tuples = (n) => (n === 0 ? [[]] : tuples(n - 1).flatMap((t) => args.map((a) => [...t, a])));
   const walk = (v) => {
     if (typeof v === 'string') words.add(v);
-    else if (typeof v === 'function') tuples(Math.max(v.length, 1)).forEach((t) => walk(v(...t)));
-    else if (Array.isArray(v)) v.forEach(walk);
+    else if (typeof v === 'function') {
+      if (!calls.has(v)) calls.set(v, [...new Set(tuples(Math.max(v.length, 1)).map((t) => v(...t)))]);
+      calls.get(v).forEach(walk);
+    } else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
   walk(value);
@@ -134,17 +139,29 @@ const BANNED = [
 // A celebration praises the work, never how it was done: no speed, no
 // streak, no "no hints". "quick question" is a where label, not one of these.
 const CELEBRATION_BANNED = /\b(first try|no hints?|fast|quick(?:ly)?|streak)\b/i;
-const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'holds', 'already', 'alreadyCheck', 'guessRight', 'right', 'nowYouKnow',
-  'levelUp', 'toHinted', 'toChallenge', 'nextCounts', 'complete', 'lessonDone', 'badge', 'checkedSummary', 'answeredSummary', 'notchHarder'];
+// The words a celebration shows: the done feedback and burst on a step, and
+// every word the levelup, complete and next screens read (a test below
+// keeps those screens' keys on this list). Keys under C.k are 'k.<name>'.
+const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'holds', 'already', 'alreadyCheck', 'checkPasses', 'runItToo',
+  'guessRight', 'nowYouKnow', 'findOutAt', 'right', 'answered', 'otherFine', 'done',
+  'stepOf', 'levelUp', 'toHinted', 'toChallenge', 'nextCounts', 'k.letsGo', 'k.bringIt', 'k.moreHelp',
+  'complete', 'lessonDone', 'badge', 'k.whatsNext',
+  'checkedSummary', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'k.startN', 'k.map', 'k.quit'];
+const at = (copy, k) => k.split('.').reduce((v, part) => v?.[part], copy);
+const banned = new Map();
+const bannedIn = (w) => {
+  if (!banned.has(w)) banned.set(w, BANNED.filter((re) => re.test(w)));
+  return banned.get(w);
+};
 const claims = (copy) => {
   const out = [];
-  for (const w of copyWords(copy)) for (const re of BANNED) if (re.test(w)) out.push(`"${w}" matches ${re}`);
-  for (const k of CELEBRATIONS) for (const w of copyWords(copy[k])) if (CELEBRATION_BANNED.test(w)) out.push(`${k}: "${w}" matches ${CELEBRATION_BANNED}`);
+  for (const w of copyWords(copy)) for (const re of bannedIn(w)) out.push(`"${w}" matches ${re}`);
+  for (const k of CELEBRATIONS) for (const w of copyWords(at(copy, k))) if (CELEBRATION_BANNED.test(w)) out.push(`${k}: "${w}" matches ${CELEBRATION_BANNED}`);
   return out;
 };
 
 test('the app\'s own words claim only what the app saw', () => {
-  for (const k of CELEBRATIONS) assert.ok(k in C, `copy.mjs has no ${k}`);
+  for (const k of CELEBRATIONS) assert.notEqual(at(C, k), undefined, `copy.mjs has no ${k}`);
   assert.deepEqual(claims(C), []);
   assert.equal(C.helpShrinks, 'The help shrinks each time a skill comes back:');
   assert.equal(C.lessonDone('B1'), 'B1 done! You practised:');
@@ -160,10 +177,29 @@ test('the app\'s own words claim only what the app saw', () => {
     assert.equal(claims({ ...C, levelUp: [bad] }).length, 1, `${bad}, on the level-up`);
     assert.deepEqual(claims({ ...C, notYet: bad }), [], `${bad}, off a celebration`);
   }
-  // A branch counts too: the walk reaches each one.
-  assert.equal(claims({ x: (via) => (via === 'pick' ? 'You mastered it.' : 'Fine.') }).length, 1);
+  // A branch counts too: the walk reaches one on each value the app passes.
+  for (const branch of [(via) => via === 'pick', (via) => via === 'r', (kind) => kind === 'check', (kind) => kind === 'git-clean',
+    (tier) => tier === 'hinted', (tier) => tier === 'challenge', (n) => n === 0, (n) => n > 2]) {
+    assert.equal(claims({ x: (v) => (branch(v) ? 'You mastered it.' : 'Fine.') }).length, 1, `${branch}`);
+  }
   assert.equal(claims({ ...C, nextCounts: (h, c) => (h === 0 && c === 2 ? 'A fast finish.' : 'Fine.') }).length, 1);
+  for (const k of ['answered', 'otherFine', 'findOutAt', 'done', 'savedBreak', 'k.bringIt', 'k.whatsNext']) {
+    const [top, sub] = k.split('.');
+    const bad = 'Answered on the first try.';
+    const copy = sub ? { ...C, k: { ...C.k, [sub]: bad } } : { ...C, [top]: bad };
+    assert.equal(claims(copy).length, 1, `${k}, on a celebration`);
+  }
   assert.equal(C.where.ask, 'quick question', 'the where label stays off the celebration list');
+});
+
+test('every word the levelup, complete and next screens read is on the celebration list', () => {
+  const src = readFileSync(join(root, 'learn', 'lib', 'render.mjs'), 'utf8');
+  const from = src.indexOf('\n  levelup(ctx) {');
+  const to = src.indexOf('\n  map(ctx) {');
+  assert.ok(from > 0 && to > from, 'render.mjs: no levelup, complete and next views before map');
+  const keys = new Set([...src.slice(from, to).matchAll(/\bC\.(k\.\w+|\w+)/g)].map((m) => m[1]));
+  assert.ok(keys.has('lessonDone') && keys.has('answeredSummary') && keys.has('k.bringIt'));
+  for (const k of keys) assert.ok(CELEBRATIONS.includes(k), `C.${k} shows on a celebration screen: add '${k}' to CELEBRATIONS`);
 });
 
 test('questions: one right answer, a reason for every wrong one, real files in decoys', () => {
