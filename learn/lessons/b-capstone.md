@@ -181,7 +181,7 @@ badge: Beginner
 - evidence: .practice/capstone-commit.txt
 - say: Save the commit for the check.
 - hint: "The check reads only that commit, so if you change it later, save it again."
-- hint: "save the commit with `git rev-parse HEAD > .practice/capstone-commit.txt`"
+- bottom: "git rev-parse HEAD > .practice/capstone-commit.txt"
 - why: "the fix commit may change only the files the plan names."
 - beat: do
 - where: shell

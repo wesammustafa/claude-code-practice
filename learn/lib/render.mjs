@@ -375,6 +375,9 @@ const VIEWS = {
     const nextLesson = content.next ? lessonOf(s, content.next) : null;
     const body = [];
     if (results) body.push(lead(t, 'verified', t.fg('ok', C.checkedSummary(results.filter((r) => r.pass).length, results.length))));
+    // The capstone's handover: plain text, shown only when no exact command
+    // was shown in this play. A plain row, so a short window never drops it.
+    if (s.lesson.endsWith('capstone') && s.progress[s.lesson].bottomAt === null) body.push(`${' '.repeat(width(t.lead('verified')))}${t.fg('text', C.handover)}`);
     body.push(lead(t, 'claude', t.fg('text', C.answeredSummary(answered))), SPACER, t.bold(t.fg('white', C.yourClimb)), SPACER,
       // The climb as it was played: an eased step counts at its easier tier.
       ...staircase(ctx, mix(tiersOf(s).filter((_, i) => stepsOf(s)[i].part !== 'Warm-up')), true));
