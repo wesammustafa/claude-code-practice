@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { render } from '../../learn/lib/render.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, driver, root } from './learn-drive.mjs';
+import { allScreens, course as allCourse, driver, root } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -206,4 +206,65 @@ test('real-run fixes: a done git step ticks no command, and "Still stuck?" only 
   d.send({ type: 'git', paths: [] });
   const plain = render(d.state, { cols: 80, rows: 30 }, theme(CAPS.full)).map(strip).join('\n');
   assert.match(plain, /\$ git status\s+\n/, 'no tick beside git status');
+});
+
+test('h at CHALLENGE: the toast names the try and fits; the level-up says to try first', async () => {
+  const { C } = await import('../../learn/lib/copy.mjs');
+  assert.equal(C.hintsLater('r'), 'Try it first: press r to check, then h works.');
+  assert.equal(C.hintsLater('pick'), 'Try it first: pick an answer, then h works.');
+  assert.deepEqual(C.toChallenge, ['From memory now: just the goal.', 'Try it first, then press h if you need a hint.']);
+  const t = theme(CAPS.full);
+  const flat = (lines) => lines.map((l) => strip(l).trim()).join(' ').replace(/\s+/g, ' ');
+  const level = screens.find(([l]) => l === 'level up challenge')[1];
+  for (const via of ['r', 'pick']) {
+    const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y4', beat: 0, levels: ['hinted', 'challenge'] } } } });
+    d.key('enter');
+    d.key('h');
+    const state = { ...d.state, toast: { ...d.state.toast, try: via } };
+    for (const [cols, rows] of [[60, 20], [80, 24]]) {
+      const lines = render(state, { cols, rows }, t);
+      assert.equal(lines.length, rows);
+      for (const l of lines) assert.ok(width(l) <= cols - 1, `${cols}x${rows}: ${strip(l)}`);
+      assert.ok(flat(lines).includes(C.hintsLater(via)), `the whole toast shows at ${cols}x${rows}`);
+      assert.ok(flat(render(level, { cols, rows }, t)).includes(C.toChallenge[1]), `the level-up line shows at ${cols}x${rows}`);
+    }
+  }
+});
+
+test('h at CHALLENGE: nothing sits in front of h during the 2 second lock', () => {
+  const t = theme(CAPS.full);
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-capstone': { step: 'T5', beat: 0, warm: [] } } }, course: allCourse });
+  d.key('enter');
+  d.key('h');
+  assert.equal(d.state.beat.rung, 0);
+  assert.ok(d.now < d.state.beat.lockUntil, 'still inside the lock');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const inLock = render(d.state, { cols, rows }, t);
+    // The same screen once the lock is over: no countdown, fill or faint key.
+    assert.deepEqual(render({ ...d.state, now: d.state.beat.lockUntil + 1 }, { cols, rows }, t), inLock);
+  }
+  const before = render(d.state, { cols: 80, rows: 24 }, t);
+  d.send({ type: 'key', name: 'h', ch: 'h', wait: 100 });
+  d.send({ type: 'flush', wait: 400 });
+  assert.ok(d.now < d.state.beat.lockUntil);
+  assert.equal(d.state.beat.rung, 0, 'h inside the lock opens nothing');
+  assert.deepEqual(render(d.state, { cols: 80, rows: 24 }, t), before);
+});
+
+test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', () => {
+  const t = theme(CAPS.full);
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y4', beat: 0, levels: ['hinted', 'challenge'] } } } });
+  d.key('enter');
+  d.send({ type: 'git', paths: ['notes.md'] });
+  d.key('h');
+  const bar = (state, cols, rows) => strip(render(state, { cols, rows }, t).at(-1));
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    assert.match(bar(d.state, cols, rows), /space .* r check now .*q quit/, `${cols}x${rows}`);
+  }
+  d.key('r');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const b = bar(d.state, cols, rows);
+    assert.match(b, /h hint/, `${cols}x${rows}: h replaces r once tried`);
+    assert.doesNotMatch(b, / r /);
+  }
 });
