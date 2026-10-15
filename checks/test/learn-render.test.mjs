@@ -375,7 +375,7 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
     }
   }
   // At 60x20 the line fits whole as the step opens on every one of these.
-  for (const where of ['b-1 Y1', 'b-2 C', 'b-3 Y2', 'b-4 Y3', 'b-5 Y1', 'b-5 W4 (less help)', 'b-capstone T6']) assert.ok(whole.has(where), where);
+  for (const where of ['b-1 Y1', 'b-2 C', 'b-3 Y2', 'b-4 Y3', 'b-5 Y1', 'b-5 W5 (less help)', 'b-capstone T6']) assert.ok(whole.has(where), where);
 });
 
 // Every warm-up missed (shown with s, or an empty answer), in a real play from
@@ -408,12 +408,12 @@ test('fading counts only what this learner did: a skipped skill opens GUIDED wit
   // The seeded b-5 run: b-1 to b-4 complete, with no step done.
   const skipped = Object.fromEntries(['b-1', 'b-2', 'b-3', 'b-4'].map((id) => [id, { complete: true, done: [] }]));
   const cmd = 'git rev-parse HEAD > .practice/b-5-commit.txt';
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...skipped, 'b-5': { step: 'W6', beat: 1, warm: [] } } } });
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...skipped, 'b-5': { step: 'W7', beat: 1, warm: [] } } } });
   d.key('enter');
   assert.equal(tierOf(d.state), 'guided');
   for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(plainAt(d, cols, rows).includes(cmd), `${cols}x${rows}`);
-  // On the path W6 is HINTED: the command waits behind h.
-  const path = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-5'), 'b-5': { step: 'W6', beat: 1, warm: [] } } } });
+  // On the path W7 is HINTED: the command waits behind h.
+  const path = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-5'), 'b-5': { step: 'W7', beat: 1, warm: [] } } } });
   path.key('enter');
   assert.equal(tierOf(path.state), 'hinted');
   assert.ok(!plainAt(path, 80, 24).includes(cmd));
