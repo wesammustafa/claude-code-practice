@@ -2,7 +2,7 @@
 lesson: b-capstone
 title: "Beginner capstone: fix a reported bug, from plan to commit"
 source: docs/beginner/capstone.md
-source-commit: 8abdd44
+source-commit: 0c55f9e
 stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
 page: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/beginner/capstone.md
 stuck: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/issues/new?template=lesson-feedback.yml&lesson=b-capstone
@@ -47,6 +47,7 @@ badge: Beginner
 - do: "Then run `npm run linkcheck -- <that folder>` in your copy"
 - note: "Don't put a `linkcheck.json` in your copy, because the check counts it as a change."
 - win-note: "**Windows:** save the file with `'{ "files": ["docs"] }' | Set-Content <that folder>\linkcheck.json`, not `>`."
+- hint: "the bug report in `capstone/beginner-bug.md`"
 - beat: ask
 - ask: What did it print?
 - right: "`All relative links resolve.`"
@@ -83,7 +84,7 @@ badge: Beginner
 - hint: "write a failing test that reproduces the issue, then fix it"
 - beat: ask
 - ask: What does the plan on screen change?
-- right: "two source files and at least one test file"
+- right: two source files and at least one test file
 - option: one source file and at least one test file
 - stuck: source files, but no test file
 - because: "Ask for a plan that adds the test and runs it before changing the code, so you see it fail"
@@ -96,9 +97,9 @@ badge: Beginner
 - where: shell
 - beat: predict
 - safety: plan-approval
-- ask: Guess: the final plan is on screen. What do you do first?
+- ask: Guess: if Claude asks you to approve the final plan, what do you do first?
 - option: Approve the plan
-- right: Save what git sees, from another terminal
+- right: Save what git sees
 - option: Ask Claude to run the tests
 - reveal: "`.practice/capstone-before.txt`, saved while the plan was on screen, lists no changed files."
 - beat: do
@@ -112,6 +113,8 @@ badge: Beginner
 - verify: file .practice/capstone-plan.txt fresh since T2
 - watching: .practice/capstone-plan.txt
 - goal: "Save the files the plan will change, every test file included, to `.practice/capstone-plan.txt`: one path per line, relative to the repository root, with forward slashes, such as `src/cli.js`."
+- hint: "The fix touches two source files and at least one test file."
+- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
 - why: "the fix commit may change only the files the plan names."
 
 ### T4 | The task step 4 of 6 | Watch the test
@@ -125,11 +128,11 @@ badge: Beginner
 - note: "To read the test output, not only Claude's summary, press `Ctrl+O` as in [lesson 3](03-first-change.md#worked-example), and `Esc` to go back"
 - beat: ask
 - ask: What did the new test do?
-- right: "fail, then pass after the fix"
 - option: it passed the first time it ran
 - because: "write a failing test that reproduces the issue, then fix it"
 - option: it never ran
 - because: "Ask for a plan that adds the test and runs it before changing the code, so you see it fail"
+- right: it failed, then passed
 - other: I saw something different
 - reveal: "Watch the new test fail, then pass after the fix."
 - beat: do
@@ -154,6 +157,7 @@ badge: Beginner
 - verify: self
 - done-label: asked for one
 - goal: "Ask for at least one correction that stays inside the files the plan names, and make sure `npm test` passes."
+- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
 - beat: do
 - where: shell
 - verify: check 4
@@ -169,6 +173,7 @@ badge: Beginner
 - verify: self
 - done-label: committed
 - goal: "Commit the fix and its test together"
+- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
 - beat: do
 - where: shell
 - verify: check 2 fresh since T2
@@ -195,6 +200,7 @@ badge: Beginner
 - goal: "Run `npm run check -- b-capstone` in your practice copy."
 - hint: "Each item that fails prints what to fix."
 - beat: type
+- skill: plan-mode
 - ask: Which key switches permission modes?
 - accept: Shift+Tab
 - accept: Alt+M

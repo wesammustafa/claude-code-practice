@@ -192,6 +192,121 @@ test('difficulty: each step\'s tier is the course rule\'s, and it climbs like a 
   for (const l of Object.values(parsed)) for (const s of allSteps(l)) for (const b of s.beats) if (b.safety) assert.equal(b.kind, 'predict', `${l.lesson} ${s.id}: a safety choice is a guess`);
 });
 
+// Action beats above GUIDED that may show nothing behind h, each with its
+// reason. Any other beat that hides its command needs a rung.
+const NO_RUNG = {
+  'b-capstone T4.0': 'the capstone page names no plan menu choice, and only its own words can be quoted here',
+};
+
+test('help: above GUIDED, every action with no command on its card has a rung behind h', () => {
+  const bare = [];
+  const exempt = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => {
+      if (s.part === 'Check' || rule[k] === 'guided') return;
+      s.beats.forEach((b, n) => {
+        if (b.kind !== 'do' || b.ask || b.lines.some((l) => l.key === 'run')) return;
+        const at = `${c.lesson} ${s.id}.${n}`;
+        // A check item's ladder shows its own rungs once the check says no.
+        const laddered = b.verify.kind === 'check' && !b.verify.all && b.verify.items.every((it) => {
+          const rung = c.ladder.find((r) => r.item === lessons[c.lesson].items[it].text);
+          return rung && (rung.hints.length || rung.bottom.length || rung.narrow.length);
+        });
+        if (!b.hints.length && !b.bottom.length && !laddered) (NO_RUNG[at] ? exempt : bare).push(at);
+      });
+    });
+  });
+  assert.deepEqual(bare, [], 'nothing behind h');
+  assert.deepEqual(exempt, Object.keys(NO_RUNG), 'an exemption names a beat that still has nothing behind h');
+});
+
+test('the Check\'s recall question files a miss under a skill the course has taught', () => {
+  const untagged = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const taught = new Set(contents.slice(0, i + 1).flatMap((x) => (x?.steps ?? []).map((s) => s.skill)));
+    taught.delete('check');
+    for (const b of c.steps.find((s) => s.part === 'Check').beats) if (b.kind === 'type' && !taught.has(b.skill)) untagged.push(`${c.lesson} C: ${b.skill ?? 'no skill'}`);
+  });
+  assert.deepEqual(untagged, [], 'a Check question\'s skill is one a step so far uses');
+});
+
+// Lessons with no skill in their warm-up pool that comes back in their own
+// steps, so R1 can't be one; each with its reason.
+const R1_NOT_REUSED = {
+  'b-4': 'no skill in its pool comes back in b-4',
+};
+
+test('warm-ups: the first two mix a recent lesson and an older one, and R1 comes back in this lesson', () => {
+  const off = [];
+  for (const [id, l] of Object.entries(parsed)) {
+    const [r1, r2] = l.warmup;
+    if (!r1) continue;
+    // A pool that recalls only one lesson has no lags to mix.
+    if (r2 && new Set(l.warmup.map((w) => w.from)).size > 1 && r1.from === r2.from) off.push(`${id}: R1 and R2 both come from ${r1.from}`);
+    // Where the pool holds a skill this lesson reuses, R1 is one, so a missed
+    // warm-up eases a step here.
+    const reused = (w) => l.steps.some((s) => s.skill === w.skill);
+    if (R1_NOT_REUSED[id]) {
+      if (l.warmup.some(reused)) off.push(`${id}: its pool has a skill this lesson reuses: drop the exemption`);
+    } else if (!reused(r1)) off.push(`${id}: R1 (${r1.skill}) is a skill no step here reuses`);
+  }
+  assert.deepEqual(off, []);
+  for (const id of Object.keys(R1_NOT_REUSED)) assert.ok(parsed[id]?.warmup.length, `${id}: the exemption names no lesson with warm-ups`);
+});
+
+// Questions whose options keep a natural order, so their right answer's
+// place says nothing; each with its reason.
+const NATURAL_ORDER = {
+  'b-2 W2.0': 'One, Two, Three are counts, in counting order',
+};
+
+test('questions give no cue: not by length, quotes, bold, code or place', () => {
+  const plain = (t) => t.replace(/\*\*|`/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  const cues = [];
+  for (const [id, l] of Object.entries(parsed)) {
+    const slots = [];
+    for (const step of allSteps(l)) {
+      step.beats.forEach((b, n) => {
+        // Predictions count too: a cue gives a guess away as well.
+        const opts = b.options.filter((o) => o.kind !== 'other' && o.kind !== 'stuck');
+        const r = opts.findIndex((o) => o.kind === 'right');
+        if (!b.ask || r < 0 || opts.length < 2) return;
+        const at = `${id} ${step.id}.${n}`;
+        const others = opts.filter((_, k) => k !== r);
+        const len = plain(opts[r].text).length;
+        const longest = Math.max(...others.map((o) => plain(o.text).length));
+        if (len > 1.25 * longest && len - longest > 10) cues.push(`${at}: the right option is the longest`);
+        if (opts[r].quoted && others.every((o) => !o.quoted)) cues.push(`${at}: the right option is the only quote`);
+        for (const [mark, re] of [['bold', /\*\*/], ['a code span', /`/]]) {
+          if (re.test(opts[r].text) && others.every((o) => !re.test(o.text))) cues.push(`${at}: ${mark} marks the right option alone`);
+        }
+        if (!NATURAL_ORDER[at]) slots.push({ at: r === 0 ? 'first' : r === opts.length - 1 ? 'last' : 'middle', three: opts.length >= 3 });
+      });
+    }
+    if (slots.length >= 4) {
+      for (const slot of ['first', 'middle', 'last']) {
+        const k = slots.filter((x) => x.at === slot).length;
+        if (k / slots.length > 0.6) cues.push(`${id}: ${k} of ${slots.length} right answers come ${slot}`);
+      }
+    }
+    const three = slots.filter((x) => x.three);
+    if (three.length >= 4) {
+      const k = three.filter((x) => x.at === 'middle').length;
+      if (k / three.length > 0.5) cues.push(`${id}: ${k} of ${three.length} right answers with three or more options sit in the middle`);
+    }
+  }
+  assert.deepEqual(cues, []);
+  for (const at of Object.keys(NATURAL_ORDER)) {
+    const [id, ref] = at.split(' ');
+    const [sid, n] = ref.split('.');
+    const b = allSteps(parsed[id]).find((s) => s.id === sid)?.beats[n];
+    assert.ok(b?.ask && b.options.some((o) => o.kind === 'right'), `${at}: the exemption names no question with a right option`);
+  }
+});
+
 test('no key-shaped string, em dash or emoji variation selector under learn/', () => {
   const all = execFileSync('git', ['ls-files', '-co', '--exclude-standard', 'learn'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
   assert.ok(all.length > 5);
