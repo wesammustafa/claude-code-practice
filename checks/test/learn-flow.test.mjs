@@ -1118,3 +1118,76 @@ test('warm-ups set the help: the ease is saved at once', () => {
   assert.ok(miss.some((e) => e.type === 'save'), 'the miss saves');
   assert.deepEqual(snapshot(d.state).eased, ['plan-mode']);
 });
+
+// The same play after a quit: the save, opened again at its resume screen.
+const reopen = (d) => {
+  const r = driver({ course, saved: snapshot(d.state) });
+  assert.equal(r.state.view, 'resume');
+  r.key('enter');
+  return r;
+};
+const backTo = (d, id) => {
+  for (let i = 0; i < 20 && !atStep(id)(d.state); i++) d.key('b');
+  assert.ok(atStep(id)(d.state));
+};
+
+test('warm-ups set the help: a missed warm-up asked again after a quit keeps its ease', () => {
+  const d = fresh('b-2');
+  d.key('s');
+  assert.deepEqual(d.state.eased, ['start']);
+  const r = reopen(d);
+  assert.equal(stepOf(r.state).id, 'R1', 'the warm-up is asked again');
+  r.key(optionOf(r, 'right'));
+  assert.deepEqual(r.state.eased, ['start'], 'its answer was just shown');
+  assert.ok(r.state.missed.includes('start'));
+  playUntil(r, atStep('W1'));
+  assert.equal(tierOf(r.state), 'guided');
+  assert.equal(r.state.beat.eased, true);
+  // Quit before answering: the answer after the quit is the first one.
+  const q = fresh('b-2', { missed: ['start'] });
+  const rq = reopen(q);
+  rq.key(optionOf(rq, 'right'));
+  assert.deepEqual(rq.state.missed, []);
+  assert.deepEqual(rq.state.eased, []);
+});
+
+test('warm-ups set the help: going back to a warm-up asks nothing new of the help', () => {
+  // Right at once, then the bottom rung on W1: a right pick on the way back
+  // keeps that ease.
+  const d = fresh('b-2');
+  d.key(optionOf(d, 'right'));
+  playUntil(d, atStep('W1'));
+  bottomRung(d);
+  assert.deepEqual(d.state.eased, ['start']);
+  backTo(d, 'R1');
+  d.key(optionOf(d, 'right'));
+  assert.deepEqual(d.state.eased, ['start']);
+  // Shown, its ease spent on W1: shown again on the way back, no second ease.
+  const s = fresh('b-2');
+  s.key('s');
+  playUntil(s, atStep('W1'));
+  assert.equal(s.state.beat.eased, true);
+  assert.deepEqual(s.state.eased, []);
+  backTo(s, 'R1');
+  s.key('s');
+  assert.deepEqual(s.state.eased, []);
+  assert.deepEqual(snapshot(s.state).eased, []);
+  // The same after a quit, on a lesson's first play.
+  const q = fresh('b-2');
+  q.key(optionOf(q, 'right'));
+  playUntil(q, atStep('R2'));
+  const r = reopen(q);
+  backTo(r, 'R1');
+  r.key('s');
+  assert.deepEqual(r.state.eased, []);
+  // A lesson played again asks its warm-ups afresh.
+  const again = fresh('b-2');
+  playUntil(again, (st) => st.view === 'complete');
+  again.key('m');
+  again.key('enter');
+  assert.equal(again.state.view, 'intro');
+  again.key('enter');
+  assert.equal(stepOf(again.state).id, 'R1');
+  again.key('s');
+  assert.deepEqual(again.state.eased, ['start']);
+});

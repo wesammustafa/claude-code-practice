@@ -38,11 +38,21 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
   // Every lesson in the app is done: open the map at the next lesson.
   const next = open ?? course.find((l) => !progress[l.id].complete) ?? course[0];
   const welcomed = Boolean(saved?.welcomed);
+  const eased = saved?.eased ?? [];
+  // A warm-up the learner quit on with its skill eased was most likely missed
+  // just before: its answer was shown, so asking it again recalls nothing.
+  const answeredNow = [];
+  for (const l of course) {
+    const pr = progress[l.id];
+    const w = l.content?.warmup.find((x) => x.id === pr.step && pr.warm.includes(x.id));
+    if (w && eased.includes(w.beats[pr.beat]?.skill ?? w.skill)) answeredNow.push(`${l.id}.${w.id}`);
+  }
   return {
     course, facts, progress, now,
-    eased: saved?.eased ?? [],
+    eased,
     missed: saved?.missed ?? [],
     missedNow: [],
+    answeredNow,
     welcomed,
     view: !welcomed ? 'welcome' : !open ? 'map' : progress[open.id].step ? 'resume' : 'intro',
     overlay: null, lesson: next.id, pos: { step: 0, beat: 0 }, beat: null,
@@ -183,8 +193,9 @@ function stampFresh(s, effects) {
   }
 }
 
-// A skill that needed the bottom rung comes back one tier easier, once: at
-// the next step that asks for it where the ease changes the help.
+// A skill that needed the bottom rung, or a missed warm-up, comes back one
+// tier easier, once: at the next step that asks for it where the ease changes
+// the help.
 function markEased(s, index) {
   const step = stepsOf(s)[index];
   if (!s.eased.includes(step.skill) || !easeLands(s, index)) return;
@@ -331,20 +342,35 @@ function chooseWarmups(s) {
 // A question answered wrong, or shown, marks its skill for a warm-up later;
 // a warm-up on that skill answered right at once clears the mark, unless it
 // was missed again in this sitting. A beat may name the skill it recalls.
-// A warm-up is recall from memory, so it also sets the help: a miss there
-// eases the skill, and a right answer at once cancels a waiting ease.
+// A warm-up is recall from memory, so its first answer in a play also sets
+// the help: a miss eases the skill, and a right answer at once cancels a
+// waiting ease. Asked again (gone back to, or after a quit), it is not.
 const skillOf = (s) => beatOf(s).skill ?? stepOf(s).skill;
+const warmKey = (s) => `${s.lesson}.${stepOf(s).id}`;
+function firstAnswer(s) {
+  const p = s.progress[s.lesson];
+  if (stepOf(s).part !== 'Warm-up' || s.answeredNow.includes(warmKey(s))) return false;
+  // On a first play the done list holds only this play's steps; a lesson
+  // played again keeps its old ticks, so there it tells nothing.
+  return p.complete || !p.done.includes(stepOf(s).id);
+}
+function answered(s) {
+  if (stepOf(s).part === 'Warm-up' && !s.answeredNow.includes(warmKey(s))) s.answeredNow.push(warmKey(s));
+}
 function missed(s, effects) {
   const skill = skillOf(s);
   if (!s.missed.includes(skill)) s.missed.push(skill);
-  if (stepOf(s).part === 'Warm-up' && !s.eased.includes(skill)) s.eased.push(skill);
+  if (firstAnswer(s) && !s.eased.includes(skill)) s.eased.push(skill);
   if (!s.missedNow.includes(skill)) s.missedNow.push(skill);
+  answered(s);
   effects.push({ type: 'save' });
 }
 function recalled(s) {
   const st = s.beat;
   const skill = skillOf(s);
-  if (stepOf(s).part !== 'Warm-up' || st.wrongs.length || st.typedWrong || s.missedNow.includes(skill)) return;
+  const first = firstAnswer(s);
+  answered(s);
+  if (!first || st.wrongs.length || st.typedWrong || s.missedNow.includes(skill)) return;
   s.missed = s.missed.filter((k) => k !== skill);
   s.eased = s.eased.filter((k) => k !== skill);
 }
@@ -754,6 +780,7 @@ const VIEWS = {
       p.stamps = {};
       p.bottomAt = null;
       p.easedSteps = {};
+      s.answeredNow = s.answeredNow.filter((k) => !k.startsWith(`${s.lesson}.`));
       chooseWarmups(s);
       openStep(s, 0, effects);
     } else return false;
