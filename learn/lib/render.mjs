@@ -4,7 +4,7 @@
 import { banner, bannerWidth, burst, confetti, pip } from './art.mjs';
 import { C } from './copy.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, lessonOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -110,11 +110,17 @@ export function fit(body, room, short, more) {
     list = [...list.slice(0, i), ...list[i].alt, ...list.slice(i + 1)];
   }
   list = list.flatMap((r) => (r?.block ? r.rows : [r]));
+  const dropped = new Set();
   while (list.length > room) {
     const i = list.findLastIndex((r) => r?.optional);
     if (i < 0) break;
-    list = list.filter((r, k) => k !== i && !(r?.whole && r.whole === list[i].whole));
+    const { whole } = list[i];
+    for (const [k, r] of list.entries()) if (k === i || (whole && r?.whole === whole)) dropped.add(r);
+    list = list.filter((r) => !dropped.has(r));
   }
+  // A sentence can free more rows than were needed: fit again without it,
+  // so the spacers and decoration that gave way first come back while they fit.
+  if (dropped.size && list.length < room) return fit(body.filter((r) => !dropped.has(r)), room, short, more);
   if (list.length > room) {
     const teaching = list.flatMap((r, i) => (typeof r === 'string' || !(r.keep || r.optional || r.spacer) ? [i] : []));
     // Inside a card the `…` keeps the card's rail. A lone row stays: a `…`
@@ -602,13 +608,11 @@ function mixBar(ctx, lesson, cells) {
 }
 
 // ---- the step card -----------------------------------------------------------
-// The level's first warm-up: the first step a lesson plays, when it is a
-// warm-up and the lesson is the first of its level with warm-ups. It comes
-// from the content and the step's place alone: nothing is saved.
-function firstWarmupOfLevel(s) {
-  if (s.pos.step !== 0 || stepOf(s).part !== 'Warm-up') return false;
-  return s.course.find((l) => l.id[0] === s.lesson[0] && l.content?.warmup.length)?.id === s.lesson;
-}
+// The level's first warm-up: the first step a lesson plays, on a warm-up,
+// in the first lesson of its level that has warm-ups. It comes from the
+// content and the step's place alone: nothing is saved.
+const firstWarmupOfLevel = (s) => s.pos.step === 0
+  && s.course.find((l) => levelOf(l.id) === levelOf(s.lesson) && l.content?.warmup.length)?.id === s.lesson;
 
 function stepView(ctx) {
   const { s, t, inner } = ctx;
@@ -624,8 +628,10 @@ function stepView(ctx) {
   const hideRuns = tier !== 'guided' && authored === 'guided';
   const inlineBottom = tier === 'guided' && authored !== 'guided';
   const rows = [t.bold(t.fg('white', beat.kind === 'type' && step.part === 'Check' ? C.lastQuestion : step.title))];
-  if (step.part === 'Warm-up') rows.push(t.fg('muted', C.warmup(s.course.findIndex((l) => l.id === step.from) + 1)));
-  if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
+  if (step.part === 'Warm-up') {
+    rows.push(t.fg('muted', C.warmup(s.course.findIndex((l) => l.id === step.from) + 1)));
+    if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
+  }
   const quoted = (text, color = 'muted') => para(t, text, inner, color, { quote: true });
   // A satisfied "Done when": hidden where the evidence line replaces it, and
   // otherwise optional, since the card already says the step is done.
