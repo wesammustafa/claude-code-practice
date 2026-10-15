@@ -192,6 +192,47 @@ test('difficulty: each step\'s tier is the course rule\'s, and it climbs like a 
   for (const l of Object.values(parsed)) for (const s of allSteps(l)) for (const b of s.beats) if (b.safety) assert.equal(b.kind, 'predict', `${l.lesson} ${s.id}: a safety choice is a guess`);
 });
 
+// Action beats above GUIDED that may show nothing behind h, each with its
+// reason. Any other beat that hides its command needs a rung.
+const NO_RUNG = {
+  'b-capstone T4.0': 'the capstone page names no plan menu choice, and only its own words can be quoted here',
+};
+
+test('help: above GUIDED, every action with no command on its card has a rung behind h', () => {
+  const bare = [];
+  const exempt = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => {
+      if (s.part === 'Check' || rule[k] === 'guided') return;
+      s.beats.forEach((b, n) => {
+        if (b.kind !== 'do' || b.ask || b.lines.some((l) => l.key === 'run')) return;
+        const at = `${c.lesson} ${s.id}.${n}`;
+        // A check item's ladder shows its own rungs once the check says no.
+        const laddered = b.verify.kind === 'check' && !b.verify.all && b.verify.items.every((it) => {
+          const rung = c.ladder.find((r) => r.item === lessons[c.lesson].items[it].text);
+          return rung && (rung.hints.length || rung.bottom.length || rung.narrow.length);
+        });
+        if (!b.hints.length && !b.bottom.length && !laddered) (NO_RUNG[at] ? exempt : bare).push(at);
+      });
+    });
+  });
+  assert.deepEqual(bare, [], 'nothing behind h');
+  assert.deepEqual(exempt, Object.keys(NO_RUNG), 'an exemption names a beat that still has nothing behind h');
+});
+
+test('the Check\'s recall question files a miss under a skill the course has taught', () => {
+  const untagged = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const taught = new Set(contents.slice(0, i + 1).flatMap((x) => (x?.steps ?? []).map((s) => s.skill)));
+    taught.delete('check');
+    for (const b of c.steps.find((s) => s.part === 'Check').beats) if (b.kind === 'type' && !taught.has(b.skill)) untagged.push(`${c.lesson} C: ${b.skill ?? 'no skill'}`);
+  });
+  assert.deepEqual(untagged, [], 'a Check question\'s skill is one a step so far uses');
+});
+
 test('no key-shaped string, em dash or emoji variation selector under learn/', () => {
   const all = execFileSync('git', ['ls-files', '-co', '--exclude-standard', 'learn'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
   assert.ok(all.length > 5);

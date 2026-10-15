@@ -47,6 +47,7 @@ badge: Beginner
 - do: "Then run `npm run linkcheck -- <that folder>` in your copy"
 - note: "Don't put a `linkcheck.json` in your copy, because the check counts it as a change."
 - win-note: "**Windows:** save the file with `'{ "files": ["docs"] }' | Set-Content <that folder>\linkcheck.json`, not `>`."
+- hint: "A teammate filed the bug report in `capstone/beginner-bug.md` in your practice copy: when `linkcheck.json` lists a folder that doesn't exist, the tool says every link resolves and exits with code 0."
 - beat: ask
 - ask: What did it print?
 - right: "`All relative links resolve.`"
@@ -112,6 +113,8 @@ badge: Beginner
 - verify: file .practice/capstone-plan.txt fresh since T2
 - watching: .practice/capstone-plan.txt
 - goal: "Save the files the plan will change, every test file included, to `.practice/capstone-plan.txt`: one path per line, relative to the repository root, with forward slashes, such as `src/cli.js`."
+- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
+- hint: "The fix touches two source files and at least one test file."
 - why: "the fix commit may change only the files the plan names."
 
 ### T4 | The task step 4 of 6 | Watch the test
@@ -154,6 +157,7 @@ badge: Beginner
 - verify: self
 - done-label: asked for one
 - goal: "Ask for at least one correction that stays inside the files the plan names, and make sure `npm test` passes."
+- hint: "the fix commit may change only the files the plan names."
 - beat: do
 - where: shell
 - verify: check 4
@@ -169,6 +173,7 @@ badge: Beginner
 - verify: self
 - done-label: committed
 - goal: "Commit the fix and its test together"
+- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
 - beat: do
 - where: shell
 - verify: check 2 fresh since T2
@@ -195,6 +200,7 @@ badge: Beginner
 - goal: "Run `npm run check -- b-capstone` in your practice copy."
 - hint: "Each item that fails prints what to fix."
 - beat: type
+- skill: plan-mode
 - ask: Which key switches permission modes?
 - accept: Shift+Tab
 - accept: Alt+M
