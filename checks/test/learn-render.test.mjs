@@ -159,10 +159,6 @@ test('lessons after the first: page links, Windows bottom lines, slow checks and
   assert.match(strip(render(slow.state, { cols: 100, rows: 40 }, theme(CAPS.full)).join('\n')), /takes a while, so it runs only when you ask: press r/);
 });
 
-// First rungs that a small window still cuts, each with its reason.
-const FIRST_RUNG_CUT = {
-  'b-capstone T1.2 hint 1 at 60x20 (ascii)': 'the Windows note fills the card; 142\'s drop order keeps the hint box',
-};
 
 // Every lesson after the first, on the path and with every lesson before it
 // skipped, so the steps that drop to GUIDED show their bottom lines too.
@@ -196,7 +192,7 @@ for (const skipped of [false, true]) test(`every lesson in the app${skipped ? ',
       }
     }
   }
-  assert.deepEqual(cut, Object.keys(FIRST_RUNG_CUT), 'a first rung is cut');
+  assert.deepEqual(cut, [], 'a first rung is cut');
 });
 
 test('real-run fixes: prompts wrap at spaces, a short list stays in "not yet", a safety guess wraps cleanly', async () => {
@@ -316,14 +312,11 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
 });
 
 // Every step a real bottom rung eases, in a real play from that rung on, with
-// and without less help: the "more help" line wraps whole wherever the card
-// fits the window. A 60x20 card can be taller than the window (b-2 Y3 under
-// less help, or most steps with a hint box open), and then its last rows give
-// way to a `…` whether or not the step is eased; 142's drop order keeps the
-// line there.
-// Renders the eased step on screen at 60x20 and 80x24 in every colour mode:
-// the line is whole wherever the card fits, and `whole` collects the places
-// where it fits at 60x20 too.
+// and without less help: the "more help" line wraps whole, even where a 60x20
+// card is taller than the window (b-2 Y3 under less help, a Check card after a
+// FAIL, most steps with a hint box open): the row budget never drops it.
+// Renders the eased step on screen at 60x20 and 80x24 in every colour mode;
+// `whole` collects the places where the line shows whole at 60x20.
 function easedLineWhole(d, where, whole) {
   const flat = (text) => text.replace(/[^A-Za-z0-9]/g, '');
   for (const [capName, caps] of Object.entries(CAPS)) {
@@ -332,7 +325,6 @@ function easedLineWhole(d, where, whole) {
       const at = `${where} at ${cols}x${rows} (${capName})`;
       const dropped = lines.some((l) => ['…', '...'].includes(l.trim()));
       assert.ok(!dropped || cols === 60, `${at} drops lines`);
-      if (dropped) continue;
       assert.ok(flat(lines.join('')).includes(flat(C.eased)), `${at}: ${lines.join('\n')}`);
       assert.ok(!lines.some((l) => /(…|\.\.\.)$/.test(l) && width(l) === cols - 1), `${at} cuts a line`);
       if (cols === 60) whole.add(where);
@@ -374,8 +366,10 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
       });
     }
   }
-  // At 60x20 the line fits whole as the step opens on every one of these.
-  for (const where of ['b-1 Y1', 'b-2 C', 'b-3 Y2', 'b-4 Y3', 'b-5 Y1', 'b-5 W5 (less help)', 'b-capstone T6']) assert.ok(whole.has(where), where);
+  // At 60x20 the line is whole on every one of these, the cases cut before
+  // the row budget too: a hint box open on a tall card, and a Check after a FAIL.
+  for (const where of ['b-1 Y1', 'b-2 C', 'b-3 Y2', 'b-4 Y3', 'b-5 Y1', 'b-5 W5 (less help)', 'b-capstone T6',
+    'b-1 Y1 with a hint open', 'b-2 C after a FAIL', 'b-3 C after a FAIL']) assert.ok(whole.has(where), where);
 });
 
 // Every warm-up missed (shown with s, or an empty answer), in a real play from
@@ -649,4 +643,263 @@ test('the capstone celebrates the same with or without the exact command: step d
   assert.ok(lines(plain.next).includes(HANDOVER));
   assert.ok(!lines(helped.next).includes(HANDOVER));
   assert.deepEqual(lines(plain.next).filter((l) => l !== HANDOVER), lines(helped.next));
+});
+
+// The row budget (142): what gives way when a screen is taller than its window.
+const SHORT = [[60, 20], [80, 24]];
+
+test('a done beat hides its satisfied "Done when" line: W3 done at 60x20 is the 2.4 mockup', () => {
+  const state = screens.find(([l]) => l === 'W3 done')[1];
+  const lines = render(state, { cols: 60, rows: 20 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
+  // energy-and-teaching.md 2.4, less Pip on the card's top border (a motion
+  // ticket). The mockup was drawn when every spacer dropped at once; one at a
+  // time from the bottom keeps the card's first spacer in its spare row.
+  const mockup = [
+    '   B1   Install, sign in and look around       GUIDED ★☆☆',
+    '  ●━━●━━●━━○──○──○──○   ◇──◇──◇   ☆──☆        step 3 of 12',
+    '  ━━━━━━━━━━━━━━──────────────────────────────────────────',
+    '',
+    null,
+    '  │',
+    '  │  Save the version',
+    '  │  Go to your practice copy and save that output for the',
+    '  │  check:',
+    '  │   $ cd /home/sam/claude-code-practice               ✔',
+    '  │   $ mkdir -p .practice                              ✔',
+    '  │   $ claude --version > .practice/version.txt        ✔',
+    '  │  ✦          ▄█▀   ·   Step 3 done!',
+    '  │   ▀█▄    ▄█▀    ✦     .practice/version.txt',
+    '  │  ·  ▀█▄█▀     ·       holds 2.1.285 (Claude Code)',
+    '  │                       🔥 3 steps this session',
+    '  ╰───────────────────────────────────────────────────────',
+    '',
+    null,
+    '   enter  next    b back    w why    m map    q quit',
+  ];
+  mockup.forEach((row, i) => {
+    // Rows 2 and 3 (the trail and the rule) and the pulse row are motion's.
+    if (row === null || i === 1 || i === 2) return;
+    assert.equal(lines[i], row, `row ${i + 1}`);
+  });
+  assert.ok(!lines.some((l) => l.includes(C.doneWhen)));
+});
+
+test('every step-done screen keeps its 🔥 line and its bottom border at 60x20 and 80x24', async () => {
+  const { lessonScreens, course } = await import('./learn-drive.mjs');
+  const done = [...screens, ...course.filter((l) => l.content && l.id !== 'b-1').flatMap((l) => lessonScreens(l.id, course))]
+    .filter(([, s]) => s.view === 'step' && s.beat.status === 'done' && s.pos.beat === stepOf(s).beats.length - 1 && ['check', 'file', 'git-clean'].includes(beatOf(s).verify.kind));
+  assert.ok(done.length > 20, `${done.length} step-done screens`);
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    const t = theme(caps);
+    for (const [cols, rows] of SHORT) {
+      for (const [label, state] of done) {
+        const lines = render(state, { cols, rows }, t).map(strip);
+        const where = `${label} at ${cols}x${rows} (${capName})`;
+        const fire = lines.findIndex((l) => l.includes(`${t.lead('fire')}${C.session(state.session + 1)}`) || l.includes(`${t.lead('fire')}${C.session(state.session)}`));
+        assert.ok(fire > 0, `${where}: no session line\n${lines.join('\n')}`);
+        assert.equal(lines[fire + 1].trim()[0], t.glyph.bl, `${where}: the bottom border follows the session line\n${lines.join('\n')}`);
+        assert.ok(!lines.some((l) => l.includes(C.doneWhen)), `${where} shows "Done when"`);
+      }
+    }
+  }
+});
+
+// Every screen of every lesson, as lessonScreens and lesson 1's walk reach them.
+const everyScreen = async () => {
+  const { lessonScreens, course } = await import('./learn-drive.mjs');
+  const ids = course.filter((l) => l.content && l.id !== 'b-1').map((l) => l.id);
+  return [...screens, ...[false, true].flatMap((skipped) => ids.flatMap((id) => lessonScreens(id, course, { skipped }).map(([l, s]) => [`${l}${skipped ? ' (skipped)' : ''}`, s])))];
+};
+const flatText = (text) => text.replace(/[^A-Za-z0-9]/g, '');
+
+test('rows that never drop: the question and its options, feedback, the hint box, the eased line and the key bar', async () => {
+  const all = await everyScreen();
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    if (capName === 'sixteen') continue;
+    const t = theme(caps);
+    const box = `${t.glyph.rail}  ${t.glyph.bar}`;
+    for (const [cols, rows] of SHORT) {
+      for (const [label, state] of all) {
+        if (state.view !== 'step' || state.overlay) continue;
+        const where = `${label} at ${cols}x${rows} (${capName})`;
+        const tall = render(state, { cols, rows: 80 }, t).map(strip);
+        const lines = render(state, { cols, rows }, t).map(strip);
+        const text = flatText(lines.join(''));
+        const show = `\n${lines.join('\n')}`;
+        // The hint box and feedback on a wrong pick, row by row.
+        for (const row of tall.filter((l) => l.includes(box))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
+        // The question, each option and the feedback, wherever a tall window
+        // shows them whole (a "not this one" tag can sit inside an option).
+        const beat = beatOf(state);
+        const whole = flatText(tall.join(''));
+        const words = [beat.ask, ...(beat.options ?? []).map((o) => o.text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')),
+          C.notYet, C.stepDone(state.pos.step + 1), C.right, C.notQuite, C.eased].filter(Boolean);
+        for (const word of words) if (whole.includes(flatText(word))) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is gone${show}`);
+        assert.equal(lines.filter((l) => l.trim().startsWith(t.glyph.bl)).length, tall.filter((l) => l.trim().startsWith(t.glyph.bl)).length, `${where}: the card's bottom border is gone${show}`);
+        assert.equal(lines.at(-1), tall.at(-1), `${where}: the key bar`);
+      }
+    }
+  }
+});
+
+test('spacers drop one at a time from the bottom, and the map\'s lesson rows stay evenly spaced', () => {
+  const map = screens.find(([l]) => l === 'map')[1];
+  const t = theme(CAPS.full);
+  const gaps = (cols, rows) => {
+    const lines = render(map, { cols, rows }, t).map(strip);
+    const at = lines.map((l, i) => (/^\s*[❯ ] [✔○] /.test(l) ? i : -1)).filter((i) => i >= 0);
+    assert.equal(at.length, allCourse.length, `${cols}x${rows}: ${lines.join('\n')}`);
+    return { lines, gaps: new Set(at.slice(1).map((i, k) => i - at[k])) };
+  };
+  // 80x24 has room for every spacer; at 60x20 the footer's spacer goes, then
+  // the lesson rows' spacers go together.
+  assert.deepEqual([...gaps(80, 24).gaps], [2]);
+  const small = gaps(60, 20);
+  assert.deepEqual([...small.gaps], [1]);
+  const text = flatText(small.lines.join(''));
+  for (const word of [C.mapFooter, ...Object.values(C.mapLegend)]) assert.ok(text.includes(flatText(word)), `"${word}" at 60x20`);
+});
+
+// Each lesson's intro, complete and next screens, played on the path.
+const endScreens = () => allCourse.filter((l) => l.content).flatMap((l) => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
+  assert.equal(d.state.view, 'intro', l.id);
+  const intro = d.state;
+  playUntil(d, (s) => s.view === 'complete' && s.lesson === l.id);
+  const complete = d.state;
+  d.key('enter');
+  return [[`${l.id} intro`, intro], [`${l.id} complete`, complete], [`${l.id} next`, d.state]];
+});
+
+test('a repeat compacts below 24 rows only: the climb staircase becomes one row, and 80x24 keeps it', () => {
+  const t = theme(CAPS.full);
+  const stairs = (lines) => Object.values(C.stair).filter((x) => lines.some((l) => l.includes(x)));
+  const intro = screens.find(([l]) => l === 'intro')[1];
+  const next = screens.find(([l]) => l === 'next')[1];
+  // b-1's intro plans 7 GUIDED, 3 HINTED and 2 CHALLENGE steps; the walk's
+  // next screen climbed 8, 2 and 2 (the staircases at 80x24 say so).
+  for (const [state, bar] of [[intro, '●●●●●●●◆◆◆★★'], [next, '●●●●●●●●◆◆★★']]) {
+    const tall = render(state, { cols: 80, rows: 24 }, t).map(strip);
+    assert.equal(stairs(tall).length, 3, tall.join('\n'));
+    const small = render(state, { cols: 60, rows: 20 }, t).map(strip);
+    assert.deepEqual(stairs(small), [], small.join('\n'));
+    const row = small.find((l) => l.includes(bar));
+    assert.ok(row, small.join('\n'));
+    assert.match(row, /GUIDED ★☆☆ .*CHALLENGE ★★★/);
+  }
+  // At 80x24 every intro and next screen keeps its staircase.
+  for (const [label, state] of endScreens().filter(([l]) => !l.endsWith('complete'))) {
+    const lines = render(state, { cols: 80, rows: 24 }, t).map(strip);
+    assert.ok(stairs(lines).length >= 1 && !lines.some((l) => l.trim() === '…'), `${label}: ${lines.join('\n')}`);
+  }
+});
+
+// A line `cut` shortened: it fills the row to the last column and ends in an
+// ellipsis ('.' in ASCII mode).
+const widthCut = (t, cols) => (l) => width(l) === cols - 1 && (t.unicode ? l.endsWith('…') : /\S\.$/.test(l));
+
+test('at 60x20 and 80x24 no teaching line is cut on the intro, complete, next and level-up screens: long lines wrap', () => {
+  const levelups = [...screens, ...allCourse.filter((l) => l.content).flatMap((l) => {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
+    const out = [];
+    const end = (s) => s.view === 'next' && s.lesson === l.id;
+    while (!end(d.state)) {
+      if (d.state.view === 'levelup') {
+        out.push([`${l.id} level up ${d.state.levelTo}`, d.state]);
+        d.key('enter');
+      } else playUntil(d, (s) => s.view === 'levelup' || end(s));
+    }
+    return out;
+  })].filter(([, s]) => s.view === 'levelup');
+  assert.ok(levelups.length >= 6, `${levelups.length} level-ups`);
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    const t = theme(caps);
+    for (const [cols, rows] of SHORT) {
+      for (const [label, state] of [...endScreens(), ...levelups]) {
+        const lines = render(state, { cols, rows }, t).map(strip);
+        const where = `${label} at ${cols}x${rows} (${capName})`;
+        const show = `\n${lines.join('\n')}`;
+        assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where} drops lines${show}`);
+        assert.ok(!lines.some(widthCut(t, cols)), `${where} cuts a line${show}`);
+        const text = flatText(lines.join(''));
+        const content = lessonById(state.lesson).content;
+        const words = state.view === 'levelup' ? (state.levelTo === 'challenge' ? C.toChallenge : C.toHinted)
+          : state.view === 'next' ? [C.notchHarder, C.savedBreak].filter((w) => w !== C.notchHarder || content.next) : content.intro.can;
+        for (const word of words) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is not whole${show}`);
+      }
+    }
+  }
+});
+
+test('the welcome fits at 60x20 and 80x24: nothing cut, Pip and both windows on screen', () => {
+  const words = [C.hi('Sam'), C.pip1, C.pip2, C.twoWindows, C.thisWindow, ...C.thisWindowLines, C.otherWindow, ...C.otherWindowLines, C.openSecond, 'cd /home/sam/claude-code-practice', C.comeBack];
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    const t = theme(caps);
+    for (const [cols, rows] of SHORT) {
+      const lines = render(driver().state, { cols, rows }, t).map(strip);
+      const where = `welcome at ${cols}x${rows} (${capName})`;
+      const show = `\n${lines.join('\n')}`;
+      assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where} drops lines${show}`);
+      assert.ok(!lines.some(widthCut(t, cols)), `${where} cuts a line${show}`);
+      // Words read past Pip's ASCII face, which sits beside them.
+      const text = flatText(lines.map((l) => l.replace(/^\s*[|+](-{7}| o {3}o |  \\_\/  )[|+]/, '')).join(''));
+      for (const word of words) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is not whole${show}`);
+      // Pip's face, and the two windows side by side.
+      assert.ok(lines.some((l) => l.includes(t.unicode ? '●   ●' : 'o   o')), `${where}: no Pip${show}`);
+      assert.ok(lines.some((l) => l.includes(C.thisWindow) && l.includes(C.otherWindow)), `${where}: the windows are not side by side${show}`);
+    }
+  }
+  // A git error never drops.
+  const broken = render(driver({ facts: { gitError: 'spawn git ENOENT' } }).state, { cols: 60, rows: 20 }, theme(CAPS.full)).map(strip);
+  assert.ok(flatText(broken.join('')).includes(flatText(C.gitBroken('spawn git ENOENT'))), broken.join('\n'));
+});
+
+test('decoration gives way below 24 rows only, after the spacers: the confetti, then Pip and the banner', () => {
+  const t = theme(CAPS.full);
+  const complete = screens.find(([l]) => l === 'complete')[1];
+  // A three-row toast at 60x20.
+  const toast = { kind: 'save', message: 'EACCES: permission denied, open .practice/learn.json for writing' };
+  const confetti = (lines) => lines.some((l) => l.trim().startsWith('✦     ·'));
+  const face = (lines) => lines.some((l) => l.includes('★   ★'));
+  const at = (state, cols, rows) => render(state, { cols, rows }, t).map(strip);
+  // With room, everything shows; a toast at 60x20 takes the spacers, then the confetti.
+  assert.ok(confetti(at(complete, 60, 20)) && face(at(complete, 60, 20)));
+  const small = at({ ...complete, toast }, 60, 20);
+  assert.ok(!confetti(small) && face(small), small.join('\n'));
+  assert.ok(!small.slice(3, -3).some((l) => l.trim() === ''), `no spacer is left: ${small.join('\n')}`);
+  const typical = at({ ...complete, toast }, 80, 24);
+  assert.ok(confetti(typical) && face(typical), typical.join('\n'));
+  // The welcome with a git error: Pip gives way at 60x20, and stays at 80x24.
+  const broken = driver({ facts: { gitError: 'spawn git ENOENT' } }).state;
+  assert.ok(!at(broken, 60, 20).some((l) => l.includes('●   ●')), at(broken, 60, 20).join('\n'));
+  assert.ok(at(broken, 80, 24).some((l) => l.includes('●   ●')));
+  for (const word of [C.hi('Sam'), C.pip1, C.pip2]) assert.ok(flatText(at(broken, 60, 20).join('')).includes(flatText(word)), word);
+});
+
+test('an optional row drops before any teaching line is cut: the next screen\'s question count', () => {
+  const t = theme(CAPS.full);
+  const next = screens.find(([l]) => l === 'next')[1];
+  // A save error long enough to leave the body nine rows at 60x20.
+  const toast = { kind: 'save', message: `EACCES: permission denied, open ${'/home/sam/claude-code-practice'.repeat(6)}/.practice/learn.json` };
+  const lines = render({ ...next, toast }, { cols: 60, rows: 20 }, t).map(strip);
+  const show = `\n${lines.join('\n')}`;
+  assert.ok(!lines.some((l) => l.includes(C.answeredSummary(5))), `the count shows${show}`);
+  assert.ok(!lines.some((l) => l.trim() === '…'), `a teaching line is cut${show}`);
+  const text = flatText(lines.join(''));
+  for (const word of [C.checkedSummary(1, 1), C.yourClimb, C.nextUp, 'Permission modes and plan mode', C.notchHarder, C.savedBreak]) assert.ok(text.includes(flatText(word)), `"${word}"${show}`);
+  // With room, it shows.
+  assert.ok(render(next, { cols: 60, rows: 20 }, t).map(strip).some((l) => l.includes(C.answeredSummary(5))));
+});
+
+test('lines that a narrow window cut by width now wrap: no screen cuts a line at 60x20 or 80x24, ASCII included', async () => {
+  const all = await everyScreen();
+  for (const capName of ['full', 'ascii']) {
+    const t = theme(CAPS[capName]);
+    for (const [cols, rows] of SHORT) {
+      for (const [label, state] of all) {
+        const lines = render(state, { cols, rows }, t).map(strip);
+        assert.ok(!lines.some(widthCut(t, cols)), `${label} at ${cols}x${rows} (${capName}) cuts a line:\n${lines.filter(widthCut(t, cols)).join('\n')}`);
+      }
+    }
+  }
 });

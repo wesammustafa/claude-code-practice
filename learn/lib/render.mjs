@@ -12,10 +12,22 @@ import { mix, PLANNED, ruleTiers, scaleMix } from './tiers.mjs';
 import { OWN_PARTS } from './content.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
-// A blank line the layout may drop when the window is short. Inside a card
-// it keeps the card's rail.
-const spacer = (text = '') => ({ spacer: true, text });
+// Each body row says how it gives way when the body is taller than its room
+// (spec 3.1, the drop order). A plain string is teaching: it is cut last.
+// A blank line the layout may drop. Inside a card it keeps the card's rail;
+// spacers in one group drop together.
+const spacer = (text = '', group) => ({ spacer: true, text, group });
 const SPACER = spacer();
+// Rows that never drop: the question and its options, feedback, the hint
+// box, the eased line and the handover line.
+const kept = (rows) => rows.map((text) => ({ keep: true, text }));
+// Optional rows: teaching the learner can also reach another way, such as
+// behind a key, and repeats with no compact form.
+const optional = (rows) => rows.map((text) => ({ optional: true, text }));
+// A block that gives way whole, below 24 rows only: a repeat compacts to
+// `alt`, decoration leaves `alt` behind.
+const repeat = (rows, alt) => ({ block: 'repeat', rows, alt });
+const decor = (rows, alt = []) => ({ block: 'decor', rows, alt });
 
 export const lessonLabel = (id) => (id.endsWith('capstone') ? 'CAP' : id.replace(/^([a-z])-(\d+)$/, (_, l, n) => `${l.toUpperCase()}${n}`));
 
@@ -35,17 +47,50 @@ export function render(s, size, t) {
   const body = overlay?.body ?? view.body;
   const keys = overlay?.keys ?? view.keys;
   const top = rows >= 28 ? [''] : [];
-  const head = [...view.head, ''];
   const toast = s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast)}`, W, TOASTS[s.toast.kind].color) : [];
-  const room = rows - top.length - head.length - 3 - toast.length;
-  let lines = body;
-  if (lines.length > room) lines = lines.filter((l) => !l?.spacer);
-  if (lines.length > room) lines = [...lines.slice(0, room - 1), t.fg('muted', t.glyph.ellipsis)];
-  lines = lines.map((l) => (l?.spacer ? l.text : l));
-  const out = [...top, ...head, ...lines];
+  const room = rows - top.length - view.head.length - 3 - toast.length;
+  // The blank under the header is the body's first spacer, so it goes last.
+  const lines = fit([SPACER, ...body], room, rows < 24, t.fg('muted', t.glyph.ellipsis));
+  const out = [...top, ...view.head, ...lines];
   while (out.length < rows - 3 - toast.length) out.push('');
   out.push(...toast, '', t.fg('faint', t.glyph.rule.repeat(W)), keybar(t, keys, W));
   return out.map((l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : ascii(l)), cols - 1, t.unicode ? '…' : '.') : ''));
+}
+
+// The body in `room` rows. What gives way, in order: below 24 rows repeats
+// compact; spacers drop one at a time from the bottom; below 24 rows
+// decoration gives way, from the top; optional teaching drops from the
+// bottom; then teaching rows are cut from the bottom, under one `…`.
+function fit(body, room, short, more) {
+  let list = body;
+  const size = () => list.reduce((n, r) => n + (r?.block ? r.rows.length : 1), 0);
+  if (short && size() > room) list = list.flatMap((r) => (r?.block === 'repeat' ? r.alt : [r]));
+  while (size() > room) {
+    const i = list.findLastIndex((r) => r?.spacer);
+    if (i < 0) break;
+    const { group } = list[i];
+    list = list.filter((r, k) => k !== i && !(group && r?.spacer && r.group === group));
+  }
+  while (short && size() > room) {
+    const i = list.findIndex((r) => r?.block === 'decor');
+    if (i < 0) break;
+    list = [...list.slice(0, i), ...list[i].alt, ...list.slice(i + 1)];
+  }
+  list = list.flatMap((r) => (r?.block ? r.rows : [r]));
+  while (list.length > room) {
+    const i = list.findLastIndex((r) => r?.optional);
+    if (i < 0) break;
+    list = list.filter((_, k) => k !== i);
+  }
+  if (list.length > room) {
+    const teaching = list.flatMap((r, i) => (typeof r === 'string' ? [i] : []));
+    const n = list.length - room + 1;
+    if (teaching.length >= n) {
+      const gone = new Set(teaching.slice(-n));
+      list = list.flatMap((r, i) => (i === Math.min(...gone) ? [more] : gone.has(i) ? [] : [r]));
+    } else list = [...list.slice(0, room - 1), more];
+  }
+  return list.map((r) => (typeof r === 'string' ? r : r.text));
 }
 
 const TOASTS = {
@@ -210,10 +255,8 @@ function card(ctx, { tint, where, done, rows }) {
   const rail = t.fg(tint, t.glyph.rail);
   const left = `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(where, 'chipBg')}${done ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
   const top = left + t.fg(tint, t.glyph.rule.repeat(Math.max(0, W - width(left))));
-  const lines = [top, spacer(rail)];
-  for (const r of rows) lines.push(r?.spacer || r === '' ? spacer(rail) : `${rail}  ${r}`);
-  lines.push(t.fg(tint, `${t.glyph.bl}${t.glyph.rule.repeat(W - 1)}`));
-  return lines;
+  const row = (r) => (r === '' || r?.spacer ? spacer(rail, r?.group) : typeof r === 'string' ? `${rail}  ${r}` : { ...r, text: `${rail}  ${r.text}` });
+  return [...kept([top]), spacer(rail), ...rows.map(row), ...kept([t.fg(tint, `${t.glyph.bl}${t.glyph.rule.repeat(W - 1)}`)])];
 }
 
 const lead = (t, name, s) => `${t.lead(name)}${s}`;
@@ -222,6 +265,11 @@ const led = (t, name, text, w, color, opts) => {
   const lw = width(t.lead(name));
   return para(t, text, w - lw, color, opts).map((x, i) => (i ? `${' '.repeat(lw)}${x}` : `${t.lead(name)}${x}`));
 };
+// One sentence written as rows: those rows where each fits in `w`, or else
+// the sentence wrapped whole.
+const sentence = (t, parts, w, color) => (parts.every((x) => width(x) <= w) ? parts : [parts.join(' ')]).flatMap((x) => para(t, x, w, color));
+// Lines after a prefix, the rest indented under the first.
+const hang = (prefix, rows) => rows.map((x, i) => `${i ? ' '.repeat(width(prefix)) : prefix}${x}`);
 const hintBox = (t, lines) => lines.map((l) => `${t.fg('warn', t.glyph.bar)} ${l}`);
 
 // ---- views -------------------------------------------------------------------
@@ -233,12 +281,12 @@ const VIEWS = {
     const ids = s.course.filter((l) => !l.id.endsWith('capstone'));
     const path = ids.map((l, i) => t.fg(heat[i % heat.length], t.bold(lessonLabel(l.id)))).join(t.fg('faint', ` ${t.glyph.rule.repeat(2)} `))
       + t.fg('faint', ` ${t.glyph.rule.repeat(2)} `) + (t.emoji('cup') || lessonLabel('b-capstone'));
-    const p = pip(t, 'happy');
+    const hint = t.fg('muted', `   ${C.pathHint}`);
     const body = [
-      ` ${p[0]}`,
-      ` ${p[1]}   ${lead(t, 'wave', t.bold(t.fg('white', C.hi(s.facts.name))))}`,
-      ` ${p[2]}   ${t.fg('text', C.pip1)}`,
-      ` ${p[3]}   ${t.fg('text', C.pip2)}`,
+      withPip(ctx, pip(t, 'happy'), [
+        (w) => led(t, 'wave', C.hi(s.facts.name), w, 'white').map((x) => t.bold(x)),
+        (w) => sentence(t, [C.pip1, C.pip2], w, 'text'),
+      ]),
       SPACER,
       t.bold(t.fg('white', C.twoWindows)),
       ...windows(ctx),
@@ -247,10 +295,11 @@ const VIEWS = {
       ...chip(t, `cd ${quotePath(s.facts.root, t.caps.win32)}`, 'terminal', Math.min(W, width(s.facts.root) + 10)),
       t.fg('muted', C.comeBack),
     ];
-    if (s.facts.gitError) body.push(SPACER, lead(t, 'broken', t.fg('bad', C.gitBroken(s.facts.gitError))));
+    if (s.facts.gitError) body.push(SPACER, ...kept(led(t, 'broken', C.gitBroken(s.facts.gitError), W, 'bad')));
     return {
       head: [spread(`${t.pill('LEARN', 'accentBg')}  ${t.bold(t.fg('white', C.appName))}`, t.fg('muted', C.pathLabel(done, s.course.length)), W),
-        `${path}${t.fg('muted', `   ${C.pathHint}`)}`, rule(t, W)],
+        // The hint goes where it doesn't fit: the map's footer says it too.
+        `${path}${width(path + hint) <= W ? hint : ''}`, rule(t, W)],
       body,
       keys: [mainKey('enter', C.k.itsOpen), key('q', C.k.quit)],
     };
@@ -261,15 +310,15 @@ const VIEWS = {
     const steps = stepsOf(s);
     const p = s.progress[s.lesson];
     const index = Math.max(0, steps.findIndex((x) => x.id === p.step));
-    const art = pip(t, 'happy');
+    const mark = `${t.fg('warn', t.glyph.warnMark)} `;
     return {
       head: lessonHead(ctx, '', C.stepOf(index + 1, steps.length)),
       body: [
-        ` ${art[0]}`,
-        ` ${art[1]}   ${lead(t, 'wave', t.bold(t.fg('white', C.welcomeBack)))}`,
-        ` ${art[2]}   ${t.fg('text', C.youreOn(lessonLabel(s.lesson), index + 1, steps.length, steps[index].title))}`,
-        ` ${art[3]}`,
-        ...(s.confirmRestart ? [SPACER, `${t.fg('warn', t.glyph.warnMark)} ${t.bold(t.fg('white', C.restartAsk))}`] : []),
+        withPip(ctx, pip(t, 'happy'), [
+          () => [lead(t, 'wave', t.bold(t.fg('white', C.welcomeBack)))],
+          (w) => para(t, C.youreOn(lessonLabel(s.lesson), index + 1, steps.length, steps[index].title), w, 'text'),
+        ]),
+        ...(s.confirmRestart ? [SPACER, ...kept(hang(mark, para(t, C.restartAsk, ctx.W - width(mark), 'white').map((x) => t.bold(x))))] : []),
       ],
       keys: s.confirmRestart
         ? [mainKey('y', C.k.yesStartOver, 'warn', 'black'), key('n', C.k.keep)]
@@ -318,21 +367,23 @@ const VIEWS = {
     const art = pip(t, 'focus');
     const word = banner(t, C.levelUp);
     const fits = t.unicode && W >= 14 + bannerWidth(C.levelUp);
-    const top = fits
+    const plain = t.bold(t.fg('accent', C.levelUp));
+    // Pip and the banner: decoration, leaving the word.
+    const top = decor(fits
       ? [` ${art[0]}`, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
-      : [` ${art[0]}`, ` ${art[1]}    ${t.bold(t.fg('accent', C.levelUp))}`, ` ${art[2]}`, ` ${art[3]}`];
+      : [` ${art[0]}`, ` ${art[1]}    ${plain}`, ` ${art[2]}`, ` ${art[3]}`], [` ${plain}`]);
     const lines = toChallenge ? C.toChallenge : C.toHinted;
     return {
       head: lessonHead(ctx, tierPill(t, s.levelTo), C.stepOf(s.pos.step + 1, tiers.length)),
       body: [
-        ...top,
+        top,
         SPACER,
         ` ${tierPill(t, s.levelFrom)}   ${t.fg(TIER_STYLE[s.levelTo].tint, `${t.glyph.bold.repeat(8)}${t.glyph.right}`)}   ${tierPill(t, s.levelTo)}`,
         SPACER,
-        ` ${t.bold(t.fg('white', lines[0]))}`,
-        ` ${t.fg('text', lines[1])}`,
+        ...para(t, lines[0], W - 1, 'white').map((x) => ` ${t.bold(x)}`),
+        ...para(t, lines[1], W - 1, 'text').map((x) => ` ${x}`),
         SPACER,
-        ` ${lead(t, 'level', t.bold(t.fg(TIER_STYLE[s.levelTo].tint, C.nextCounts(toChallenge ? 0 : counts('hinted'), counts('challenge')))))}`,
+        ...led(t, 'level', C.nextCounts(toChallenge ? 0 : counts('hinted'), counts('challenge')), W - 1, TIER_STYLE[s.levelTo].tint).map((x) => ` ${t.bold(x)}`),
       ],
       keys: [mainKey('enter', toChallenge ? C.k.bringIt : C.k.letsGo, TIER_STYLE[s.levelTo].bg, TIER_STYLE[s.levelTo].fgOnBg), moreHelpGives(s) ? key('g', C.k.moreHelp) : null, key('q', C.k.quit)],
     };
@@ -350,11 +401,11 @@ const VIEWS = {
     return {
       head: lessonHead(ctx, t.pill(`${C.complete} ${t.glyph.check}`, 'okBg'), `${total} of ${total}`),
       body: [
-        confetti(t, W),
+        decor([confetti(t, W)]),
         SPACER,
-        ...(fits
+        decor(fits
           ? [` ${art[0]}`, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
-          : [` ${art[0]}`, ` ${art[1]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[2]}`, ` ${art[3]}`]),
+          : [` ${art[0]}`, ` ${art[1]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[2]}`, ` ${art[3]}`], [` ${t.bold(t.fg('ok', C.complete))}`]),
         SPACER,
         lead(t, 'party', t.bold(t.fg('white', C.lessonDone(label)))),
         ...content.intro.can.flatMap((c) => para(t, c, W - 8).map((l, i) => `   ${i ? '  ' : `${t.fg('ok', t.glyph.check)} `}${l}`)),
@@ -376,16 +427,19 @@ const VIEWS = {
     const body = [];
     if (results) body.push(lead(t, 'verified', t.fg('ok', C.checkedSummary(results.filter((r) => r.pass).length, results.length))));
     // The capstone's handover: plain text, shown only when no exact command
-    // was shown in this play. A plain row, so a short window never drops it.
-    if (s.lesson.endsWith('capstone') && s.progress[s.lesson].bottomAt === null) body.push(`${' '.repeat(width(t.lead('verified')))}${t.fg('text', C.handover)}`);
-    body.push(lead(t, 'claude', t.fg('text', C.answeredSummary(answered))), SPACER, t.bold(t.fg('white', C.yourClimb)), SPACER,
+    // was shown in this play. A short window never drops it.
+    if (s.lesson.endsWith('capstone') && s.progress[s.lesson].bottomAt === null) body.push(...kept([`${' '.repeat(width(t.lead('verified')))}${t.fg('text', C.handover)}`]));
+    // The count repeats what the learner did, so it goes before a teaching line.
+    body.push(...optional([lead(t, 'claude', t.fg('text', C.answeredSummary(answered)))]), SPACER, t.bold(t.fg('white', C.yourClimb)), SPACER,
       // The climb as it was played: an eased step counts at its easier tier.
       ...staircase(ctx, mix(tiersOf(s).filter((_, i) => stepsOf(s)[i].part !== 'Warm-up')), true));
     if (nextLesson) {
-      body.push(SPACER, `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  ${t.bold(t.fg('white', nextLesson.title))}`,
-        `   ${mixBar(ctx, nextLesson, 12)}  ${t.fg('muted', C.notchHarder)}`);
+      const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
+      const mixed = `   ${mixBar(ctx, nextLesson, 12)}  `;
+      body.push(SPACER, ...hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x))),
+        ...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
     }
-    body.push(SPACER, t.fg('muted', C.savedBreak));
+    body.push(SPACER, ...para(t, C.savedBreak, W, 'muted'));
     return {
       head: lessonHead(ctx, t.pill(`${C.complete} ${t.glyph.check}`, 'okBg'), `${total} of ${total}`),
       body,
@@ -401,8 +455,15 @@ const VIEWS = {
     const barW = W - 6;
     const filled = Math.round((done / total) * barW);
     const nextIdx = s.course.findIndex((l) => !s.progress[l.id].complete);
-    const legend = ['guided', 'hinted', 'challenge'].map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.mapLegend[k])}`).join('   ');
-    const titleW = Math.min(Math.max(...s.course.map((l) => l.title.length)), W - 33);
+    // The legend's items run on under "Help:" when one row can't hold them.
+    const legend = [];
+    for (const item of ['guided', 'hinted', 'challenge'].map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.mapLegend[k])}`)) {
+      const last = legend.at(-1);
+      if (last !== undefined && width(`${last}   ${item}`) <= W - 7) legend[legend.length - 1] = `${last}   ${item}`;
+      else legend.push(item);
+    }
+    // The titles give way to the marks, which are wider in ASCII.
+    const titleW = Math.min(Math.max(...s.course.map((l) => l.title.length)), W - 30 - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
     const rows = s.course.flatMap((l, i) => {
       const p = s.progress[l.id];
       const sel = i === s.mapCursor;
@@ -411,14 +472,14 @@ const VIEWS = {
       const name = sel ? t.bold(t.fg('key', l.title)) : t.fg(p.complete ? 'text' : 'muted', l.title);
       const state = p.complete ? t.fg('ok', C.mapDone) : i === nextIdx ? t.fg('accent', t.bold(C.mapNext)) : '';
       const medal = l.id.endsWith('capstone') ? t.emoji('cup') : p.complete && l.content?.badge ? t.emoji('badge') : '';
-      const fitTitle = pad(cut(name, titleW + 1), titleW + 1);
+      const fitTitle = pad(cut(name, titleW + 1, t.unicode ? '…' : '.'), titleW + 1);
       const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${mixBar(ctx, l, 12)}  ${pad(state, 5)}${medal ? ` ${medal}` : ''}`;
-      return i ? [SPACER, line] : [line];
+      return i ? [spacer('', 'lessons'), line] : [line];
     });
     return {
       head: [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', 'Beginner path'))}`, t.fg('muted', C.ofDone(done, total)), W),
         `${t.fg('ok', t.glyph.bold.repeat(filled))}${t.fg('faint', t.glyph.rule.repeat(barW - filled))} ${t.fg('ok', `${pct}%`)}`, rule(t, W)],
-      body: [`${t.fg('muted', C.help)}  ${legend}`, SPACER, ...rows, SPACER, t.fg('muted', C.mapFooter)],
+      body: [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, SPACER, ...para(t, C.mapFooter, W, 'muted')],
       keys: [key(t.glyph.up, C.k.choose), key('enter', C.k.open), key('m', C.k.back), key('q', C.k.quit)],
     };
   },
@@ -434,8 +495,7 @@ const VIEWS = {
       return lines.map((x, i) => `${i ? ' ' : mark} ${x}`);
     }).flat();
     const rows = [
-      t.fg('text', C.checkOnly[0]),
-      t.fg('text', C.checkOnly[1]),
+      ...sentence(t, C.checkOnly, ctx.inner, 'text'),
       SPACER,
       ...para(t, l.url, ctx.inner, 'key').map((x) => t.link(x, l.url)),
       SPACER,
@@ -456,12 +516,32 @@ function windows(ctx) {
     const top = `${t.fg(color, `${t.glyph.tl}${t.glyph.rule}`)} ${t.bold(t.fg('white', title))} ${t.fg(color, `${t.glyph.rule.repeat(Math.max(0, inner - width(title) - 3))}${t.glyph.tr}`)}`;
     return [top, ...lines.map((l) => `${t.fg(color, t.glyph.rail)}${pad(l, inner)}${t.fg(color, t.glyph.rail)}`), t.fg(color, `${t.glyph.bl}${t.glyph.rule.repeat(inner)}${t.glyph.br}`)];
   };
-  const left = box(C.thisWindow, [`  ${t.fg('code', 'npm run learn')}`, ...C.thisWindowLines.map((l) => `  ${t.fg('text', l)}`)], 26, 'accent');
-  const right = box(C.otherWindow, C.otherWindowLines.map((l) => `  ${t.fg('text', l)}`), 27, 'key');
-  if (W >= 66) return left.map((l, i) => `${l}${i === 2 ? t.fg('faint', `  ${t.glyph.rule.repeat(2)}${t.glyph.right}   `) : ' '.repeat(8)}${right[i]}`);
-  return [...left, ...right];
+  // Side by side, closer together below 66 columns.
+  const wide = W >= 66;
+  const left = box(C.thisWindow, [`  ${t.fg('code', 'npm run learn')}`, ...C.thisWindowLines.map((l) => `  ${t.fg('text', l)}`)], wide ? 26 : 22, 'accent');
+  const right = box(C.otherWindow, C.otherWindowLines.map((l) => `  ${t.fg('text', l)}`), wide ? 27 : 26, 'key');
+  const arrow = wide ? `  ${t.glyph.rule.repeat(2)}${t.glyph.right}   ` : ` ${t.glyph.rule}${t.glyph.right} `;
+  return left.map((l, i) => `${l}${i === 2 ? t.fg('faint', arrow) : ' '.repeat(width(arrow))}${right[i]}`);
 }
 
+// Pip with text beside it, from Pip's second row, or from its first when the
+// text needs all four. Decoration: below 24 rows Pip can give way, leaving
+// the text. Each part wraps to the width it is given.
+function withPip(ctx, art, parts) {
+  const text = (w) => parts.flatMap((part) => part(w));
+  const beside = text(ctx.W - 13);
+  const from = beside.length > 3 ? 0 : 1;
+  const rows = Array.from({ length: Math.max(art.length, from + beside.length) }, (_, i) => {
+    const x = beside[i - from];
+    return x === undefined ? ` ${art[i] ?? ''}` : ` ${art[i] ?? ' '.repeat(9)}   ${x}`;
+  });
+  return decor(rows, text(ctx.W - 1).map((x) => ` ${x}`));
+}
+
+const TIERS = ['guided', 'hinted', 'challenge'];
+
+// One row per tier, climbing. A repeat: below 24 rows it compacts to one
+// row, the mix bar and the pills of the easiest and hardest tiers present.
 function staircase(ctx, m, done) {
   const { t } = ctx;
   const [g, h, c] = m;
@@ -471,15 +551,19 @@ function staircase(ctx, m, done) {
   if (c) out.push(row(g + h + 4, 'challenge', c));
   if (h) out.push(row(g + 2, 'hinted', h));
   if (g) out.push(row(0, 'guided', g));
-  return out;
+  const present = TIERS.filter((_, i) => m[i]);
+  const ends = [...new Set([present[0], present.at(-1)])].map((tier) => tierPill(t, tier)).join(` ${t.fg('muted', t.glyph.right)} `);
+  return [repeat(out, [`${bar(t, m, done)}   ${ends}`])];
 }
+
+// A mix as one row of tier marks, in the tiers' tints or, once done, green.
+const bar = (t, m, done) => TIERS.map((k, i) => t.fg(done ? 'ok' : TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on].repeat(m[i]))).join('');
 
 function mixBar(ctx, lesson, cells) {
   const { s, t } = ctx;
   const idx = s.course.findIndex((l) => l.id === lesson.id);
   const real = lesson.content ? mix(ruleTiers(s.course.map((l) => l.content), idx)) : null;
-  const m = scaleMix(real ?? PLANNED[lesson.id] ?? [0, 0, 1], cells);
-  return ['guided', 'hinted', 'challenge'].map((k, i) => t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on].repeat(m[i]))).join('');
+  return bar(t, scaleMix(real ?? PLANNED[lesson.id] ?? [0, 0, 1], cells));
 }
 
 // ---- the step card -----------------------------------------------------------
@@ -519,7 +603,11 @@ function stepView(ctx) {
         if (!nextRun && i < beat.lines.length - 1) rows.push(SPACER);
       } else if (l.key === 'goal') {
         rows.push(...(tier === 'challenge' ? led(t, 'goal', l.text, inner, 'white') : para(t, l.text, inner, 'white')));
-      } else if (l.key === 'say' || l.key === 'do') rows.push(...para(t, l.text, inner, 'text'));
+      } else if (l.key === 'say' || l.key === 'do') {
+        // A "Done when" in the app's words, where the page has none to quote,
+        // gives way to the evidence line as the quoted one does.
+        if (!(done && l.key === 'say' && l.text.startsWith(C.doneWhen))) rows.push(...para(t, l.text, inner, 'text'));
+      }
       else if (l.key === 'note') rows.push(...quoted(l.text));
       else if (l.key === 'rule') rows.push(...led(t, 'safety', l.text, inner, 'text', { quote: true }));
       else if (l.key === 'after') {
@@ -527,7 +615,10 @@ function stepView(ctx) {
         rows.push(...para(t, l.text, inner - aw, 'text').map((x, i) => `${i ? ' '.repeat(aw - 1) : t.fg('accent', t.glyph.arrow)} ${x}`));
       }
       else if (l.key === 'expect') {
-        if (['check', 'file'].includes(beat.verify.kind)) rows.push(...para(t, `${C.doneWhen}${l.text}`, inner, 'muted'));
+        // Once done, the evidence line below says it instead.
+        if (['check', 'file'].includes(beat.verify.kind)) {
+          if (!done) rows.push(...para(t, `${C.doneWhen}${l.text}`, inner, 'muted'));
+        }
         else rows.push(...quoted(l.text));
       }
     });
@@ -548,23 +639,24 @@ function stepView(ctx) {
 
   // The question, if this beat asks one.
   if (beat.kind === 'type') {
-    rows.push(...para(t, beat.ask, inner, 'white').map((x) => t.bold(x)), ...para(t, C.typeIt, inner, 'muted'), SPACER,
-      `  ${t.fg('muted', '›')} ${t.fg('code', st.status === 'done' && st.revealed ? '' : st.typed)}${st.status === 'done' ? '' : t.inverse(' ')}`);
+    rows.push(...kept(para(t, beat.ask, inner, 'white').map((x) => t.bold(x))), ...para(t, C.typeIt, inner, 'muted'), SPACER,
+      ...kept([`  ${t.fg('muted', '›')} ${t.fg('code', st.status === 'done' && st.revealed ? '' : st.typed)}${st.status === 'done' ? '' : t.inverse(' ')}`]));
     if (st.status !== 'done') rows.push(SPACER, ...para(t, C.emptyShows, inner, 'muted'));
   } else if (beat.ask) {
     const recall = beat.recall ? Object.entries(s.progress[s.lesson].answers).find(([k]) => k.startsWith(`${beat.recall}.`)) : null;
     rows.push(SPACER);
     if (recall) rows.push(t.fg('muted', C.youGuessed(plainText(recall[1]))));
     // A safety choice says so on its own line; the question wraps under its lead.
-    if (beat.kind === 'predict' && beat.safety) rows.push(`${t.lead('safety')}${t.fg('warn', C.safetyChoice)}`);
+    if (beat.kind === 'predict' && beat.safety) rows.push(...kept([`${t.lead('safety')}${t.fg('warn', C.safetyChoice)}`]));
     const prefix = t.lead('guess');
-    rows.push(...para(t, beat.ask, inner - width(prefix), 'white').map((x, i) => (i ? `${' '.repeat(width(prefix))}${t.bold(x)}` : `${prefix}${t.bold(x)}`)));
-    rows.push(SPACER, ...options(ctx, beat));
+    rows.push(...kept(para(t, beat.ask, inner - width(prefix), 'white').map((x, i) => (i ? `${' '.repeat(width(prefix))}${t.bold(x)}` : `${prefix}${t.bold(x)}`))));
+    rows.push(SPACER, ...kept(options(ctx, beat)));
     if (beat.kind === 'predict' && !st.answer) rows.push(SPACER, ...para(t, C.anyAnswer, inner, 'muted'));
   }
 
   const footer = footerRows(ctx, { beat, step, content, isLastBeat });
-  if (footer.length) rows.push(SPACER, ...footer);
+  // Feedback, the hint box and the eased line: none of them drops.
+  if (footer.length) rows.push(SPACER, ...kept(footer));
 
   const whereKey = beat.kind === 'do' ? beat.where : beat.kind;
   const whereEmoji = { terminal: 'terminal', claude: 'claude', shell: 'terminal', editor: 'editor', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
