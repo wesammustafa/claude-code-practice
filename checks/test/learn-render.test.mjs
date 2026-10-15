@@ -555,9 +555,21 @@ test('the capstone handover line hides after a bottom rung anywhere in the capst
       hidden.add(step.id);
     });
   }
-  // The capstone's exact commands: T4's bottom line, and the tests item's on
-  // T5's check.
-  assert.deepEqual([...hidden], ['T4', 'T5']);
+  // The capstone's exact commands on a first FAIL: T4's and T6's bottom
+  // lines, and the tests item's on T5's check.
+  assert.deepEqual([...hidden], ['T4', 'T5', 'T6']);
+  // The Check reaches the tests item's bottom line when only that item fails.
+  const c = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, 'b-capstone': { step: 'C', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'] } } } });
+  c.key('enter');
+  const items = cap.items.map((text, index) => ({ index, text, pass: text !== 'the tests pass', hint: text === 'the tests pass' ? '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.' : '' }));
+  c.send({ type: 'check', lesson: 'b-capstone', items });
+  c.key('r');
+  c.send({ type: 'check', lesson: 'b-capstone', items });
+  for (let i = 0; i < 8 && !c.state.beat.confirm; i++) c.key('h');
+  c.key('y');
+  assert.equal(c.state.progress['b-capstone'].bottomAt, 'C');
+  playUntil(c, (s) => s.view === 'next' && s.lesson === 'b-capstone');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(!plainAt(c, cols, rows).includes(HANDOVER), `C at ${cols}x${rows}`);
   // A bottom rung saved before a break still counts for this play.
   const resumed = playedTo('b-capstone', { ...before, 'b-capstone': { step: 'T6', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5'], bottomAt: 'T2' } });
   assert.ok(!plainAt(resumed, 80, 24).includes(HANDOVER));
@@ -567,11 +579,23 @@ test('the capstone handover line hides after a bottom rung anywhere in the capst
 });
 
 test('the capstone handover line never shows on b-1 to b-5, even with no exact command shown', () => {
+  assert.ok(plainAt(playedTo('b-capstone'), 80, 24).includes(HANDOVER));
   for (const id of ['b-1', 'b-2', 'b-3', 'b-4', 'b-5']) {
     const d = playedTo(id);
     assert.equal(d.state.progress[id].bottomAt, null, id);
     for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(!plainAt(d, cols, rows).includes(HANDOVER), `${id} at ${cols}x${rows}`);
   }
+});
+
+// The line can't see a hint, so a hint never holds the command that saves a
+// file for the check: that command is the beat's bottom rung, and the y/n
+// before it sets bottomAt.
+test('no capstone hint holds a command that saves a file for the check', () => {
+  const { steps, ladder } = lessonById('b-capstone').content;
+  const hints = [...steps.flatMap((step) => step.beats.flatMap((b) => b.hints)), ...ladder.flatMap((l) => l.hints)];
+  const saves = hints.filter((h) => [...h.matchAll(/`([^`]+)`/g)].some(([, code]) => /\s>\s*\.practice\//.test(code)));
+  assert.deepEqual(saves, []);
+  assert.ok(steps.some((step) => step.beats.some((b) => b.bottom.some((x) => x.text === 'git rev-parse HEAD > .practice/capstone-commit.txt'))));
 });
 
 test('the capstone handover line is a plain row: no art of its own, whole in every mode and size, a toast included', () => {
