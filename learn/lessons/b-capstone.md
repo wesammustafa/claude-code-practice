@@ -2,7 +2,7 @@
 lesson: b-capstone
 title: "Beginner capstone: fix a reported bug, from plan to commit"
 source: docs/beginner/capstone.md
-source-commit: 8abdd44
+source-commit: 0c55f9e
 stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
 page: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/beginner/capstone.md
 stuck: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/issues/new?template=lesson-feedback.yml&lesson=b-capstone
@@ -47,7 +47,7 @@ badge: Beginner
 - do: "Then run `npm run linkcheck -- <that folder>` in your copy"
 - note: "Don't put a `linkcheck.json` in your copy, because the check counts it as a change."
 - win-note: "**Windows:** save the file with `'{ "files": ["docs"] }' | Set-Content <that folder>\linkcheck.json`, not `>`."
-- hint: "A teammate filed the bug report in `capstone/beginner-bug.md` in your practice copy: when `linkcheck.json` lists a folder that doesn't exist, the tool says every link resolves and exits with code 0."
+- hint: "the bug report in `capstone/beginner-bug.md`"
 - beat: ask
 - ask: What did it print?
 - right: "`All relative links resolve.`"
@@ -113,8 +113,8 @@ badge: Beginner
 - verify: file .practice/capstone-plan.txt fresh since T2
 - watching: .practice/capstone-plan.txt
 - goal: "Save the files the plan will change, every test file included, to `.practice/capstone-plan.txt`: one path per line, relative to the repository root, with forward slashes, such as `src/cli.js`."
-- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
 - hint: "The fix touches two source files and at least one test file."
+- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
 - why: "the fix commit may change only the files the plan names."
 
 ### T4 | The task step 4 of 6 | Watch the test
@@ -157,7 +157,7 @@ badge: Beginner
 - verify: self
 - done-label: asked for one
 - goal: "Ask for at least one correction that stays inside the files the plan names, and make sure `npm test` passes."
-- hint: "the fix commit may change only the files the plan names."
+- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
 - beat: do
 - where: shell
 - verify: check 4

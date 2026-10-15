@@ -233,23 +233,28 @@ test('the Check\'s recall question files a miss under a skill the course has tau
   assert.deepEqual(untagged, [], 'a Check question\'s skill is one a step so far uses');
 });
 
-// Lessons whose first warm-up recalls a skill none of their own steps reuse,
-// each with its reason.
+// Lessons with no skill in their warm-up pool that comes back in their own
+// steps, so R1 can't be one; each with its reason.
 const R1_NOT_REUSED = {
   'b-4': 'no skill in its pool comes back in b-4',
-  'b-5': 'its pool\'s one reused skill, start, is R2; moving it first is the owner\'s call',
 };
 
 test('warm-ups: the first two mix a recent lesson and an older one, and R1 comes back in this lesson', () => {
   const off = [];
   for (const [id, l] of Object.entries(parsed)) {
     const [r1, r2] = l.warmup;
+    if (!r1) continue;
     // A pool that recalls only one lesson has no lags to mix.
-    if (!r2 || new Set(l.warmup.map((w) => w.from)).size < 2) continue;
-    if (r1.from === r2.from) off.push(`${id}: R1 and R2 both come from ${r1.from}`);
-    if (!l.steps.some((s) => s.skill === r1.skill) !== Boolean(R1_NOT_REUSED[id])) off.push(`${id}: R1 (${r1.skill}) ${R1_NOT_REUSED[id] ? 'comes back now: drop the exemption' : 'is a skill no step here reuses'}`);
+    if (r2 && new Set(l.warmup.map((w) => w.from)).size > 1 && r1.from === r2.from) off.push(`${id}: R1 and R2 both come from ${r1.from}`);
+    // Where the pool holds a skill this lesson reuses, R1 is one, so a missed
+    // warm-up eases a step here.
+    const reused = (w) => l.steps.some((s) => s.skill === w.skill);
+    if (R1_NOT_REUSED[id]) {
+      if (l.warmup.some(reused)) off.push(`${id}: its pool has a skill this lesson reuses: drop the exemption`);
+    } else if (!reused(r1)) off.push(`${id}: R1 (${r1.skill}) is a skill no step here reuses`);
   }
   assert.deepEqual(off, []);
+  for (const id of Object.keys(R1_NOT_REUSED)) assert.ok(parsed[id]?.warmup.length, `${id}: the exemption names no lesson with warm-ups`);
 });
 
 // Questions whose options keep a natural order, so their right answer's
@@ -297,7 +302,8 @@ test('questions give no cue: not by length, quotes, bold, code or place', () => 
   for (const at of Object.keys(NATURAL_ORDER)) {
     const [id, ref] = at.split(' ');
     const [sid, n] = ref.split('.');
-    assert.ok(allSteps(parsed[id]).find((s) => s.id === sid)?.beats[n]?.options.length, `${at}: the exemption names no question`);
+    const b = allSteps(parsed[id]).find((s) => s.id === sid)?.beats[n];
+    assert.ok(b?.ask && b.options.some((o) => o.kind === 'right'), `${at}: the exemption names no question with a right option`);
   }
 });
 

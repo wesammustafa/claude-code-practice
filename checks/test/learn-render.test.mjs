@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { rungsOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
@@ -157,9 +158,18 @@ test('lessons after the first: page links, Windows bottom lines, slow checks and
   assert.match(strip(render(slow.state, { cols: 100, rows: 40 }, theme(CAPS.full)).join('\n')), /takes a while, so it runs only when you ask: press r/);
 });
 
+// First rungs that a small window still cuts, each with its reason.
+const FIRST_RUNG_CUT = {
+  'b-capstone T1.2 hint 1 at 60x20 (ascii)': 'the Windows note fills the card; 142\'s drop order keeps the hint box',
+};
+
 test('every lesson in the app: every beat fits the window, and nothing is cut at 80x24 or larger', async () => {
   const { lessonScreens, course } = await import('./learn-drive.mjs');
   const ids = course.filter((l) => l.content && l.id !== 'b-1').map((l) => l.id);
+  // Only letters and digits, so the box's edges, a wrap and ASCII stand-ins
+  // don't count as a cut.
+  const flat = (text) => text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[^A-Za-z0-9]/g, '');
+  const cut = [];
   for (const id of ids) {
     const all = lessonScreens(id);
     assert.ok(all.length > 10, `${id}: ${all.length} screens`);
@@ -171,6 +181,9 @@ test('every lesson in the app: every beat fits the window, and nothing is cut at
           const where = `${label} at ${cols}x${rows} (${capName})`;
           assert.equal(lines.length, rows, where);
           for (const line of lines) assert.ok(width(line) <= cols - 1, `${where}: ${strip(line)}`);
+          // The first quote behind h shows whole, even in a small window.
+          const rung = /hint 1$/.test(label) && rungsOf(state)[state.beat.rung];
+          if (rung?.kind === 'quote' && cols <= 80 && !flat(lines.map(strip).join('')).includes(flat(rung.text))) cut.push(where);
           if (cols >= 80 && (capName === 'full' || capName === 'ascii')) {
             const plain = lines.map(strip);
             const end = t.unicode ? '…' : '.';
@@ -180,6 +193,7 @@ test('every lesson in the app: every beat fits the window, and nothing is cut at
       }
     }
   }
+  assert.deepEqual(cut, Object.keys(FIRST_RUNG_CUT), 'a first rung is cut');
 });
 
 test('real-run fixes: prompts wrap at spaces, a short list stays in "not yet", a safety guess wraps cleanly', async () => {
