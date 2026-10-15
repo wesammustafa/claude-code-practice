@@ -34,6 +34,7 @@ export function sanitize(data) {
       easedSteps: Object.fromEntries(Object.entries(p.easedSteps ?? {}).filter(([, v]) => v === true)),
       complete: p.complete === true,
       warm: Array.isArray(p.warm) ? p.warm.filter((x) => typeof x === 'string' && /^R\d+$/.test(x)) : [],
+      recalled: Array.isArray(p.recalled) ? p.recalled.filter((x) => typeof x === 'string' && /^R\d+$/.test(x)) : [],
       stamps: Object.fromEntries(Object.entries(p.stamps ?? {}).filter(([k, v]) => typeof k === 'string' && typeof v === 'string').map(([k, v]) => [k, v.slice(0, 120)])),
       bottomAt: typeof p.bottomAt === 'string' && /^[WYTCR]\d*$/.test(p.bottomAt) ? p.bottomAt : null,
     };

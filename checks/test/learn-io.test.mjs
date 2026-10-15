@@ -153,6 +153,21 @@ test('saved state: round trip, nothing written before .practice/ exists, junk ig
   });
 });
 
+test('saved state: recalled keeps only warm-up ids, and an old file loads with none', () => {
+  const data = sanitize({ lessons: { 'b-3': { recalled: ['R1', 'W1', 'R', 3, 'R12', '../R2', null] } } });
+  assert.deepEqual(data.lessons['b-3'].recalled, ['R1', 'R12']);
+  assert.deepEqual(sanitize({ lessons: { 'b-3': { recalled: 'R1' } } }).lessons['b-3'].recalled, []);
+  withRepo(() => repo(), (dir) => {
+    mkdirSync(join(dir, '.practice'));
+    // Written before `recalled` existed.
+    writeFileSync(storePath(dir), JSON.stringify({ format: 1, welcomed: true, lessons: { 'b-3': { step: 'R1', beat: 0, warm: ['R1', 'R2'], done: [] } } }));
+    assert.deepEqual(loadState(dir).lessons['b-3'].recalled, []);
+    const saved = sanitize({ lessons: { 'b-3': { warm: ['R1', 'R2'], recalled: ['R1'] } } });
+    assert.equal(saveState(dir, saved), true);
+    assert.deepEqual(loadState(dir).lessons['b-3'].recalled, ['R1'], 'it survives a save and a load');
+  });
+});
+
 test('without a terminal it prints the path as plain text and exits 0', () => {
   const { NODE_TEST_CONTEXT, ...env } = process.env;
   const r = spawnSync(process.execPath, [join(root, 'learn', 'app.mjs')], { input: '', encoding: 'utf8', env });
