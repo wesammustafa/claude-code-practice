@@ -164,7 +164,9 @@ const FIRST_RUNG_CUT = {
   'b-capstone T1.2 hint 1 at 60x20 (ascii)': 'the Windows note fills the card; 142\'s drop order keeps the hint box',
 };
 
-test('every lesson in the app: every beat fits the window, and nothing is cut at 80x24 or larger', async () => {
+// Every lesson after the first, on the path and with every lesson before it
+// skipped, so the steps that drop to GUIDED show their bottom lines too.
+for (const skipped of [false, true]) test(`every lesson in the app${skipped ? ', with nothing done before it' : ''}: every beat fits the window, and nothing is cut at 80x24 or larger`, async () => {
   const { lessonScreens, course } = await import('./learn-drive.mjs');
   const ids = course.filter((l) => l.content && l.id !== 'b-1').map((l) => l.id);
   // Only letters and digits, so the box's edges, a wrap and ASCII stand-ins
@@ -172,7 +174,7 @@ test('every lesson in the app: every beat fits the window, and nothing is cut at
   const flat = (text) => text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[^A-Za-z0-9]/g, '');
   const cut = [];
   for (const id of ids) {
-    const all = lessonScreens(id);
+    const all = lessonScreens(id, course, { skipped });
     assert.ok(all.length > 10, `${id}: ${all.length} screens`);
     for (const [capName, caps] of Object.entries(CAPS)) {
       const t = theme(caps);
@@ -388,7 +390,7 @@ test('fading counts only what this learner did: a skipped skill opens GUIDED wit
   assert.ok(!plainAt(path, 80, 24).includes(cmd));
 });
 
-test('fading counts only what this learner did: "done each part before" only after a finished step on that skill', async () => {
+test('fading counts only what this learner did: "done each part before" only after a finished step on every part', async () => {
   const { courseWith, DEMO_B2 } = await import('./learn-drive.mjs');
   assert.equal(C.noCommands, 'No commands this time.');
   assert.equal(C.doneEachPart, "You've done each part before.");
@@ -407,9 +409,22 @@ test('fading counts only what this learner did: "done each part before" only aft
     assert.ok(text.includes(C.noCommands), `${cols}x${rows}`);
     assert.ok(!text.includes(C.doneEachPart), `${cols}x${rows}: no history, so no "done before"`);
   }
-  const did = open({ 'b-2': { complete: true, done: ['W2'] } });
+  // A capstone step draws on every lesson before it: a finished step on its
+  // own skill alone is not each part.
+  const some = open({ 'b-2': { complete: true, done: ['W2'] } });
   assert.equal(lessonById('b-2').content.steps.find((x) => x.id === 'W2').skill, t2.skill);
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(!flat(plainAt(some, cols, rows)).includes(C.doneEachPart), `${cols}x${rows}`);
+  const did = open(finishedBefore('b-capstone'));
   for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(plainAt(did, cols, rows).includes(`${C.noCommands} ${C.doneEachPart}`), `${cols}x${rows}`);
+  // T1 saves the version (b-1), but also commits a CLAUDE.md (b-5): a learner
+  // who did only b-1 hasn't done each part.
+  const b1 = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(lessonById('b-1')), 'b-capstone': { step: 'T1', beat: 0, warm: [] } } } });
+  b1.key('enter');
+  assert.equal(stepOf(b1.state).skill, 'save-version');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const text = flat(plainAt(b1, cols, rows));
+    assert.ok(text.includes(C.noCommands) && !text.includes(C.doneEachPart), `${cols}x${rows}`);
+  }
   // A harder step's line, too: a skill put on the plan by a warm-up, with no
   // step finished on it, gets no "You've done this before".
   const text = DEMO_B2.replace(/## steps[\s\S]*$/, ['## steps', '',
@@ -426,4 +441,26 @@ test('fading counts only what this learner did: "done each part before" only aft
   };
   assert.match(atW2(finished(lessonById('b-1')), []), /You've done this before/);
   assert.doesNotMatch(atW2({ complete: true, done: [] }, ['R1']), /You've done this before/, 'R1 (status) was recalled, but no status step was finished');
+});
+
+test('fading counts only what this learner did: a replay\'s intro shows the help the play starts with', () => {
+  // b-1 done, b-2 skipped, b-3 finished with R1 and R2 recalled: the enter
+  // clears the recalls, so the intro already leaves them out.
+  const b3 = lessonById('b-3');
+  const replay = (recalled) => {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(lessonById('b-1')), 'b-3': { ...finished(b3), recalled } } } });
+    if (d.state.view !== 'map') d.key('m');
+    while (d.state.mapCursor !== allCourse.indexOf(b3)) d.key('down');
+    d.key('enter');
+    assert.equal(d.state.view, 'intro');
+    return d;
+  };
+  const old = replay(['R1', 'R2']);
+  const clean = replay([]);
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.equal(plainAt(old, cols, rows), plainAt(clean, cols, rows), `${cols}x${rows}`);
+  // And the play then starts at the tiers the intro drew.
+  old.key('enter');
+  clean.key('enter');
+  assert.equal(tierOf(old.state), tierOf(clean.state));
+  assert.equal(old.state.progress['b-3'].warm.join(), clean.state.progress['b-3'].warm.join());
 });
