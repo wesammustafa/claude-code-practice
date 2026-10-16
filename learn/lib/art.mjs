@@ -15,6 +15,15 @@ export function pip(t, mood = 'happy') {
   return [f('╭───────╮'), `${f('│')} ${eyes} ${f('│')}`, `${f('│')}  ${mouth}  ${f('│')}`, f('╰───────╯')];
 }
 
+// Pip's small face for a card's top border, 7 cells: ` (●‿●) `, or with
+// its arms up `\(^_^)/`.
+export const PIP_FACE = 7;
+export function pipFace(t, mood) {
+  const { eye, mouth, arms = [' ', ' '] } = t.pipGlyphs[mood];
+  const e = t.fg(mood === 'done' ? 'gold' : 'key', eye);
+  return `${t.fg('accent', `${arms[0]}(`)}${e}${t.fg('challenge', mouth)}${e}${t.fg('accent', `)${arms[1]}`)}`;
+}
+
 const FONT = {
   L: ['█  ', '█  ', '█▄▄'], E: ['█▀▀', '█▀▀', '█▄▄'], V: ['█ █', '█ █', '▀▄▀'], U: ['█ █', '█ █', '█▄█'],
   P: ['█▀█', '█▀▀', '█  '], C: ['█▀▀', '█  ', '█▄▄'], O: ['█▀█', '█ █', '█▄█'], M: ['█▀▄▀█', '█ ▀ █', '█   █'],
