@@ -24,7 +24,8 @@ const screens = allScreens();
 
 test('lesson 1 reaches every screen the app has', () => {
   const labels = screens.map(([label]) => label);
-  for (const view of ['welcome', 'intro', 'complete', 'next', 'map', 'help', 'check-only', 'page', 'resume']) assert.ok(labels.includes(view), view);
+  for (const view of ['welcome', 'intro', 'complete', 'next', 'compare', 'map', 'help', 'check-only', 'page', 'resume']) assert.ok(labels.includes(view), view);
+  assert.equal(screens.find(([l]) => l === 'compare')[1].overlay, 'compare');
   assert.equal(screens.find(([l]) => l === 'complete')[1].view, 'complete');
   assert.equal(screens.find(([l]) => l === 'W3 done')[1].beat.status, 'done');
 });
@@ -1746,7 +1747,9 @@ test('the Why line\'s lead is in accent and its quote in text, and a step\'s not
 // at 80x24. Three rows are not this ticket's and are the app's as it draws
 // them: the trail, whose done steps are filled where the mockup drew them
 // hollow, the progress rule under it (157), full where the mockup drew a
-// plain rule, and B5's mix bar, which is B5's plan.
+// plain rule, and B5's mix bar, which is B5's plan. Recall, then compare
+// (152) adds its row under the climb, which stays, and the blank above the
+// saved line gives way.
 const B4_NEXT = `
    B4   Keep a session on track                                    COMPLETE ✔
   ★━━★━━★   ●━━●   ◆   ●━━●━━●   ◆━━◆━━◆━━◆   ★━━★                    15 of 15
@@ -1761,14 +1764,14 @@ const B4_NEXT = `
          ◆◆◆◆◆    HINTED ★★☆    the goal, hints if you ask
   ●●●●●    GUIDED ★☆☆    every command shown
 
+  Say B4's commands to yourself, then press space.
+
   📖 Go further: "Explore the context window: an interactive view of what
      fills a session."
 
   ▸ Next up   B5   Project memory with CLAUDE.md
      ●●●◆◆◆◆◆◆★★★  A notch harder: it starts with less help.
-
   Your progress is saved, so a break is fine. Come back with npm run learn.
-
 
   ────────────────────────────────────────────────────────────────────────────
    enter  start B5    p page    m map    c card    q quit`;
@@ -1781,7 +1784,14 @@ test('the next screen ends the lesson with 📖 Go further and the page\'s line:
   assert.deepEqual(lines, B4_NEXT.slice(1).split('\n'), lines.join('\n'));
 });
 
+// Where the recall row (152) takes Go further's room, and why. Go further
+// is optional: p shows it whole there too.
+const GO_FURTHER_GIVES = {
+  'b-2 next at 60x20': 'its Next up title wraps to two rows and its Go further line to three, so no spacer is left for the recall row',
+};
+
 test('every next screen but a capstone\'s shows its Go further line whole at 60x20 and 80x24, in every mode', () => {
+  const gave = new Set();
   for (const [label, state] of endScreens().filter(([l]) => l.endsWith('next'))) {
     const { read } = lessonById(state.lesson).content.intro;
     for (const [capName, caps] of Object.entries(CAPS)) {
@@ -1791,6 +1801,12 @@ test('every next screen but a capstone\'s shows its Go further line whole at 60x
         const lines = render(state, { cols, rows }, t).map(strip);
         const where = `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
         const at = lines.findIndex((l) => l.trimStart().startsWith(flag));
+        if (`${label} at ${cols}x${rows}` in GO_FURTHER_GIVES) {
+          assert.equal(at, -1, where);
+          assert.ok(lines.some((l) => l.trim() === "Say B2's commands to yourself, then press space."), where);
+          gave.add(`${label} at ${cols}x${rows}`);
+          continue;
+        }
         if (state.lesson.endsWith('capstone')) {
           assert.equal(read, undefined);
           assert.equal(at, -1, where);
@@ -1808,6 +1824,7 @@ test('every next screen but a capstone\'s shows its Go further line whole at 60x
       }
     }
   }
+  assert.deepEqual([...gave], Object.keys(GO_FURTHER_GIVES));
   // b-4 at 60x20: the two rows the design's mockup draws. The blank above
   // them is the sentence's own, so it stays while the spacers below give
   // way: 142's climb takes two rows where the mockup's took one, and that
@@ -1954,7 +1971,8 @@ test('📖 has one job: Go further, once, on the next screen and behind p, and n
       for (const [cols, rows] of SHORT) {
         const lines = render(state, { cols, rows }, t).map(strip);
         const n = lines.filter((x) => x.includes(flag)).length;
-        assert.equal(n, goes ? 1 : 0, `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`);
+        const gives = !state.overlay && `${label} at ${cols}x${rows}` in GO_FURTHER_GIVES;
+        assert.equal(n, goes && !gives ? 1 : 0, `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`);
         if (n) assert.ok(lines.find((x) => x.includes(flag)).trimStart().startsWith(`${flag} ${C.goFurther}`));
         seen += n;
       }
@@ -2432,8 +2450,8 @@ test('? lists c for your card where it has room, a row 60x20 gives up first; the
 
 test('c card gives way before anything else on the bar: with it taken out, every bar is the one a card with no entries draws', async () => {
   const noCard = (state) => ({ ...state, course: state.course.map((l) => (l.content ? { ...l, content: { ...l.content, card: [] } } : l)) });
-  // The card's own bar is the card's.
-  const all = [...await everyScreen(), ...endScreens()].filter(([, state]) => state.overlay !== 'card');
+  // The card's own bar is the card's, and the comparison's is its own.
+  const all = [...await everyScreen(), ...endScreens()].filter(([, state]) => !['card', 'compare'].includes(state.overlay));
   let shown = 0;
   for (const caps of [CAPS.full, CAPS.ascii]) {
     const t = theme(caps);
@@ -2486,4 +2504,87 @@ test('your card\'s last place is the Commands by level link, so a toast at 60x20
       if (s.toast) assert.ok(lines.some((l) => l.includes("Couldn't save your place")), `the toast stays: ${where}`);
     }
   }
+});
+
+// Recall, then compare (152, design D8 (a)): the next screen asks for the
+// lesson's card entries from memory; space shows them whole.
+const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'CAP' };
+const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
+  ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
+  ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];
+
+// What the comparison on screen says each command does: the rows from its
+// command, beside it, to the closing quote. Undefined where it is not shown.
+const compared = (lines, show) => {
+  const k = lines.findIndex((l) => l.startsWith(`${show}   `) && l.slice(show.length).trimStart().startsWith('"'));
+  if (k < 0) return undefined;
+  const end = lines.findIndex((l, j) => j >= k && l.endsWith('"'));
+  return [lines[k].slice(show.length).trimStart(), ...lines.slice(k + 1, end + 1)].join(' ');
+};
+
+test('the next screen asks for the lesson\'s commands from memory, and shows none of them until space', () => {
+  for (const [label, state] of endScreens().filter(([l]) => l.endsWith('next'))) {
+    const ask = `Say ${RECALL[state.lesson]}'s commands to yourself, then press space.`;
+    for (const [cols, rows] of SHORT) {
+      const lines = render(state, { cols, rows }, theme(CAPS.full)).map((l) => strip(l).trim());
+      const where = `${label} at ${cols}x${rows}\n${lines.join('\n')}`;
+      assert.ok(lines.includes(ask), where);
+      for (const e of lessonById(state.lesson).content.card) assert.ok(!flatText(lines.join('')).includes(flatText(`"${e.does}"`)), `${e.show} shows before space: ${where}`);
+    }
+  }
+});
+
+test('space shows the lesson\'s card entries whole, only this lesson\'s, and enter still says where it goes', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-4');
+  const bar = strip(render(d.state, { cols: 80, rows: 24 }, theme(CAPS.full)).at(-1)).trim();
+  d.key('space');
+  const lines = cardText(d);
+  const where = lines.join('\n');
+  for (const [show, does] of B4_CARD) assert.equal(compared(lines, show), `"${does}"`, `${show}\n${where}`);
+  // Earlier lessons' entries are on the card, not in this comparison.
+  for (const show of ['claude --version', 'Shift+Tab', 'Ctrl+O', '/diff']) assert.ok(!lines.some((l) => l.includes(show)), `${show}\n${where}`);
+  // Nothing is judged: no mark on any entry, and nothing to answer, only to go on or back.
+  assert.ok(!lines.slice(3, -2).some((l) => /[✔✗▲]/.test(l)), where);
+  assert.equal(lines.at(-1), 'enter  start B5    space close    q close', where);
+  assert.ok(bar.startsWith('enter  start B5'), bar);
+});
+
+test('the comparison fits at 60x20 and 80x24: where it is taller than the window, the arrows show each entry whole, then the link', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-4');
+  d.key('space');
+  const shows = B4_CARD.map(([show]) => show);
+  const toast = { kind: 'save', message: 'EACCES: permission denied, open /home/sam/claude-code-practice/.practice/learn.json' };
+  for (const [cols, rows] of SHORT) {
+    const at = `${cols}x${rows}`;
+    const seen = new Set();
+    for (let i = 0; i < 20; i++) {
+      for (const s of [d.state, { ...d.state, toast }]) {
+        const lines = render(s, { cols, rows }, theme(CAPS.full)).map(strip);
+        assert.equal(lines.length, rows, at);
+        for (const l of lines) assert.ok(width(l) <= cols - 1, `${at}: ${l}`);
+      }
+      const lines = cardText({ state: d.state }, cols, rows);
+      const where = `${at}\n${lines.join('\n')}`;
+      // Each entry on screen is whole: its command, then what it does to the closing quote.
+      for (const [show, does] of B4_CARD) {
+        const said = compared(lines, show);
+        if (said === undefined) continue;
+        assert.equal(said, `"${does}"`, where);
+        seen.add(show);
+      }
+      if (lines.join('').includes(COMMANDS_BY_LEVEL)) break;
+      d.key('down');
+    }
+    assert.deepEqual([...seen], shows, at);
+    // Down stops at the link, the last place.
+    for (let i = 0; i < 10; i++) d.key('down');
+    assert.equal(d.state.cardAt, shows.length, at);
+    while (d.state.cardAt) d.key('up');
+  }
+  // It fits whole at 80x24: every entry and the link at once, with no arrows.
+  const tall = cardText(d);
+  assert.ok(tall.join('').includes(COMMANDS_BY_LEVEL) && B4_CARD.every(([show, does]) => compared(tall, show) === `"${does}"`), tall.join('\n'));
+  assert.doesNotMatch(tall.at(-1), /scroll/);
 });

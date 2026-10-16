@@ -1801,3 +1801,37 @@ test('r over a "Not yet" keeps its hints: the open rung, the ladder h climbs and
   assert.equal(d.state.beat.status, 'fail');
   assert.equal(d.state.beat.rung, ladder.length - 1, 'the same FAIL keeps the exact command open');
 });
+
+// Recall, then compare (152, design D8 (a)): the next screen asks for the
+// lesson's card entries from memory, and space shows them. Nothing is
+// judged or saved, and enter never waits for it.
+const onNext = (id) => {
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === id);
+  return d;
+};
+
+test('recall, then compare: space on the next screen shows the lesson\'s entries, and enter goes on with or without it', () => {
+  const d = onNext('b-4');
+  const before = snapshot(d.state);
+  assert.deepEqual(d.key('space').filter((e) => e.type === 'save'), [], 'space saves nothing');
+  assert.equal(d.state.overlay, 'compare');
+  assert.deepEqual(snapshot(d.state), before, 'nothing new is saved');
+  // Enter from the comparison goes on to the next lesson, as from the next screen.
+  d.key('enter');
+  assert.equal(d.state.overlay, null);
+  assert.equal(d.state.lesson, 'b-5');
+  assert.equal(d.state.view, 'intro');
+  // Enter never waits: with no space, it goes on at once.
+  const e = onNext('b-4');
+  e.key('enter');
+  assert.equal(e.state.lesson, 'b-5');
+  assert.equal(e.state.view, 'intro');
+  // Space again closes the comparison, back on the next screen.
+  const f = onNext('b-4');
+  f.key('space');
+  f.key('space');
+  assert.equal(f.state.overlay, null);
+  assert.equal(f.state.view, 'next');
+  assert.deepEqual(snapshot(f.state), before);
+});

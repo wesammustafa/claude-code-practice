@@ -139,6 +139,10 @@ export const C = {
   cardIntro: "The commands from steps you finished, in the lessons' words.",
   cardEmpty: 'Nothing here yet: commands show up here as you finish the steps that use them.',
   cardLink: 'Commands by level, in the guide:',
+  // Recall, then compare: the next screen asks, space shows the entries.
+  recallAsk: (label) => `Say ${label}'s commands to yourself, then press space.`,
+  compareTitle: (label) => `${label}'s commands`,
+  compareIntro: "Here they are, in the lesson's words: compare them with yours.",
 
   pageTitle: 'The lesson page',
   stuckLink: 'Stuck? Tell us here:',

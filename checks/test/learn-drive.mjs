@@ -251,6 +251,8 @@ export function allScreens() {
   d.key('enter'); snap('C self');
   d.key('space'); snap('complete');
   d.key('enter'); snap('next');
+  d.key('space'); snap('compare');
+  d.key('space');
   d.key('m'); snap('map');
   d.key('?'); snap('help');
   d.key('?'); d.key('down'); d.key('enter'); snap('check-only');
