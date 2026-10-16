@@ -772,7 +772,7 @@ test('a card enters: its words whole at once, the top rule grows from the pill, 
   assert.deepEqual([80, 160].map((ms) => face(running, ms)), [' [─‿─] ', ' [◒─◒] '], 'its child started as it opened');
 });
 
-test('a new "Not yet": the line whole at once, its mark pops, Pip looks down, nods, and looks back down', () => {
+test('a new "Not yet": the line whole at once, its mark pops, Pip wears its worried face, nods with both eyes open, and wears it again', () => {
   const s = screen('W3 not yet');
   const f = (ms) => frameAt(s, s.fx.text, ms);
   const top = (face) => `  ╭─  💻 in your other terminal  ──────────────────────────────────── ${face} ──`;
@@ -781,7 +781,7 @@ test('a new "Not yet": the line whole at once, its mark pops, Pip looks down, no
   assert.deepEqual(at(0), [top('[●‿◒]'), line('△')], '+0 ms');
   assert.deepEqual(at(80), [top('[●‿◒]'), line('▲')], '+80 ms');
   assert.deepEqual(at(160), [top('[●‿●]'), line('▲')], '+160 ms: a nod');
-  assert.deepEqual(at(360), [top('[●‿◒]'), line('▲')], '+360 ms: back down');
+  assert.deepEqual(at(360), [top('[●‿◒]'), line('▲')], '+360 ms: worried again');
   // The check's result differs from the last, so a sweep crosses the pulse
   // line (row 23) in 400 ms. Nothing else moves, and from 400 ms nothing
   // moves at all.
@@ -989,7 +989,7 @@ function checkingW3(after = 200) {
 const top = (face) => `  ╭─  💻 in your other terminal  ──────────────────────────────────── ${face} ──`;
 const statusRow = (lines) => lines.find((l) => l.includes('Checking'));
 
-test('the spinner: from 150 ms of a running child, the cell after the checking label turns every 80 ms, and Pip looks up and holds its checking face', () => {
+test('the spinner: from 150 ms of a running child, the cell after the checking label turns every 80 ms, and Pip wears and holds its checking face', () => {
   const { d, run } = checkingW3();
   const s = d.state;
   const f = (ms) => frameAt(s, run, ms);
@@ -1138,7 +1138,7 @@ test('the look marker hides for 4 s after a key, stops at idle as "Stuck?" appea
   look();
   assert.equal(frameAt(d.state, d.now, 0).at(-2), pulse(7, 3));
   // Idle: 120 s with no key and no file activity. The marker stops, the
-  // "Stuck?" offer appears and Pip looks down at it.
+  // "Stuck?" offer appears and Pip wears its worried face.
   const quiet = d.state;
   const idleAt = d.state.lastActivity + IDLE_MS;
   assert.equal(frameAt(quiet, idleAt, -1).at(-2), pulse(7, 3));
@@ -1272,7 +1272,7 @@ test('Pip\'s glance: on a file change Pip looks toward the other window for 1.2 
   assert.deepEqual([0, 600, 1_160].map((ms) => face(d.state, ms)), Array(3).fill(top('[◑‿◑]')), 'design 2.3');
   assert.equal(face(d.state, 1_200), top('[●‿●]'), '+1200 ms: back at the learner');
   assert.equal(nextChange(d.state, act + 600, ON) <= 600, true, 'its end is a frame');
-  // Over a worried face too: it looks away, then back down.
+  // Over a worried face too: it looks away, then wears it again.
   const failing = screen('W3 not yet');
   const away = reduce(failing, { type: 'activity', now: failing.now + 5_000 }).state;
   assert.deepEqual([0, 1_200].map((ms) => face(away, ms, away.now)), [top('[◑‿◑]'), top('[●‿◒]')]);
@@ -1288,18 +1288,19 @@ test('Pip\'s glance: on a file change Pip looks toward the other window for 1.2 
   // A key ends it, as it ends any one-shot.
   const keyed = reduce(d.state, { type: 'key', name: 'down', now: act + 300 }).state;
   assert.equal(face(keyed, 400), top('[●‿●]'));
-  // The file change brings a new "Not yet" 60 ms later: Pip looks down at
-  // it, nods, and stays down (design 2.3); the glance does not come back.
+  // The file change brings a new "Not yet" 60 ms later: Pip wears its
+  // worried face, nods, and keeps it (design 2.3); the glance does not come
+  // back.
   const waiting = screen('W3 waiting');
   const edit = reduce(waiting, { type: 'activity', now: waiting.now + 5_000 }).state;
   const notYet = reduce(edit, { type: 'check', lesson: 'b-1', items: [b1Item('hello')], now: edit.now + 60 }).state;
   assert.equal(notYet.beat.status, 'fail');
-  const down = Array.from({ length: 31 }, (_, k) => 40 * k).filter((ms) => ms >= 60 + TIMING.notYet).map((ms) => face(notYet, ms, edit.now));
-  assert.deepEqual(down, Array(down.length).fill(top('[●‿◒]')), 'down from the nod\'s end');
+  const worried = Array.from({ length: 31 }, (_, k) => 40 * k).filter((ms) => ms >= 60 + TIMING.notYet).map((ms) => face(notYet, ms, edit.now));
+  assert.deepEqual(worried, Array(worried.length).fill(top('[●‿◒]')), 'worried from the nod\'s end');
 });
 
 test('no glance once the watch ends: a file change, then a look that passes the beat, hops or cheers and never looks away', () => {
-  // W3's only beat: the step is done, Pip cheers, then wears its star.
+  // W3's only beat: the step is done, Pip cheers, then wears its done face.
   const waiting = screen('W3 waiting');
   const edit = reduce(waiting, { type: 'activity', now: waiting.now + 5_000 }).state;
   const passed = reduce(edit, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)', now: edit.now + 50 }).state;

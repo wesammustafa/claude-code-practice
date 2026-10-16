@@ -18,15 +18,19 @@ const MOOD = { worried: { right: 0.6 } };
 const OPEN = { left: 1, right: 1, happy: 0, smile: 1 };
 const FRAME = {
   shut: { ...OPEN, left: 0, right: 0 }, waking: { ...OPEN, left: 0.45, right: 0.45 }, awake: OPEN,
-  glance: { ...OPEN, gazeX: 0.7 }, cheer: { happy: 1, smile: 1.2, spark: 1 }, up: { spark: 1 },
+  glance: { ...OPEN, gazeX: 0.7 }, cheer: { happy: 1, smile: 1.2, spark: 1 }, sparks: { spark: 1 },
 };
 // ASCII Pip is still, with three faces: at rest, checking, and done.
+// Broken draws as rest, since the package's ASCII error face is checking's.
+const ASCII_STATE = { ...STATE, broken: STATE.rest };
 const poseOf = (t, mood, frame) => (t.unicode
   ? { ...restPose(STATE[mood]), ...MOOD[mood], ...FRAME[frame] }
-  : restPose(STATE[mood === 'broken' ? 'rest' : mood]));
+  : restPose(ASCII_STATE[mood]));
 
 // Each cell's color, by its place: o the outline, e the eyes, antenna and
 // sparks, m the mouth. A run of one color takes one code; a blank, none.
+// The places mirror the package's glyph rows, which it does not export; a
+// newer pip.mjs fails the test that pins its hash, so they get rechecked.
 const INK = { o: 'pipOutline', e: 'pipEyes', m: 'pipMouth' };
 function ink(t, row, places) {
   const cells = [...row];
@@ -39,8 +43,8 @@ function ink(t, row, places) {
 }
 
 // The big Pip, 4 rows of 9 cells: its antenna, its head (the antenna's foot
-// in `┴`), its face, its chin. A one-shot's `frame` changes its eyes:
-// shut, waking or awake, or, to cheer, happy with sparks beside the
+// in `┴`), its face, its chin. A one-shot's `frame` sets its eyes and
+// smile: shut, waking or awake, or, to cheer, happy with sparks beside the
 // antenna. ASCII Pip is still.
 export function pip(t, mood = 'happy', frame) {
   const places = ['eeeeeeeee', t.unicode ? 'ooooeoooo' : 'ooooooooo', 'o  eme  o', 'ooooooooo'];

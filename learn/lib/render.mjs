@@ -451,7 +451,7 @@ function pipNow(ctx, shown) {
   const mood = shown === 'checking' && !ctx.ph.checking ? 'rest' : shown;
   const e = into(ctx, 'entrance');
   const n = into(ctx, 'notYet');
-  if (into(ctx, 'hop') < Infinity || into(ctx, 'cheer') < Infinity) return { mood, frame: 'up' };
+  if (into(ctx, 'hop') < Infinity || into(ctx, 'cheer') < Infinity) return { mood, frame: 'sparks' };
   if (n < Infinity) return { mood: n >= SHOTS.notYet.nod ? 'rest' : mood };
   if (e < SHOTS.entrance.land) return null;
   if (e < Infinity) return { mood, frame: 'shut' };
@@ -644,10 +644,11 @@ const VIEWS = {
     const word = banner(t, C.levelUp, e < at.whole ? { cells: Math.round((bannerWidth(C.levelUp) * e) / at.whole) } : {});
     const fits = t.unicode && W >= 14 + bannerWidth(C.levelUp);
     const plain = t.bold(t.fg('accent', C.levelUp));
-    // Pip and the banner: decoration, leaving the word.
+    // Pip and the banner, or the word beside Pip's face: decoration,
+    // leaving the word.
     const top = decor(fits
       ? [` ${art[0]}`, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
-      : [` ${art[0]}`, ` ${art[1]}    ${plain}`, ` ${art[2]}`, ` ${art[3]}`], [` ${plain}`]);
+      : [` ${art[0]}`, ` ${art[1]}`, ` ${art[2]}    ${plain}`, ` ${art[3]}`], [` ${plain}`]);
     const lines = toChallenge ? C.toChallenge : C.toHinted;
     const tint = TIER_STYLE[s.levelTo].tint;
     // The arrow's 8 cells fill a third at a time, rounded up.
@@ -705,7 +706,7 @@ const VIEWS = {
         under,
         decor(fits
           ? [` ${art[0]}`, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
-          : [` ${art[0]}`, ` ${art[1]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[2]}`, ` ${art[3]}`], [` ${t.bold(t.fg('ok', C.complete))}`]),
+          : [` ${art[0]}`, ` ${art[1]}`, ` ${art[2]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[3]}`], [` ${t.bold(t.fg('ok', C.complete))}`]),
         SPACER,
         lead(t, 'party', t.bold(t.fg('white', C.lessonDone(label)))),
         ...content.intro.can.flatMap((c) => canLine(t, c, c === content.intro.payoff, t.fg('ok', t.glyph.check), W - 8, e < lands(c))),

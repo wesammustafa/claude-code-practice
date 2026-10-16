@@ -68,6 +68,8 @@ test('each color mode draws only what it can show', () => {
     for (const c of codes(none)) for (const p of c.split(';')) assert.ok(['0', '1', '22', '7', '27', ''].includes(p), `${label} without color uses SGR ${c}`);
     const sixteen = render(state, { cols: 100, rows: 30 }, theme(CAPS.sixteen)).join('\n');
     assert.doesNotMatch(sixteen, /38;5|48;5/, `${label} in 16 colors uses a 256-color code`);
+    const truecolor = render(state, { cols: 100, rows: 30 }, theme({ ...CAPS.full, depth: 24 })).join('\n');
+    assert.doesNotMatch(truecolor, /38;2|48;2/, `${label} on a truecolor terminal uses a truecolor code`);
     const ascii = render(state, { cols: 100, rows: 30 }, theme(CAPS.ascii)).map(strip).join('\n');
     assert.doesNotMatch(ascii, /[^\x00-\x7f]/, `${label} in ASCII mode draws ${ascii.match(/[^\x00-\x7f]/)?.[0]}`);
   }
@@ -1245,7 +1247,7 @@ test('the welcome fits at 60x20 and 80x24: nothing cut, Pip and both windows on 
 // Pip's antenna is its first row: text beside it starts on Pip's face row,
 // or as low as Pip's four rows still hold it, and beside the antenna only
 // when it needs all four, so Pip's block keeps its rows.
-test('the text beside the big Pip starts on its face row where Pip\'s four rows hold it, and beside the antenna only when it needs all four', () => {
+test('the text beside the big Pip starts on its face row where Pip\'s four rows hold it; longer text keeps today\'s rows', () => {
   const t = theme(CAPS.full);
   const at = (lines, text) => lines.map(strip).find((l) => l.includes(text));
   const face = '│  ●‿●  │';
@@ -1253,14 +1255,27 @@ test('the text beside the big Pip starts on its face row where Pip\'s four rows 
   assert.match(at(bootFrame(0, { cols: 80, rows: 24 }, t), C.askingGit), new RegExp(`^ {3}${face} {3}${C.askingGit}$`));
   const resume = screens.find(([l]) => l === 'resume')[1];
   assert.ok(at(render(resume, { cols: 80, rows: 24 }, t), C.welcomeBack).includes(`${face}   👋 ${C.welcomeBack}`));
-  // Three: the welcome at 80 columns starts beside the head's top, not the
-  // antenna. Four: at 60 columns, beside the antenna, as the text needs.
+  // Longer text starts higher rather than add a row: three rows (the
+  // welcome at 80 columns) beside the head's top, four (at 60 columns)
+  // beside the antenna, as today's rule placed them. This pins that
+  // trade, not the face row, until the owner chooses between the two.
   const welcome = (cols) => render(driver().state, { cols, rows: 24 }, t).map(strip);
   const hi = (lines) => lines.findIndex((l) => l.includes(`👋 ${C.hi('Sam').split(' ').slice(0, 2).join(' ')}`));
   const pipTop = (lines) => lines.findIndex((l) => /^ {3} {4}● {4}/.test(l));
   assert.equal(hi(welcome(80)) - pipTop(welcome(80)), 1, welcome(80).join('\n'));
   assert.match(welcome(80)[pipTop(welcome(80))], /^ {3} {4}● {4}$/);
   assert.equal(hi(welcome(60)) - pipTop(welcome(60)), 0, welcome(60).join('\n'));
+});
+
+test('the word beside the big Pip, where no banner is drawn, sits on its face row: LEVEL UP and COMPLETE in ASCII', () => {
+  const t = theme(CAPS.ascii);
+  for (const [label, face, word] of [['level up hinted', 'o-o', C.levelUp], ['complete', '^_^', C.complete]]) {
+    const s = screens.find(([l]) => l === label)[1];
+    for (const [cols, rows] of SHORT) {
+      const lines = render(s, { cols, rows }, t).map((l) => strip(l).trimEnd());
+      assert.ok(lines.includes(`   |  ${face}  |    ${word}`), `${label} at ${cols}x${rows}\n${lines.join('\n')}`);
+    }
+  }
 });
 
 test('decoration gives way below 24 rows only, after the spacers: the confetti, then Pip and the banner', () => {
@@ -2386,15 +2401,18 @@ const inks = (line) => {
   return out;
 };
 
-test('Pip\'s face is in Pip\'s own colors: the outline purple, the eyes yellow, the mouth white, in 256 and in 16 colors', () => {
+test('Pip\'s face is in Pip\'s own colors: the outline purple, the eyes yellow, the mouth white, in 256 and in 16 colors, and in 256 on a truecolor terminal', () => {
   const s = screens.find(([l]) => l === 'W3 waiting')[1];
-  for (const [caps, [outline, eyes, mouth]] of [[CAPS.full, ['38;5;177', '38;5;221', '38;5;255']], [CAPS.sixteen, ['95', '93', '97']]]) {
+  const truecolor = { ...CAPS.full, depth: 24 };
+  for (const [caps, [outline, eyes, mouth]] of [[CAPS.full, ['38;5;177', '38;5;221', '38;5;255']], [CAPS.sixteen, ['95', '93', '97']], [truecolor, ['38;5;177', '38;5;221', '38;5;255']]]) {
     const t = theme(caps);
     const top = render(s, { cols: 80, rows: 24 }, t).find((l) => strip(l).trimEnd().endsWith(`${FACES.rest}──`));
+    assert.doesNotMatch(top, /[34]8;2;/, `depth ${caps.depth}: the card face in truecolor`);
     assert.deepEqual(inks(top).slice(-9, -2).filter(([g]) => g !== ' '), [['[', outline], ['●', eyes], ['‿', mouth], ['●', eyes], [']', outline]]);
     // The big Pip: the antenna and its foot in the eyes' yellow.
     const lines = render(driver().state, { cols: 80, rows: 24 }, t);
     const at = lines.findIndex((l) => strip(l).includes('╭───┴───╮'));
+    assert.doesNotMatch(lines.join('\n'), /[34]8;2;/, `depth ${caps.depth}: the welcome in truecolor`);
     const big = lines.slice(at - 1, at + 3).map((l) => inks(l).slice(3, 12).filter(([g]) => g !== ' '));
     assert.deepEqual(big, [
       [['●', eyes]],
@@ -2406,9 +2424,12 @@ test('Pip\'s face is in Pip\'s own colors: the outline purple, the eyes yellow, 
     const moving = theme({ ...caps, motion: true, calm: false });
     const hop = screens.find(([l]) => l === 'C check')[1];
     const hopTop = render(hop, { cols: 80, rows: 24 }, moving, { at: hop.fx.pass })[4];
+    assert.doesNotMatch(hopTop, /[34]8;2;/, `depth ${caps.depth}: the hop in truecolor`);
     assert.deepEqual(inks(hopTop).slice(-9, -2).filter(([g]) => g === '+'), [['+', eyes], ['+', eyes]]);
     const complete = screens.find(([l]) => l === 'complete')[1];
-    const cheer = render(complete, { cols: 80, rows: 24 }, moving, { at: complete.fx.view }).find((l) => strip(l).trim() === '+  ●  +');
+    const cheering = render(complete, { cols: 80, rows: 24 }, moving, { at: complete.fx.view });
+    assert.doesNotMatch(cheering.join('\n'), /[34]8;2;/, `depth ${caps.depth}: the cheer in truecolor`);
+    const cheer = cheering.find((l) => strip(l).trim() === '+  ●  +');
     assert.deepEqual(inks(cheer).filter(([g]) => g !== ' '), [['+', eyes], ['●', eyes], ['+', eyes]]);
   }
 });
