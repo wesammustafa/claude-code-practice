@@ -1806,11 +1806,23 @@ test('every next screen but a capstone\'s shows its Go further line whole at 60x
       }
     }
   }
-  // b-4 at 60x20: the two rows the design's mockup draws.
+  // b-4 at 60x20: the two rows the design's mockup draws. The blank above
+  // them is the sentence's own, so it stays while the spacers below give
+  // way: 142's climb takes two rows where the mockup's took one, and that
+  // row is the mockup's blank above Next up.
   const b4 = endScreens().find(([l]) => l === 'b-4 next')[1];
   const lines = render(b4, { cols: 60, rows: 20 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
   const at = lines.findIndex((l) => l.includes('📖'));
-  assert.deepEqual(lines.slice(at, at + 2), ['  📖 Go further: "Explore the context window: an', '     interactive view of what fills a session."'], lines.join('\n'));
+  assert.deepEqual(lines.slice(at - 1, at + 3), ['', '  📖 Go further: "Explore the context window: an', '     interactive view of what fills a session."', '  ▸ Next up   B5   Project memory with CLAUDE.md'], lines.join('\n'));
+});
+
+test('the Go further label is in muted and its quote in text', () => {
+  const t = theme(CAPS.full);
+  const next = endScreens().find(([l]) => l === 'b-4 next')[1];
+  const row = render(next, { cols: 80, rows: 24 }, t).find((l) => strip(l).includes(`${C.goFurther} "`));
+  const parts = colored(row);
+  assert.equal(parts.muted?.replace(/ /g, ''), C.goFurther.replace(/ /g, ''), JSON.stringify(parts));
+  assert.ok(parts.text?.trimStart().startsWith('"Explore the context window:'), JSON.stringify(parts));
 });
 
 test('the Go further line is an optional row: it drops whole with its blank, before any teaching line is cut', () => {
@@ -1876,6 +1888,24 @@ test('p on the next screen shows the Go further line and its full URL, so a term
         // The full URL, its wrapped rows joined, and a link where links work.
         assert.ok(text.includes(URLS[l.id]), where);
         if (caps.links) assert.ok(raw.some((x) => x.includes(`\x1b]8;;${URLS[l.id]}\x07`)), where);
+      }
+    }
+  }
+});
+
+test('p gives up its blank rows from the bottom: the one above Go further goes before the one above the Stuck link', () => {
+  for (const l of allCourse.filter((x) => x.content?.intro.read)) {
+    const d = pageOn(l.id, (s) => s.view === 'next' && s.lesson === l.id);
+    for (const [capName, caps] of Object.entries(CAPS)) {
+      const t = theme(caps);
+      for (const [cols, rows] of SHORT) {
+        const lines = render(d.state, { cols, rows }, t).map((x) => strip(x).trim());
+        const where = `${l.id} page at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
+        const blankAbove = (i) => i > 0 && lines[i - 1] === '';
+        const stuck = blankAbove(lines.indexOf(C.stuckLink));
+        const further = blankAbove(lines.findIndex((x) => x.startsWith(`${t.unicode ? '📖' : '[read]'} ${C.goFurther}`)));
+        assert.ok(stuck || !further, where);
+        if (rows >= 24) assert.ok(stuck && further, where);
       }
     }
   }

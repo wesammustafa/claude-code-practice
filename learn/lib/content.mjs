@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { frontmatter } from '../../checks/frontmatter.mjs';
 import { lessons as checks } from '../../checks/lessons/index.mjs';
+import { inline } from './text.mjs';
 
 export const STEP_HEADING = /^### (W\d+|Y\d+|T\d+|C|R\d+) \| (?:(Worked example|Your turn|The task) step (\d+) of (\d+)|(Check|Warm-up)) \| (\S.*)$/;
 // Parts whose steps the learner does on their own, with the goal in front.
@@ -103,6 +104,8 @@ export function parseLesson(text, file = 'lesson') {
       else if (key in lesson.intro) fail(i, `a second ${key} line in the intro`);
       else lesson.intro[key] = v.text;
       if (key === 'payoff') payoffLine = i;
+      // The p overlay spells out the read line's address: it needs one.
+      if (key === 'read' && inline(v.text).filter((r) => r.url).length !== 1) fail(i, 'a read line links one page to read, with a Markdown link');
       continue;
     }
     if (section === 'ladder') {

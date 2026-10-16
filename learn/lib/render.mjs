@@ -334,9 +334,14 @@ const whyLine = (t, text, w, color) => {
   const why = `${C.whyLead} `;
   return optional([...hang(t.fg(color, why), para(t, text, w - width(why), 'text', { quote: true })), '']);
 };
-// The lesson's Go further line, after a blank row: 📖, its label, then the
-// quote, wrapped under the label.
-const goFurther = (t, read, w) => ['', ...hang(t.lead('read'), para(t, read, w - width(t.lead('read')), 'text', { quote: true, label: { text: C.goFurther, color: 'muted' } }))];
+// The lesson's Go further line: 📖, its label, then the quote, wrapped under
+// the label, and with `url` its address spelled out under it.
+const goFurther = (t, read, w, url) => {
+  const rows = led(t, 'read', read, w, 'text', { quote: true, label: { text: C.goFurther, color: 'muted' } });
+  if (!url) return rows;
+  const under = ' '.repeat(width(t.lead('read')));
+  return [...rows, ...hang(under, para(t, url, w - width(under), 'key').map((x) => t.link(x, url)))];
+};
 // One sentence written as rows: those rows where each fits in `w`, or else
 // the sentence wrapped whole.
 const sentence = (t, parts, w, color) => (parts.every((x) => width(x) <= w) ? parts : [parts.join(' ')]).flatMap((x) => para(t, x, w, color));
@@ -508,7 +513,7 @@ const VIEWS = {
       ...staircase(ctx, mix(tiersOf(s).filter((_, i) => stepsOf(s)[i].part !== 'Warm-up')), true));
     // A source to read next, one optional sentence: p shows it too. A
     // capstone has none.
-    if (content.intro.read) body.push(...optional(goFurther(t, content.intro.read, W)));
+    if (content.intro.read) body.push(...optional(['', ...goFurther(t, content.intro.read, W)]));
     if (nextLesson) {
       const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
       const mixed = `   ${mixBar(ctx, nextLesson, 12)}  `;
@@ -967,12 +972,12 @@ const OVERLAYS = {
     const url = `${l.url}${anchor}`;
     const stuck = l.content?.stuck ?? l.stuck;
     // Go further with its address spelled out, for a terminal with no links.
+    // The parser holds a read line to one link.
     const read = l.content?.intro.read;
-    const readUrl = read && absolute(inline(read).find((r) => r.url).url);
     return {
       body: [t.bold(t.fg('white', C.pageTitle)), ...para(t, url, inner, 'key').map((x) => t.link(x, url)), SPACER,
         t.fg('text', C.stuckLink), ...para(t, stuck, inner, 'key').map((x) => t.link(x, stuck)),
-        ...(read ? [...goFurther(t, read, inner), ...hang(' '.repeat(width(t.lead('read'))), para(t, readUrl, inner - width(t.lead('read')), 'key').map((x) => t.link(x, readUrl)))] : [])],
+        ...(read ? [SPACER, ...goFurther(t, read, inner, absolute(inline(read).find((r) => r.url).url))] : [])],
       keys: [key('p', C.k.close), key('q', C.k.close)],
     };
   },

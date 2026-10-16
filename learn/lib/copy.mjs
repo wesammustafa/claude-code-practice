@@ -146,7 +146,7 @@ export const C = {
     ['w', 'why this matters'],
     ['b', 'back one screen'],
     ['m', 'the map of lessons'],
-    ['p', 'the lesson page'],
+    ['p', 'the lesson page and what to read next'],
     ['?', 'these keys'],
     ['q', 'quit (your place is saved)'],
   ],
