@@ -26,6 +26,18 @@ const ASCII_GLYPHS = {
   dot: '#', dotOff: 'o', diamond: '+', diamondOff: '+', ellipsis: '...', bullet: '|', up: 'up/down',
 };
 
+// Pip's small face on a card's top border, by mood: its eyes and mouth, and
+// its arms when they are up. Each glyph takes one cell and none is an emoji.
+const UNICODE_PIP = {
+  rest: { eye: '●', mouth: '‿' }, checking: { eye: '◓', mouth: '─' }, worried: { eye: '◒', mouth: '‿' },
+  done: { eye: '★', mouth: '‿' }, broken: { eye: '◒', mouth: '─' },
+};
+// ASCII Pip has three faces: at rest, checking, and done with its arms up.
+const ASCII_PIP = {
+  rest: { eye: 'o', mouth: '_' }, checking: { eye: 'o', mouth: '.' }, worried: { eye: 'o', mouth: '_' },
+  done: { eye: '^', mouth: '_', arms: ['\\', '/'] }, broken: { eye: 'o', mouth: '_' },
+};
+
 // One job each. ASCII mode drops some and spells others out.
 const EMOJI = {
   wave: ['👋', ''], terminal: ['💻', '[TERMINAL]'], claude: ['💬', '[CLAUDE CODE]'], watch: ['👀', '[..]'],
@@ -55,11 +67,12 @@ export function theme(caps) {
     return pressed ? inverse(block) : block;
   };
   const glyph = unicode ? UNICODE_GLYPHS : ASCII_GLYPHS;
+  const pipGlyphs = unicode ? UNICODE_PIP : ASCII_PIP;
   const emoji = (name) => EMOJI[name][unicode ? 0 : 1];
   // An emoji and a space, or the ASCII word and a space, or nothing.
   const lead = (name) => (emoji(name) ? `${emoji(name)} ` : '');
   const link = (text, url) => (caps.links && url ? `\x1b]8;;${url}\x07${text}\x1b]8;;\x07` : text);
-  return { caps, fg, bg, bold, inverse, pill, glyph, emoji, lead, link, unicode, depth };
+  return { caps, fg, bg, bold, inverse, pill, glyph, pipGlyphs, emoji, lead, link, unicode, depth };
 }
 
 export const TIER_STYLE = {
