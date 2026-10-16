@@ -36,9 +36,11 @@ export const LADDER_KEYS = { hint: true, bottom: true, win: true };
 export const CARD_KEYS = { skill: false, show: true, does: true };
 const OPTION_KEYS = new Set(['right', 'wrong', 'option', 'stuck', 'other', 'decoy']);
 
-// The guide's Beginner path, in course order. Each entry's level is the
-// folder of its page (copy.mjs names it). Pages and time estimates for
-// lessons the app shows only through their check.
+// Every lesson of the guide, in course order. Each entry's level is the
+// folder of its page (copy.mjs names it), and its minutes are the page's
+// header line's: the view of a lesson with no lesson file shows them.
+// `newCopy`: the page has the learner make a new copy of the template, so
+// the lesson's check never runs in this practice copy.
 export const PATH = [
   { id: 'b-1', level: 'beginner', page: 'docs/beginner/01-install-and-look-around.md', minutes: 'about 20 minutes' },
   { id: 'b-2', level: 'beginner', page: 'docs/beginner/02-permission-modes-and-plan-mode.md', minutes: 'about 20 minutes' },
@@ -46,7 +48,31 @@ export const PATH = [
   { id: 'b-4', level: 'beginner', page: 'docs/beginner/04-keep-a-session-on-track.md', minutes: 'about 20 minutes' },
   { id: 'b-5', level: 'beginner', page: 'docs/beginner/05-project-memory.md', minutes: 'about 20 minutes' },
   { id: 'b-capstone', level: 'beginner', page: 'docs/beginner/capstone.md', minutes: '30 to 60 minutes' },
+  { id: 'i-1', level: 'intermediate', page: 'docs/intermediate/01-first-skill.md', minutes: 'about 20 minutes' },
+  { id: 'i-2', level: 'intermediate', page: 'docs/intermediate/02-organize-memory.md', minutes: 'about 20 minutes' },
+  { id: 'i-3', level: 'intermediate', page: 'docs/intermediate/03-model-and-effort.md', minutes: 'about 15 minutes' },
+  { id: 'i-4', level: 'intermediate', page: 'docs/intermediate/04-permissions-and-sandbox.md', minutes: 'about 20 minutes' },
+  { id: 'i-5', level: 'intermediate', page: 'docs/intermediate/05-hooks.md', minutes: 'about 20 minutes' },
+  { id: 'i-6', level: 'intermediate', page: 'docs/intermediate/06-subagents.md', minutes: 'about 20 minutes' },
+  { id: 'i-7', level: 'intermediate', page: 'docs/intermediate/07-mcp.md', minutes: 'about 20 minutes' },
+  { id: 'i-8', level: 'intermediate', page: 'docs/intermediate/08-plugins.md', minutes: 'about 20 minutes' },
+  { id: 'i-capstone', level: 'intermediate', page: 'docs/intermediate/capstone.md', minutes: '30 to 60 minutes' },
+  { id: 'a-1', level: 'advanced', page: 'docs/advanced/01-parallel-sessions.md', minutes: 'about 20 minutes' },
+  { id: 'a-2', level: 'advanced', page: 'docs/advanced/02-orchestration-patterns.md', minutes: 'about 20 minutes' },
+  { id: 'a-3', level: 'advanced', page: 'docs/advanced/03-dynamic-workflows.md', minutes: 'about 20 minutes, plus run time' },
+  { id: 'a-4', level: 'advanced', page: 'docs/advanced/04-headless.md', minutes: 'about 20 minutes' },
+  { id: 'a-5', level: 'advanced', page: 'docs/advanced/05-github-actions.md', minutes: 'about 20 minutes, plus run time', newCopy: true },
+  { id: 'a-6', level: 'advanced', page: 'docs/advanced/06-share-your-setup.md', minutes: 'about 20 minutes' },
+  { id: 'a-7', level: 'advanced', page: 'docs/advanced/07-bounded-runs.md', minutes: 'about 20 minutes, plus run time' },
+  { id: 'a-capstone', level: 'advanced', page: 'docs/advanced/capstone.md', minutes: '30 to 60 minutes, plus run time', newCopy: true },
 ];
+// Items whose check starts another process: a test run, a hook, a stub
+// run. They run only when the learner presses r, never on every file change.
+export const SLOW = {
+  'b-3': [1], 'b-capstone': [3, 4],
+  'i-5': [2], 'i-capstone': [1, 9],
+  'a-4': [1, 2, 3], 'a-7': [0, 1, 2, 3, 4], 'a-capstone': [4, 5, 6, 11],
+};
 export const GUIDE = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know';
 // The guide's Commands by level page, which ends your card.
 export const COMMANDS_URL = `${GUIDE}/blob/main/docs/reference/commands.md`;
@@ -240,6 +266,7 @@ export function loadCourse(root, path = PATH) {
       url: `${GUIDE}/blob/main/${entry.page}`,
       stuck: `${GUIDE}/issues/new?template=lesson-feedback.yml&lesson=${entry.id}`,
       items: check.items.map((it) => it.text),
+      slow: SLOW[entry.id] ?? [],
       content,
     };
   });

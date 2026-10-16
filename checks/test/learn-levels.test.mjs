@@ -1,7 +1,6 @@
-// The app's screens for a course of three levels (ticket 82), with a demo
-// course of all three: labels unique in the course, lesson numbers within a
-// level, the map one level at a time, and the welcome at the current level.
-// Only Beginner is on PATH today, and its screens stay as they were.
+// The app's screens for a course of three levels (ticket 82), on the course
+// of all three: labels unique in the course, lesson numbers within a level,
+// the map one level at a time, and the welcome at the current level.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PATH } from '../../learn/lib/content.mjs';
@@ -23,7 +22,7 @@ const doneBefore = (course, id) => Object.fromEntries(course.slice(0, course.fin
 test('every PATH entry carries its level, the folder of its page, and the level names are the guide\'s', () => {
   for (const p of PATH) assert.equal(p.level, p.page.split('/')[1], p.id);
   assert.deepEqual(C.levels, { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' });
-  assert.deepEqual(PATH.map((p) => C.levels[p.level]), ['Beginner', 'Beginner', 'Beginner', 'Beginner', 'Beginner', 'Beginner']);
+  assert.deepEqual(PATH.map((p) => C.levels[p.level]), [...Array(6).fill('Beginner'), ...Array(9).fill('Intermediate'), ...Array(8).fill('Advanced')]);
 });
 
 const LABELS = ['B1', 'B2', 'B3', 'B4', 'B5', 'BC', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'IC', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'AC'];
@@ -100,7 +99,7 @@ test('the map shows one level, with its name and its n of m done', () => {
   assert.equal(cursorOn(lines), 'I1');
 });
 
-test('left and right switch level, to its next lesson; up and down stay in the level', () => {
+test('left and right switch level, round from the last to the first, to its next lesson; up and down stay in the level', () => {
   const d = mapAt('i-3');
   const at = () => {
     const lines = screen(d.state);
@@ -110,7 +109,9 @@ test('left and right switch level, to its next lesson; up and down stay in the l
   d.key('left');
   assert.deepEqual(at(), ['Beginner', '6 of 6', 'B1', 6], 'a level all done: its first lesson');
   d.key('left');
-  assert.deepEqual(at(), ['Beginner', '6 of 6', 'B1', 6], 'no level before Beginner');
+  assert.deepEqual(at(), ['Advanced', '0 of 8', 'A1', 8], 'left from Beginner goes round to Advanced');
+  d.key('right');
+  assert.deepEqual(at(), ['Beginner', '6 of 6', 'B1', 6]);
   d.key('up');
   assert.deepEqual(at(), ['Beginner', '6 of 6', 'BC', 6], 'up from the first row wraps to the level\'s last');
   d.key('right');
@@ -118,7 +119,8 @@ test('left and right switch level, to its next lesson; up and down stay in the l
   d.key('right');
   assert.deepEqual(at(), ['Advanced', '0 of 8', 'A1', 8]);
   d.key('right');
-  assert.deepEqual(at(), ['Advanced', '0 of 8', 'A1', 8], 'no level after Advanced');
+  assert.deepEqual(at(), ['Beginner', '6 of 6', 'B1', 6], 'right from Advanced goes round to Beginner');
+  d.key('left');
   d.key('up');
   assert.deepEqual(at(), ['Advanced', '0 of 8', 'AC', 8]);
   d.key('down');
@@ -154,7 +156,7 @@ test('the map\'s key bar offers the arrows that switch level, and ? lists them, 
     assert.ok(at(C.cardKey[1]) > 0, lines.join('\n'));
     assert.equal(at(C.cardKey[1]), at(C.keyHelp.find(([k]) => k === 'p')[1]) + 1, lines.join('\n'));
   }
-  const beginner = driver({ saved: { format: 1, welcomed: true, lessons: {} } });
+  const beginner = driver({ course: threeLevels().filter((l) => l.level === 'beginner'), saved: { format: 1, welcomed: true, lessons: {} } });
   beginner.key('enter');
   beginner.key('m');
   assert.equal(beginner.state.view, 'map');
@@ -235,7 +237,9 @@ test('with three levels the welcome and every map page fit at 60x20 and 80x24, i
             assert.ok(graphemes(strip(l)).filter(isEmoji).length <= 1, where);
           });
           assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where}: a row is dropped`);
-          assert.ok(!lines.some((l) => l.endsWith('…')), `${where}: a row is cut`);
+          // A row the window's edge cut ends in its ellipsis. A map title
+          // that gives way to the marks may end a row with no bar after it.
+          assert.ok(!raw.some((l) => width(l) >= cols - 1 && strip(l).trimEnd().endsWith('…')), `${where}: a row is cut`);
           if (name === 'welcome') {
             // The level's count whole, at every width up to the app name's return.
             const done = C.pathLabel(level, 0, labels.length);

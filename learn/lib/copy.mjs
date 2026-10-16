@@ -8,6 +8,8 @@
 // an older name, or a second way to describe the tiers.
 export const TERMS = {
   practiceCopy: 'practice copy',
+  // The copy of the template a-5 and the Advanced capstone have the learner make.
+  newCopy: 'new copy',
   tierHelp: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
   // The guide's level names, by the folder of a lesson's page.
   levels: { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' },
@@ -139,7 +141,11 @@ export const C = {
   ofDone: (n, m) => `${n} of ${m} done`,
 
   checkOnly: ["This lesson isn't in the app yet. Follow the lesson page,", "and I'll watch its check for you:"],
-  slowItem: 'press r to check this one',
+  newCopy: [`This lesson runs in a ${TERMS.newCopy} of the template, so I don't`, `check it in this ${TERMS.practiceCopy}. Its check looks for:`],
+  newCopyPlain: `runs in a ${TERMS.newCopy} of the template, so it is not checked here`,
+  // Which items the check-only card shows, where they don't all fit.
+  itemsShown: (a, b, n) => `Items ${a} to ${b} of ${n}`,
+  itemOf: (a, n) => `Item ${a} of ${n}`,
 
   welcomeBack: 'Welcome back!',
   restartAsk: 'Start this lesson over? Your answers and ticks for it are cleared.',

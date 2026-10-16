@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
+import { PATH, SLOW } from '../../learn/lib/content.mjs';
 import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
@@ -16,7 +17,7 @@ import { SHOTS } from '../../learn/lib/motion.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
-import { childEnv, runCheck, singleFlight, SLOW } from '../../learn/lib/verify.mjs';
+import { childEnv, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { statusPaths } from '../paths.mjs';
@@ -24,7 +25,8 @@ import { check, exportHead, repo, withRepo, write } from './helpers.mjs';
 import { root } from './learn-drive.mjs';
 import { fakeClock, fakeOut, screenModel, turn } from './learn-term.mjs';
 
-const BEGINNER = ['b-1', 'b-2', 'b-3', 'b-4', 'b-5', 'b-capstone'];
+// Every lesson on the course, in its order.
+const EVERY = PATH.map((p) => p.id);
 const RUN_CHECK = join(root, 'learn', 'run-check.mjs');
 const child = (args) => {
   const { NODE_TEST_CONTEXT, ...env } = process.env;
@@ -72,10 +74,10 @@ test('the check child gives the check\'s own words, with npm run check\'s pass r
   });
 });
 
-test('for every Beginner lesson the child and npm run check agree, item by item', () => {
+test('for every lesson the child and npm run check agree, item by item', () => {
   const dir = exportHead(root);
   try {
-    for (const id of BEGINNER) {
+    for (const id of EVERY) {
       const ran = child([id, dir]).out.items;
       const { out } = check([id, '--dir', dir]);
       const lines = out.split('\n');
@@ -123,10 +125,11 @@ test('runCheck passes on each report as item n of the m items the child runs, be
   }
 });
 
-test('slow items are exactly the Beginner items that start a process', () => {
-  for (const id of BEGINNER) {
+test('every item whose own code starts a process is slow, in every lesson', () => {
+  // An item can start one through a helper, too: SLOW holds those as measured.
+  for (const id of EVERY) {
     const spawning = lessons[id].items.map((it, i) => [i, it.check.toString()]).filter(([, src]) => /spawnSync|execFileSync\('npm'|spawn\(/.test(src)).map(([i]) => i);
-    assert.deepEqual(SLOW[id] ?? [], spawning, id);
+    for (const i of spawning) assert.ok((SLOW[id] ?? []).includes(i), `${id} item ${i}`);
   }
 });
 
@@ -226,7 +229,8 @@ test('without a terminal it prints the path as plain text and exits 0', () => {
   const r = spawnSync(process.execPath, [join(root, 'learn', 'app.mjs')], { input: '', encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stderr);
   assert.doesNotMatch(r.stdout, /\x1b/);
-  for (const id of BEGINNER) assert.match(r.stdout, new RegExp(lessons[id].title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  // A title's code spans print as plain text: a-4's "with `claude -p`".
+  for (const id of EVERY) assert.ok(r.stdout.includes(lessons[id].title.replaceAll('`', '')), id);
 });
 
 // The full runs keep calm full frames whatever CI's environment holds, so
@@ -291,6 +295,36 @@ test('a full run on a fake terminal: writing version.txt turns step 3 done, and 
     assert.ok(existsSync(join(dir, '.practice', 'learn.json')));
     assert.deepEqual(outside(), before, 'the app changed something outside .practice/');
     assert.deepEqual(readdirSync(join(dir, '.practice')).sort(), ['learn.json', 'version.txt']);
+  } finally {
+    if (exited === null) term.type('\x03');
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main sends each key with how far the check-only card scrolls in the window, so up moves the card at once after down went past the end', async () => {
+  const dir = exportHead(root);
+  const term = fakeTerminal();
+  let exited = null;
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  const shown = () => term.lastFrame().match(/Items (\d+) to (\d+) of 11/);
+  try {
+    assert.ok(await until(() => term.lastFrame().includes("Let's learn Claude Code")), term.lastFrame());
+    term.type('\r');
+    assert.ok(await until(() => term.lastFrame().includes("You'll be able to")));
+    term.type('m');
+    assert.ok(await until(() => term.lastFrame().includes('Beginner path')), term.lastFrame());
+    // Right to Intermediate, up round to its capstone, and open it.
+    term.type('\x1b[C');
+    term.type('\x1b[A');
+    term.type('\r');
+    assert.ok(await until(() => shown()?.[1] === '1'), term.lastFrame());
+    for (let i = 0; i < 20; i++) term.type('\x1b[B');
+    assert.ok(await until(() => shown()?.[2] === '11'), term.lastFrame());
+    const end = Number(shown()[1]);
+    term.type('\x1b[A');
+    assert.ok(await until(() => Number(shown()?.[1]) === end - 1), term.lastFrame());
+    term.type('q');
+    assert.ok(await until(() => exited === 0));
   } finally {
     if (exited === null) term.type('\x03');
     rmSync(dir, { recursive: true, force: true });
