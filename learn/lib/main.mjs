@@ -144,7 +144,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // The detailed Pip, where the screen has room for it: its pose, and
     // when it next moves, one more deadline for the one timer. Both with
     // the same gates, even if this frame's write turns motion off.
-    const slot = pipSlot(state, size, t, ahead);
+    const slot = pipSlot(state, size, t, nextScreen);
     const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.depth >= 24, remote: caps.remote });
     const raster = slot ? { size: slot, pose: pipPose(at, gates) } : null;
     screen.draw(state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster));
@@ -195,7 +195,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // as far as the app knows before them: the boot frame's Pip is no bigger
   // than its own.
   pip = createPip({ state: 'working', at: askedAt });
-  const ahead = initialState({ course, saved, facts: { root, name: '', gitError: null, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 }, now: askedAt });
+  const nextScreen = initialState({ course, saved, facts: { root, name: '', gitError: null, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 }, now: askedAt });
   pipAt = askedAt;
   pipChanged = askedAt;
   const boot = timers.setTimeout(() => {
