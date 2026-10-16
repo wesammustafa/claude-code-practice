@@ -27,7 +27,7 @@ badge: Beginner
 - beat: ask
 - ask: You want rules for this project only. Which file do you put them in?
 - wrong: "the user file in `~/.claude/`"
-- because: "Don't pick the user file in `~/.claude/`: it applies to all your projects"
+- because: "the user file in `~/.claude/`: it applies to all your projects"
 - right: "the `./CLAUDE.md` in this folder"
 - reveal: "type `/memory` and choose **Project instructions**, the `./CLAUDE.md` in this folder."
 
@@ -42,7 +42,7 @@ badge: Beginner
 - wrong: "/resume"
 - because: "Picks up an earlier conversation"
 - hint: "Goes back to an earlier prompt, restoring the code, the conversation or both"
-- reveal: "Rewind. Type `/rewind`, or press `Esc` twice with an empty prompt."
+- reveal: "Type `/rewind`"
 
 ## steps
 
