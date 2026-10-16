@@ -5,6 +5,8 @@
   ╭─  💻 in your other terminal  ─────────────────────────────────────────────────
   │
   │  Save the version
+  │  Why: "the version, because features and defaults change between releases;"
+  │
   │  Go to your practice copy and save that output for the check:
   │
   │   $ cd /home/sam/claude-code-practice
@@ -15,8 +17,6 @@
   │
   │  👀 Watching .practice/version.txt. I'll turn green the moment it's right.
   ╰───────────────────────────────────────────────────────────────────────────────
-
-
 
 
 

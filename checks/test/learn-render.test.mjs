@@ -1492,3 +1492,251 @@ test('a Windows note is never cut: on Windows at 60x20 and 80x24 the whole note 
   // goes (spec 3.1: a toast gives way to kept rows).
   assert.deepEqual([...noToast], ['b-1 C.0 hint 2 at 60x20', 'b-1 C.0 hint 2 (skipped) at 60x20']);
 });
+
+// The Why line on GUIDED cards (ticket 145): on a do or ask beat at
+// effective GUIDED, the beat's first `why` quote under the step title.
+const openAt = (id, step, beat, extra = {}, before = finishedBefore(id)) => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [id]: { step, beat, warm: [], ...extra } } } });
+  d.key('enter');
+  return d;
+};
+// The Why line's rows: its lead's row, and those under it up to the card's
+// next blank row.
+const whyRows = (lines) => {
+  const i = lines.findIndex((l) => l.includes(`${C.whyLead} "`));
+  if (i < 0) return [];
+  const end = lines.findIndex((l, k) => k > i && /^\s*[│|]$/.test(l.trimEnd()));
+  return lines.slice(i, end < 0 ? i + 1 : end);
+};
+
+test('a GUIDED card shows its Why line under the title: b-4 W3 is the design\'s at 80x24', () => {
+  const d = openAt('b-4', 'W3', 0);
+  assert.equal(tierOf(d.state), 'guided');
+  const lines = render(d.state, { cols: 80, rows: 24 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
+  // energy-and-teaching.md 3.1, less Pip on the card's top border (a motion ticket).
+  const mockup = [
+    '   B4   Keep a session on track                                    GUIDED ★☆☆',
+    null,
+    '  ────────────────────────────────────────────────────────────────────────────',
+    '',
+    null,
+    '  │',
+    '  │  Compact',
+    '  │  Why: "Compact when you want to keep going on the same task; clear when',
+    '  │       you start a different one."',
+    '  │',
+    '  │  Compact, telling Claude what to keep:',
+    '  │',
+    '  │   › /compact keep what we learned about check-links.js',
+    '  ╰───────────────────────────────────────────────────────────────────────────',
+  ];
+  mockup.forEach((row, i) => {
+    if (row !== null) assert.equal(lines[i], row, `row ${i + 1}\n${lines.join('\n')}`);
+  });
+  assert.equal(lines[23], '   enter  it compacted    w why    m map    q quit');
+});
+
+// A made-up lesson 2 whose one GUIDED step has `why` lines on a predict, a
+// do, an ask, a type and a self beat.
+const WHY_B2 = `---
+lesson: b-2
+title: "Demo"
+stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
+next: b-3
+---
+
+## intro
+- minutes: "about 20 minutes"
+- can: "do it"
+
+## steps
+
+### W1 | Worked example step 1 of 1 | Try the mode
+- tier: guided
+- skill: plan-mode
+- where: claude
+- beat: predict
+- ask: Guess: which mode comes first?
+- option: Manual
+- right: Plan
+- reveal: "Plan comes first."
+- why: "A predict reason."
+- beat: do
+- verify: self
+- done-label: done
+- do: "Press the key."
+- why: "A do reason."
+- why: "A second do reason."
+- beat: ask
+- ask: Which mode is on?
+- right: "Plan"
+- wrong: "Manual"
+- because: "Manual is another."
+- why: "An ask reason."
+- beat: type
+- ask: Which key switches the mode?
+- accept: Shift+Tab
+- reveal: "Shift+Tab switches it."
+- why: "A type reason."
+- beat: self
+- done-label: yes, I can
+- self: "Say when you would pick Plan."
+- why: "A self reason."
+`;
+
+test('the Why line shows on do and ask beats at GUIDED, never on a predict, type or self beat, which keep it behind w', async () => {
+  const { courseWith } = await import('./learn-drive.mjs');
+  const lessons = courseWith({ 'b-2': WHY_B2 });
+  const at = (beat) => {
+    const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { 'b-2': { step: 'W1', beat, warm: [] } } } });
+    d.key('enter');
+    assert.equal(tierOf(d.state), 'guided');
+    return d;
+  };
+  const [predict, doBeat, ask, type, self] = [0, 1, 2, 3, 4].map((beat) => render(at(beat).state, { cols: 80, rows: 24 }, theme(CAPS.full)).map(strip));
+  for (const [beat, lines] of [[3, type], [0, predict], [4, self]]) {
+    assert.equal(beatOf(at(beat).state).kind, ['predict', 'do', 'ask', 'type', 'self'][beat]);
+    assert.deepEqual(whyRows(lines), [], lines.join('\n'));
+  }
+  // On a type beat w is a letter of the answer.
+  for (const [beat, reason] of [[0, /A predict reason\./], [4, /A self reason\./]]) {
+    const behind = at(beat);
+    behind.key('w');
+    assert.equal(behind.state.overlay, 'why');
+    assert.match(plainAt(behind, 80, 24), reason);
+  }
+  // The beat's first `why` line only: the rest stay behind w.
+  assert.deepEqual(whyRows(doBeat).map((l) => l.trim()), ['│  Why: "A do reason."']);
+  assert.deepEqual(whyRows(ask).map((l) => l.trim()), ['│  Why: "An ask reason."']);
+  // One blank row under it, before the question too.
+  for (const lines of [doBeat, ask]) assert.ok(!lines.some((l, i) => l.trim() === '│' && lines[i + 1]?.trim() === '│'), lines.join('\n'));
+});
+
+// Effective GUIDED is the trigger: what the learner gets, not what the plan says.
+const atBeat = (id, step, beat) => (s) => s.view === 'step' && s.lesson === id && stepOf(s).id === step && s.pos.beat === beat;
+const B3_W1_WHY = '"Asking for a change and accepting whatever comes back is how sessions go wrong."';
+const whyText = (d, cols = 80, rows = 24) => flatText(whyRows(render(d.state, { cols, rows }, theme(CAPS.full)).map(strip)).join(''));
+
+test('the Why line follows the effective tier: less help lifts GUIDED to HINTED and hides it, an ease lowers a step to GUIDED and shows it', () => {
+  // b-4 W3, GUIDED on the plan; "less help" lifts it to HINTED.
+  const lifted = openAt('b-4', 'W3', 0, { lessHelp: true });
+  assert.equal(tierOf(lifted.state), 'hinted');
+  const lines = render(lifted.state, { cols: 80, rows: 24 }, theme(CAPS.full)).map(strip);
+  assert.deepEqual(whyRows(lines), []);
+  assert.match(lines.at(-1), /w why/);
+  // b-3 W1 is HINTED on the path: its third beat keeps its why behind w.
+  const plain = openAt('b-3', 'R1', 0, { warm: ['R1'] });
+  playUntil(plain, atBeat('b-3', 'W1', 2));
+  assert.equal(tierOf(plain.state), 'hinted');
+  assert.equal(whyText(plain), '');
+  // R1 (plan-mode) missed eases W1 to GUIDED: the reason is on the card.
+  const eased = openAt('b-3', 'R1', 0, { warm: ['R1'] });
+  eased.key('enter');
+  assert.deepEqual(eased.state.eased, ['plan-mode']);
+  playUntil(eased, atBeat('b-3', 'W1', 2));
+  assert.equal(tierOf(eased.state), 'guided');
+  assert.equal(whyText(eased), flatText(`${C.whyLead} ${B3_W1_WHY}`));
+});
+
+// 132's M4 case: a skill this learner never did opens at a first meeting's
+// GUIDED. R1 (plan-mode) is typed wrong twice, so no recall puts plan-mode
+// on the plan (a right recall would: learn-zone.test.mjs).
+test('b-3 opened from the map with nothing done shows W1 (plan-mode) at GUIDED with its Why line', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: {} } });
+  if (d.state.view !== 'map') d.key('m');
+  while (allCourse[d.state.mapCursor].id !== 'b-3') d.key('down');
+  d.key('enter');
+  assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'b-3']);
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).id, stepOf(d.state).skill], ['R1', 'plan-mode']);
+  for (const word of ['tab', 'tab']) {
+    for (const c of word) d.key(c, c);
+    d.key('enter');
+  }
+  playUntil(d, atBeat('b-3', 'W1', 2));
+  assert.equal(stepOf(d.state).skill, 'plan-mode');
+  assert.equal(tierOf(d.state), 'guided');
+  for (const [cols, rows] of SHORT) assert.equal(whyText(d, cols, rows), flatText(`${C.whyLead} ${B3_W1_WHY}`), `${cols}x${rows}`);
+});
+
+// The GUIDED cards whose Why line gives way, in full or ASCII (the last two
+// at 60x20 in ASCII only). At 60x20 teach-merged 1.6 measured one, b-1 W3
+// waiting; a hint box, feedback or the y/n before the exact command leaves
+// others no room. This list keeps the count from growing unseen, as
+// CUT_AT_60X20 does for cuts.
+const WHY_DROPS = {
+  '60x20': ['W3 waiting', 'W3 not yet', 'W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 confirm', 'W3 bottom', 'W3 done', 'W5 wrong', 'W5 revealed',
+    'W3 broken', 'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom',
+    'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
+    'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
+    'W3 opening', 'b-3 W1.2 bottom (skipped)'],
+  '80x24': ['W3 hint 2'],
+};
+// Below 80 columns the key bar keeps its main keys first (spec 3.1), so `w`
+// gives way only where the whole bar is wider than the window: a wrong
+// answer's bar with "s show answer".
+const NO_W_KEY = ['W5 wrong at 60x20 (full)', 'W5 wrong at 60x20 (ascii)'];
+
+test('the Why line is an optional row: it drops whole before any teaching line is cut, and w why stays in the key bar', async () => {
+  const all = (await everyScreen()).filter(([, s]) => s.view === 'step' && !s.overlay && tierOf(s) === 'guided' && ['do', 'ask'].includes(beatOf(s).kind) && beatOf(s).why.length);
+  const dropped = { '60x20': new Set(), '80x24': new Set() };
+  const noKey = [];
+  for (const [capName, caps] of [['full', CAPS.full], ['ascii', CAPS.ascii]]) {
+    const t = theme(caps);
+    const marker = (l) => l.trim() === t.glyph.ellipsis || l.trim() === `${t.glyph.rail}  ${t.glyph.ellipsis}`;
+    for (const [cols, rows] of SHORT) {
+      for (const [label, state] of all) {
+        const where = `${label} at ${cols}x${rows} (${capName})`;
+        const lines = render(state, { cols, rows }, t).map(strip);
+        const whole = flatText(whyRows(render(state, { cols, rows: 80 }, t).map(strip)).join(''));
+        const shown = flatText(whyRows(lines).join(''));
+        assert.ok(whole.startsWith(flatText(C.whyLead)), `${where}: a tall window shows the Why line`);
+        assert.ok(shown === whole || shown === '', `${where}: the Why line is cut\n${lines.join('\n')}`);
+        if (shown) assert.ok(!lines.some(marker), `${where}: a teaching line is cut while the Why line shows\n${lines.join('\n')}`);
+        else dropped[`${cols}x${rows}`].add(label);
+        // The key bar offers w on every beat with a why, a question before
+        // its answer included; the y/n before the exact command has keys of
+        // its own.
+        if (state.beat.confirm) continue;
+        assert.match(strip(render(state, { cols: 120, rows: 40 }, t).at(-1)), /\bw why\b/, `${label} at 120x40 (${capName}): the key bar`);
+        if (!/\bw why\b/.test(lines.at(-1))) noKey.push(where);
+      }
+    }
+  }
+  assert.ok(all.some(([l]) => l === 'W3 waiting'));
+  for (const size of Object.keys(WHY_DROPS)) assert.deepEqual([...dropped[size]], WHY_DROPS[size], size);
+  assert.deepEqual(noKey, NO_W_KEY);
+});
+
+// A row's text in each color token it is drawn in, as { token: text }. Two
+// tokens with one color read as the first (dimText as text).
+const colored = (line) => {
+  const codes = {};
+  for (const [k, [i]] of Object.entries(COLORS)) codes[`38;5;${i}`] ??= k;
+  const out = {};
+  for (const m of line.matchAll(/\x1b\[(38;5;\d+)m([^\x1b]*)/g)) if (codes[m[1]]) out[codes[m[1]]] = (out[codes[m[1]]] ?? '') + m[2];
+  return out;
+};
+
+test('the Why line\'s lead is in accent and its quote in text, and a step\'s note and Windows note lines are in text, as a predict beat\'s are', () => {
+  const t = theme(CAPS.full);
+  const why = render(openAt('b-4', 'W3', 0).state, { cols: 80, rows: 24 }, t).find((l) => strip(l).includes(`${C.whyLead} "`));
+  const parts = colored(why);
+  assert.equal(parts.accent, `${C.whyLead} `);
+  assert.equal(parts.text, '"Compact when you want to keep going on the same task; clear when');
+  // b-1 W4's sign-in beat: a do beat with two note lines.
+  const lines = render(openAt('b-1', 'W4', 1).state, { cols: 80, rows: 24 }, t);
+  for (const note of ['"The first time, Claude Code asks you to sign in."', '"With an API key or a cloud provider, follow the ']) {
+    const row = lines.find((l) => strip(l).includes(note));
+    assert.ok(row, note);
+    assert.ok(colored(row).text?.startsWith(note), `${note}: ${JSON.stringify(colored(row))}`);
+    assert.equal(colored(row).muted, undefined, note);
+  }
+  // b-2 W2's do beat on Windows: its win-note, which never drops.
+  const win = theme({ ...CAPS.full, win32: true });
+  const winNote = '"If Shift+Tab does nothing, press Alt+M instead"';
+  const row = render(openAt('b-2', 'W2', 1).state, { cols: 80, rows: 24 }, win).find((l) => strip(l).includes(winNote));
+  assert.ok(row, winNote);
+  assert.ok(colored(row).text?.startsWith('"If '), JSON.stringify(colored(row)));
+  assert.equal(colored(row).muted, undefined);
+});

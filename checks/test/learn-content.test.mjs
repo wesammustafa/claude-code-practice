@@ -71,6 +71,32 @@ test('intro: each why wraps to at most 2 lines at the 60-column content width', 
   }
 });
 
+// A first meeting's GUIDED step with no Why line on its card, and why. Name
+// one here only where the page has no sentence that is a reason for the step.
+const NO_WHY = {
+  'b-2 W8': 'the goal line already gives the page\'s reason, "so Your turn starts clean"; the Check item about the snapshot states a file the app may not have seen',
+  'b-4 W7': 'the page gives no reason to resume; the sentence before it is about /clear, which would read as a claim about /exit and cue W7.1\'s answer',
+};
+
+test('the first GUIDED Worked example step on each skill has a why line on a beat that shows it inline', () => {
+  const seen = new Set();
+  const first = [];
+  for (const [i, l] of contents.entries()) {
+    if (!l) continue;
+    for (const step of l.steps) {
+      if (step.part !== 'Worked example' || step.tier !== 'guided' || seen.has(step.skill)) continue;
+      seen.add(step.skill);
+      const at = `${PATH[i].id} ${step.id}`;
+      first.push(at);
+      // The card shows a do or ask beat's first why line; a predict beat keeps it behind w.
+      if (!(at in NO_WHY)) assert.ok(step.beats.some((b) => ['do', 'ask'].includes(b.kind) && b.why.length), `${at} (${step.skill}) has no why line on a do or ask beat`);
+    }
+  }
+  for (const at of Object.keys(NO_WHY)) assert.ok(first.includes(at), `${at} is no first meeting's GUIDED step`);
+  // The Beginner path's first meetings, so the test can't pass on an empty list.
+  assert.ok(first.includes('b-1 W1') && first.includes('b-5 W2'), first.join(', '));
+});
+
 // A page step split in two: the second step keeps the page step's number.
 const SPLIT = {
   'b-5 W2': 'Q10: page step 1 splits so /init comes in a GUIDED step after Claude Code starts at CHALLENGE',
