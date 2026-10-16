@@ -11,6 +11,7 @@ import { PassThrough } from 'node:stream';
 import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
+import { SHOTS } from '../../learn/lib/motion.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { childEnv, runCheck, singleFlight, SLOW } from '../../learn/lib/verify.mjs';
@@ -491,7 +492,8 @@ test('no leaking timers: a frame timer only while something will change; none in
     assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
     const first = app.frameTimers();
     assert.equal(first.length, 1, 'the welcome plays: one frame timer');
-    assert.ok(first[0].ms > 0 && first[0].ms <= 40, `due on the 40 ms grid, not in ${first[0].ms} ms`);
+    // The welcome's frames change every 80 ms: the timer is due at the next.
+    assert.ok(first[0].ms > 0 && first[0].ms <= SHOTS.welcome.every, `due at the welcome's next frame, not in ${first[0].ms} ms`);
     term.type('?');
     await clock.advance(400);
     assert.match(term.shows(), /Keys/, 'the ? overlay');
@@ -505,10 +507,36 @@ test('no leaking timers: a frame timer only while something will change; none in
     const grace = app.frameTimers();
     assert.equal(grace.length, 1, 'the entrance is over, and the reading grace still runs: its end is a deadline');
     assert.ok(grace[0].ms > 1_000, `on its own timer, not the next 1 s tick (${grace[0].ms} ms)`);
+    // W3 watches its file: from here its look marker moves only when a poll's
+    // result lands, so no frame timer waits, before a look or after one.
     await clock.advance(21_000);
     assert.deepEqual(app.frameTimers(), [], 'the entrance and the reading grace are over');
-    // Nothing in this build still waits to change by idle, so this case only
-    // bites once 159's loops wait on a still card.
+    const pulse = () => term.shows().split('\n').at(-2) ?? '';
+    assert.ok(await app.settle(() => pulse().includes('━━━')), `the marker:\n${term.shows()}`);
+    assert.deepEqual(app.frameTimers(), [], 'the marker shows, and waits for the next look');
+    await clock.advance(IDLE_MS);
+    assert.deepEqual(app.frameTimers(), [], 'idle');
+    await afterQ(app);
+  } finally {
+    app.close();
+  }
+});
+
+test('a still card blinks on one frame timer once the gates open, and has none at idle', async () => {
+  const app = clockedRun(MOTION_ENV);
+  const { term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await app.press('\r', "You'll be able to");
+    await app.press('\r', 'step 1 of 12');
+    assert.doesNotMatch(term.shows(), /Watching/, 'step 1 watches nothing');
+    await clock.advance(21_000);
+    const blink = app.frameTimers();
+    assert.equal(blink.length, 1, 'the next blink, or its end');
+    assert.ok(blink[0].ms > 0 && blink[0].ms <= 6_000, String(blink[0].ms));
+    // Its frames come and go, one timer at a time.
+    await clock.advance(6_000);
+    assert.equal(app.frameTimers().length, 1);
     await clock.advance(IDLE_MS);
     assert.deepEqual(app.frameTimers(), [], 'idle');
     await afterQ(app);

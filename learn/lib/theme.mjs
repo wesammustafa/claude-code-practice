@@ -22,6 +22,9 @@ const UNICODE_GLYPHS = {
   // A trail stop's pops: a ring as a card enters, a spark as its step passes.
   // A new "Not yet" mark pops from hollow.
   ring: '◉', spark: '✦', warnPop: '△',
+  // The spinner's frames (spec 3.5). It turns only with motion, so ASCII
+  // has none.
+  spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
 };
 const ASCII_GLYPHS = {
   rule: '-', bold: '=', rail: '|', bar: '|', tl: '+', tr: '+', bl: '+', br: '+',
@@ -38,8 +41,9 @@ const UNICODE_PIP = {
 };
 // Pip's poses in a one-shot, over its mood's face: eyes shut with a smile,
 // whatever the mood's mouth (a shut eye over a flat mouth would read as one
-// rule), or arms up with an open mouth. ASCII Pip is still, so it has none.
-const UNICODE_POSES = { shut: { eye: '─', mouth: '‿' }, up: { mouth: '▽', arms: ['\\', '/'] } };
+// rule), arms up with an open mouth, or a glance toward the other window.
+// ASCII Pip is still, so it has none.
+const UNICODE_POSES = { shut: { eye: '─', mouth: '‿' }, up: { mouth: '▽', arms: ['\\', '/'] }, glance: { eye: '◑', mouth: '‿' } };
 // ASCII Pip has three faces: at rest, checking, and done with its arms up.
 const ASCII_PIP = {
   rest: { eye: 'o', mouth: '_' }, checking: { eye: 'o', mouth: '.' }, worried: { eye: 'o', mouth: '_' },
