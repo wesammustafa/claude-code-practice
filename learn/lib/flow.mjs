@@ -39,8 +39,9 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
   }
   const open = course.find((l) => l.content && progress[l.id].step && !progress[l.id].complete)
     ?? course.find((l) => l.content && !progress[l.id].complete);
-  // Every lesson in the app is done: open the map at the next lesson.
-  const next = open ?? course.find((l) => !progress[l.id].complete) ?? course[0];
+  // Every lesson in the app is done: open the map at the next lesson, or
+  // where only lessons that run in a new copy are left, at the first of them.
+  const next = open ?? course.find((l) => toFinish(progress, l)) ?? course.find((l) => !progress[l.id].complete) ?? course[0];
   const welcomed = Boolean(saved?.welcomed);
   const eased = saved?.eased ?? [];
   // A warm-up the learner quit on with its skill eased was most likely missed
@@ -84,6 +85,12 @@ export const levelsOf = (s) => [...new Set(s.course.map((l) => l.level))];
 // A lesson's number within its level, as its page says "Lesson 2 of 8".
 export const lessonNumber = (s, id = s.lesson) => levelLessons(s, levelOf(s, id)).findIndex((l) => l.id === id) + 1;
 export const contentOf = (s, id = s.lesson) => lessonOf(s, id)?.content;
+// A lesson the learner can still finish in this practice copy: not complete,
+// and not one that runs in a new copy of the template, whose check never
+// runs here. The next lesson the map marks and opens at is one of these.
+export const toFinish = (progress, l) => !progress[l.id].complete && !l.newCopy;
+// What the check-only card says above a lesson's items.
+export const checkOnlyWords = (l) => (l.newCopy ? C.newCopy : C.checkOnly);
 // The steps a learner meets, in order: the warm-up questions chosen when the
 // lesson started, then the lesson's own steps.
 const playOrder = (content, p) => [...p.warm.map((id) => content.warmup.find((w) => w.id === id)).filter(Boolean), ...content.steps];
@@ -586,7 +593,7 @@ function submitTyped(s, effects) {
 const RESULTS = ['check', 'check-error', 'file', 'git', 'git-error'];
 
 function onCheck(s, ev, effects, rRuns) {
-  s.checks[ev.lesson] = { items: ev.items, evidence: ev.evidence ?? null, error: null };
+  s.checks[ev.lesson] = { items: keptSlow(s, ev), evidence: ev.evidence ?? null, error: null };
   checkOnlyDone(s, ev, effects);
   if (rRuns || s.view !== 'step' || ev.lesson !== s.lesson || !s.beat) return;
   const beat = beatOf(s);
@@ -612,6 +619,14 @@ function onCheck(s, ev, effects, rRuns) {
   }
   st.slowWait = false;
   decide(s, ev, effects, failing && { item: failing.text, hint: failing.hint });
+}
+
+// On a lesson with no lesson file, a slow item a run left out keeps what the
+// last run that had it found, so a poll changes no row of its card.
+function keptSlow(s, ev) {
+  if (lessonOf(s, ev.lesson)?.content) return ev.items;
+  const before = s.checks[ev.lesson]?.items ?? [];
+  return ev.items.map((it) => (it.slow ? before.find((b) => b.index === it.index && !b.slow) ?? it : it));
 }
 
 // A lesson with no lesson file is complete once a full check passes: every
@@ -867,7 +882,7 @@ function stampFx(prev, s, ev) {
   // result before it, for the same lesson, found not passing or left out.
   if (ev.type === 'check' && s.view === 'checkonly' && ev.lesson === s.lesson) {
     const before = prev.checks[ev.lesson]?.items ?? [];
-    const started = ev.items.filter((it) => it.pass && before.some((b) => b.index === it.index && !b.pass)).map((it) => it.index);
+    const started = s.checks[ev.lesson].items.filter((it) => it.pass && before.some((b) => b.index === it.index && !b.pass)).map((it) => it.index);
     if (started.length) Object.assign(fx, { itemPass: t, itemsPassed: started });
   }
   // The looks the look marker counts (motion.mjs): `from`, the newest stamp
@@ -1170,15 +1185,18 @@ const VIEWS = {
     else if (name === 'left' || name === 'right') {
       const level = levels[(levels.indexOf(levelOf(s, at.id)) + (name === 'left' ? levels.length - 1 : 1)) % levels.length];
       const lessons = levelLessons(s, level);
-      to(lessons.find((l) => !s.progress[l.id].complete) ?? lessons[0]);
+      to(lessons.find((l) => toFinish(s.progress, l)) ?? lessons[0]);
     } else if (name === 'enter') startLesson(s, at.id, effects);
     else return false;
     return true;
   },
-  checkonly(s, { name }, effects) {
-    // The arrows: one item a press, where the items don't all fit.
+  checkonly(s, { name, itemsMax }, effects) {
+    // The arrows: one item a press, no further than the card can scroll at
+    // the window's size, which main sends with the key (render's itemsMax):
+    // where every item fits, they move nothing.
     if (name === 'up' || name === 'down') {
-      s.itemsAt = Math.max(0, Math.min(lessonOf(s).items.length - 1, s.itemsAt + (name === 'down' ? 1 : -1)));
+      const max = itemsMax ?? lessonOf(s).items.length - 1;
+      s.itemsAt = Math.max(0, Math.min(max, Math.min(s.itemsAt, max) + (name === 'down' ? 1 : -1)));
       return true;
     }
     if (name === 'r' && watching(s)) {

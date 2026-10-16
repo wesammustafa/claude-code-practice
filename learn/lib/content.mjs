@@ -66,6 +66,13 @@ export const PATH = [
   { id: 'a-7', level: 'advanced', page: 'docs/advanced/07-bounded-runs.md', minutes: 'about 20 minutes, plus run time' },
   { id: 'a-capstone', level: 'advanced', page: 'docs/advanced/capstone.md', minutes: '30 to 60 minutes, plus run time', newCopy: true },
 ];
+// Items whose check starts another process: a test run, a hook, a stub
+// run. They run only when the learner presses r, never on every file change.
+export const SLOW = {
+  'b-3': [1], 'b-capstone': [3, 4],
+  'i-5': [2], 'i-capstone': [1, 9],
+  'a-4': [1, 2, 3], 'a-7': [0, 1, 2, 3, 4], 'a-capstone': [4, 5, 6, 11],
+};
 export const GUIDE = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know';
 // The guide's Commands by level page, which ends your card.
 export const COMMANDS_URL = `${GUIDE}/blob/main/docs/reference/commands.md`;
@@ -259,6 +266,7 @@ export function loadCourse(root, path = PATH) {
       url: `${GUIDE}/blob/main/${entry.page}`,
       stuck: `${GUIDE}/issues/new?template=lesson-feedback.yml&lesson=${entry.id}`,
       items: check.items.map((it) => it.text),
+      slow: SLOW[entry.id] ?? [],
       content,
     };
   });

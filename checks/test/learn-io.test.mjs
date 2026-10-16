@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { PATH } from '../../learn/lib/content.mjs';
+import { PATH, SLOW } from '../../learn/lib/content.mjs';
 import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
@@ -17,7 +17,7 @@ import { SHOTS } from '../../learn/lib/motion.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
-import { childEnv, runCheck, singleFlight, SLOW } from '../../learn/lib/verify.mjs';
+import { childEnv, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { statusPaths } from '../paths.mjs';
@@ -295,6 +295,36 @@ test('a full run on a fake terminal: writing version.txt turns step 3 done, and 
     assert.ok(existsSync(join(dir, '.practice', 'learn.json')));
     assert.deepEqual(outside(), before, 'the app changed something outside .practice/');
     assert.deepEqual(readdirSync(join(dir, '.practice')).sort(), ['learn.json', 'version.txt']);
+  } finally {
+    if (exited === null) term.type('\x03');
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main sends each key with how far the check-only card scrolls in the window, so up moves the card at once after down went past the end', async () => {
+  const dir = exportHead(root);
+  const term = fakeTerminal();
+  let exited = null;
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  const shown = () => term.lastFrame().match(/Items (\d+) to (\d+) of 11/);
+  try {
+    assert.ok(await until(() => term.lastFrame().includes("Let's learn Claude Code")), term.lastFrame());
+    term.type('\r');
+    assert.ok(await until(() => term.lastFrame().includes("You'll be able to")));
+    term.type('m');
+    assert.ok(await until(() => term.lastFrame().includes('Beginner path')), term.lastFrame());
+    // Right to Intermediate, up round to its capstone, and open it.
+    term.type('\x1b[C');
+    term.type('\x1b[A');
+    term.type('\r');
+    assert.ok(await until(() => shown()?.[1] === '1'), term.lastFrame());
+    for (let i = 0; i < 20; i++) term.type('\x1b[B');
+    assert.ok(await until(() => shown()?.[2] === '11'), term.lastFrame());
+    const end = Number(shown()[1]);
+    term.type('\x1b[A');
+    assert.ok(await until(() => Number(shown()?.[1]) === end - 1), term.lastFrame());
+    term.type('q');
+    assert.ok(await until(() => exited === 0));
   } finally {
     if (exited === null) term.type('\x03');
     rmSync(dir, { recursive: true, force: true });

@@ -1,6 +1,7 @@
 // What `npm run learn` prints when it isn't attached to a terminal (piped,
 // in CI, or with no TTY): every lesson in the course and its check, as
-// plain text with no escape codes. Slow items are left out: it names them.
+// plain text with no escape codes. Slow items are left out: it says how
+// many npm run check also runs.
 import { C } from './copy.mjs';
 import { lessonLabel, titleOf } from './render.mjs';
 

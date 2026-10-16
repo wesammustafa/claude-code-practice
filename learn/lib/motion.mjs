@@ -2,7 +2,7 @@
 // the time until the next frame. Pure: it reads no clock and picks nothing at
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
 import { C } from './copy.mjs';
-import { beatOf, GRACE_MAX_MS, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
+import { beatOf, checkOnlyWords, GRACE_MAX_MS, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -96,7 +96,7 @@ function newestWords(s) {
   if (s.view === 'welcome') {
     return words([C.hi(s.facts.name), C.pip1, C.pip2, C.twoWindows, C.thisWindow, ...C.thisWindowLines, C.otherWindow, ...C.otherWindowLines, C.openSecond, C.comeBack].join(' '));
   }
-  if (s.view === 'checkonly') return words([...(lessonOf(s).newCopy ? C.newCopy : C.checkOnly), ...lessonOf(s).items].join(' '));
+  if (s.view === 'checkonly') return words([...checkOnlyWords(lessonOf(s)), ...lessonOf(s).items].join(' '));
   const st = s.beat;
   if (s.view !== 'step' || !st) return 0;
   const fx = s.fx;

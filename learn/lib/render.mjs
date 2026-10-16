@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -58,15 +58,10 @@ export function render(s, size, t, clock = REST) {
   const step = s.view === 'step' && s.beat ? stepOf(s) : null;
   pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
   if (cols < MIN.cols || rows < MIN.rows) return small(cols, rows);
-  const { W, M, top } = frameOf(size);
-  let toast = s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast)}`, W, TOASTS[s.toast.kind].color) : [];
-  let gap = [''];
-  // The rows a view's body has under `head` header rows, the blank under
-  // them included.
-  const roomUnder = (head) => rows - top.length - head - 2 - gap.length - toast.length;
-  const ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps), roomUnder };
+  const f = frameCtx(s, size, t, clock);
+  const { ctx, W, M, top } = f;
   const view = VIEWS[s.view](ctx);
-  const room = () => roomUnder(view.head.length);
+  const room = () => ctx.roomUnder(view.head.length);
   // The rows an overlay has under the view's header and its blank.
   ctx.room = room() - 1;
   const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
@@ -77,11 +72,11 @@ export function render(s, size, t, clock = REST) {
   let lines = fit([SPACER, ...body], room(), rows < 24, more);
   // When the kept rows alone overflow, a toast gives up the blank under it,
   // then goes: it is a passing note, and kept rows never drop.
-  if (lines.length > room() && toast.length) {
-    gap = [];
+  if (lines.length > room() && f.toast.length) {
+    f.gap = [];
     lines = fit([SPACER, ...body], room(), rows < 24, more);
     if (lines.length > room()) {
-      [toast, gap] = [[], ['']];
+      [f.toast, f.gap] = [[], ['']];
       lines = fit([SPACER, ...body], room(), rows < 24, more);
     }
   }
@@ -89,9 +84,31 @@ export function render(s, size, t, clock = REST) {
   // ever does, its last rows give way rather than the key bar.
   if (lines.length > room()) lines = [...lines.slice(0, room() - 1), more];
   const out = [...top, ...view.head, ...lines];
-  while (out.length < rows - 2 - gap.length - toast.length) out.push('');
-  out.push(...toast, ...gap, pulseLine(ctx), keybar(t, keys, W, s.held?.name));
+  while (out.length < rows - 2 - f.gap.length - f.toast.length) out.push('');
+  out.push(...f.toast, ...f.gap, pulseLine(ctx), keybar(t, keys, W, s.held?.name));
   return out.map(placed(t, M, cols));
+}
+
+// A frame's width, margin and top, its toast and the blank above the pulse
+// line, and the context its views draw with. `roomUnder(head)` is the rows
+// a view's body has under `head` header rows, the blank under them
+// included: it reads the toast and the blank as render leaves them.
+function frameCtx(s, size, t, clock) {
+  const { cols, rows } = size;
+  const { W, M, top } = frameOf(size);
+  const f = { W, M, top, gap: [''], toast: s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast)}`, W, TOASTS[s.toast.kind].color) : [] };
+  const roomUnder = (head) => rows - top.length - head - 2 - f.gap.length - f.toast.length;
+  f.ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps), roomUnder };
+  return f;
+}
+
+// How far the check-only card's items can scroll in this window: the first
+// item of the window that ends on the last item, 0 where every item fits
+// or no check-only card is up. main sends it with each key, so the arrows
+// move only what the card shows.
+export function itemsMax(s, size, t) {
+  if (s.view !== 'checkonly' || s.overlay || size.cols < MIN.cols || size.rows < MIN.rows) return 0;
+  return VIEWS.checkonly(frameCtx(s, size, t, REST).ctx).itemsMax;
 }
 
 // Every frame's card width, its left margin, and the blank above it on a
@@ -727,7 +744,7 @@ const VIEWS = {
     if (content.intro.read) body.push(...optional(['', ...goFurther(t, content.intro.read, W)]));
     if (nextLesson) {
       const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
-      const mixed = `   ${mixBar(ctx, nextLesson, 12)}  `;
+      const mixed = `   ${mixBar(ctx, nextLesson, BAR)}  `;
       body.push(SPACER, ...hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x))));
       // Its climb, where it has a lesson file to climb.
       if (nextLesson.content) body.push(...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
@@ -751,7 +768,7 @@ const VIEWS = {
     const barW = W - 6;
     const head = [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', C.levelPath(levelName(s, cursor.id))))}`, t.fg('muted', C.ofDone(done, total)), W),
       `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)];
-    const next = s.course.find((l) => !s.progress[l.id].complete);
+    const next = s.course.find((l) => toFinish(s.progress, l));
     // The legend's items run on under "Help:" when one row can't hold them.
     // It and the footer explain the tier bars: a page with none has neither.
     const bars = lessons.some((l) => l.content);
@@ -762,8 +779,8 @@ const VIEWS = {
       else legend.push(item);
     }
     // The titles give way to the marks, which are wider in ASCII, and to the
-    // bars' 12 cells and their gap, on a page that has them.
-    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 + (bars ? 0 : 14) - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
+    // bars and their gap, on a page that has them.
+    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 + (bars ? 0 : BAR + 2) - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
     // Where the level's rows don't fit even closed up, with the footer gone,
     // the list scrolls: the rows that fit, the cursor's as near their middle
     // as the ends allow.
@@ -779,7 +796,7 @@ const VIEWS = {
       const state = p.complete ? t.fg('ok', C.mapDone) : l === next ? t.fg('accent', t.bold(C.mapNext)) : '';
       const medal = l.id.endsWith('capstone') ? t.emoji('cup') : p.complete && l.content?.badge ? t.emoji('badge') : '';
       const fitTitle = pad(cut(name, titleW + 1, t.unicode ? '…' : '.'), titleW + 1);
-      const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${bars ? `${mixBar(ctx, l, 12)}  ` : ''}${pad(state, 5)}${medal ? ` ${medal}` : ''}`;
+      const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${bars ? `${mixBar(ctx, l, BAR)}  ` : ''}${pad(state, 5)}${medal ? ` ${medal}` : ''}`;
       return i ? [spacer('', 'lessons'), line] : [line];
     });
     return {
@@ -796,8 +813,10 @@ const VIEWS = {
   // The lesson's check, item by item. Where the items don't all fit, the
   // page's address gives way (p shows it) and the items scroll: whole items
   // from s.itemsAt down, one a press of the arrows, with a line that says
-  // which are shown. An item too tall for that room takes the card's other
-  // rows; the items never drop, a toast does.
+  // which are shown, and never past the window that ends on the last item.
+  // An item too tall for that room takes the card's other rows; the items
+  // never drop, a toast does. Which rows the card has comes from the lesson
+  // and what r and errors said, so a poll changes only marks.
   checkonly(ctx) {
     const { s, t, inner } = ctx;
     const l = lessonOf(s);
@@ -813,11 +832,14 @@ const VIEWS = {
       const mark = !r || r.slow ? t.fg('faint', t.glyph.dotOff) : r.pass ? t.fg('ok', passMark(index)) : t.fg('warn', t.glyph.warnMark);
       return kept(para(t, text, inner - 4).map((x, i) => `${i ? ' ' : mark} ${x}`));
     });
-    const intro = [...sentence(t, l.newCopy ? C.newCopy : C.checkOnly, inner, 'text'), SPACER];
+    const intro = [...sentence(t, checkOnlyWords(l), inner, 'text'), SPACER];
     const url = [...para(t, l.url, inner, 'key').map((x) => t.link(x, l.url)), SPACER];
-    // What the last run said beyond its marks: kept, like a step's status line.
+    // What the runs said beyond the marks: kept, like a step's status line.
+    // A slow item stays unchecked until r runs it; once r has, a poll keeps
+    // its result (flow), so the line goes for good.
+    const unchecked = !l.newCopy && l.slow.some((i) => !results?.items?.some((x) => x.index === i && !x.slow));
     const notes = [];
-    if (results?.items?.some((x) => x.slow)) notes.push(SPACER, ...kept(para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted')));
+    if (unchecked) notes.push(SPACER, ...kept(para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted')));
     if (results?.error) notes.push(SPACER, ...kept(para(t, `${t.lead('broken')}${C.broken(results.error)}`, inner, 'bad')));
     // The card's text rows: the body's room less the blank above the card,
     // its two borders and its first blank.
@@ -826,11 +848,13 @@ const VIEWS = {
     let shown = blocks;
     let above = intro.length + url.length + rows + notes.length <= room ? [...intro, ...url] : intro;
     let more = [];
+    let last = 0;
     if (above.length + rows + notes.length > room) {
-      const from = Math.min(s.itemsAt, blocks.length - 1);
       const avail = room - intro.length - notes.length - 1;
-      let k = from + 1;
-      while (k < blocks.length && blocks.slice(from, k + 1).flat().length <= avail) k++;
+      last = blocks.length - 1;
+      while (last > 0 && placesTo(blocks, last - 1, avail) === blocks.length) last--;
+      const from = Math.min(s.itemsAt, last);
+      const k = placesTo(blocks, from, avail);
       shown = blocks.slice(from, k);
       more = [t.fg('muted', k - from === 1 ? C.itemOf(from + 1, blocks.length) : C.itemsShown(from + 1, k, blocks.length))];
       // One item taller than that room: the line, then the sentence, give way.
@@ -842,6 +866,7 @@ const VIEWS = {
       head,
       body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: checkOnlyMood(results) }),
       keys: [shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, l.newCopy ? null : key('r', C.k.checkNow), key('p', C.k.page), key('m', C.k.map), key('q', C.k.quit)],
+      itemsMax: last,
     };
   },
 };
@@ -899,6 +924,9 @@ function staircase(ctx, m, done) {
 
 // A mix as one row of tier marks, in the tiers' tints or, once done, green.
 const bar = (t, m, done) => TIERS.map((k, i) => t.fg(done ? 'ok' : TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on].repeat(m[i]))).join('');
+
+// The cells of a lesson's climb on the map and the next screen.
+const BAR = 12;
 
 // A lesson's climb as `cells` tier marks, from its content: a lesson with
 // no lesson file has none, so it draws blank cells.
@@ -1049,9 +1077,11 @@ function stepMood(s, beat, isLastBeat) {
 }
 
 // The check-only card: a check that could not run, an item not passing yet.
+// Worried only where the card shows a failing mark: a slow item no run has
+// checked shows as not checked yet.
 function checkOnlyMood(results) {
   if (results?.error) return 'broken';
-  return results?.items?.some((x) => !x.pass) ? 'worried' : 'rest';
+  return results?.items?.some((x) => !x.pass && !x.slow) ? 'worried' : 'rest';
 }
 
 // Chips in a beat share one width: room for the longest command, up to the
@@ -1273,6 +1303,17 @@ const nextKey = (s) => {
 const cardKey = (s) => (cardOf(s).length ? { ...key('c', C.k.card), low: true } : null);
 
 // ---- overlays ----------------------------------------------------------------
+// Whole places (each a run of rows) from place `from` on, as many as `avail`
+// rows hold: the first always, then each next one while it fits. `first` is
+// the rows the first takes on screen. Returns the index after the last
+// shown. The card overlay and the check-only card scroll by it.
+function placesTo(places, from, avail, first = places[from].length) {
+  let k = from + 1;
+  let used = first;
+  while (k < places.length && used + places[k].length <= avail) used += places[k++].length;
+  return k;
+}
+
 // The card's layout: a title, its intro and `units`, the entries' rows,
 // then the guide's Commands by level page. Where it is taller than its
 // room, it shows whole places from s.cardAt down, one a press of the
@@ -1287,8 +1328,8 @@ function cardPlaces(ctx, units, title, intro) {
   const from = places.flat().length <= avail ? 0 : Math.min(s.cardAt, places.length - 1);
   // The first place shown never opens on a blank: the link's goes there.
   const shown = places[from][0] === '' ? places[from].slice(1) : [...places[from]];
-  let k = from + 1;
-  while (k < places.length && shown.length + places[k].length <= avail) shown.push(...places[k++]);
+  const k = placesTo(places, from, avail, shown.length);
+  shown.push(...places.slice(from + 1, k).flat());
   return { body: [...head, ...shown], scroll: from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null };
 }
 
