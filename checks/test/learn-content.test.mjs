@@ -11,7 +11,7 @@ import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
-import { DEMO_I1, root } from './learn-drive.mjs';
+import { DEMO_B2, DEMO_I1, root } from './learn-drive.mjs';
 
 const dir = join(root, 'learn', 'lessons');
 const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
@@ -251,7 +251,7 @@ const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'holds', '
   'guessRight', 'nowYouKnow', 'findOutAt', 'right', 'answered', 'otherFine', 'done',
   'stepOf', 'levelUp', 'toHinted', 'toChallenge', 'nextCounts', 'k.letsGo', 'k.bringIt', 'k.moreHelp',
   'complete', 'lessonDone', 'badge', 'k.whatsNext',
-  'checkedSummary', 'handover', 'invitation', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'goFurther', 'recallAsk', 'k.startN', 'k.page', 'k.map', 'k.card', 'k.quit'];
+  'checkedSummary', 'handover', 'invitation', 'invitationAt', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'goFurther', 'recallAsk', 'k.startN', 'k.page', 'k.map', 'k.card', 'k.quit'];
 const at = (copy, k) => k.split('.').reduce((v, part) => v?.[part], copy);
 const banned = new Map();
 const bannedIn = (w) => {
@@ -301,7 +301,11 @@ test('the app\'s own words claim only what the app saw', () => {
 // and so is any table of the three tiers that words them differently. A
 // sentence that tells the learner what a tier change gives them and which
 // key to press (doneBefore, toHinted) is no table: it isn't checked here.
-const ALIASES = [/practice folder/i, /\byour copy\b/i, /\bgoal and hints\b/i, /\bgoal only\b/i];
+// The work folder's words (ticket 86) have theirs too: a working folder or
+// directory, a repo, the page's "template copy" for the practice copy or for
+// a new copy.
+const ALIASES = [/practice folder/i, /\byour copy\b/i, /\bgoal and hints\b/i, /\bgoal only\b/i,
+  /\bwork(ing)? dir(ector(y|ies))?\b/i, /\bworking folder\b/i, /\brepo\b/i, /\byour own repository\b/i, /\btemplate copy\b/i, /\b(fresh|second|other) copy\b/i];
 const aliasIn = (w) => ALIASES.filter((re) => re.test(w)).map((re) => `"${w}" matches ${re}`);
 const aliases = (copy) => {
   const out = copyWords(copy).flatMap(aliasIn);
@@ -318,6 +322,9 @@ const aliases = (copy) => {
 
 test('one name for each thing: the app\'s words use no alias of a TERMS name', () => {
   assert.equal(TERMS.practiceCopy, 'practice copy');
+  assert.equal(TERMS.workFolder, 'work folder');
+  assert.equal(TERMS.yourRepository, 'your repository');
+  assert.equal(TERMS.newCopy, 'new copy');
   assert.deepEqual(TERMS.tierHelp, { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' });
   // The guide's level names, one each: the map, the welcome and a warm-up read them here.
   assert.deepEqual(TERMS.levels, { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' });
@@ -330,7 +337,11 @@ test('one name for each thing: the app\'s words use no alias of a TERMS name', (
   }
   assert.equal(C.pip1, "I'm Pip. I watch your practice copy and light up");
   assert.equal(C.cleanCopy, 'Your practice copy is clean: nothing to commit.');
-  for (const bad of ["I'm Pip. I watch your practice folder and light up", 'Your copy is clean: nothing to commit.', 'goal and hints', 'goal only']) {
+  assert.equal(C.folderOther, 'In another folder, such as your repository');
+  assert.equal(C.folderPrompt('Intermediate'), 'The work folder for Intermediate');
+  assert.equal(C.folderNewCopy, 'Give the folder of your new copy');
+  for (const bad of ["I'm Pip. I watch your practice folder and light up", 'Your copy is clean: nothing to commit.', 'goal and hints', 'goal only',
+    'Your working directory', 'The working folder for Intermediate', 'In your repo', 'In your own repository', 'Work dir:', 'This template copy', 'Give the folder of your fresh copy']) {
     assert.equal(aliases({ ...C, x: bad }).length, 1, bad);
   }
   assert.equal(aliases({ ...C, legend: { guided: 'all commands', hinted: 'hints on h', challenge: 'nothing more' } }).length, 1, 'a second tier description');
@@ -651,4 +662,26 @@ test('no key-shaped string, em dash or emoji variation selector under learn/', (
     assert.doesNotMatch(text, /—/, `${f} has an em dash`);
     assert.doesNotMatch(text, /️/, `${f} has U+FE0F`);
   }
+});
+
+// A match or no-match line's regex is the app's own words: it compiles, and
+// it holds no code span, which would read as a quote of the page.
+const regexProblems = (l) => allSteps(l).flatMap((st) => st.beats.filter((b) => ['match', 'no-match'].includes(b.verify.kind)).flatMap((b) => {
+  const found = [];
+  try {
+    new RegExp(b.verify.regex);
+  } catch (error) {
+    found.push(`${st.id}: ${error.message}`);
+  }
+  if (/`[^`]+`/.test(b.verify.regex)) found.push(`${st.id}: a code span in ${b.verify.regex}`);
+  return found;
+}));
+
+test('every match and no-match regex compiles and holds no code span', () => {
+  for (const [id, l] of Object.entries(parsed)) assert.deepEqual(regexProblems(l), [], id);
+  // The rule finds both, on made-up lessons.
+  const withVerify = (v) => parseLesson(DEMO_B2.replace('- verify: check 0 fresh\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', `- verify: ${v}`), 'b-2.md');
+  assert.equal(regexProblems(withVerify('match CLAUDE.md ^@(docs')).length, 1);
+  assert.match(regexProblems(withVerify('no-match SKILL.md `TODO`'))[0], /a code span/);
+  assert.deepEqual(regexProblems(withVerify('match CLAUDE.md ^@docs/.+\\.md$')), []);
 });

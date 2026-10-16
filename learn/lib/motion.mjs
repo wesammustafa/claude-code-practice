@@ -96,7 +96,7 @@ function newestWords(s) {
   if (s.view === 'welcome') {
     return words([C.hi(s.facts.name), C.pip1, C.pip2, C.twoWindows, C.thisWindow, ...C.thisWindowLines, C.otherWindow, ...C.otherWindowLines, C.openSecond, C.comeBack].join(' '));
   }
-  if (s.view === 'checkonly') return words([...checkOnlyWords(lessonOf(s)), ...lessonOf(s).items].join(' '));
+  if (s.view === 'checkonly') return words([...checkOnlyWords(s, lessonOf(s)), ...lessonOf(s).items].join(' '));
   const st = s.beat;
   if (s.view !== 'step' || !st) return 0;
   const fx = s.fx;

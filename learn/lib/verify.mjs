@@ -2,7 +2,7 @@
 // run in child processes; the app writes nothing to the practice copy.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STUB_RUNS } from '../../checks/lessons/a-4.mjs';
@@ -87,12 +87,32 @@ export function gitStatus(dir) {
   });
 }
 
+const NOT_A_REPO = 'this folder is not a git repository';
 export function gitReady(dir) {
   return new Promise((resolve) => {
     execFile('git', ['rev-parse', '--is-inside-work-tree'], { cwd: dir, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error) => {
-      resolve(error ? (error.code === 'ENOENT' ? 'git is not installed' : 'this folder is not a git repository') : null);
+      resolve(error ? (error.code === 'ENOENT' ? 'git is not installed' : error.killed ? 'git did not answer in time' : NOT_A_REPO) : null);
     });
   });
+}
+
+// What a work folder is (ticket 86): whether it is a folder at all, whether
+// git says it is a repository, and whether it has the `.practice/` folder
+// the lessons save to, ignored by git. Read, never changed. `gitBroken` is
+// why git could not say (not installed, no answer), null where it did.
+export async function probeFolder(path) {
+  let folder = false;
+  try {
+    folder = statSync(path).isDirectory();
+  } catch {}
+  if (!folder) return { path, missing: true, git: false, gitBroken: null, practice: false };
+  const said = await gitReady(path);
+  const git = said === null;
+  const gitBroken = said && said !== NOT_A_REPO ? said : null;
+  const practice = git && existsSync(join(path, '.practice')) && (await new Promise((resolve) => {
+    execFile('git', ['check-ignore', '-q', '.practice/'], { cwd: path, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error) => resolve(!error));
+  }));
+  return { path, missing: false, git, gitBroken, practice };
 }
 
 // The first word of git's user.name, to say hello. Read, never stored.
@@ -104,23 +124,13 @@ export function gitFirstName(dir) {
   });
 }
 
-// The first line of a file a check verified, to show what the learner made.
-export function evidence(dir, path) {
+// A file's bytes as they are now, for the reducer to read what it holds
+// (holds.mjs); null when it isn't there or can't be read just now.
+export function bytesOf(dir, path) {
   try {
-    const buf = readFileSync(join(dir, path));
-    const text = buf[0] === 0xff && buf[1] === 0xfe ? buf.subarray(2).toString('utf16le') : buf.toString('utf8').replace(/^﻿/, '');
-    return text.split(/\r?\n/).find((l) => l.trim())?.trim().slice(0, 60) ?? null;
+    return readFileSync(join(dir, path));
   } catch {
     return null;
-  }
-}
-
-// How many lines of a file hold something, such as the paths in a plan's list.
-export function lineCount(dir, path) {
-  try {
-    return readFileSync(join(dir, path), 'utf8').split(/\r?\n/).filter((l) => l.trim()).length;
-  } catch {
-    return 0;
   }
 }
 

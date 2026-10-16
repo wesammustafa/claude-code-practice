@@ -2,7 +2,8 @@
 // git ignores `.practice/`, and every check that reads git status leaves it
 // out. It is the only file the app writes, and only once `.practice/` exists.
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { FOLDER_KEYS, PATH_MAX } from './content.mjs';
 
 export const FORMAT = 1;
 export const storePath = (root) => join(root, '.practice', 'learn.json');
@@ -16,6 +17,9 @@ export function loadState(root) {
     return null;
   }
 }
+
+// A work folder as the app saved it: an absolute path on one line.
+const folder = (x) => (typeof x === 'string' && x.length <= PATH_MAX && isAbsolute(x) && !/[\0\r\n]/.test(x) ? x : null);
 
 const stepId = (x) => (typeof x === 'string' && /^[WYTCR]\d*$/.test(x) ? x : null);
 
@@ -42,16 +46,21 @@ export function sanitize(data) {
       bottomAt: stepId(p.bottomAt),
     };
   }
+  // The work folders the learner chose (ticket 86): one per later level and
+  // per lesson that runs in a new copy, and nothing else. A file with none
+  // has no key, as before the work folder.
+  const folders = Object.fromEntries(FOLDER_KEYS.filter((k) => folder(data?.folders?.[k])).map((k) => [k, data.folders[k]]));
   return {
     format: FORMAT,
     welcomed: data?.welcomed === true,
     eased: Array.isArray(data?.eased) ? data.eased.filter((x) => typeof x === 'string') : [],
     missed: Array.isArray(data?.missed) ? data.missed.filter((x) => typeof x === 'string') : [],
     lessons,
+    ...(Object.keys(folders).length ? { folders } : {}),
   };
 }
 
-export const snapshot = (state) => sanitize({ welcomed: state.welcomed, eased: state.eased, missed: state.missed, lessons: state.progress });
+export const snapshot = (state) => sanitize({ welcomed: state.welcomed, eased: state.eased, missed: state.missed, lessons: state.progress, folders: state.folders });
 
 // Writes atomically. Returns false, writing nothing, while `.practice/` is missing.
 export function saveState(root, data) {
