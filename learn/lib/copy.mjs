@@ -150,11 +150,13 @@ export const C = {
     ['?', 'these keys'],
     ['q', 'quit (your place is saved)'],
   ],
+  calm: 'Prefer a still screen? Quit, then start with npm run learn -- --calm.',
 
   small: 'Make this window a bit bigger (at least 60 by 20).',
   savedAt: (label, n, m) => `Saved: ${label}, step ${n} of ${m}. Run npm run learn to pick up where you left off.`,
   savedLater: 'Your place is saved once .practice/ exists (lesson 1, step 3).',
   plainIntro: 'npm run learn shows one step at a time in a terminal. Run it in a terminal window to use it.',
+  usage: 'Usage: npm run learn -- [--calm] [--plain]. --calm keeps the screen still; --plain draws plain symbols with no color.',
 
   k: {
     itsOpen: "it's open", quit: 'quit', choose: 'choose', start: 'start', map: 'map', more: 'more', checkNow: 'check now',
