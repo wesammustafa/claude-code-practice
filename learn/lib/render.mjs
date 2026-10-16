@@ -274,6 +274,10 @@ function planned(state) {
 // it to `done`.
 const passedNow = (s) => s.view === 'step' && isDone(s.beat) && s.pos.beat === stepOf(s).beats.length - 1;
 
+// The step on screen is passed and was not done before: a first pass, which
+// counts toward the session and grows the progress rule.
+const firstPass = (s) => passedNow(s) && !s.progress[s.lesson].done.includes(stepOf(s).id);
+
 // The steps in `done`, and the step on screen once it is passed.
 function passed(s) {
   const done = new Set(s.progress[s.lesson].done);
@@ -334,7 +338,7 @@ function progressRule(ctx) {
   const done = passed(s);
   const n = steps.filter((x) => done.has(x.id)).length;
   const e = into(ctx, 'stepDone');
-  const growing = e < SHOTS.stepDone.fill && !s.progress[s.lesson].done.includes(stepOf(s).id);
+  const growing = e < SHOTS.stepDone.fill && firstPass(s);
   return fill(t, growing ? n - 1 + e / SHOTS.stepDone.fill : n, steps.length, W);
 }
 
@@ -375,7 +379,8 @@ function card(ctx, { tint, where, done, rows, mood }) {
   const fill = Math.max(0, W - width(left));
   const face = pipNow(ctx, mood);
   // As the card enters, the top rule grows from the pill a third a frame.
-  const top = !face ? left + t.fg(tint, t.glyph.rule.repeat(Math.round((fill * (1 + Math.floor(into(ctx, 'entrance') / SHOTS.entrance.every))) / 3)))
+  const grown = Math.round((fill * (1 + Math.floor(into(ctx, 'entrance') / SHOTS.entrance.every))) / 3);
+  const top = !face ? left + t.fg(tint, t.glyph.rule.repeat(grown))
     : fill >= PIP_ROOM
       ? `${left}${t.fg(tint, t.glyph.rule.repeat(fill - PIP_FACE - 2))}${pipFace(t, face.mood, face.frame)}${t.fg(tint, t.glyph.rule.repeat(2))}`
       : left + t.fg(tint, t.glyph.rule.repeat(fill));
@@ -552,7 +557,7 @@ const VIEWS = {
       body: [
         top,
         SPACER,
-        ` ${tierPill(t, s.levelFrom)}   ${arrow}   ${e < Infinity ? landingPill(t, s.levelFrom, s.levelTo, e < at.head ? ' ' : t.glyph.spark) : tierPill(t, s.levelTo)}`,
+        ` ${tierPill(t, s.levelFrom)}   ${arrow}   ${tierPill(t, s.levelTo, e < Infinity ? { from: s.levelFrom, glyph: e < at.head ? ' ' : t.glyph.spark } : undefined)}`,
         SPACER,
         ...para(t, lines[0], W - 1, 'white').map((x) => ` ${t.bold(x)}`),
         ...para(t, lines[1], W - 1, 'text').map((x) => ` ${x}`),
@@ -581,16 +586,17 @@ const VIEWS = {
     const k = Math.floor(e / at.fall);
     let confettiRows = [confetti(t, W)];
     let under = SPACER;
-    if (e < Infinity && ctx.rows < 24) confettiRows = [confetti(t, W, (i) => i < at.first + at.more * k)];
+    if (e < Infinity && ctx.rows < 24) confettiRows = [confetti(t, W, { shown: at.first + at.more * k })];
     else if (e < Infinity) {
-      confettiRows = [confetti(t, W, (i) => i % 2 === k % 2)];
-      under = spacer(confetti(t, W, (i) => i % 2 !== k % 2));
+      confettiRows = [confetti(t, W, { turn: k, row: 0 })];
+      under = spacer(confetti(t, W, { turn: k, row: 1 }));
     }
     // Arms up: past the first row's sides, where its margin was.
     const top = `${cheer ? '' : ' '}${art[0]}`;
     // The ticks appear in turn from blank, the payoff's mark last.
     const order = [...content.intro.can.filter((c) => c !== content.intro.payoff), ...content.intro.can.filter((c) => c === content.intro.payoff)];
-    const lands = (c) => at.ticks + (order.length > 1 ? ((at.ticksBy - at.ticks) * order.indexOf(c)) / (order.length - 1) : 0);
+    // Each lands on the 40 ms grid, where a frame is drawn.
+    const lands = (c) => at.ticks + (order.length > 1 ? TIMING.grid * Math.round((at.ticksBy - at.ticks) * order.indexOf(c) / (order.length - 1) / TIMING.grid) : 0);
     return {
       head: lessonHead(ctx, t.pill(`${C.complete} ${t.glyph.check}`, 'okBg'), `${total} of ${total}`),
       body: [
@@ -705,15 +711,6 @@ const VIEWS = {
   },
 };
 
-// The new tier's pill as its star lands: the stars it adds to the old tier
-// drawn as `glyph`.
-function landingPill(t, from, to, glyph) {
-  const { label, stars: [n, of], bg, fgOnBg } = TIER_STYLE[to];
-  const old = TIER_STYLE[from].stars[0];
-  const stars = Array.from({ length: of }, (_, k) => (k < old ? t.glyph.star : k < n ? glyph : t.glyph.starOff)).join('');
-  return t.pill(`${label} ${stars}`, bg, fgOnBg);
-}
-
 function windows(ctx) {
   const { t, W } = ctx;
   const box = (title, lines, inner, color) => {
@@ -724,10 +721,10 @@ function windows(ctx) {
   const wide = W >= 66;
   const left = box(C.thisWindow, [`  ${t.fg('code', 'npm run learn')}`, ...C.thisWindowLines.map((l) => `  ${t.fg('text', l)}`)], wide ? 26 : 22, 'accent');
   const right = box(C.otherWindow, C.otherWindowLines.map((l) => `  ${t.fg('text', l)}`), wide ? 27 : 26, 'key');
-  // On entry one pulse crosses the arrow toward the other window, a cell a frame.
+  // On entry one pulse crosses the arrow toward the other window, a cell at a time.
   const n = wide ? 2 : 1;
   const e = into(ctx, 'welcome');
-  const k = e < SHOTS.welcome.pulse ? -1 : Math.floor((e - SHOTS.welcome.pulse) / SHOTS.welcome.every);
+  const k = e < SHOTS.welcome.pulse ? -1 : Math.floor((e - SHOTS.welcome.pulse) / SHOTS.welcome.cell);
   const [before, after] = wide ? ['  ', '   '] : [' ', ' '];
   const arrow = k >= 0 && k < n
     ? `${before}${t.fg('faint', t.glyph.rule.repeat(k))}${t.fg('key', t.glyph.bold)}${t.fg('faint', `${t.glyph.rule.repeat(n - k - 1)}${t.glyph.right}`)}${after}`
@@ -825,7 +822,10 @@ function stepView(ctx) {
         const cw = chipWidth(ctx, beat);
         const long = cw + 22 <= inner;
         const live = l.tick === 'practice-dir' && s.facts.practiceDir;
-        const ticked = done && ['check', 'file'].includes(beat.verify.kind) && (live || passing >= SHOTS.stepDone.tick * ++fresh);
+        const checked = done && ['check', 'file'].includes(beat.verify.kind);
+        // A live tick stays and takes no turn; each other command takes the next.
+        const turn = checked && !live ? ++fresh : 0;
+        const ticked = checked && (live || passing >= SHOTS.stepDone.tick * turn);
         const tick = live && !done ? `  ${t.fg('ok', long ? `${t.glyph.check} .practice/ exists` : t.glyph.check)}` : ticked ? `  ${t.fg('ok', t.glyph.check)}` : '';
         const lines = chip(t, cmd, beat.where, cw);
         rows.push(lines[0] + tick, ...lines.slice(1));
@@ -878,7 +878,7 @@ function stepView(ctx) {
     if (beat.kind === 'predict' && !st.answer) rows.push(SPACER, ...para(t, C.anyAnswer, inner, 'muted'));
   }
 
-  const footer = footerRows(ctx, { beat, step, content, isLastBeat });
+  const footer = footerRows(ctx, { beat, content, isLastBeat });
   // Feedback, the hint box and the eased line: none of them drops.
   if (footer.length) rows.push(SPACER, ...kept(footer));
 
@@ -941,7 +941,7 @@ function options(ctx, beat) {
   }).flat();
 }
 
-function footerRows(ctx, { beat, step, content, isLastBeat }) {
+function footerRows(ctx, { beat, content, isLastBeat }) {
   const { s, t, inner } = ctx;
   const st = s.beat;
   const rows = [];
@@ -952,7 +952,7 @@ function footerRows(ctx, { beat, step, content, isLastBeat }) {
   // Room for text beside the burst.
   const room = inner - (t.unicode ? 21 : 7);
   const celebrate = (lines) => {
-    const count = s.session + (s.progress[s.lesson].done.includes(step.id) ? 0 : 1);
+    const count = s.session + (firstPass(s) ? 1 : 0);
     // The check mark draws in strokes, then the sparks.
     const e = into(ctx, 'stepDone');
     const { strokes, stroke } = SHOTS.stepDone;

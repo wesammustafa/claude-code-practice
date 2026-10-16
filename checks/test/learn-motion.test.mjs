@@ -7,7 +7,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { capabilities } from '../../learn/lib/caps.mjs';
-import { beatOf, DEFER_MS, IDLE_MS, reduce, tierOf } from '../../learn/lib/flow.mjs';
+import { C } from '../../learn/lib/copy.mjs';
+import { beatOf, DEFER_MS, IDLE_MS, isDone, reduce, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { ambientAllowed, nextChange, oneShot, phases, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
@@ -15,7 +16,7 @@ import { openScreen } from '../../learn/lib/screen.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { repo, withRepo } from './helpers.mjs';
-import { allScreens, b1Item, course, driver, lessonScreens, playUntil, root } from './learn-drive.mjs';
+import { allScreens, b1Item, course, driver, finishedBefore, lessonScreens, playUntil, root } from './learn-drive.mjs';
 import { fakeClock, fakeOut, screenModel } from './learn-term.mjs';
 
 // A terminal that can show everything: a TTY with 256 colors.
@@ -71,8 +72,21 @@ test('--calm and --plain are known flags; anything else, --lesson too until it i
   }
 });
 
-// Every screen of lesson 1, and every step screen of each lesson in the app.
-const screens = [...allScreens(), ...course.filter((l) => l.content).flatMap((l) => lessonScreens(l.id))];
+// Each level-up and the complete screen of a lesson, played on the path from
+// its start by a learner who finished every lesson before it.
+function celebrations(id) {
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+  const out = [];
+  playUntil(d, (s) => {
+    if (s.lesson === id && ['levelup', 'complete'].includes(s.view) && out.at(-1)?.[1] !== s) out.push([`${id} ${s.view === 'levelup' ? `level up ${s.levelTo}` : 'complete'}`, s]);
+    return s.lesson === id && s.view === 'complete';
+  });
+  return out;
+}
+// Every screen of lesson 1, and every step screen, level-up and complete
+// screen of each lesson in the app.
+const lessons = course.filter((l) => l.content);
+const screens = [...allScreens(), ...lessons.flatMap((l) => [...lessonScreens(l.id), ...celebrations(l.id)])];
 const SIZES = [[60, 20], [80, 24]];
 const MOTION = { full: { tty: true, depth: 8, unicode: true, links: true, win32: false }, sixteen: { tty: true, depth: 4, unicode: true, links: false, win32: false } };
 
@@ -702,6 +716,12 @@ test('a card enters: its words whole at once, the top rule grows from the pill, 
   const next = screen('W4 predict');
   const stop = (ms) => frameAt(next, next.fx.open, ms)[1].slice(0, 15);
   assert.deepEqual([0, 80, 160].map(stop), ['  ●━━●━━●━━○──○', '  ●━━●━━●━━◉──○', '  ●━━●━━●━━●──○']);
+  // A card that opens checking: Pip lands with the same shut eyes and smile,
+  // then wears its checking face.
+  const checking = screen('W3 opening');
+  assert.equal(checking.beat.status, 'opening');
+  const face = (ms) => frameAt(checking, checking.fx.open, ms)[4].slice(-9, -2);
+  assert.deepEqual([80, 160].map(face), [' (─‿─) ', ' (◓─◓) ']);
 });
 
 test('a new "Not yet": the line whole at once, its mark pops, Pip looks down, nods, and looks back down', () => {
@@ -781,6 +801,18 @@ test('a step done: the stop pops and its link fills, the rule grows, Pip cheers,
   // At 60x20 the same cells change: the rule grows from 9 cells to 14.
   const small = (ms) => frameAt(s, s.fx.passLast, ms, [60, 20])[2];
   assert.deepEqual([small(0), small(240)], [`  ${'━'.repeat(9)}${'─'.repeat(47)}`, `  ${'━'.repeat(14)}${'─'.repeat(42)}`]);
+  // A step done before that passes again (back with b) cheers all the same,
+  // but row 3 already counts it, so the rule never shrinks and regrows.
+  const d = driver();
+  playUntil(d, (x) => x.view === 'step' && stepOf(x).id === 'W4');
+  d.key('b');
+  d.send({ type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)', wait: 50 });
+  const again = d.state;
+  assert.equal(stepOf(again).id, 'W3');
+  assert.ok(isDone(again.beat) && again.progress['b-1'].done.includes('W3'));
+  const g = (ms) => frameAt(again, again.fx.passLast, ms);
+  assert.equal(g(0)[4].slice(-9, -2), '\\(★▽★)/', 'it cheers');
+  for (let ms = 0; ms <= 560; ms += 40) assert.equal(g(ms)[2], restOf(again)[2], `+${ms} ms: row 3`);
 });
 
 test('a level-up: Pip opens its eyes as the banner wipes in, then the arrow fills and the new star lands; the words are there from +0 ms', () => {
@@ -844,6 +876,30 @@ test('a lesson complete: confetti falls into its row, Pip throws its arms up, CO
     '  ✦     ·     ◆     •     ✧     ■     ✦     ·     ◆     •',
   ]);
   assert.equal(frameAt(s, s.fx.view, 0, [60, 20])[5], '');
+  // Where the payoff is not the last line, its 🏁 still lands last: the
+  // capstone's is the first, so the ticks run from the second line down,
+  // each on the 40 ms grid, and the first line's mark comes last.
+  const cap = screens.find(([l]) => l === 'b-capstone complete')[1];
+  const { can: capCan, payoff } = lessons.find((l) => l.id === 'b-capstone').content.intro;
+  assert.equal(capCan.indexOf(payoff), 0);
+  const capMarks = (ms) => {
+    const lines = frameAt(cap, cap.fx.view, ms);
+    const from = lines.findIndex((l) => l.includes(C.lessonDone('Capstone'))) + 1;
+    return lines.slice(from, from + capCan.length).map((l, i) => l.slice(0, l.indexOf(capCan[i])).trim());
+  };
+  assert.deepEqual([520, 560, 600, 640, 680, 720, 760, 800].map(capMarks), [
+    ['', '', '', '', ''],
+    ['', '✔', '', '', ''],
+    ['', '✔', '', '', ''],
+    ['', '✔', '✔', '', ''],
+    ['', '✔', '✔', '✔', ''],
+    ['', '✔', '✔', '✔', ''],
+    ['', '✔', '✔', '✔', '✔'],
+    ['🏁', '✔', '✔', '✔', '✔'],
+  ]);
+  // Five ticks over 240 ms would land 60 ms apart: each waits for the next
+  // frame on the grid instead, so none lands between frames.
+  assert.deepEqual([620, 740].map(capMarks), [capMarks(600), capMarks(720)]);
 });
 
 test('one-shots end: 1.2 s after the last one starts, no frame is asked for unless a loop may then draw', () => {
@@ -861,8 +917,12 @@ test('one-shots end: 1.2 s after the last one starts, no frame is asked for unle
 });
 
 // The rows that changed from one frame to the next, as runs of rows: a run
-// is one moving part.
-const movingParts = (a, b) => a.reduce((n, line, i) => (line !== b[i] && (i === 0 || a[i - 1] === b[i - 1]) ? n + 1 : n), 0);
+// is one moving part, so a step done's trail and rule (rows 2 and 3) are its
+// header, one part, as design 2.3 counts them. A run would hide two parts
+// that touch, so `cuts` holds the rows where a part starts right under
+// another: on the complete screen, Pip's top row, under the confetti.
+const movingParts = (a, b, cuts) => a.reduce((n, line, i) => (line !== b[i] && (i === 0 || cuts.has(i) || a[i - 1] === b[i - 1]) ? n + 1 : n), 0);
+const partCuts = (s, rest) => new Set(s.view === 'complete' ? [rest.findIndex((l) => /^ +╭───────╮$/.test(strip(l).trimEnd()))].filter((i) => i > 0) : []);
 
 test('little at once: at most one loop, and at most three moving parts from one frame to the next', () => {
   for (const [cols, rows] of SIZES) {
@@ -871,9 +931,12 @@ test('little at once: at most one loop, and at most three moving parts from one 
       const { times } = drawnFrames;
       if (!times.length) continue;
       const frames = [...drawnFrames.frames, drawnFrames.rest];
+      const cuts = partCuts(s, drawnFrames.rest);
+      if (s.view === 'complete' && cols === 80) assert.equal(cuts.size, 1, `${label}: Pip's top row`);
       frames.slice(1).forEach((f, k) => {
         const where = `${label} at ${cols}x${rows}, +${(times[k + 1] ?? Infinity) - s.fx.view} ms from the view`;
-        assert.ok(movingParts(frames[k], f) <= 3, `${where}: ${movingParts(frames[k], f)} parts move`);
+        const n = movingParts(frames[k], f, cuts);
+        assert.ok(n <= 3, `${where}: ${n} parts move`);
       });
       for (const at of times) {
         const p = phases(s, at, ON);

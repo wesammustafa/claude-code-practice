@@ -72,12 +72,15 @@ export function burst(t, lines, frame = 4) {
   return lines.map((l, i) => `${art[i] ?? ''}${' '.repeat(Math.max(0, w - width(art[i] ?? '')))}${l}`);
 }
 
-// A row of confetti, a glyph every 6 columns. `frame` picks which glyphs
-// show, by index; all of them by default.
-export function confetti(t, cols, frame = () => true) {
+// A row of confetti, a glyph every 6 columns; all of them by default. As it
+// falls, `frame` picks which show, by index: the first `shown`, or, on turn
+// `turn`, every other glyph, the odd ones in one `row` and the even ones in
+// the other, changing places each turn.
+export function confetti(t, cols, frame) {
   const glyphs = t.unicode ? ['✦', '·', '◆', '•', '✧', '■'] : ['*', '.', '+', 'o', 'x', '#'];
   const colors = ['gold', 'key', 'accent', 'ok', 'challenge', 'hinted'];
+  const shows = (i) => (!frame ? true : frame.shown !== undefined ? i < frame.shown : (i + frame.turn + frame.row) % 2 === 0);
   const out = [];
-  for (let i = 0; i * 6 < cols - 1; i++) out.push(frame(i) ? t.fg(colors[i % colors.length], glyphs[i % glyphs.length]) : ' ');
+  for (let i = 0; i * 6 < cols - 1; i++) out.push(shows(i) ? t.fg(colors[i % colors.length], glyphs[i % glyphs.length]) : ' ');
   return out.join('     ').trimEnd();
 }

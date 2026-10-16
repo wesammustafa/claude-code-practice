@@ -9,6 +9,7 @@ export const REST = { at: Infinity };
 
 // Every timing of the motion layer, in milliseconds (design 4.3). Frames land
 // on the 40 ms grid; loops tick every 80 ms, and every 240 ms after 10 s.
+// The moments inside each one-shot are its SHOTS entry, below.
 export const TIMING = {
   grid: 40, tick: 80, slowTick: 240, slowAfter: 10_000,
   // One-shots: none lasts over 1.2 s.
@@ -22,9 +23,10 @@ export const TIMING = {
   perWord: 400, graceMin: 3_000, graceMax: 20_000, keyQuiet: 4_000,
 };
 
-// Inside each one-shot (design 2.3 and 4.3): `every`, how often its frame may
-// change, and the moments it changes at, in ms from its start. Each rests at
-// its TIMING entry.
+// The moments inside each one-shot (design 2.3 and 4.3), under the same names
+// as its TIMING entry, which it rests at: `every`, how often its frame may
+// change, where the tests sample it, and the moments it changes at, in ms
+// from its start.
 export const SHOTS = {
   // The top rule grows from the pill, a third a frame, until Pip lands at
   // `land`; the trail's new stop is hollow until then, then a ring.
@@ -46,13 +48,14 @@ export const SHOTS = {
   // The confetti changes every `fall`: from 24 rows it falls across its row
   // and the blank under it, below 24 it appears `first` glyphs, then `more`
   // at a time. Pip's arms are up, and COMPLETE stamps in, until `whole`.
-  // The ticks appear in turn from `ticks` to `ticksBy`. From `light` one
+  // The ticks appear in turn from `ticks` to `ticksBy`, each on the 40 ms
+  // grid, so with five the gaps are 80 and 40 ms in turn. From `light` one
   // light runs the trail, a stop every `stop`.
   complete: { every: 40, fall: 400, first: 2, more: 3, whole: 480, ticks: 560, ticksBy: 800, light: 840, stop: 40 },
   // Pip's eyes open at `waking` and are awake at `awake`; the fuse lights
   // one more link of the path every `fuse`; from `pulse` one pulse crosses
-  // the arrow, a cell a frame.
-  welcome: { every: 80, waking: 80, awake: 160, fuse: 80, pulse: 320 },
+  // the arrow, a cell every `cell`.
+  welcome: { every: 80, waking: 80, awake: 160, fuse: 80, pulse: 320, cell: 80 },
 };
 
 // One-shot progress 0..1; 1 once a later key arrived.

@@ -36,9 +36,10 @@ const UNICODE_PIP = {
   rest: { eye: '●', mouth: '‿' }, checking: { eye: '◓', mouth: '─' }, worried: { eye: '◒', mouth: '‿' },
   done: { eye: '★', mouth: '‿' }, broken: { eye: '◒', mouth: '─' },
 };
-// Pip's poses in a one-shot, over its mood's face: eyes shut, or arms up
-// with an open mouth. ASCII Pip is still, so it has none.
-const UNICODE_POSES = { shut: { eye: '─' }, up: { mouth: '▽', arms: ['\\', '/'] } };
+// Pip's poses in a one-shot, over its mood's face: eyes shut with a smile,
+// whatever the mood's mouth (a shut eye over a flat mouth would read as one
+// rule), or arms up with an open mouth. ASCII Pip is still, so it has none.
+const UNICODE_POSES = { shut: { eye: '─', mouth: '‿' }, up: { mouth: '▽', arms: ['\\', '/'] } };
 // ASCII Pip has three faces: at rest, checking, and done with its arms up.
 const ASCII_PIP = {
   rest: { eye: 'o', mouth: '_' }, checking: { eye: 'o', mouth: '.' }, worried: { eye: 'o', mouth: '_' },
@@ -89,10 +90,13 @@ export const TIER_STYLE = {
   challenge: { label: 'CHALLENGE', stars: [3, 3], bg: 'challengeBg', tint: 'challenge', fgOnBg: 'black', on: 'star', off: 'starOff' },
 };
 
-export function tierLabel(t, tier) {
+// A tier's label and stars. While a level-up lands, `landing` draws the stars
+// the tier adds over `landing.from` as `landing.glyph`.
+export function tierLabel(t, tier, landing) {
   const s = TIER_STYLE[tier];
-  const stars = t.glyph.star.repeat(s.stars[0]) + t.glyph.starOff.repeat(s.stars[1] - s.stars[0]);
+  const old = landing ? TIER_STYLE[landing.from].stars[0] : s.stars[0];
+  const stars = t.glyph.star.repeat(old) + (landing?.glyph ?? t.glyph.star).repeat(s.stars[0] - old) + t.glyph.starOff.repeat(s.stars[1] - s.stars[0]);
   return `${s.label} ${stars}`;
 }
 
-export const tierPill = (t, tier) => t.pill(tierLabel(t, tier), TIER_STYLE[tier].bg, TIER_STYLE[tier].fgOnBg);
+export const tierPill = (t, tier, landing) => t.pill(tierLabel(t, tier, landing), TIER_STYLE[tier].bg, TIER_STYLE[tier].fgOnBg);
