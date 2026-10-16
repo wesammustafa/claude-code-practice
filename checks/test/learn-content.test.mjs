@@ -71,9 +71,12 @@ test('intro: each why wraps to at most 2 lines at the 60-column content width', 
   }
 });
 
-// A first meeting's GUIDED step with no Why line on its card, and why. None
-// today: name one here only with the reason.
-const NO_WHY = {};
+// A first meeting's GUIDED step with no Why line on its card, and why. Name
+// one here only where the page has no sentence that is a reason for the step.
+const NO_WHY = {
+  'b-2 W8': 'the goal line already gives the page\'s reason, "so Your turn starts clean"; the Check item about the snapshot states a file the app may not have seen',
+  'b-4 W7': 'the page gives no reason to resume; the sentence before it is about /clear, which would read as a claim about /exit and cue W7.1\'s answer',
+};
 
 test('the first GUIDED Worked example step on each skill has a why line on a beat that shows it inline', () => {
   const seen = new Set();
