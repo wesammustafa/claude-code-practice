@@ -769,10 +769,8 @@ function inCopy({ folders, argv = [], env = {}, i1 = DEMO_I1, saved = {} } = {})
   const ran = [];
   const watched = [];
   const closedDirs = [];
-  // Each watched folder's change handler, as the real watcher calls it, and
-  // how many times main armed its watcher again.
+  // Each watched folder's change handler, as the real watcher calls it.
   const onChanges = {};
-  const arms = {};
   let exited = null;
   const stderr = { text: '', write(x) { this.text += x; } };
   const done = main({ argv, stdin, stdout, stderr, env: { ...CALM, ...env }, platform: 'linux', root: copy, exit: (code) => { exited = code; },
@@ -783,13 +781,13 @@ function inCopy({ folders, argv = [], env = {}, i1 = DEMO_I1, saved = {} } = {})
     watch: (dir, onChange) => {
       watched.push(dir);
       onChanges[dir] = onChange;
-      return { close() { closedDirs.push(dir); }, arm() { arms[dir] = (arms[dir] ?? 0) + 1; }, onChange };
+      return { close() { closedDirs.push(dir); }, onChange };
     } });
   const close = () => {
     if (exited === null) stdin.write('\x03');
     rmSync(copy, { recursive: true, force: true });
   };
-  return { copy, stdin, stdout, frame, ran, watched, closedDirs, onChanges, arms, stderr, done, exited: () => exited, type: (x) => stdin.write(x), close };
+  return { copy, stdin, stdout, frame, ran, watched, closedDirs, onChanges, stderr, done, exited: () => exited, type: (x) => stdin.write(x), close };
 }
 const until = async (fn, ms = 8_000) => {
   const end = Date.now() + ms;
@@ -851,7 +849,7 @@ test('main: a json beat reads its file in the work folder, with no process, and 
   }
 });
 
-test('main: a git-only beat asks git status in the work folder, which lists each untracked file, and the poll arms the watchers again', async () => {
+test('main: a git-only beat asks git status in the work folder, which lists each untracked file', async () => {
   const mine = repo({ 'README.md': 'r\n' });
   commit(mine, 'start');
   mkdirSync(join(mine, '.practice'));
@@ -862,15 +860,13 @@ test('main: a git-only beat asks git status in the work folder, which lists each
     assert.ok(await until(() => words().includes('Welcome back')), app.frame());
     app.type('\r');
     assert.ok(await until(() => words().includes('Watching git status')), app.frame());
-    // While it watches, the poll arms both folders' watchers again.
-    assert.ok(await until(() => app.arms[mine] > 0 && app.arms[app.copy] > 0, 5_000), JSON.stringify(app.arms));
     // A change in the copy says nothing about the work folder.
     write(app.copy, { 'notes.md': 'n\n' });
     write(mine, { '.claude/skills/tdd/SKILL.md': '---\nname: tdd\n---\n' });
     // git status alone would list the new folder as .claude/.
     assert.ok(await until(() => {
       app.onChanges[mine]();
-      return words().includes('git status lists .claude/skills/tdd/SKILL.md');
+      return words().includes('Changed: .claude/skills/tdd/SKILL.md');
     }), app.frame());
   } finally {
     app.close();

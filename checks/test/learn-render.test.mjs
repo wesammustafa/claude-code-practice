@@ -2917,7 +2917,7 @@ test('git-clean with paths: its lines name the paths, and list only what is unde
       const d = onReading('git-clean secrets/');
       d.send(gitLists(['README.md', 'secrets/key.txt']));
       fits(d.state, size, t, where);
-      assert.ok(prose(d.state, size, t).includes('Not yet: git status lists 1 change under secrets/: secrets/key.txt'), `${where}: ${prose(d.state, size, t)}`);
+      assert.ok(prose(d.state, size, t).includes('Not yet: 1 file changed under secrets/: secrets/key.txt'), `${where}: ${prose(d.state, size, t)}`);
       assert.ok(!prose(d.state, size, t).includes('README.md'), where);
       d.send(gitLists(['README.md']));
       assert.equal(d.state.beat.status, 'done');
@@ -2930,13 +2930,13 @@ test('git-clean with paths: its lines name the paths, and list only what is unde
       live.send(gitLists(['README.md']));
       assert.ok(prose(live.state, size, t).includes('Watching git status:') && prose(live.state, size, t).includes('no changes under secrets/ so far'), `${where}: ${prose(live.state, size, t)}`);
       live.send(gitLists(['README.md', 'secrets/a.txt', 'secrets/b.txt']));
-      assert.ok(prose(live.state, size, t).includes('git status lists 2 changes under secrets/: secrets/a.txt, secrets/b.txt'), `${where}: ${prose(live.state, size, t)}`);
+      assert.ok(prose(live.state, size, t).includes('2 files changed under secrets/: secrets/a.txt, secrets/b.txt'), `${where}: ${prose(live.state, size, t)}`);
       fits(live.state, size, t, where);
     }
   }
 });
 
-test('git-changed: it watches git status, its not-yet line is shown whole, and its pass shows what git status lists, at 60x20 and 80x24', () => {
+test('git-changed: it watches git status, its not-yet line is shown whole, and its pass, or a change already there, shows what changed, at 60x20 and 80x24', () => {
   for (const caps of [CAPS.full, CAPS.ascii]) {
     const t = theme(caps);
     for (const size of [[60, 20], [80, 24]]) {
@@ -2952,8 +2952,19 @@ test('git-changed: it watches git status, its not-yet line is shown whole, and i
       d.send(gitLists(['src/config.js']));
       fits(d.state, size, t, where);
       const words = prose(d.state, size, t);
-      assert.ok(words.includes('git status lists src/config.js') || (words.includes('git status lists') && words.includes('src/config.js')), `${where}: ${words}`);
+      assert.ok(words.includes('Changed: src/config.js') || (words.includes('Changed:') && words.includes('src/config.js')), `${where}: ${words}`);
       assert.match(words, /DONE/, where);
+      // Already changed when the step opens: git status passed it, not a
+      // check, and the card says what it lists.
+      for (const [verify, lists, shows] of [['git-changed src/', gitLists(['src/a.js']), 'Changed: src/a.js'], ['git-staged', gitLists(['src/a.js'], ['src/a.js']), 'Staged: src/a.js']]) {
+        const already = onReading(verify);
+        already.send(lists);
+        assert.equal(already.state.beat.status, 'already', verify);
+        fits(already.state, size, t, `${where} ${verify}`);
+        const said = prose(already.state, size, t);
+        assert.ok(said.includes('Already done, so this step counts.') && said.includes(shows), `${where}: ${said}`);
+        assert.ok(!said.includes('check already passes'), `${where}: ${said}`);
+      }
     }
   }
 });
@@ -2968,12 +2979,12 @@ test('git-only and git-staged: a long not-yet line is shown whole, and the pass 
       only.send(gitLists([]));
       only.send(gitLists([long, 'README.md', 'src/index.js', 'docs/notes.md', 'package.json']));
       fits(only.state, size, t, where);
-      assert.ok(prose(only.state, size, t).includes('Not yet: git status lists 4 changes outside .claude/: README.md, src/index.js, docs/notes.md'), `${where}: ${prose(only.state, size, t)}`);
+      assert.ok(prose(only.state, size, t).includes('Not yet: 4 files changed outside .claude/: README.md, src/index.js, docs/notes.md'), `${where}: ${prose(only.state, size, t)}`);
       only.send(gitLists([long]));
       fits(only.state, size, t, where);
       // Beside the burst, a long path wraps where it must.
       const words = prose(only.state, size, t);
-      assert.ok(words.includes('git status lists') && words.includes('.claude/skills/five-whys/') && words.includes('examples.md'), `${where}: ${words}`);
+      assert.ok(words.includes('Changed:') && words.includes('.claude/skills/five-whys/') && words.includes('examples.md'), `${where}: ${words}`);
       const staged = onReading('git-staged');
       staged.send(gitLists(['src/config.js']));
       staged.key('r');

@@ -409,6 +409,13 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   const said = parseLesson(DEMO_B2.replace('- goal: "Save it again."', '- goal: "Save it again."\n- say: Done when the file lists it.\n- say: Then press r.'), 'demo');
   assert.deepEqual(said.steps[1].beats[0].lines.filter((x) => x.key === 'say').map((x) => x.doneWhen ?? false), [true, false]);
   assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', '- verify: none\n- say: Done when it runs.'), 'demo'), /a "Done when" say line needs a check beat or a beat that reads a file/);
+  // A path git status is asked about is named as git names it, from the
+  // work folder: ./, / and .. would match nothing it lists.
+  const scoped = parseLesson(DEMO_B2.replace('- verify: check all', '- verify: git-clean secrets/ .claude/settings.local.json'), 'demo');
+  assert.deepEqual(scoped.steps.flatMap((x) => x.beats).find((x) => x.verify.kind === 'git-clean').verify.paths, ['secrets/', '.claude/settings.local.json']);
+  for (const verify of ['git-clean ./secrets/', 'git-clean secrets/ /src', 'git-changed .', 'git-only ../other/', 'git-changed src//a.js', 'git-only src\\a.js']) {
+    assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', `- verify: ${verify}`), 'demo'), /a git path is named from the work folder/, verify);
+  }
 });
 
 test('the grammar: an intro holds one quoted why and one quoted payoff', () => {
@@ -2128,12 +2135,12 @@ test('git-changed: done once git status lists something under the path; the firs
   assert.equal(d.state.beat.fail.hint, 'git status lists no change under src/ yet.');
   d.send(gitLists(['README.md', 'src/config.js', 'src/new/']));
   assert.equal(d.state.beat.status, 'done');
-  assert.equal(d.state.beat.evidence, 'git status lists src/config.js, src/new/');
+  assert.equal(d.state.beat.evidence, 'Changed: src/config.js, src/new/');
   // A change there already when the step opens counts, as a check that already passes does.
   const already = onReading('git-changed src');
   already.send(gitLists(['src/a.js', 'src/b.js', 'src/c.js', 'src/d.js']));
   assert.equal(already.state.beat.status, 'already');
-  assert.equal(already.state.beat.evidence, 'git status lists src/a.js, src/b.js, src/c.js and 1 more');
+  assert.equal(already.state.beat.evidence, 'Changed: src/a.js, src/b.js, src/c.js and 1 more');
   // A whole-tree result decides nothing.
   const whole = onReading('git-changed src/');
   whole.send({ type: 'git', paths: ['src/'] });
@@ -2150,12 +2157,12 @@ test('git-only: done once git status lists something, all of it under the path; 
   assert.equal(d.state.beat.fail.hint, 'git status lists no change yet.');
   d.send(gitLists(['.claude/skills/five-whys/SKILL.md', 'README.md', '.claudeignore']));
   assert.equal(d.state.beat.status, 'fail');
-  assert.equal(d.state.beat.fail.hint, 'git status lists 2 changes outside .claude/: README.md, .claudeignore');
+  assert.equal(d.state.beat.fail.hint, '2 files changed outside .claude/: README.md, .claudeignore');
   d.send(gitLists(['.claude/skills/five-whys/SKILL.md', 'notes.md']));
-  assert.equal(d.state.beat.fail.hint, 'git status lists 1 change outside .claude/: notes.md');
+  assert.equal(d.state.beat.fail.hint, '1 file changed outside .claude/: notes.md');
   d.send(gitLists(['.claude/skills/five-whys/SKILL.md', '.claude/skills/five-whys/notes.md']));
   assert.equal(d.state.beat.status, 'done');
-  assert.equal(d.state.beat.evidence, 'git status lists .claude/skills/five-whys/SKILL.md, .claude/skills/five-whys/notes.md');
+  assert.equal(d.state.beat.evidence, 'Changed: .claude/skills/five-whys/SKILL.md, .claude/skills/five-whys/notes.md');
 });
 
 test('git-staged: done once git status says a path is staged; a change not yet added is not', () => {

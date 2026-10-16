@@ -17,7 +17,8 @@ import { SHOTS } from '../../learn/lib/motion.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
-import { childEnv, gitStatus, ITEM_LIMIT, owing, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
+import { childEnv, gitStatus, ITEM_LIMIT, owing, probeFolder, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
+import { judgeGit, listedUnder } from '../../learn/lib/status.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
 import { STUB_RUNS } from '../lessons/a-4.mjs';
 import { NPM_TEST_LIMIT } from '../lessons/b-3.mjs';
@@ -282,14 +283,40 @@ test('git status: a whole-tree look lists a new folder whole, a look at part of 
     const whole = await gitStatus(dir);
     assert.deepEqual([...whole.paths].sort(), ['.claude/', 'README.md', 'notes.md', 'src/a.js', 'src/c.js'].sort());
     assert.deepEqual(whole.paths, statusPaths(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })), 'the paths are the ones npm run check reads');
+    // A rename lists both its names; it is staged by its new one.
     const each = await gitStatus(dir, { files: true });
-    assert.deepEqual(each.paths.sort(), ['.claude/skills/five-whys/SKILL.md', 'README.md', 'notes.md', 'src/a.js', 'src/c.js'].sort());
+    assert.deepEqual(each.paths.sort(), ['.claude/skills/five-whys/SKILL.md', 'README.md', 'notes.md', 'src/a.js', 'src/b.js', 'src/c.js'].sort());
     assert.deepEqual(each.staged.sort(), ['README.md', 'src/a.js', 'src/c.js']);
     // The work tree changed and nothing added: nothing staged.
     git('reset', '-q');
     assert.deepEqual((await gitStatus(dir, { files: true })).staged, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('git status on part of the tree: a work folder inside a repository sees only its own paths, named from there, and a file moved out of a folder is a change there', async () => {
+  const top = repo({ 'proj/secrets/old.txt': 'o\n', 'proj/README.md': 'r\n' });
+  try {
+    commit(top, 'start');
+    const git = (...args) => execFileSync('git', args, { cwd: top });
+    write(top, { 'proj/secrets/key.txt': 'k\n', 'proj/src/a.js': 'a\n', 'other/o.txt': 'o\n' });
+    git('mv', 'proj/secrets/old.txt', 'proj/old.txt');
+    const proj = join(top, 'proj');
+    assert.equal((await probeFolder(proj)).git, true, 'a folder inside a repository is a work folder');
+    const r = await gitStatus(proj, { files: true });
+    assert.deepEqual([...r.paths].sort(), ['old.txt', 'secrets/key.txt', 'secrets/old.txt', 'src/a.js']);
+    assert.deepEqual(r.staged, ['old.txt']);
+    assert.deepEqual(listedUnder(r.paths, ['secrets/']).sort(), ['secrets/key.txt', 'secrets/old.txt'], 'git-clean secrets/ is not done');
+    assert.equal(judgeGit({ kind: 'git-changed', path: 'src/' }, r).pass, true);
+    // Staged and committed, only the move is left; it is still under secrets/.
+    commit(top, 'more', ['proj/secrets', 'proj/src', 'other']);
+    git('mv', 'proj/secrets/key.txt', 'proj/key.txt');
+    const moved = await gitStatus(proj, { files: true });
+    assert.deepEqual([...moved.paths].sort(), ['key.txt', 'secrets/key.txt']);
+    assert.equal(judgeGit({ kind: 'git-changed', path: 'secrets/' }, moved).pass, true);
+  } finally {
+    rmSync(top, { recursive: true, force: true });
   }
 });
 
@@ -795,7 +822,7 @@ test('draws: a watcher burst and the dispatch it queues from a microtask make on
   let changed = null;
   const watch = (_root, onChange) => {
     changed = onChange;
-    return { close() {}, arm() {} };
+    return { close() {} };
   };
   const app = clockedRun(CALM_ENV, { watch });
   const { dir, term, clock } = app;
@@ -825,7 +852,7 @@ test('r: the card says what it checks until r\'s own result lands, even when pol
   let changed = null;
   const watch = (_root, onChange) => {
     changed = onChange;
-    return { close() {}, arm() {} };
+    return { close() {} };
   };
   const app = clockedRun(CALM_ENV, { watch });
   const { term, clock } = app;

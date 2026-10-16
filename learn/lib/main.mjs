@@ -359,10 +359,6 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const w = watching(state);
     if (!w || now() - lastPoll < (w.git ? POLL_GIT_MS : POLL_CHECK_MS)) return;
     lastPoll = now();
-    // A folder made where no event came (a .claude/ folder, .practice/) is
-    // watched from this poll on.
-    watcher.arm();
-    work.watcher?.arm();
     poke();
   }, 500));
 

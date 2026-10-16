@@ -5,7 +5,7 @@
 import { GIT, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
 import { evidenceOf, judge } from './holds.mjs';
-import { eachFile, judgeGit, listedUnder } from './status.mjs';
+import { cleanListed, eachFile, judgeGit, needsChange } from './status.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
 export const IDLE_MS = 120_000;
@@ -255,6 +255,10 @@ export function watching(s) {
 }
 // The effect that asks git about what `w` watches, in its folder.
 const gitAsk = (w, extra = {}) => ({ type: 'git', ...extra, dir: w.dir, ...(w.files ? { files: true } : {}) });
+// Whether a git result answers what `w` watches: a beat on part of the tree
+// reads only one that lists each untracked file, and a whole-tree beat only
+// one that lists what git status shows.
+const answersGit = (w, ev) => Boolean(w?.git) && Boolean(ev.files) === Boolean(w.files);
 
 // The intro that holds the folder question: a lesson that runs in a new
 // copy; for a level, the first of its intros the learner opens while it has
@@ -837,10 +841,8 @@ function decide(s, ev, effects, failing) {
 }
 
 function onGit(s, ev, effects, rRuns) {
-  // A beat on part of the tree reads only a result that lists each untracked
-  // file, and a whole-tree beat only one that lists what git status shows.
   const w = watching(s);
-  if (w?.git && Boolean(ev.files) !== Boolean(w.files)) return;
+  if (w?.git && !answersGit(w, ev)) return;
   s.git = { paths: ev.paths, error: null };
   if (rRuns || s.view !== 'step' || !s.beat || !GIT.has(beatOf(s).verify.kind)) return;
   const beat = beatOf(s);
@@ -848,11 +850,11 @@ function onGit(s, ev, effects, rRuns) {
   if (['done', 'already'].includes(st.status)) return;
   // A beat that needs git status to list something starts from what it
   // lists first, as a check does.
-  if (beat.verify.kind !== 'git-clean') {
+  if (needsChange(beat.verify)) {
     const r = judgeGit(beat.verify, ev);
     return decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
   }
-  const listed = beat.verify.paths ? listedUnder(ev.paths, beat.verify.paths) : ev.paths;
+  const listed = cleanListed(beat.verify, ev.paths);
   const clean = listed.length === 0;
   // With a done-label, the tree decides only after the learner says the
   // session has ended; before that it is shown live.
@@ -1028,7 +1030,7 @@ function stampFx(prev, s, ev) {
   const w = watching(prev);
   // A git result the beat doesn't read (onGit) is no look; one on part of
   // the tree also differs when another path is staged.
-  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && w?.git && Boolean(ev.files) === Boolean(w.files));
+  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && answersGit(w, ev));
   if (looked) {
     const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read) : ev.files ? [ev.paths, ev.staged] : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;

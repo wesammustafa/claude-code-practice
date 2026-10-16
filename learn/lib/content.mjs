@@ -289,14 +289,22 @@ function parseVerify(beat, file) {
   const check = base.match(/^check (\d+(?: \d+)*)$/);
   if (check) return { kind: 'check', items: check[1].split(' ').map(Number), ...extra };
   if (fresh) throw new Error(`${file}:${beat.line}: only a check or a file can be fresh`);
+  // A path git status is asked about, as it names one: from the work
+  // folder, like src/ or .claude/settings.json, never ./, / or .. in it.
+  const gitPath = (path) => {
+    if (path.includes('\\') || path.startsWith('/') || path.replace(/\/$/, '').split('/').some((part) => ['', '.', '..'].includes(part))) {
+      throw new Error(`${file}:${beat.line}: a git path is named from the work folder, like src/ or .claude/settings.json, not ${path}`);
+    }
+    return path;
+  };
   // `git-clean <path>...`: git status lists nothing under those paths; with
   // none, nothing at all.
   const clean = v.match(/^git-clean (\S+(?: \S+)*)$/);
-  if (clean) return { kind: 'git-clean', paths: clean[1].split(' ') };
+  if (clean) return { kind: 'git-clean', paths: clean[1].split(' ').map(gitPath) };
   // `git-changed <path>`: git status lists something under the path.
   // `git-only <path>`: it lists something, and all of it under the path.
   const scoped = v.match(/^(git-changed|git-only) (\S+)$/);
-  if (scoped) return { kind: scoped[1], path: scoped[2] };
+  if (scoped) return { kind: scoped[1], path: gitPath(scoped[2]) };
   // `git-staged`: git status says a path is staged.
   if (['git-clean', 'git-staged', 'answer', 'self', 'none'].includes(v)) return { kind: v };
   throw new Error(`${file}:${beat.line}: unknown verify value ${v}`);

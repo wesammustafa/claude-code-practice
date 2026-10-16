@@ -11,7 +11,7 @@ import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
 import { COMMANDS_URL, GIT, OWN_PARTS, READS } from './content.mjs';
-import { listedUnder } from './status.mjs';
+import { cleanListed, needsChange } from './status.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
 // Each body row says how it gives way when the body is taller than its room
@@ -1260,6 +1260,9 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));
+    // git status, not a check, passed a beat that needs it to list
+    // something: what changed, as a pass shows it.
+    else if (needsChange(beat.verify)) rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'), ...(st.evidence ? para(t, st.evidence, inner, 'text') : []));
     else rows.push(...para(t, `${t.lead('verified')}${beat.verify.all ? C.alreadyCheck : C.already}`, inner, 'ok'));
   }
   if (beat.verify.all && ['done', 'already'].includes(st.status) && s.checks[s.lesson]?.items) {
@@ -1284,8 +1287,8 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     const clean = scope ? C.cleanUnder(scope) : C.cleanCopy;
     if (isLastBeat) celebrate(para(t, clean, room, 'text'));
     else rows.push(...(scope ? para(t, `${t.lead('verified')}${clean}`, inner, 'ok') : [lead(t, 'verified', t.fg('ok', clean))]));
-  } else if (st.status === 'done' && needsGit(beat)) {
-    // What git status lists, beside the burst.
+  } else if (st.status === 'done' && needsChange(beat.verify)) {
+    // What changed, or is staged, beside the burst.
     if (isLastBeat) celebrate(para(t, st.evidence ?? C.beatDone, room, 'text'));
     else rows.push(lead(t, 'verified', t.fg('ok', C.beatDone)));
   } else if (st.status === 'done') {
@@ -1311,14 +1314,14 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     }
   } else if (st.status === 'waiting' && st.slowWait) {
     rows.push(...para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted'));
-  } else if (st.status === 'waiting' && (looksAtFile(beat) || needsGit(beat))) {
-    const [a, what, b] = (st.stale ? C.staleWatch : C.watching)(beat.watching ?? beat.evidence ?? (needsGit(beat) ? 'git status' : 'your files'));
+  } else if (st.status === 'waiting' && (looksAtFile(beat) || needsChange(beat.verify))) {
+    const [a, what, b] = (st.stale ? C.staleWatch : C.watching)(beat.watching ?? beat.evidence ?? (needsChange(beat.verify) ? 'git status' : 'your files'));
     rows.push(...para(t, `${t.lead('watch')}${a}\`${what}\`${b}`, inner, 'muted'));
   } else if (beat.verify.kind === 'git-clean' && (st.status === 'waiting' || st.status === 'fail')) {
     const paths = gitListed(s, beat);
     if (st.status === 'fail' || paths.length) {
       const shown = (st.fail?.paths ?? paths).slice(0, 3).join(', ');
-      rows.push(...para(t, `${st.status === 'fail' ? `${C.notYet} ` : ''}${C.gitDirty((st.fail?.paths ?? paths).length, scope)} ${shown}`, inner - 2, 'warn').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', st.status === 'fail' ? warnMark : t.glyph.warnMark)} ${x}`)));
+      rows.push(...para(t, `${st.status === 'fail' ? `${C.notYet} ` : ''}${scope ? C.changedUnder((st.fail?.paths ?? paths).length, scope) : C.gitDirty((st.fail?.paths ?? paths).length)} ${shown}`, inner - 2, 'warn').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', st.status === 'fail' ? warnMark : t.glyph.warnMark)} ${x}`)));
       if (st.status === 'fail') rows.push(`  ${t.fg('muted', C.gitFailAfter)}`);
     } else if (scope) rows.push(...para(t, `${t.lead('watch')}${C.watchingGit}\`git status\`: ${t.glyph.check} ${C.gitCleanUnder(scope)}`, inner, 'muted'));
     else rows.push(lead(t, 'watch', `${t.fg('muted', C.watchingGit)}${t.fg('code', 'git status')}${t.fg('muted', ':')} ${t.fg('ok', `${t.glyph.check} ${C.gitClean}`)}`));
@@ -1326,7 +1329,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     // A beat that reads its file itself, or git status, has a not-yet line
     // in the app's own words, whole; a check's FAIL message is cut to what
     // is wrong.
-    rows.push(...para(t, `${C.notYet} ${READS.has(beat.verify.kind) || needsGit(beat) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`)));
+    rows.push(...para(t, `${C.notYet} ${READS.has(beat.verify.kind) || needsChange(beat.verify) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`)));
   }
 
   // Feedback on a pick that wasn't right, before the answer.
@@ -1370,12 +1373,8 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   return rows;
 }
 
-// What git status lists that a git-clean beat counts: under its paths, where
-// it names some.
-const gitListed = (s, beat) => (beat.verify.paths ? listedUnder(s.git?.paths ?? [], beat.verify.paths) : s.git?.paths ?? []);
-
-// A beat that needs git status to list something (ticket 88).
-const needsGit = (beat) => GIT.has(beat.verify.kind) && beat.verify.kind !== 'git-clean';
+// What git status lists that a git-clean beat counts.
+const gitListed = (s, beat) => cleanListed(beat.verify, s.git?.paths ?? []);
 
 // A beat whose check is about a file: a check item, or the file read here.
 const looksAtFile = (beat) => beat.verify.kind === 'check' || READS.has(beat.verify.kind);

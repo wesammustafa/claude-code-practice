@@ -78,7 +78,10 @@ export const C = {
   gitClean: 'no changes so far',
   // `under`: the paths a git-clean beat names, where it names some (ticket 88).
   gitCleanUnder: (under) => `no changes under ${under} so far`,
-  gitDirty: (n, under) => `git status lists ${n} change${n === 1 ? '' : 's'}${under ? ` under ${under}` : ''}:`,
+  gitDirty: (n) => `git status lists ${n} change${n === 1 ? '' : 's'}:`,
+  // A look at part of the tree has git list each file, where git status
+  // alone lists a new folder whole: these lines name files, not git status.
+  changedUnder: (n, under) => `${n} file${n === 1 ? '' : 's'} changed under ${under}:`,
   checking: (what) => (what ? `Checking ${what}…` : 'Checking…'),
   // How far a run of several items has got, from the check child's reports.
   checkingItem: (n, m) => `Checking item ${n} of ${m}…`,
@@ -96,16 +99,18 @@ export const C = {
   holds: (path) => [path, ' holds '],
   cleanCopy: `Your ${TERMS.practiceCopy} is clean: nothing to commit.`,
   cleanUnder: (under) => `git status lists nothing under ${under}.`,
-  // What git status lists, for a beat that needs it to list something.
-  gitShows: (shown, more) => `git status lists ${shown}${more ? ` and ${more} more` : ''}`,
+  // What changed, for a beat that needs git status to list something.
+  changedShows: (shown, more) => `Changed: ${shown}${more ? ` and ${more} more` : ''}`,
   noChangeUnder: (under) => `git status lists no change under ${under} yet.`,
   noChange: 'git status lists no change yet.',
   nothingStaged: 'git status lists nothing staged yet.',
   stagedShows: (shown, more) => `Staged: ${shown}${more ? ` and ${more} more` : ''}`,
-  changesOutside: (n, under, shown) => `git status lists ${n} change${n === 1 ? '' : 's'} outside ${under}: ${shown}`,
+  changedOutside: (n, under, shown) => `${n} file${n === 1 ? '' : 's'} changed outside ${under}: ${shown}`,
   session: (n) => `${n} step${n === 1 ? '' : 's'} this session`,
   beatDone: 'Done.',
   already: 'Already done: the check already passes, so this step counts.',
+  // A beat git status passed before anything changed: no check ran.
+  alreadyDone: 'Already done, so this step counts.',
   alreadyCheck: 'The check already passes, so this step counts.',
   hintsLater: (via) => (via === 'pick' ? 'Try it first: pick an answer, then h works.' : 'Try it first: press r to check, then h works.'),
   pickFirst: 'Pick an answer first: a number, or the arrows.',
