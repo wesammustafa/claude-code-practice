@@ -8,14 +8,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseLesson, PATH, SLOW } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
-import { watching } from '../../learn/lib/flow.mjs';
+import { reduce, watching } from '../../learn/lib/flow.mjs';
 import { main } from '../../learn/lib/main.mjs';
 import { itemsMax, render } from '../../learn/lib/render.mjs';
 import { sanitize, snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { lessons } from '../lessons/index.mjs';
-import { course, driver, finishedBefore, mapTo, playUntil, root } from './learn-drive.mjs';
+import { course, driver, finishedBefore, lessonScreens, mapTo, playUntil, root } from './learn-drive.mjs';
 
 const FULL = theme({ tty: true, depth: 8, unicode: true, links: true, win32: false });
 const ASCII = theme({ tty: true, depth: 1, unicode: false, links: false, win32: true });
@@ -142,7 +142,7 @@ test('a check-only lesson is complete once a full check passes, slow items inclu
   d.send(result('i-5', all));
   assert.equal(d.state.progress['i-5'].complete, false, 'a poll without the slow item');
   const out = d.key('r');
-  assert.deepEqual(out.find((e) => e.type === 'check'), { type: 'check', lesson: 'i-5', items: null, slow: true });
+  assert.deepEqual(out.find((e) => e.type === 'check'), { type: 'check', lesson: 'i-5', items: null, slow: true, asked: 1 });
   // r's run with a failing item: still not complete.
   d.send(result('i-5', (i) => i !== 0, { slow: false }));
   assert.equal(d.state.progress['i-5'].complete, false, 'an item fails');
@@ -352,6 +352,125 @@ test('a poll changes no row of the check-only card: only marks move, and once r 
         assert.deepEqual(after.filter((_, i) => i !== after.length - 2), ran.filter((_, i) => i !== ran.length - 2), `${at}: a poll after r changed a row\n${after.join('\n')}`);
         assert.ok(SLOW[id].every((i) => d.state.checks[id].items[i].pass), `${at}: the slow items keep r's result`);
       }
+    }
+  }
+});
+
+// Calm draws the rest frame.
+const CALM = theme({ tty: true, depth: 8, unicode: true, links: true, win32: false, motion: false, calm: true });
+// The lessons with a slow item that the app runs here, each with its lesson
+// file or check-only.
+const slowHere = Object.keys(SLOW).filter((id) => !course.find((l) => l.id === id).newCopy);
+
+// A slow run's checking row, `label` at its start, as design 2.3 draws it:
+// the spinner from +160 ms, the seconds from +3 s, one frame every 240 ms
+// after +10 s. `frame(ms, size)` draws the screen `ms` after the child started.
+function slowRow(at, frame, label) {
+  const row = (ms) => frame(ms).find((l) => l.includes('Checking'));
+  assert.ok(row(140).endsWith(label), `${at}: nothing moves before 150 ms: ${row(140)}`);
+  assert.ok(row(160).endsWith(`${label} ⠋`), `${at}: ${row(160)}`);
+  assert.notEqual(frame(160).at(-2), frame(140).at(-2), `${at}: the bounce`);
+  assert.match(row(2_990), /… \S$/u, `${at}: no seconds under 3 s`);
+  assert.ok(row(3_000).endsWith(`${label} ⠴  3 s`), `${at}: ${row(3_000)}`);
+  assert.ok(row(10_000).endsWith(`${label} ⠸  10 s`), `${at}: ${row(10_000)}`);
+  for (const ms of [10_040, 10_120, 10_200]) assert.deepEqual(frame(ms), frame(10_000), `${at}: one frame every 240 ms after 10 s, +${ms} ms`);
+  assert.notDeepEqual(frame(10_240), frame(10_000), at);
+  for (const [cols, rows] of SIZES) {
+    const late = frame(150_000, [cols, rows]);
+    assert.equal(late.length, rows, at);
+    for (const l of late) assert.ok(width(l) <= cols - 1, `${at} at ${cols}x${rows}: ${l}`);
+    assert.match(late.find((l) => l.includes('Checking')), / {2}150 s$/, `${at} at ${cols}x${rows}`);
+  }
+}
+
+test('r on the check-only card says its run is going until its own result lands: the spinner and bounce, slower after 10 s, and the seconds from 3 s', () => {
+  const ids = slowHere.filter((id) => !course.find((l) => l.id === id).content);
+  assert.deepEqual(ids, ['i-5', 'i-capstone', 'a-4', 'a-7']);
+  for (const id of ids) {
+    const d = checkOnly(id);
+    d.send(result(id));
+    const asked = d.key('r').find((e) => e.type === 'check')?.asked;
+    assert.ok(asked > 0, `${id}: r's run carries r's number`);
+    // The label is state, so calm shows it at once, with Pip's checking face.
+    const calm = lines(d.state, [80, 24], CALM);
+    assert.ok(calm.some((l) => l.endsWith(C.checking())), `${id}\n${calm.join('\n')}`);
+    assert.match(calm.find((l) => l.includes('╭')), /\(◓─◓\) ──$/, id);
+    for (const size of SIZES) {
+      const ascii = lines(d.state, size, ASCII);
+      assert.equal(ascii.length, size[1], id);
+      for (const l of ascii) assert.ok(width(l) <= size[0] - 1, `${id} in ASCII: ${l}`);
+    }
+    // r's child starts, then its first item.
+    d.send({ type: 'run-start', wait: 7 });
+    const run = d.now;
+    d.send({ type: 'running', lesson: id, items: null, n: 1, m: lessons[id].items.length, asked, wait: 5 });
+    const frame = (ms, [cols, rows] = [80, 24], t = MOVING) => render(d.state, { cols, rows }, t, { at: run + ms }).map((l) => strip(l).trimEnd());
+    slowRow(id, frame, C.checkingItem(1, lessons[id].items.length));
+    // Calm draws no spinner and no seconds, at any time.
+    assert.deepEqual(frame(5_000, [80, 24], CALM), lines(d.state, [80, 24], CALM), id);
+    // A poll's result lands first: r's run is still going.
+    d.send(result(id, () => true, { slow: true }));
+    assert.ok(frame(d.now - run + 40).some((l) => l.includes('Checking')), `${id}: a poll ended r's run`);
+    // r's own result: the row and the spinner go at once.
+    d.send({ ...result(id, () => true, { slow: false }), asked });
+    const after = frame(d.now - run + 40);
+    assert.ok(!after.some((l) => l.includes('Checking') || /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u.test(l)), `${id}\n${after.join('\n')}`);
+  }
+});
+
+test('r on a check-only card with no slow item changes no row: its run takes a moment, and only its result shows', () => {
+  const ids = course.filter((l) => !l.newCopy && !SLOW[l.id]).map((l) => l.id);
+  assert.ok(ids.length >= 10, ids.join(' '));
+  for (const id of ids) {
+    for (const size of SIZES) {
+      const d = checkOnly(id);
+      d.send(result(id, () => true));
+      const before = lines(d.state, size);
+      assert.deepEqual(d.key('r').find((e) => e.type === 'check'), { type: 'check', lesson: id, items: null, slow: true }, id);
+      assert.equal(d.state.checkOnlyRun, null, id);
+      assert.deepEqual(lines(d.state, size), before, `${id} at ${size.join('x')}`);
+    }
+  }
+});
+
+test('r\'s run on the check-only card goes on through a trip to the map and back, and is not another lesson\'s', () => {
+  const d = checkOnly('a-7');
+  d.send(result('a-7'));
+  const asked = d.key('r').find((e) => e.type === 'check').asked;
+  d.send({ type: 'run-start', wait: 7 });
+  d.key('m');
+  mapTo(d, 'a-7');
+  d.key('enter');
+  d.send({ type: 'running', lesson: 'a-7', items: null, n: 2, m: lessons['a-7'].items.length, asked, wait: 5 });
+  const back = lines(d.state, [80, 24]);
+  assert.ok(back.some((l) => l.endsWith(C.checkingItem(2, lessons['a-7'].items.length))), back.join('\n'));
+  assert.ok(!cardText(back).includes(flat(C.slowWait).slice(0, 30)), 'no "press r" while r\'s run goes');
+  // Another lesson's card, and back: r's run is not theirs.
+  d.key('m');
+  mapTo(d, 'i-5');
+  d.key('enter');
+  assert.ok(!lines(d.state, [80, 24]).some((l) => l.includes('Checking')), 'i-5');
+  d.key('m');
+  mapTo(d, 'a-7');
+  d.key('enter');
+  assert.equal(d.state.checkOnlyRun, null);
+  assert.ok(!lines(d.state, [80, 24]).some((l) => l.includes('Checking')), 'a-7 again');
+});
+
+test('on a step card, r\'s run of a slow item spins as any check does: the seconds from 3 s, slower after 10 s', () => {
+  const ids = slowHere.filter((id) => course.find((l) => l.id === id).content);
+  assert.deepEqual(ids, ['b-3', 'b-capstone']);
+  for (const id of ids) {
+    const l = course.find((x) => x.id === id);
+    // The cards r put "Checking" over, for a beat whose check has a slow item.
+    const cards = lessonScreens(id).filter(([label, x]) => label.endsWith(' checking') && watching(x)?.check
+      && (watching(x).check.items ?? l.items.map((_, i) => i)).some((i) => SLOW[id].includes(i)));
+    assert.ok(cards.length >= 1, id);
+    for (const [label, x] of cards) {
+      const moving = reduce(x, { type: 'run-start', now: x.now + 7 }).state;
+      const frame = (ms, [cols, rows] = [80, 24]) => render(moving, { cols, rows }, MOVING, { at: moving.fx.run + ms }).map((r) => strip(r).trimEnd());
+      const row = frame(140).find((r) => r.includes('Checking'));
+      slowRow(label, frame, row.slice(row.indexOf('Checking')));
     }
   }
 });

@@ -20,6 +20,9 @@ function savedCommit(repo) {
   return { sha };
 }
 
+// The longest `npm test` may run, in milliseconds.
+export const NPM_TEST_LIMIT = 120_000;
+
 export const testsPass = {
   text: 'the tests pass',
   check(repo) {
@@ -27,7 +30,7 @@ export const testsPass = {
     let hasScript = false;
     try { hasScript = Boolean(pkg && JSON.parse(pkg).scripts?.test); } catch { /* not JSON */ }
     if (hasScript) {
-      const run = spawnSync('npm', ['test', '--silent'], { cwd: repo.dir, encoding: 'utf8', shell: process.platform === 'win32', timeout: 120_000 });
+      const run = spawnSync('npm', ['test', '--silent'], { cwd: repo.dir, encoding: 'utf8', shell: process.platform === 'win32', timeout: NPM_TEST_LIMIT });
       return run.status === 0 ? true : '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.';
     }
     const saved = repo.read('.practice/b-3-tests.txt');

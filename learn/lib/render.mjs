@@ -837,10 +837,15 @@ const VIEWS = {
     // What the runs said beyond the marks: kept, like a step's status line.
     // A slow item stays unchecked until r runs it; once r has, a poll keeps
     // its result (flow), so the line goes for good.
+    // While r's run of the slow items goes, the card says so in their place.
     const unchecked = !l.newCopy && l.slow.some((i) => !results?.items?.some((x) => x.index === i && !x.slow));
+    const going = s.checkOnlyRun?.lesson === l.id ? s.checkOnlyRun : null;
     const notes = [];
-    if (unchecked) notes.push(SPACER, ...kept(para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted')));
-    if (results?.error) notes.push(SPACER, ...kept(para(t, `${t.lead('broken')}${C.broken(results.error)}`, inner, 'bad')));
+    if (going) notes.push(SPACER, ...kept(spinning(ctx, para(t, checkingLabel(going.running), inner, 'key'))));
+    else {
+      if (unchecked) notes.push(SPACER, ...kept(para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted')));
+      if (results?.error) notes.push(SPACER, ...kept(para(t, `${t.lead('broken')}${C.broken(results.error)}`, inner, 'bad')));
+    }
     // The card's text rows: the body's room less the blank above the card,
     // its two borders and its first blank.
     const room = ctx.roomUnder(head.length) - 4;
@@ -864,7 +869,7 @@ const VIEWS = {
     }
     return {
       head,
-      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: checkOnlyMood(results) }),
+      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: going ? 'checking' : checkOnlyMood(results) }),
       keys: [shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, l.newCopy ? null : key('r', C.k.checkNow), key('p', C.k.page), key('m', C.k.map), key('q', C.k.quit)],
       itemsMax: last,
     };
@@ -1076,7 +1081,8 @@ function stepMood(s, beat, isLastBeat) {
   return st.status === 'fail' || gitLine || wrong || st.rung >= 0 || st.confirm || stuck ? 'worried' : 'rest';
 }
 
-// The check-only card: a check that could not run, an item not passing yet.
+// The check-only card, when r's run is not going: a check that could not
+// run, an item not passing yet.
 // Worried only where the card shows a failing mark: a slow item no run has
 // checked shows as not checked yet.
 function checkOnlyMood(results) {
@@ -1110,6 +1116,10 @@ function options(ctx, beat) {
   }).flat();
 }
 
+// A run's checking label: how far the child has got where it runs several
+// items, or what it checks.
+const checkingLabel = (running, what) => (running?.m > 1 ? C.checkingItem(running.n, running.m) : C.checking(what));
+
 // The checking label, with the spinner in the cell after it once a child has
 // run 150 ms, and from 3 s the seconds it has run (every label leaves room
 // for both).
@@ -1142,7 +1152,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
 
   // What the beat watches, as its waiting line names it, or how far a run
   // of several items has got.
-  if (st.status === 'opening') rows.push(...spinning(ctx, para(t, st.running?.m > 1 ? C.checkingItem(st.running.n, st.running.m) : C.checking(beat.watching ?? beat.evidence), inner, 'key')));
+  if (st.status === 'opening') rows.push(...spinning(ctx, para(t, checkingLabel(st.running, beat.watching ?? beat.evidence), inner, 'key')));
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));
