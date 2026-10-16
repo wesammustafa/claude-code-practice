@@ -1960,3 +1960,17 @@ test('📖 has one job: Go further, once, on the next screen and behind p, and n
   }
   assert.ok(seen > 0);
 });
+
+test('the ? overlay says how to start with a still screen at 80x24, under a blank, and gives that row up first at 60x20, where every key stays', () => {
+  const t = theme(CAPS.full);
+  const help = screens.find(([l]) => l === 'help')[1];
+  const CALM = 'Prefer a still screen? Quit, then start with npm run learn -- --calm.';
+  const big = render(help, { cols: 80, rows: 24 }, t).map(strip);
+  const i = big.findIndex((l) => l.trim() === CALM);
+  assert.ok(i > 0, big.join('\n'));
+  assert.equal(big[i - 1].trim(), '', 'a blank above it');
+  assert.ok(big.findIndex((l) => l.trim().startsWith('q ')) < i, 'under the keys');
+  const small = render(help, { cols: 60, rows: 20 }, t).map(strip);
+  assert.ok(!small.some((l) => /still screen|--calm/.test(l)), small.join('\n'));
+  for (const [k, label] of C.keyHelp) assert.ok(small.some((l) => l.includes(k) && l.includes(label)), `${k} ${label} at 60x20`);
+});

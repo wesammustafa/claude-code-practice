@@ -3,6 +3,7 @@
 // going at the bottom of the card), and the key bar pinned to the bottom.
 import { banner, bannerWidth, burst, confetti, pip } from './art.mjs';
 import { C } from './copy.mjs';
+import { REST } from './motion.mjs';
 import {
   answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
@@ -25,10 +26,10 @@ const SPACER = spacer();
 // question.
 const kept = (rows) => rows.map((text) => ({ keep: true, text }));
 // Optional rows: the level's first warm-up explainer, the intro's Why line
-// and a GUIDED card's, each with its blank, the next screen's Go further
-// line with its blank, teaching the learner can also reach another way,
-// such as behind a key, repeats with no compact form, and a done beat's
-// satisfied "Done when" line. The rows of one call are one sentence: they
+// and a GUIDED card's, the next screen's Go further line and the ? overlay's
+// calm line, each with its blank, teaching the learner can also reach
+// another way, such as behind a key, repeats with no compact form, and a
+// done beat's satisfied "Done when" line. The rows of one call are one sentence: they
 // drop whole.
 const optional = (rows) => {
   const whole = {};
@@ -44,14 +45,15 @@ export const lessonLabel = (id) => (id.endsWith('capstone') ? 'CAP' : id.replace
 // The lesson page a quote's relative links point into: set for each frame.
 let pageUrl = '';
 
-export function render(s, size, t) {
+// `clock.at` is the time the frame shows; the rest frame by default.
+export function render(s, size, t, clock = REST) {
   const { cols, rows } = size;
   const step = s.view === 'step' && s.beat ? stepOf(s) : null;
   pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
   if (cols < MIN.cols || rows < MIN.rows) return small(cols, rows);
   const W = Math.min(cols - 4, 80);
   const M = Math.floor((cols - W) / 2);
-  const ctx = { s, t, W, inner: W - 3, cols, rows };
+  const ctx = { s, t, W, inner: W - 3, cols, rows, clock };
   const view = VIEWS[s.view](ctx);
   const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
   const body = overlay?.body ?? view.body;
@@ -957,9 +959,11 @@ const OVERLAYS = {
     };
   },
   help(ctx) {
-    const { t } = ctx;
+    const { t, inner } = ctx;
     return {
-      body: [t.bold(t.fg('white', C.keysTitle)), SPACER, ...C.keyHelp.map(([k, label]) => `  ${t.fg('key', t.bold(pad(k, 10)))}${t.fg('text', label)}`)],
+      // The calm line goes before any key: at 60x20 the keys fill the room.
+      body: [t.bold(t.fg('white', C.keysTitle)), SPACER, ...C.keyHelp.map(([k, label]) => `  ${t.fg('key', t.bold(pad(k, 10)))}${t.fg('text', label)}`),
+        ...optional(['', ...para(t, C.calm, inner, 'muted')])],
       keys: [key('?', C.k.close), key('q', C.k.close)],
     };
   },

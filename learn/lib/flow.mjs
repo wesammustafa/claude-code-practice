@@ -60,6 +60,8 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     overlay: null, lesson: next.id, pos: { step: 0, beat: 0 }, beat: null,
     checks: {}, git: null, session: 0, cursor: 0, mapCursor: course.indexOf(next), toast: null,
     held: null, swallowUntil: 0, confirmRestart: false, lastActivity: now,
+    // The motion layer's stamps (stampFx): the first screen appears now.
+    fx: { view: now },
   };
 }
 
@@ -741,7 +743,50 @@ export function reduce(prev, ev) {
     default:
       break;
   }
+  stampFx(prev, s, ev);
   return { state: s, effects };
+}
+
+// When the screen changed, and how, for the motion layer (motion.mjs). Each
+// stamp is the event's own `now`; `s.fx` lives in memory and is never saved.
+const isDone = (st) => ['done', 'already'].includes(st?.status);
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function stampFx(prev, s, ev) {
+  const fx = s.fx;
+  const t = s.now;
+  if (ev.type === 'key' || ev.type === 'paste') fx.key = t;
+  if (ev.type === 'run-start') fx.run = t;
+  if (s.view !== prev.view) fx.view = t;
+  const st = s.beat;
+  const was = prev.beat;
+  const opened = Boolean(st) && (!was || st.opened !== was.opened || s.lesson !== prev.lesson || !sameJson(s.pos, prev.pos));
+  if (opened) fx.open = t;
+  if (st?.status === 'opening' && (opened || was.status !== 'opening')) fx.check = t;
+  // New text on the same card: a "Not yet" line, a rung, feedback, a reveal.
+  if (st && was && !opened && s.view === prev.view) {
+    const notYet = st.status === 'fail' && (was.status !== 'fail' || !sameJson(st.fail, was.fail));
+    const rung = st.rung >= 0 && st.rung !== was.rung;
+    const feedback = Boolean(st.feedback) && !sameJson(st.feedback, was.feedback);
+    if (notYet || rung || feedback || (st.revealed && !was.revealed)) fx.text = t;
+    // A pass: the beat on screen turned done by a result or a right answer,
+    // not by a guess or a shown answer. `passLast` is a pass that ends its step.
+    if (isDone(st) && !isDone(was) && !st.revealed && beatOf(s).kind !== 'predict') {
+      fx.pass = t;
+      if (s.pos.beat === stepOf(s).beats.length - 1) fx.passLast = t;
+    }
+  }
+  // A look: a result for what the screen watched, and whether it differs
+  // from the last one. A new thing to watch starts the comparison over.
+  const w = watching(prev);
+  if (!sameJson(w, watching(s))) delete fx.seen;
+  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && w?.git);
+  if (looked) {
+    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, ev.evidence ?? null] : ev.type === 'file' ? [ev.line, ev.lines] : ev.paths);
+    fx.changed = fx.seen !== undefined && fx.seen !== seen;
+    fx.seen = seen;
+    fx.look = t;
+  }
+  if (ev.type === 'activity' && w) fx.activity = t;
 }
 
 function onPaste(s) {

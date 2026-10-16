@@ -19,8 +19,13 @@ import { watchDirs } from './watch.mjs';
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const POLL_CHECK_MS = 2_000;
 const POLL_GIT_MS = 2_000;
+const FLAGS = ['--calm', '--plain'];
 
-export async function main({ stdin = process.stdin, stdout = process.stdout, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), exit = (code) => process.exit(code) } = {}) {
+  if (argv.some((a) => !FLAGS.includes(a))) {
+    stderr.write(`${C.usage}\n`);
+    return 2;
+  }
   const course = loadCourse(root);
   const saved = loadState(root);
   if (!stdin.isTTY || !stdout.isTTY) {
@@ -30,7 +35,7 @@ export async function main({ stdin = process.stdin, stdout = process.stdout, env
     return 0;
   }
 
-  const caps = capabilities(stdout, env, platform);
+  const caps = capabilities(stdout, env, platform, argv);
   const t = theme(caps);
   const [gitError, name] = await Promise.all([gitReady(root), gitFirstName(root)]);
   const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 };
@@ -46,6 +51,9 @@ export async function main({ stdin = process.stdin, stdout = process.stdout, env
     // The evidence file's state before and after the run: if it changed while
     // the check ran, the result may be about the old file, so ask again.
     const before = ev ? stampOf(root, ev) : null;
+    // The child starts now, not when the run was asked for: a run asked for
+    // during another waits in line.
+    dispatch({ type: 'run-start' });
     const r = await runCheck(root, lesson, items, { slow });
     if (closed) return;
     if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error });
@@ -53,6 +61,7 @@ export async function main({ stdin = process.stdin, stdout = process.stdout, env
     dispatch({ type: 'check', lesson, items: r.items, evidence: ev ? evidence(root, ev) : null, path: ev ?? null, stamp: before });
   });
   const git = singleFlight(async () => {
+    dispatch({ type: 'run-start' });
     const r = await gitStatus(root);
     if (closed) return;
     dispatch(r.error ? { type: 'git-error', message: r.error } : { type: 'git', paths: r.paths });
