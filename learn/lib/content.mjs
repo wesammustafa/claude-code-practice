@@ -30,6 +30,10 @@ export const BEAT_KEYS = {
 // one of each.
 export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, read: true };
 export const LADDER_KEYS = { hint: true, bottom: true, win: true };
+// The card (the c overlay): each entry a `skill` line in the app's words,
+// then the page's command (`show`) and what it does (`does`). An entry shows
+// once the learner finished a step on its skill.
+export const CARD_KEYS = { skill: false, show: true, does: true };
 const OPTION_KEYS = new Set(['right', 'wrong', 'option', 'stuck', 'other', 'decoy']);
 
 // The guide's Beginner path, in course order. Pages and time estimates for
@@ -56,7 +60,8 @@ export function parseLesson(text, file = 'lesson') {
   if (!fm) throw new Error(`${file}: no front matter`);
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const start = lines.findIndex((l, i) => i > 0 && l.trim() === '---') + 1;
-  const lesson = { ...fm.fields, intro: { can: [] }, warmup: [], steps: [], ladder: [] };
+  const lesson = { ...fm.fields, intro: { can: [] }, warmup: [], steps: [], ladder: [], card: [] };
+  const cardLines = [];
   let section = null;
   let step = null;
   let beat = null;
@@ -68,7 +73,7 @@ export function parseLesson(text, file = 'lesson') {
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
-    const h2 = line.match(/^## (intro|warm-up|steps|ladder)$/);
+    const h2 = line.match(/^## (intro|warm-up|steps|ladder|card)$/);
     if (h2) {
       section = h2[1];
       continue;
@@ -106,6 +111,18 @@ export function parseLesson(text, file = 'lesson') {
       if (key === 'payoff') payoffLine = i;
       // The p overlay spells out the read line's address: it needs one.
       if (key === 'read' && inline(v.text).filter((r) => r.url).length !== 1) fail(i, 'a read line links one page to read, with a Markdown link');
+      continue;
+    }
+    if (section === 'card') {
+      if (!(key in CARD_KEYS)) fail(i, `unknown card key ${key}`);
+      if (CARD_KEYS[key] && !v.quoted) fail(i, `${key} must be a quote of the lesson`);
+      if (!CARD_KEYS[key] && v.quoted) fail(i, `${key} holds the app's own words: no quotes`);
+      if (key === 'skill') {
+        lesson.card.push({ skill: raw });
+        cardLines.push(i);
+      } else if (!lesson.card.length) fail(i, 'a card line before its skill line');
+      else if (key in lesson.card.at(-1)) fail(i, `a second ${key} line in a card entry`);
+      else lesson.card.at(-1)[key] = v.text;
       continue;
     }
     if (section === 'ladder') {
@@ -164,6 +181,10 @@ export function parseLesson(text, file = 'lesson') {
   }
   // A payoff that is no `can` line would flag nothing on screen.
   if (payoffLine !== null && !lesson.intro.can.includes(lesson.intro.payoff)) fail(payoffLine, `the payoff "${lesson.intro.payoff}" is not one of the intro's can lines`);
+  lesson.card.forEach((e, k) => {
+    if (!e.show || !e.does) fail(cardLines[k], 'a card entry needs a show and a does line');
+    if (!lesson.steps.some((s) => s.skill === e.skill)) fail(cardLines[k], `the card entry's skill ${e.skill} is no step of this lesson`);
+  });
   for (const s of [...lesson.warmup, ...lesson.steps]) {
     if (!s.beats.length) throw new Error(`${file}:${s.line}: step ${s.id} has no beats`);
     for (const b of s.beats) {

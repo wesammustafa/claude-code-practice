@@ -439,6 +439,25 @@ test('the grammar: an intro holds one quoted read line with one link, at most', 
   }
 });
 
+test('the grammar: a card section holds entries of a skill, a quoted command and a quoted description', () => {
+  const card = (lines) => `${DEMO_B2}\n## card\n${lines}\n`;
+  const entry = '- skill: snapshot\n- show: "git status --porcelain"\n- does: "Save what git sees"';
+  assert.deepEqual(parseLesson(card(`${entry}\n- skill: check\n- show: "npm run check"\n- does: "Run the check."`), 'demo').card, [
+    { skill: 'snapshot', show: 'git status --porcelain', does: 'Save what git sees' },
+    { skill: 'check', show: 'npm run check', does: 'Run the check.' },
+  ]);
+  assert.deepEqual(parseLesson(DEMO_B2, 'demo').card, []);
+  assert.throws(() => parseLesson(card(entry.replace('"git status --porcelain"', 'git status --porcelain')), 'demo'), /demo:\d+: show must be a quote of the lesson/);
+  assert.throws(() => parseLesson(card(entry.replace('"Save what git sees"', 'Save what git sees')), 'demo'), /demo:\d+: does must be a quote of the lesson/);
+  assert.throws(() => parseLesson(card(entry.replace('- skill: snapshot', '- skill: "snapshot"')), 'demo'), /demo:\d+: skill holds the app's own words: no quotes/);
+  assert.throws(() => parseLesson(card(entry.replace('- show:', '- run:')), 'demo'), /demo:\d+: unknown card key run/);
+  assert.throws(() => parseLesson(card(entry.replace('- skill: snapshot\n', '')), 'demo'), /demo:\d+: a card line before its skill line/);
+  assert.throws(() => parseLesson(card(`${entry}\n- does: "Save it again."`), 'demo'), /demo:\d+: a second does line in a card entry/);
+  // An entry shows after a finished step on its skill: one this lesson has, and both quotes.
+  assert.throws(() => parseLesson(card(entry.replace('- skill: snapshot', '- skill: status')), 'demo'), /demo:\d+: the card entry's skill status is no step of this lesson/);
+  assert.throws(() => parseLesson(card(entry.replace(/\n- does: .*/, '')), 'demo'), /demo:\d+: a card entry needs a show and a does line/);
+});
+
 test('warm-ups: two open the lesson, a missed skill first, always CHALLENGE, and no part of the climb', () => {
   const d = onB2({}, { missed: ['exit'] });
   assert.equal(d.state.view, 'intro');

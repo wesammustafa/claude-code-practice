@@ -1785,3 +1785,18 @@ test('screen writer: a drain over 100 ms twice in 10 s stops motion; one false w
   once.screen.draw(page(' 5', 5));
   assert.equal(fromHome(once.bytes()), true, 'after that, every frame is full');
 });
+
+test('your card appears whole in the frame after c and holds still: over a running check, nothing moves and no frame is asked for', () => {
+  const { d, run } = checkingW3();
+  assert.notDeepEqual(frameAt(d.state, run, 160), restOf(d.state), 'the check spins behind it');
+  const held = reduce(d.state, { type: 'key', name: 'c', ch: 'c', now: run + 200 }).state;
+  const card = reduce(held, { type: 'flush', now: run + 200 + DEFER_MS + 50 }).state;
+  assert.equal(card.overlay, 'card');
+  const rest = restOf(card);
+  assert.ok(rest.includes(`  ${C.cardTitle}`), rest.join('\n'));
+  for (const ms of [0, 40, 160, 1_000, 6_000]) assert.deepEqual(frameAt(card, run, ms), rest, `+${ms} ms`);
+  assert.equal(nextChange(card, run + 300, ON), null);
+  // A press of the arrows draws the next place whole, still.
+  const down = reduce(card, { type: 'key', name: 'down', now: run + 2_000 }).state;
+  for (const ms of [0, 40, 160]) assert.deepEqual(frameAt(down, run + 2_000, ms), restOf(down), `down, +${ms} ms`);
+});

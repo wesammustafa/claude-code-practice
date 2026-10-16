@@ -5,12 +5,12 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, PLANNED, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { OWN_PARTS } from './content.mjs';
+import { GUIDE, OWN_PARTS } from './content.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
 // Each body row says how it gives way when the body is taller than its room
@@ -55,13 +55,15 @@ export function render(s, size, t, clock = REST) {
   const M = Math.floor((cols - W) / 2);
   const ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps) };
   const view = VIEWS[s.view](ctx);
-  const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
-  const body = overlay?.body ?? view.body;
-  const keys = overlay?.keys ?? view.keys;
   const top = rows >= 28 ? [''] : [];
   let toast = s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast)}`, W, TOASTS[s.toast.kind].color) : [];
   let gap = [''];
   const room = () => rows - top.length - view.head.length - 2 - gap.length - toast.length;
+  // The rows an overlay has under the view's header and its blank.
+  ctx.room = room() - 1;
+  const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
+  const body = overlay?.body ?? view.body;
+  const keys = overlay?.keys ?? view.keys;
   // The blank under the header is the body's first spacer, so it goes last.
   const more = t.fg('muted', t.glyph.ellipsis);
   let lines = fit([SPACER, ...body], room(), rows < 24, more);
@@ -675,7 +677,7 @@ const VIEWS = {
     return {
       head: lessonHead(ctx, t.pill(`${C.complete} ${t.glyph.check}`, 'okBg'), `${total} of ${total}`),
       body,
-      keys: [nextLesson ? mainKey('enter', C.k.startN(lessonLabel(nextLesson.id))) : mainKey('enter', C.k.map), key('p', C.k.page), key('m', C.k.map), key('q', C.k.quit)],
+      keys: [nextLesson ? mainKey('enter', C.k.startN(lessonLabel(nextLesson.id))) : mainKey('enter', C.k.map), key('p', C.k.page), key('m', C.k.map), cardKey(s), key('q', C.k.quit)],
     };
   },
 
@@ -1129,11 +1131,12 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   const st = s.beat;
   const tier = tierOf(s);
   const style = TIER_STYLE[tier];
+  const card = cardKey(s);
   if (st.confirm) return [mainKey('y', C.k.yes, 'warn', 'black'), key('n', C.k.no)];
   if (done) {
     const next = isLastBeat ? stepsOf(s)[s.pos.step + 1] : null;
     const label = next ? C.k.nextTo(next.title) : C.k.next;
-    return [mainKey('enter', label, undefined, undefined, C.k.next), key('b', C.k.back), beat.why.length ? key('w', C.k.why) : null, key('m', C.k.map), key('q', C.k.quit)];
+    return [mainKey('enter', label, undefined, undefined, C.k.next), key('b', C.k.back), beat.why.length ? key('w', C.k.why) : null, key('m', C.k.map), card, key('q', C.k.quit)];
   }
   if (beat.kind === 'type') return [key('enter', C.k.answer), key('esc', C.k.clear), key('ctrl+c', C.k.quit)];
   const hint = hintAvailable(s) ? key('h', st.rung >= 0 ? C.k.moreHelp : hintStatus(st) === 'fail' ? C.k.help : C.k.hint) : null;
@@ -1146,11 +1149,14 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
     const k = v === 'none' ? 'enter' : 'space';
     // A done-label git beat at CHALLENGE: r is the try that opens h, so offer it.
     const r = !hint && tier === 'challenge' && tryFirst(s) === 'r' && !st.unlocked && rungsOf(s).length ? key('r', C.k.checkNow) : null;
-    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, key('m', C.k.map), key('q', C.k.quit)];
+    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, key('m', C.k.map), card, key('q', C.k.quit)];
   }
   const r = hintStatus(st) === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
-  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), key('q', C.k.quit)];
+  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), card, key('q', C.k.quit)];
 }
+// `c card`, once the card has an entry. It sits before q, so a narrow bar
+// gives it up first.
+const cardKey = (s) => (cardOf(s).length ? key('c', C.k.card) : null);
 
 // ---- overlays ----------------------------------------------------------------
 const OVERLAYS = {
@@ -1162,13 +1168,45 @@ const OVERLAYS = {
     };
   },
   help(ctx) {
-    const { t, inner, rows } = ctx;
+    const { t, inner, rows, room } = ctx;
+    const row = ([k, label]) => `  ${t.fg('key', t.bold(pad(k, 10)))}${t.fg('text', label)}`;
+    // The calm line drops before any key or blank does: it shows only on
+    // one row, from 24 rows, where the keys and their blanks leave room.
+    const calm = rows >= 24 && width(C.calm) <= inner;
+    const keys = C.keyHelp.map(row);
+    // c's row, under p's, shows only where every key, blank and the calm
+    // line leave it room: 60x20 gives it up.
+    if (room >= 3 + keys.length + (calm ? 2 : 0) && width(row(C.cardKey)) <= inner) keys.splice(C.keyHelp.findIndex(([k]) => k === 'p') + 1, 0, ...optional([row(C.cardKey)]));
     return {
-      // The calm line drops before any key or blank does: it shows only on
-      // one row, from 24 rows, where the keys and their blanks leave room.
-      body: [t.bold(t.fg('white', C.keysTitle)), SPACER, ...C.keyHelp.map(([k, label]) => `  ${t.fg('key', t.bold(pad(k, 10)))}${t.fg('text', label)}`),
-        ...(rows >= 24 && width(C.calm) <= inner ? optional(['', ...para(t, C.calm, inner, 'muted')]) : [])],
+      body: [t.bold(t.fg('white', C.keysTitle)), SPACER, ...keys, ...(calm ? optional(['', ...para(t, C.calm, inner, 'muted')]) : [])],
       keys: [key('?', C.k.close), key('q', C.k.close)],
+    };
+  },
+  // Your card: the entries from cardOf, each its lesson, the page's command
+  // and what it does, then the guide's Commands by level page. Where the
+  // card is taller than its room, it shows whole entries from s.cardAt down,
+  // one a press of the arrows; the link goes with the last entry, so the
+  // last place shows it.
+  card(ctx) {
+    const { s, t, inner, room } = ctx;
+    // What it does hangs under the command, past the lesson's pill.
+    const units = cardOf(s).map((e) => {
+      const label = `${t.pill(pad(lessonLabel(e.lesson), 3), 'dimBg', 'dimText')}  `;
+      return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
+    });
+    const head = [t.bold(t.fg('white', C.cardTitle)), ...para(t, units.length ? C.cardIntro : C.cardEmpty, inner, 'muted'), ''];
+    const url = `${GUIDE}/blob/main/docs/reference/commands.md`;
+    const link = ['', t.fg('text', C.cardLink), ...para(t, url, inner, 'key').map((x) => t.link(x, url))];
+    if (units.length) units.at(-1).push(...link);
+    else units.push(link.slice(1));
+    const avail = room - head.length;
+    const from = units.flat().length <= avail ? 0 : Math.min(s.cardAt, units.length - 1);
+    const shown = [];
+    let k = from;
+    while (k < units.length && (k === from || shown.length + units[k].length <= avail)) shown.push(...units[k++]);
+    return {
+      body: [...head, ...shown],
+      keys: [from > 0 || k < units.length ? key(t.glyph.up, C.k.scroll) : null, key('c', C.k.close), key('q', C.k.close)],
     };
   },
   page(ctx) {

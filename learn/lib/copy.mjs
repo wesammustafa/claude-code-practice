@@ -135,6 +135,11 @@ export const C = {
   saveFailed: (error) => `Couldn't save your place: ${error}. The app keeps going.`,
   youreOn: (label, n, m, title) => `You're on ${label}, step ${n} of ${m}: ${title}.`,
 
+  cardTitle: 'Your card',
+  cardIntro: "The commands from steps you finished, in the lessons' words.",
+  cardEmpty: 'Nothing here yet: commands show up here as you finish the steps that use them.',
+  cardLink: 'Commands by level, in the guide:',
+
   pageTitle: 'The lesson page',
   stuckLink: 'Stuck? Tell us here:',
 
@@ -152,6 +157,8 @@ export const C = {
     ['?', 'these keys'],
     ['q', 'quit (your place is saved)'],
   ],
+  // Listed only where the ? overlay has a row to spare.
+  cardKey: ['c', 'your card: commands from finished steps'],
   calm: 'Prefer a still screen? Quit, then start with npm run learn -- --calm.',
 
   small: 'Make this window a bit bigger (at least 60 by 20).',
@@ -165,6 +172,6 @@ export const C = {
     checkAgain: 'check again', moreHelp: 'more help', help: 'help', hint: 'hint', anotherHint: 'another hint', why: 'why', back: 'back',
     next: 'next', nextTo: (title) => `next: ${title}`, answer: 'answer', showAnswer: 'show answer', letsGo: "let's go",
     bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
-    continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
+    continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', scroll: 'scroll', card: 'card', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
   },
 };

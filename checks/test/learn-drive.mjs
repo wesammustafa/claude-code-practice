@@ -256,6 +256,7 @@ export function allScreens() {
   d.key('?'); d.key('down'); d.key('enter'); snap('check-only');
   d.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: true, hint: '' }, { index: 1, text: 'y', pass: false, hint: 'no' }] }); snap('check-only results');
   d.key('p'); snap('page');
+  d.key('p'); d.key('c'); snap('card');
   const r = driver({ saved: { format: 1, welcomed: true, eased: [], lessons: { 'b-1': { step: 'Y3', beat: 0, done: ['W1'] } } } });
   out.push(['resume', r.state]);
   r.key('x');
@@ -266,6 +267,7 @@ export function allScreens() {
   const b = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W3', beat: 0 } } } });
   b.key('enter'); b.send({ type: 'check-error', lesson: 'b-1', message: 'it took too long' });
   out.push(['W3 broken', b.state]);
+  b.key('c'); out.push(['card empty', b.state]);
   return out;
 }
 

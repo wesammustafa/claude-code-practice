@@ -23,4 +23,4 @@
 
 
   ────────────────────────────────────────────────────────────────────────────────
-  r check now    w why    m map    ? more    q quit
+  r check now    w why    m map    ? more    c card    q quit

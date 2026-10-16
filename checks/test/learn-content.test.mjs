@@ -61,6 +61,14 @@ test('intro: every lesson says why it matters, and its payoff is one of its can 
   }
 });
 
+test('card: every lesson puts the commands its page gives on the card, each once in the course', () => {
+  for (const [id, l] of Object.entries(parsed)) assert.ok(l.card.length > 0, `${id}: no card entries`);
+  // Authored entries catch what no run line holds (design D8).
+  assert.ok(['/rewind', '/resume'].every((cmd) => parsed['b-4'].card.some((e) => e.show === cmd)), 'b-4 lists /rewind and /resume');
+  const shows = Object.values(parsed).flatMap((l) => l.card.map((e) => e.show));
+  assert.deepEqual(shows.filter((x, i) => shows.indexOf(x) !== i), [], 'a command on two lessons\' cards');
+});
+
 test('intro: each why wraps to at most 2 lines at the 60-column content width', () => {
   // The intro's text width is the window less 4 columns (render's W); the
   // Why lead and its space come off that.
@@ -238,7 +246,7 @@ const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'holds', '
   'guessRight', 'nowYouKnow', 'findOutAt', 'right', 'answered', 'otherFine', 'done',
   'stepOf', 'levelUp', 'toHinted', 'toChallenge', 'nextCounts', 'k.letsGo', 'k.bringIt', 'k.moreHelp',
   'complete', 'lessonDone', 'badge', 'k.whatsNext',
-  'checkedSummary', 'handover', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'goFurther', 'k.startN', 'k.page', 'k.map', 'k.quit'];
+  'checkedSummary', 'handover', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'goFurther', 'k.startN', 'k.page', 'k.map', 'k.card', 'k.quit'];
 const at = (copy, k) => k.split('.').reduce((v, part) => v?.[part], copy);
 const banned = new Map();
 const bannedIn = (w) => {
