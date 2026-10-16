@@ -707,12 +707,17 @@ test('every step-done screen keeps its 🔥 line and its bottom border at 60x20 
   }
 });
 
-// Every screen of every lesson, as lessonScreens and lesson 1's walk reach them.
-const everyScreen = async () => {
+// lessonScreens for every lesson, played through and then skipped, keeping
+// the labels `keep` passes.
+const lessonWalks = async (keep = () => true) => {
   const { lessonScreens, course } = await import('./learn-drive.mjs');
-  const ids = course.filter((l) => l.content && l.id !== 'b-1').map((l) => l.id);
-  return [...screens, ...[false, true].flatMap((skipped) => ids.flatMap((id) => lessonScreens(id, course, { skipped }).map(([l, s]) => [`${l}${skipped ? ' (skipped)' : ''}`, s])))];
+  return [false, true].flatMap((skipped) => course.filter((l) => l.content).flatMap((l) => lessonScreens(l.id, course, { skipped })
+    .filter(([label]) => keep(label)).map(([label, s]) => [`${label}${skipped ? ' (skipped)' : ''}`, s])));
 };
+// Every screen of every lesson, as lessonScreens and lesson 1's walk reach
+// them. Lesson 1's walk stands in for its lessonScreens, apart from its Check:
+// the walk passes it first time, and lessonScreens also fails it.
+const everyScreen = async () => [...screens, ...await lessonWalks((label) => !label.startsWith('b-1 ') || label.startsWith('b-1 C.'))];
 const flatText = (text) => text.replace(/[^A-Za-z0-9]/g, '');
 
 test('rows that never drop: the question and its options, feedback, the hint box, the eased line and the key bar', async () => {
@@ -996,16 +1001,18 @@ test('a `…` cut inside a card keeps the rail: every row between the card\'s bo
 
 // The step screens a 60x20 window still cuts with a `…`: a hint box or
 // feedback that leaves the card's teaching no room, and in ASCII on Windows
-// the capstone's Windows notes. teach-merged 1.5 scopes "no teaching line is
-// cut" to the intro, complete and next screens; this list keeps the step
-// screens' count from growing unseen.
+// b-1 C.0 hint 2 and capstone T1.2, where the Windows note never drops
+// (ticket 165), so the teaching above it gives way instead: on b-1 C.0 hint 2
+// that is the card's title and Goal. teach-merged 1.5 scopes "no teaching
+// line is cut" to the intro, complete and next screens; this list keeps the
+// step screens' count from growing unseen.
 const CUT_AT_60X20 = {
   full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)'],
-  ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-2 Y5.3 hint 2', 'b-3 W6.2 hint 1', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2',
-    'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1', 'b-capstone T3.1 hint 1',
-    'b-capstone T6.1 hint 1', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W6.2 hint 1 (skipped)', 'b-4 W4.2 hint 1 (skipped)',
+  ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-3 W6.2 hint 1', 'b-4 W5.4 hint 1',
+    'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
+    'b-capstone T3.1 hint 1', 'b-capstone T6.1 hint 1', 'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W6.2 hint 1 (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
     'b-capstone T1.2 hint 1 (skipped)', 'b-capstone T3.1 hint 1 (skipped)', 'b-capstone T6.1 hint 1 (skipped)'],
@@ -1186,4 +1193,54 @@ test('each level has its own first warm-up: a later level\'s first lesson with w
   const second = firstWarmup('i-2', {}, i2);
   assert.equal(stepOf(second.state).part, 'Warm-up');
   assert.ok(!explains(second), plainAt(second, 80, 24));
+});
+
+// A missed Windows note leaves a broken file (ticket 165), so on Windows the
+// note stays whole on every state of its step, at both short sizes, in ASCII
+// and in Windows Terminal.
+test('a Windows note is never cut: on Windows at 60x20 and 80x24 the whole note is on every screen of its step', async () => {
+  const { course } = await import('./learn-drive.mjs');
+  const notes = course.filter((l) => l.content).flatMap((l) => readFileSync(join(root, 'learn', 'lessons', `${l.id}.md`), 'utf8').split('\n')
+    .flatMap((line) => line.match(/^- win-note: "(.*)"$/)?.slice(1) ?? []));
+  assert.equal(notes.length, 3, notes.join('\n'));
+  const all = (await lessonWalks()).filter(([, s]) => s.view === 'step' && s.beat && beatOf(s).winNote);
+  const toast = { kind: 'save', message: 'EACCES: permission denied, open learn.json' };
+  const states = {};
+  const seen = new Set();
+  // Screens, at a size, where either Windows theme shows this.
+  const split = new Set();
+  const noToast = new Set();
+  for (const [label, state] of all) {
+    const [, beatAt, name] = label.match(/^(\S+ \S+) (.+?)(?: \(skipped\))?$/);
+    (states[beatAt] ??= new Set()).add(name);
+    const note = beatOf(state).winNote;
+    seen.add(note);
+    for (const [capName, caps] of [['ascii', CAPS.ascii], ['terminal', { ...CAPS.full, win32: true }]]) {
+      const t = theme(caps);
+      for (const [cols, rows] of SHORT) {
+        const at = `${label} at ${cols}x${rows}`;
+        const lines = render(state, { cols, rows }, t).map(strip);
+        assert.ok(flatText(lines.join('')).includes(flatText(note)), `${at} (${capName}) loses the Windows note\n${lines.join('\n')}`);
+        // flatText reads past a word broken across two lines, so each word
+        // of the note is also looked for whole on one line.
+        if (note.replace(/[`*]/g, '').split(' ').some((word) => !lines.some((l) => l.includes(word)))) split.add(at);
+        if (!render({ ...state, toast }, { cols, rows }, t).some((l) => strip(l).includes('EACCES'))) noToast.add(at);
+      }
+    }
+  }
+  assert.deepEqual([...seen].sort(), [...notes].sort());
+  // Every state the walks reach: a check beat's every rung, and a self beat's
+  // open card and any rung behind h.
+  assert.deepEqual(Object.fromEntries(Object.entries(states).map(([at, names]) => [at, [...names]])), {
+    'b-1 C.0': ['open', 'waiting', 'fail', 'hint 1', 'hint 2', 'hint 3', 'bottom', 'done'],
+    'b-2 W2.1': ['open'],
+    'b-capstone T1.2': ['open', 'hint 1'],
+  });
+  // A code span wider than the line breaks mid-word (wrapRuns), so at 60x20
+  // the capstone's Set-Content path splits across two lines.
+  assert.deepEqual([...split], ['b-capstone T1.2 open at 60x20', 'b-capstone T1.2 hint 1 at 60x20', 'b-capstone T1.2 open (skipped) at 60x20',
+    'b-capstone T1.2 hint 1 (skipped) at 60x20']);
+  // The kept note leaves a toast no room on b-1's Check at 60x20, so the toast
+  // goes (spec 3.1: a toast gives way to kept rows).
+  assert.deepEqual([...noToast], ['b-1 C.0 hint 2 at 60x20', 'b-1 C.0 hint 2 (skipped) at 60x20']);
 });
