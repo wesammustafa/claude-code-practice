@@ -20,8 +20,9 @@ const spacer = (text = '', group) => ({ spacer: true, text, group });
 const SPACER = spacer();
 // Rows that never drop: the question and its options (with a safety
 // choice's line and a typed answer's input row), feedback, the hint box, the
-// eased line, the capstone's handover line, a card's top and bottom borders,
-// the welcome's git error and the resume screen's restart question.
+// eased line, a Windows note, the capstone's handover line, a card's top and
+// bottom borders, the welcome's git error and the resume screen's restart
+// question.
 const kept = (rows) => rows.map((text) => ({ keep: true, text }));
 // Optional rows: teaching the learner can also reach another way, such as
 // behind a key, repeats with no compact form, and a done beat's satisfied
@@ -682,7 +683,8 @@ function stepView(ctx) {
     else if (before && stepNote(s) && s.pos.beat === firstBeat && !done) rows.push(SPACER, ...para(t, hintAvailable(s) ? C.doneBefore.hinted : C.doneBefore.challenge, inner, 'muted'));
     if (hideRuns && beat.lines.some((l) => l.key === 'run') && !done) rows.push(...para(t, C.pressH, inner, 'muted'));
   }
-  if (beat.winNote && t.caps.win32) rows.push(...quoted(beat.winNote));
+  // A Windows note never drops: without it the step breaks there.
+  if (beat.winNote && t.caps.win32) rows.push(...kept(quoted(beat.winNote)));
 
   // The question, if this beat asks one.
   if (beat.kind === 'type') {
