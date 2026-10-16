@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { C } from '../../learn/lib/copy.mjs';
-import { beatOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
+import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -1534,7 +1534,7 @@ test('a GUIDED card shows its Why line under the title: b-4 W3 is the design\'s 
   mockup.forEach((row, i) => {
     if (row !== null) assert.equal(lines[i], row, `row ${i + 1}\n${lines.join('\n')}`);
   });
-  assert.equal(lines[23], '   enter  it compacted    w why    m map    q quit');
+  assert.equal(lines[23], '   enter  it compacted    w why    m map    c card    q quit');
 });
 
 // A made-up lesson 2 whose one GUIDED step has `why` lines on a predict, a
@@ -1771,7 +1771,7 @@ const B4_NEXT = `
 
 
   ────────────────────────────────────────────────────────────────────────────
-   enter  start B5    p page    m map    q quit`;
+   enter  start B5    p page    m map    c card    q quit`;
 // A read line's words as the screen shows them: its link's text, then the rest.
 const readWords = (read) => flatText(read.replace(/\[([^\]]+)\]\([^)]+\)/, '$1'));
 
@@ -2329,4 +2329,161 @@ test('row 3 counts the warm-ups on the plan as steps, with the trail closed up a
   d.key('enter');
   assert.equal(stepOf(d.state).id, 'R2');
   assert.equal(rows()[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
+});
+
+// Your card (the c overlay): the commands from steps the learner finished,
+// in the page's words (design D8 (a)).
+const cardText = (d, cols = 80, rows = 24) => render(d.state, { cols, rows }, theme(CAPS.full)).map((l) => strip(l).trim());
+
+test('c opens your card: an entry shows only after a finished step on its skill, read from the saved done, and nothing new is saved', () => {
+  // Nothing finished yet: the card is empty.
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: {} } });
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'W1');
+  d.key('c');
+  assert.equal(d.state.overlay, 'card');
+  const empty = cardText(d);
+  assert.ok(empty.includes(C.cardTitle), empty.join('\n'));
+  assert.ok(!empty.some((l) => /claude --version|\/status|\/exit/.test(l)), empty.join('\n'));
+  d.key('c');
+  assert.equal(d.state.overlay, null, 'c closes it');
+  // From the saved done: W1 to W5 finished (install, save-version, start, status).
+  const saved = { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W6', beat: 0, done: ['W1', 'W2', 'W3', 'W4', 'W5'] } } };
+  const r = driver({ saved });
+  r.key('enter');
+  assert.equal(stepOf(r.state).id, 'W6');
+  const before = snapshot(r.state);
+  r.key('c');
+  const lines = cardText(r);
+  const where = lines.join('\n');
+  for (const [show, does] of [['claude --version', 'A working installation prints a version number followed by (Claude Code)'], ['claude', 'Start a session'],
+    ['/status', 'The /status command shows the version, model and account together']]) {
+    assert.ok(lines.some((l) => new RegExp(`^B1\\s+${show.replace(/[/-]/g, '\\$&')}$`).test(l)), `${show}\n${where}`);
+    assert.ok(flatText(where).includes(flatText(`"${does}"`)), `${does}\n${where}`);
+  }
+  assert.ok(!lines.some((l) => /\/exit|End the session/.test(l)), `W7 is not finished: ${where}`);
+  // Opening the card saves nothing new: the same snapshot, with the store's keys only.
+  assert.deepEqual(snapshot(r.state), before);
+  assert.deepEqual(Object.keys(snapshot(r.state).lessons['b-1']).sort(),
+    ['answers', 'beat', 'bottomAt', 'complete', 'done', 'easedSteps', 'lessHelp', 'levels', 'moreHelpAt', 'recalled', 'stamps', 'step', 'warm']);
+  // Finishing W7 on screen puts /exit on the card.
+  r.key('c');
+  playUntil(r, (s) => s.view === 'step' && stepOf(s).id === 'Y1');
+  r.key('c');
+  assert.ok(cardText(r).some((l) => /^B1\s+\/exit$/.test(l)), cardText(r).join('\n'));
+});
+
+const COMMANDS_BY_LEVEL = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/reference/commands.md';
+// Every entry the lesson files put on the card, in course order.
+const CARD_SHOWS = ['claude --version', 'claude', '/status', '/exit', 'Shift+Tab', 'Ctrl+O', '/diff', 'git diff',
+  '/context', '/compact', '/rewind', '/clear', '/resume', 'claude --continue', '/init', '/context all', 'git add -N <file>'];
+const shownOn = (lines) => CARD_SHOWS.filter((show) => lines.some((l) => l.endsWith(`  ${show}`) && /^(B\d|CAP)\s/.test(l)));
+
+test('your card scrolls with the arrows where it is taller than the window, and ends with the guide\'s Commands by level link', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(lessonById('b-capstone')) } } });
+  d.key('c');
+  assert.equal(d.state.overlay, 'card');
+  for (const [cols, rows] of SHORT) {
+    const at = `${cols}x${rows}`;
+    while (d.state.cardAt) d.key('up');
+    const first = cardText(d, cols, rows);
+    assert.deepEqual(shownOn(first).slice(0, 2), CARD_SHOWS.slice(0, 2), `${at}\n${first.join('\n')}`);
+    assert.ok(!first.join('').includes(COMMANDS_BY_LEVEL), `${at}: the link waits at the end\n${first.join('\n')}`);
+    assert.match(first.at(-1), /↑↓ scroll/, at);
+    // Down, one press at a time, shows every entry in turn, then the link last.
+    const seen = new Set();
+    let lines = first;
+    for (let i = 0; i < 40 && !lines.join('').includes(COMMANDS_BY_LEVEL); i++) {
+      shownOn(lines).forEach((x) => seen.add(x));
+      const top = shownOn(lines)[0];
+      d.key('down');
+      lines = cardText(d, cols, rows);
+      assert.notEqual(shownOn(lines)[0] ?? null, top, `${at}: down moved nothing\n${lines.join('\n')}`);
+    }
+    shownOn(lines).forEach((x) => seen.add(x));
+    assert.deepEqual([...seen].sort(), [...CARD_SHOWS].sort(), at);
+    const body = lines.slice(0, -2).filter(Boolean);
+    const link = body.indexOf(C.cardLink);
+    assert.ok(link > 0 && body.slice(link + 1).join('') === COMMANDS_BY_LEVEL, `${at}: the link ends the card\n${lines.join('\n')}`);
+    // Up goes back to the first entry.
+    for (let i = 0; i < 40 && d.state.cardAt; i++) d.key('up');
+    assert.deepEqual(cardText(d, cols, rows), first, at);
+  }
+});
+
+test('? lists c for your card where it has room, a row 60x20 gives up first; the key bar shows c card once the card has an entry', () => {
+  const t = theme(CAPS.full);
+  const help = screens.find(([l]) => l === 'help')[1];
+  const cRow = (lines) => lines.some((l) => /^c\s+your card\b/.test(l.trim()));
+  assert.ok(cRow(render(help, { cols: 80, rows: 24 }, t).map(strip)), 'at 80x24');
+  assert.ok(!cRow(render(help, { cols: 60, rows: 20 }, t).map(strip)), 'not at 60x20');
+  const keyBar = (s, cols, rows) => strip(render(s, { cols, rows }, t).at(-1));
+  // No entry yet: no c on the bar.
+  const empty = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W1', beat: 0 } } } });
+  empty.key('enter');
+  assert.doesNotMatch(keyBar(empty.state, 80, 24), /\bc card\b/);
+  // W1 and W2 finished: install's entry is on the card, and W3's bar says so.
+  playUntil(empty, (s) => s.view === 'step' && stepOf(s).id === 'W3');
+  assert.match(keyBar(empty.state, 80, 24), /\bc card\b/, keyBar(empty.state, 80, 24));
+  for (const [label, state] of endScreens().filter(([l]) => l.endsWith('next'))) {
+    for (const [cols, rows] of SHORT) assert.match(keyBar(state, cols, rows), /\bc card\b/, `${label} at ${cols}x${rows}`);
+  }
+});
+
+test('c card gives way before anything else on the bar: with it taken out, every bar is the one a card with no entries draws', async () => {
+  const noCard = (state) => ({ ...state, course: state.course.map((l) => (l.content ? { ...l, content: { ...l.content, card: [] } } : l)) });
+  // The card's own bar is the card's.
+  const all = [...await everyScreen(), ...endScreens()].filter(([, state]) => state.overlay !== 'card');
+  let shown = 0;
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const [cols, rows] of SHORT) {
+      for (const [label, state] of all) {
+        const bar = strip(render(state, { cols, rows }, t).at(-1));
+        const bare = strip(render(noCard(state), { cols, rows }, t).at(-1));
+        if (bar.includes('    c card')) shown++;
+        assert.equal(bar.replace('    c card', ''), bare, `${label} at ${cols}x${rows}`);
+      }
+    }
+  }
+  assert.ok(shown > 0, 'some bar shows c card');
+  // The approved Step done bar at 80x24 (design 2.3) keeps the next step's title.
+  const done = screens.find(([l]) => l === 'W3 done')[1];
+  assert.ok(cardOf(done).length, 'W3 done has a card entry');
+  assert.equal(strip(render(done, { cols: 80, rows: 24 }, theme(CAPS.full)).at(-1)).trim(), 'enter  next: Start, sign in, trust    b back    w why    m map    q quit');
+});
+
+test('a card entry shows only after one of its own lesson\'s steps: the capstone\'s waits for the capstone, though b-3 teaches its skill too', () => {
+  const lessons = { ...finishedBefore('b-capstone') };
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons } });
+  assert.ok(lessons['b-3'].done.length && allCourse.find((l) => l.id === 'b-3').content.steps.some((x) => x.skill === 'review-diff'));
+  assert.ok(!cardOf(d.state).some((e) => e.lesson === 'b-capstone'), cardOf(d.state).map((e) => e.show).join(', '));
+  const cap = allCourse.find((l) => l.id === 'b-capstone').content;
+  const step = cap.steps.find((x) => x.skill === 'review-diff');
+  const after = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...lessons, 'b-capstone': { step: step.id, beat: 0, done: [step.id] } } } });
+  assert.deepEqual(cardOf(after.state).filter((e) => e.lesson === 'b-capstone').map((e) => e.show), ['git add -N <file>']);
+  // b-1's entries wait for b-1's own steps, though b-2 also has a start step.
+  const skipped = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { 'b-2': { step: 'W2', beat: 0, done: ['W1'] } } } });
+  assert.equal(allCourse.find((l) => l.id === 'b-2').content.steps.find((x) => x.id === 'W1').skill, 'start');
+  assert.deepEqual(cardOf(skipped.state).filter((e) => e.lesson === 'b-1'), []);
+});
+
+test('your card\'s last place is the Commands by level link, so a toast at 60x20 leaves the card ending with it', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(lessonById('b-capstone')) } } });
+  d.key('c');
+  for (let i = 0; i < 40; i++) d.key('down');
+  assert.equal(d.state.cardAt, cardOf(d.state).length, 'down stops at the link');
+  const toast = { kind: 'save', message: 'EACCES: permission denied, open /home/sam/claude-code-practice/.practice/learn.json' };
+  for (const [cols, rows] of SHORT) {
+    for (const s of [d.state, { ...d.state, toast }]) {
+      const lines = render(s, { cols, rows }, theme(CAPS.full)).map((l) => strip(l).trim());
+      const where = `${cols}x${rows}${s.toast ? ' with a toast' : ''}\n${lines.join('\n')}`;
+      const link = lines.indexOf(C.cardLink);
+      assert.ok(link > 0, where);
+      const url = [];
+      for (let i = link + 1; url.join('').length < COMMANDS_BY_LEVEL.length && i < lines.length; i++) url.push(lines[i]);
+      assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
+      if (s.toast) assert.ok(lines.some((l) => l.includes("Couldn't save your place")), `the toast stays: ${where}`);
+    }
+  }
 });

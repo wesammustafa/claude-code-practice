@@ -62,6 +62,8 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     overlay: null, lesson: next.id, pos: { step: 0, beat: 0 }, beat: null,
     checks: {}, git: null, session: 0, cursor: 0, mapCursor: course.indexOf(next), toast: null,
     held: null, swallowUntil: 0, confirmRestart: false, lastActivity: now,
+    // The first card entry the c overlay shows, in memory.
+    cardAt: 0,
     // How many times r asked for a run, in memory: each r's number goes out
     // on its effect and comes back on its result (`asked`).
     asks: 0,
@@ -104,6 +106,14 @@ function history(s) {
     }
   });
   return { steps, finished, recalled };
+}
+// Your card (the c overlay): every lesson's card entries, in course order,
+// whose skill the learner finished one of that lesson's own steps on, read
+// from done. An entry's pill names its lesson, so only that lesson's steps
+// count: a skill an earlier lesson also teaches shows nothing early.
+export function cardOf(s) {
+  const { steps } = history(s);
+  return s.course.flatMap((l, k) => (l.content?.card ?? []).filter((e) => steps.has(`${k} ${e.skill}`)).map((e) => ({ ...e, lesson: l.id })));
 }
 // Whether the learner did what the step on screen asks again: finished a
 // step on its skill, in any lesson. A capstone step draws on every lesson
@@ -874,7 +884,10 @@ function onKey(s, ev, effects) {
     return;
   }
   if (s.overlay) {
-    if (['escape', 'enter', 'q', '?', 'p', 'w'].includes(name)) s.overlay = null;
+    if (['escape', 'enter', 'q', '?', 'p', 'w', 'c'].includes(name)) s.overlay = null;
+    // The card's arrows: one place a press, each entry and then the
+    // Commands by level link, the last (render.mjs).
+    else if (s.overlay === 'card' && (name === 'up' || name === 'down')) s.cardAt = Math.max(0, Math.min(cardOf(s).length, s.cardAt + (name === 'down' ? 1 : -1)));
     return;
   }
   if (name === 'q') return effects.push({ type: 'quit' });
@@ -884,6 +897,11 @@ function onKey(s, ev, effects) {
   }
   if (name === 'p' && s.view !== 'welcome') {
     s.overlay = 'page';
+    return;
+  }
+  if (name === 'c' && s.view !== 'welcome') {
+    s.overlay = 'card';
+    s.cardAt = 0;
     return;
   }
   if (name === 'm' && s.view !== 'welcome') {
