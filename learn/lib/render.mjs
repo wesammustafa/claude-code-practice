@@ -51,11 +51,9 @@ export function render(s, size, t, clock = REST) {
   const step = s.view === 'step' && s.beat ? stepOf(s) : null;
   pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
   if (cols < MIN.cols || rows < MIN.rows) return small(cols, rows);
-  const W = Math.min(cols - 4, 80);
-  const M = Math.floor((cols - W) / 2);
+  const { W, M, top } = frameOf(size);
   const ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps) };
   const view = VIEWS[s.view](ctx);
-  const top = rows >= 28 ? [''] : [];
   let toast = s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast)}`, W, TOASTS[s.toast.kind].color) : [];
   let gap = [''];
   const room = () => rows - top.length - view.head.length - 2 - gap.length - toast.length;
@@ -86,21 +84,28 @@ export function render(s, size, t, clock = REST) {
   return out.map(placed(t, M, cols));
 }
 
+// Every frame's card width, its left margin, and the blank above it on a
+// tall window.
+function frameOf({ cols, rows }) {
+  const W = Math.min(cols - 4, 80);
+  return { W, M: Math.floor((cols - W) / 2), top: rows >= 28 ? [''] : [] };
+}
+const appTitle = (t) => `${t.pill('LEARN', 'accentBg')}  ${t.bold(t.fg('white', C.appName))}`;
+
 // A frame's line in the window: the margin, ASCII where there is no
 // Unicode, and cut to `cols - 1`.
 const placed = (t, M, cols) => (l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : ascii(l)), cols - 1, t.unicode ? '…' : '.') : '');
 
 // The boot frame (162): before any state, while git answers the first
 // questions at start, asked at `since`, if that takes over 150 ms. Pip sits
-// where the welcome has it, at every size, beside the app's line. No key works yet, so the
-// key bar is blank.
+// where the welcome has it (its three head rows, then the blank), at every
+// size, beside the app's line. No key works yet, so the key bar is blank.
 export function bootFrame(since, size, t, clock = REST) {
   const { cols, rows } = size;
   if (cols < MIN.cols || rows < MIN.rows) return small(cols, rows);
-  const W = Math.min(cols - 4, 80);
-  const M = Math.floor((cols - W) / 2);
+  const { W, M, top } = frameOf(size);
   const ctx = { t, W, ph: bootPhases(since, clock.at, t.caps) };
-  const out = [...(rows >= 28 ? [''] : []), `${t.pill('LEARN', 'accentBg')}  ${t.bold(t.fg('white', C.appName))}`, '', rule(t, W), '',
+  const out = [...top, appTitle(t), '', rule(t, W), '',
     ...withPip(ctx, pip(t, 'happy', ctx.ph.eyes), [() => spinning(ctx, [t.fg('text', C.askingGit)])]).rows];
   while (out.length < rows - 2) out.push('');
   out.push(pulseLine(ctx), '');
@@ -518,7 +523,7 @@ const VIEWS = {
     ];
     if (s.facts.gitError) body.push(SPACER, ...kept(led(t, 'broken', C.gitBroken(s.facts.gitError), W, 'bad')));
     return {
-      head: [spread(`${t.pill('LEARN', 'accentBg')}  ${t.bold(t.fg('white', C.appName))}`, t.fg('muted', C.pathLabel(done, s.course.length)), W),
+      head: [spread(appTitle(t), t.fg('muted', C.pathLabel(done, s.course.length)), W),
         // The hint is left off when it doesn't fit: the map's footer says the same.
         `${path}${width(path + hint) <= W ? hint : ''}`, rule(t, W)],
       body,

@@ -26,7 +26,7 @@ const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
 // greet.
 const ASK_GIT = (root) => Promise.all([gitReady(root), gitFirstName(root)]);
 
-export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
   if (argv.some((a) => !FLAGS.includes(a))) {
     stderr.write(`${C.usage}\n`);
     return 2;
@@ -86,8 +86,23 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   }
 
   // Git's first answers. If they take over 150 ms, the boot frame goes up on
-  // the spinner's first tick and runs until they land.
-  if (stdin === process.stdin) onSignals();
+  // the spinner's first tick and runs until they land. Till then no key
+  // works: raw mode keeps the terminal from echoing keys onto the screen, a
+  // key typed is dropped rather than kept for a screen not yet seen, and
+  // Ctrl+C, no longer a signal, quits.
+  if (signals) onSignals();
+  const onBootKey = (chunk) => {
+    if (String(chunk).includes('\x03')) quit(0);
+  };
+  stdin.setRawMode(true);
+  stdin.on('data', onBootKey);
+  stdin.resume();
+  // A resize wipes the screen and draws again, the boot frame included.
+  stdout.on('resize', () => {
+    if (!screen) return;
+    screen.clear();
+    requestDraw();
+  });
   const askedAt = now();
   const boot = timers.setTimeout(() => {
     if (closed) return;
@@ -202,6 +217,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     timers.clearTimeout(frameTimer);
     stopChildren();
     watcher?.close();
+    stdin.removeListener('data', onBootKey);
     stdin.removeListener('data', onData);
     if (stdin.isTTY) stdin.setRawMode(false);
     stdin.pause();
@@ -228,19 +244,14 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (parse.pending()) timers.setTimeout(() => { for (const ev of parse.flush()) dispatch(ev); }, 50);
   }
 
-  stdin.setRawMode(true);
+  stdin.removeListener('data', onBootKey);
   stdin.on('data', onData);
-  stdin.resume();
-  stdout.on('resize', () => {
-    screen.clear();
-    requestDraw();
-  });
   // Set before git is asked: the boot frame opens the screen, and a signal
   // then must close it.
   function onSignals() {
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => quit(0));
-    process.once('exit', () => screen?.leave());
-    process.once('uncaughtException', (error) => {
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) signals.once(sig, () => quit(0));
+    signals.once('exit', () => screen?.leave());
+    signals.once('uncaughtException', (error) => {
       screen?.leave();
       console.error(error);
       exit(1);

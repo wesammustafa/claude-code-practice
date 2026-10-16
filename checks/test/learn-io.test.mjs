@@ -6,12 +6,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
 import { SHOTS } from '../../learn/lib/motion.mjs';
+import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { childEnv, runCheck, singleFlight, SLOW } from '../../learn/lib/verify.mjs';
@@ -203,7 +205,8 @@ const CALM_ENV = { ...process.env, CODESPACES: '', LEARN_CALM: '1', NO_COLOR: ''
 // back up (fakeOut's `full` and `drain()`).
 function fakeTerminal() {
   const stdin = new PassThrough();
-  Object.assign(stdin, { isTTY: true, setRawMode: () => stdin });
+  Object.assign(stdin, { isTTY: true, isRaw: false });
+  stdin.setRawMode = (on) => Object.assign(stdin, { isRaw: on });
   const model = screenModel(90, 30);
   const stdout = fakeOut({ columns: 90, rows: 30 });
   const write = stdout.write;
@@ -269,7 +272,8 @@ const MOTION_ENV = { ...CALM_ENV, LEARN_CALM: '' };
 // the watcher unless `watch` replaces it. Each write's time is in `times`;
 // with `writeMs` set, every write takes that long on the clock. `askGit`
 // replaces git's first answers at start: [git's error or null, a first name].
-function clockedRun(env, { watch, askGit } = {}) {
+// `signals` stands in for the process's signals.
+function clockedRun(env, { watch, askGit, signals } = {}) {
   const dir = exportHead(root);
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
   const term = fakeTerminal();
@@ -283,7 +287,7 @@ function clockedRun(env, { watch, askGit } = {}) {
   };
   // When each frame from write `from` on went out.
   app.frameTimes = (from = 0) => app.times.slice(from).filter((_, i) => term.writes[from + i].startsWith('\x1b[?2026h'));
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, now: clock.now, perf: clock.now, timers: clock, watch, askGit, exit: (code) => { app.exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, now: clock.now, perf: clock.now, timers: clock, watch, askGit, signals, exit: (code) => { app.exited = code; } });
   // Until fn() holds, moving the clock 40 ms at a time while the children run.
   app.settle = async (fn, ms = 8_000) => {
     const end = Date.now() + ms;
@@ -388,6 +392,109 @@ test('boot: with motion off, the boot frame shows its words still, with Pip awak
     assert.equal(term.writes.length, n, 'nothing moves while git works');
     git.answer([null, 'Sam']);
     await turn();
+    assert.match(term.shows(), /Hi Sam! Let's learn Claude Code/);
+  } finally {
+    app.close();
+  }
+});
+
+test('boot: keys typed while git answers are not echoed and are dropped, so an Enter does not skip the welcome; q does not quit', async () => {
+  const git = slowGit();
+  const app = clockedRun(CALM_ENV, { askGit: git.ask });
+  const { term, clock } = app;
+  try {
+    assert.equal(term.stdin.isRaw, true, 'raw before any frame: the terminal echoes nothing');
+    await clock.advance(100);
+    term.type('\r');
+    await clock.advance(60);
+    assert.match(term.shows(), /Asking git about this folder…/);
+    term.type('q\r');
+    await turn();
+    assert.equal(app.exited, null);
+    git.answer([null, 'Sam']);
+    await turn();
+    await clock.advance(1_000);
+    assert.equal(term.stdin.isRaw, true);
+    assert.match(term.shows(), /Hi Sam! Let's learn Claude Code/, 'the welcome stays up');
+    await app.press('\r', "You'll be able to");
+  } finally {
+    app.close();
+  }
+});
+
+test('boot: Ctrl+C during the boot frame leaves the screen once and exits 0, and git\'s answer then draws nothing', async () => {
+  const git = slowGit();
+  const app = clockedRun(MOTION_ENV, { askGit: git.ask });
+  const { term, clock } = app;
+  try {
+    await clock.advance(200);
+    assert.match(term.shows(), /Asking git about this folder…/);
+    term.type('\x03');
+    await turn();
+    assert.equal(app.exited, 0);
+    assert.equal(term.stdin.isRaw, false);
+    const all = term.writes.join('');
+    assert.equal(all.split(LEAVE).length, 2, 'left once');
+    assert.ok(all.endsWith(`${LEAVE}\n`), 'no goodbye line: nothing was saved');
+    const n = term.writes.length;
+    git.answer([null, 'Sam']);
+    await turn();
+    await clock.advance(1_000);
+    assert.equal(term.writes.length, n, 'no welcome, no frame');
+    assert.deepEqual(clock.pending(), [], 'no timer left');
+  } finally {
+    app.close();
+  }
+});
+
+test('boot: a signal before any screen writes only a newline and exits 0; one during the boot frame leaves the screen', async () => {
+  for (const [ms, shown] of [[100, false], [200, true]]) {
+    const git = slowGit();
+    const signals = new EventEmitter();
+    const app = clockedRun(CALM_ENV, { askGit: git.ask, signals });
+    const { term, clock } = app;
+    try {
+      await clock.advance(ms);
+      signals.emit('SIGINT');
+      assert.equal(app.exited, 0);
+      assert.deepEqual(term.writes.join('').split(ENTER).length - 1, shown ? 1 : 0);
+      assert.equal(term.writes.join(''), shown ? `${term.writes.join('').split(LEAVE)[0]}${LEAVE}\n` : '\n');
+      git.answer([null, 'Sam']);
+      await turn();
+      await clock.advance(1_000);
+      assert.doesNotMatch(term.writes.join(''), /Hi Sam/);
+    } finally {
+      app.close();
+    }
+  }
+});
+
+test('boot: a resize during the boot frame clears the screen and draws it again at the new size, with motion off too', async () => {
+  const git = slowGit();
+  const app = clockedRun(CALM_ENV, { askGit: git.ask });
+  const { term, clock } = app;
+  try {
+    Object.assign(term.stdout, { columns: 70, rows: 22 });
+    term.stdout.emit('resize');
+    await turn();
+    assert.deepEqual(term.writes, [], 'no screen yet: nothing to wipe');
+    await clock.advance(160);
+    for (const [cols, rows] of [[60, 20], [80, 24]]) {
+      await clock.advance(1_000);
+      const n = term.writes.length;
+      Object.assign(term.stdout, { columns: cols, rows });
+      term.stdout.emit('resize');
+      await turn();
+      assert.equal(term.writes.length - n, 1, `${cols}x${rows}: one write`);
+      assert.ok(term.writes.at(-1).startsWith('\x1b[?2026h\x1b[2J\x1b[H'), 'cleared and drawn whole');
+      const shown = term.model.lines();
+      assert.ok(shown.slice(0, rows).every((l) => width(l) <= cols - 1), shown.join('\n'));
+      assert.deepEqual(shown.slice(rows), Array(30 - rows).fill(''), 'nothing left below the frame');
+      assert.match(shown.join('\n'), /Asking git about this folder…/);
+    }
+    git.answer([null, 'Sam']);
+    await turn();
+    await clock.advance(40);
     assert.match(term.shows(), /Hi Sam! Let's learn Claude Code/);
   } finally {
     app.close();
