@@ -1740,3 +1740,223 @@ test('the Why line\'s lead is in accent and its quote in text, and a step\'s not
   assert.ok(colored(row).text?.startsWith('"If '), JSON.stringify(colored(row)));
   assert.equal(colored(row).muted, undefined);
 });
+
+// Go further (146). The b-4 next screen as energy-and-teaching 3.1 draws it,
+// at 80x24. Two rows are not this ticket's and are the app's as it draws
+// them: the trail, whose done steps are filled where the mockup drew them
+// hollow, and B5's mix bar, which is B5's plan.
+const B4_NEXT = `
+   B4   Keep a session on track                                    COMPLETE ✔
+  ★━━★━━★   ●━━●   ◆   ●━━●━━●   ◆━━◆━━◆━━◆   ★━━★                    15 of 15
+  ────────────────────────────────────────────────────────────────────────────
+
+  ✅ The lesson's check passes: 2 of 2 items
+  💬 9 questions answered
+
+  Your climb
+
+                ★★★    CHALLENGE ★★★    just the goal
+         ◆◆◆◆◆    HINTED ★★☆    the goal, hints if you ask
+  ●●●●●    GUIDED ★☆☆    every command shown
+
+  📖 Go further: "Explore the context window: an interactive view of what
+     fills a session."
+
+  ▸ Next up   B5   Project memory with CLAUDE.md
+     ●●●◆◆◆◆◆◆★★★  A notch harder: it starts with less help.
+
+  Your progress is saved, so a break is fine. Come back with npm run learn.
+
+
+  ────────────────────────────────────────────────────────────────────────────
+   enter  start B5    p page    m map    q quit`;
+// A read line's words as the screen shows them: its link's text, then the rest.
+const readWords = (read) => flatText(read.replace(/\[([^\]]+)\]\([^)]+\)/, '$1'));
+
+test('the next screen ends the lesson with 📖 Go further and the page\'s line: b-4 is the design\'s at 80x24', () => {
+  const next = endScreens().find(([l]) => l === 'b-4 next')[1];
+  const lines = render(next, { cols: 80, rows: 24 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
+  assert.deepEqual(lines, B4_NEXT.slice(1).split('\n'), lines.join('\n'));
+});
+
+test('every next screen but a capstone\'s shows its Go further line whole at 60x20 and 80x24, in every mode', () => {
+  for (const [label, state] of endScreens().filter(([l]) => l.endsWith('next'))) {
+    const { read } = lessonById(state.lesson).content.intro;
+    for (const [capName, caps] of Object.entries(CAPS)) {
+      const t = theme(caps);
+      const flag = `${t.unicode ? '📖' : '[read]'} ${C.goFurther} "`;
+      for (const [cols, rows] of SHORT) {
+        const lines = render(state, { cols, rows }, t).map(strip);
+        const where = `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
+        const at = lines.findIndex((l) => l.trimStart().startsWith(flag));
+        if (state.lesson.endsWith('capstone')) {
+          assert.equal(read, undefined);
+          assert.equal(at, -1, where);
+          assert.ok(!flatText(lines.join('')).includes(flatText(C.goFurther)), where);
+          continue;
+        }
+        assert.ok(at > 0, where);
+        // The quote ends on the row whose last mark closes it; it reads whole.
+        const end = lines.findIndex((l, i) => i >= at && l.trimEnd().endsWith('"'));
+        const said = [lines[at].trimStart().slice(flag.length - `${C.goFurther} "`.length), ...lines.slice(at + 1, end + 1)];
+        assert.equal(flatText(said.join('')), flatText(C.goFurther) + readWords(read), where);
+        // Wrapped rows go on under the label, after the lead.
+        const col = width(lines[at]) - width(lines[at].trimStart()) + width(t.unicode ? '📖 ' : '[read] ');
+        for (const l of lines.slice(at + 1, end + 1)) assert.equal(width(l) - width(l.trimStart()), col, where);
+      }
+    }
+  }
+  // b-4 at 60x20: the two rows the design's mockup draws. The blank above
+  // them is the sentence's own, so it stays while the spacers below give
+  // way: 142's climb takes two rows where the mockup's took one, and that
+  // row is the mockup's blank above Next up.
+  const b4 = endScreens().find(([l]) => l === 'b-4 next')[1];
+  const lines = render(b4, { cols: 60, rows: 20 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
+  const at = lines.findIndex((l) => l.includes('📖'));
+  assert.deepEqual(lines.slice(at - 1, at + 3), ['', '  📖 Go further: "Explore the context window: an', '     interactive view of what fills a session."', '  ▸ Next up   B5   Project memory with CLAUDE.md'], lines.join('\n'));
+});
+
+test('the Go further label is in muted and its quote in text', () => {
+  const t = theme(CAPS.full);
+  const next = endScreens().find(([l]) => l === 'b-4 next')[1];
+  const row = render(next, { cols: 80, rows: 24 }, t).find((l) => strip(l).includes(`${C.goFurther} "`));
+  const parts = colored(row);
+  assert.equal(parts.muted?.replace(/ /g, ''), C.goFurther.replace(/ /g, ''), JSON.stringify(parts));
+  assert.ok(parts.text?.trimStart().startsWith('"Explore the context window:'), JSON.stringify(parts));
+});
+
+test('the Go further line is an optional row: it drops whole with its blank, before any teaching line is cut', () => {
+  const t = theme(CAPS.full);
+  const next = endScreens().find(([l]) => l === 'b-4 next')[1];
+  const { read } = lessonById('b-4').content.intro;
+  let dropped = null;
+  // Longer and longer save errors leave the body less and less room.
+  for (let n = 0; n <= 8 && !dropped; n++) {
+    const toast = { kind: 'save', message: `EACCES: permission denied, open ${'/home/sam/claude-code-practice'.repeat(n)}/.practice/learn.json` };
+    const lines = render({ ...next, toast }, { cols: 60, rows: 20 }, t).map(strip);
+    const where = `a ${n}-fold save error\n${lines.join('\n')}`;
+    const rows = lines.filter((l) => l.includes('📖') || l.trimEnd().endsWith('fills a session."'));
+    assert.ok([0, 2].includes(rows.length), where);
+    assert.ok(!lines.some((l) => l.trim() === '…'), `a teaching line is cut: ${where}`);
+    const text = flatText(lines.join(''));
+    for (const word of [C.checkedSummary(2, 2), C.yourClimb, C.nextUp, 'Project memory with CLAUDE.md', C.notchHarder, C.savedBreak]) assert.ok(text.includes(flatText(word)), `"${word}": ${where}`);
+    if (!rows.length) dropped = { lines, where };
+  }
+  assert.ok(dropped, 'no save error pushed the Go further line out');
+  // Its blank went with it: the body shows no two blank rows in a row.
+  const body = dropped.lines.slice(4, dropped.lines.findLastIndex((l) => l.trim()) - 2);
+  assert.ok(!body.some((l, i) => !l.trim() && !body[i + 1]?.trim()), dropped.where);
+  assert.ok(!flatText(dropped.lines.join('')).includes(readWords(read)), dropped.where);
+});
+
+// The page overlay, opened with p from the screen `stop` finds in a play of
+// lesson `id` on the path.
+const pageOn = (id, stop) => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+  playUntil(d, stop);
+  d.key('p');
+  assert.equal(d.state.overlay, 'page', id);
+  return d;
+};
+const URLS = {
+  'b-1': 'https://code.claude.com/docs/en/how-claude-code-works',
+  'b-2': 'https://code.claude.com/docs/en/permission-modes#analyze-before-you-edit-with-plan-mode',
+  'b-3': 'https://code.claude.com/docs/en/common-workflows',
+  'b-4': 'https://code.claude.com/docs/en/context-window',
+  'b-5': 'https://code.claude.com/docs/en/best-practices#write-an-effective-claude-md',
+};
+
+test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
+  for (const l of allCourse.filter((x) => x.content)) {
+    const d = pageOn(l.id, (s) => s.view === 'next' && s.lesson === l.id);
+    const { read } = l.content.intro;
+    for (const [capName, caps] of Object.entries(CAPS)) {
+      const t = theme(caps);
+      for (const [cols, rows] of SHORT) {
+        const raw = render(d.state, { cols, rows }, t);
+        const lines = raw.map(strip);
+        const where = `${l.id} page at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
+        assert.ok(!lines.some((x) => x.trim() === t.glyph.ellipsis || widthCut(t, cols)(x)), `cut: ${where}`);
+        const text = lines.map((x) => x.trim()).join('');
+        if (!URLS[l.id]) {
+          assert.equal(read, undefined);
+          assert.ok(!text.includes(C.goFurther), where);
+          continue;
+        }
+        assert.ok(lines.some((x) => x.trimStart().startsWith(`${t.unicode ? '📖' : '[read]'} ${C.goFurther} "`)), where);
+        assert.ok(flatText(text).includes(flatText(C.goFurther) + readWords(read)), where);
+        // The full URL, its wrapped rows joined, and a link where links work.
+        assert.ok(text.includes(URLS[l.id]), where);
+        if (caps.links) assert.ok(raw.some((x) => x.includes(`\x1b]8;;${URLS[l.id]}\x07`)), where);
+      }
+    }
+  }
+});
+
+test('p gives up its blank rows from the bottom: the one above Go further goes before the one above the Stuck link', () => {
+  for (const l of allCourse.filter((x) => x.content?.intro.read)) {
+    const d = pageOn(l.id, (s) => s.view === 'next' && s.lesson === l.id);
+    for (const [capName, caps] of Object.entries(CAPS)) {
+      const t = theme(caps);
+      for (const [cols, rows] of SHORT) {
+        const lines = render(d.state, { cols, rows }, t).map((x) => strip(x).trim());
+        const where = `${l.id} page at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
+        const blankAbove = (i) => i > 0 && lines[i - 1] === '';
+        const stuck = blankAbove(lines.indexOf(C.stuckLink));
+        const further = blankAbove(lines.findIndex((x) => x.startsWith(`${t.unicode ? '📖' : '[read]'} ${C.goFurther}`)));
+        assert.ok(stuck || !further, where);
+        if (rows >= 24) assert.ok(stuck && further, where);
+      }
+    }
+  }
+});
+
+test('the next screen\'s key bar offers p page, at 60x20 and 80x24', () => {
+  for (const [label, state] of endScreens().filter(([l]) => l.endsWith('next'))) {
+    for (const [cols, rows] of SHORT) {
+      const bar = render(state, { cols, rows }, theme(CAPS.full)).map(strip).at(-1);
+      assert.match(bar, /\bp page\b/, `${label} at ${cols}x${rows}: ${bar}`);
+    }
+  }
+});
+
+test('p on a step shows its page\'s Go further line: a warm-up\'s is the lesson it comes from', () => {
+  const t = theme(CAPS.full);
+  const text = (d) => render(d.state, { cols: 80, rows: 24 }, t).map((l) => strip(l).trim()).join('');
+  // b-3's first step of its own.
+  const own = pageOn('b-3', (s) => s.view === 'step' && s.lesson === 'b-3' && stepOf(s).part !== 'Warm-up');
+  assert.ok(text(own).includes(URLS['b-3']), text(own));
+  // b-2's first warm-up, from b-1.
+  const warm = pageOn('b-2', (s) => s.view === 'step' && s.lesson === 'b-2' && stepOf(s).part === 'Warm-up');
+  const from = stepOf(warm.state).from;
+  assert.equal(from, 'b-1');
+  assert.ok(text(warm).includes(URLS[from]) && !text(warm).includes(URLS['b-2']), text(warm));
+  // The capstone's steps have none.
+  const cap = pageOn('b-capstone', (s) => s.view === 'step' && s.lesson === 'b-capstone' && stepOf(s).part !== 'Warm-up');
+  assert.ok(!text(cap).includes(C.goFurther), text(cap));
+});
+
+test('📖 has one job: Go further, once, on the next screen and behind p, and nowhere else', async () => {
+  const all = [...await everyScreen(), ...endScreens()];
+  const pages = allCourse.filter((l) => l.content).map((l) => [`${l.id} next page`, pageOn(l.id, (s) => s.view === 'next' && s.lesson === l.id).state]);
+  let seen = 0;
+  for (const capName of ['full', 'ascii']) {
+    const t = theme(CAPS[capName]);
+    const flag = t.unicode ? '📖' : '[read]';
+    for (const [label, state] of [...all, ...pages]) {
+      // The state's own course: a screen may play a course with fewer lesson files.
+      const byId = (id) => state.course.find((x) => x.id === id);
+      const step = state.view === 'step' && state.beat ? stepOf(state) : null;
+      const pageOf = byId(step?.part === 'Warm-up' ? step.from : state.lesson);
+      const goes = state.overlay === 'page' ? pageOf.content?.intro.read : !state.overlay && state.view === 'next' && byId(state.lesson).content.intro.read;
+      for (const [cols, rows] of SHORT) {
+        const lines = render(state, { cols, rows }, t).map(strip);
+        const n = lines.filter((x) => x.includes(flag)).length;
+        assert.equal(n, goes ? 1 : 0, `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`);
+        if (n) assert.ok(lines.find((x) => x.includes(flag)).trimStart().startsWith(`${flag} ${C.goFurther}`));
+        seen += n;
+      }
+    }
+  }
+  assert.ok(seen > 0);
+});

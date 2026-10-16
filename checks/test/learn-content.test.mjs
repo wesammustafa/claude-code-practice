@@ -71,6 +71,23 @@ test('intro: each why wraps to at most 2 lines at the 60-column content width', 
   }
 });
 
+// Go further (146): one primary source to read next, as the page lists it.
+// A capstone's page has no Go further list, so its file has no read line.
+test('intro: every lesson but a capstone names one source to read, quoted with its Markdown link', () => {
+  for (const [id, l] of Object.entries(parsed)) {
+    if (id.endsWith('capstone')) {
+      assert.equal(l.intro.read, undefined, `${id}: a capstone has no Go further`);
+      continue;
+    }
+    assert.ok(l.intro.read, `${id}: no read line`);
+    const links = inline(l.intro.read).filter((r) => r.url);
+    assert.equal(links.length, 1, `${id}: the read line holds ${links.length} links`);
+    assert.match(links[0].url, /^https:\/\/\S+$/, `${id}: the read line's link is no full URL`);
+    // The page's own line: the link comes first, then what it covers.
+    assert.match(l.intro.read, /^\[[^\]]+\]\(https:\/\/[^)]+\): \S/, `${id}: "${l.intro.read}"`);
+  }
+});
+
 // A first meeting's GUIDED step with no Why line on its card, and why. Name
 // one here only where the page has no sentence that is a reason for the step.
 const NO_WHY = {
@@ -221,7 +238,7 @@ const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'holds', '
   'guessRight', 'nowYouKnow', 'findOutAt', 'right', 'answered', 'otherFine', 'done',
   'stepOf', 'levelUp', 'toHinted', 'toChallenge', 'nextCounts', 'k.letsGo', 'k.bringIt', 'k.moreHelp',
   'complete', 'lessonDone', 'badge', 'k.whatsNext',
-  'checkedSummary', 'handover', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'k.startN', 'k.map', 'k.quit'];
+  'checkedSummary', 'handover', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'goFurther', 'k.startN', 'k.page', 'k.map', 'k.quit'];
 const at = (copy, k) => k.split('.').reduce((v, part) => v?.[part], copy);
 const banned = new Map();
 const bannedIn = (w) => {

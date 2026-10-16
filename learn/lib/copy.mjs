@@ -116,6 +116,7 @@ export const C = {
   nextUp: 'Next up',
   notchHarder: 'A notch harder: it starts with less help.',
   savedBreak: 'Your progress is saved, so a break is fine. Come back with npm run learn.',
+  goFurther: 'Go further:',
 
   map: 'MAP',
   help: 'Help:',
@@ -145,7 +146,7 @@ export const C = {
     ['w', 'why this matters'],
     ['b', 'back one screen'],
     ['m', 'the map of lessons'],
-    ['p', 'the lesson page'],
+    ['p', 'the lesson page and what to read next'],
     ['?', 'these keys'],
     ['q', 'quit (your place is saved)'],
   ],
@@ -160,6 +161,6 @@ export const C = {
     checkAgain: 'check again', moreHelp: 'more help', help: 'help', hint: 'hint', anotherHint: 'another hint', why: 'why', back: 'back',
     next: 'next', nextTo: (title) => `next: ${title}`, answer: 'answer', showAnswer: 'show answer', letsGo: "let's go",
     bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
-    continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', yes: 'show it', no: 'not yet', page: 'lesson page', clear: 'clear',
+    continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
   },
 };
