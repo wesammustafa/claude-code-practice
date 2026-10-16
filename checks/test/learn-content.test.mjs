@@ -11,7 +11,7 @@ import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
-import { root } from './learn-drive.mjs';
+import { DEMO_I1, root } from './learn-drive.mjs';
 
 const dir = join(root, 'learn', 'lessons');
 const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
@@ -152,19 +152,25 @@ test('steps are numbered as on the page, one part after the other', () => {
   assert.deepEqual(split, Object.keys(SPLIT), 'a split names a step that is no longer there');
 });
 
+// What is wrong with lesson `id`'s warm-ups: each a question from an earlier
+// lesson, in any level, numbered, from memory.
+function warmupOff(id, l) {
+  const off = [];
+  const at = PATH.findIndex((p) => p.id === id);
+  l.warmup.forEach((w, i) => {
+    if (w.id !== `R${i + 1}`) off.push(`${id} ${w.id}: not R${i + 1}`);
+    if (w.tier !== 'challenge') off.push(`${id} ${w.id}: a warm-up is CHALLENGE`);
+    const from = PATH.findIndex((p) => p.id === w.from);
+    if (!(from >= 0 && from < at)) off.push(`${id} ${w.id}: from ${w.from} is not an earlier lesson`);
+    if (w.beats.length !== 1) off.push(`${id} ${w.id}: one question`);
+    if (!['ask', 'type'].includes(w.beats[0].kind)) off.push(`${id} ${w.id}: a warm-up asks`);
+  });
+  if (at > 0 && l.warmup.length < 2 && l.steps.some((s) => s.part === 'Worked example')) off.push(`${id}: a lesson after the first opens with warm-ups`);
+  return off;
+}
+
 test('warm-ups: questions from an earlier lesson, numbered, from memory', () => {
-  for (const [id, l] of Object.entries(parsed)) {
-    const at = PATH.findIndex((p) => p.id === id);
-    l.warmup.forEach((w, i) => {
-      assert.equal(w.id, `R${i + 1}`, `${id} ${w.id}`);
-      assert.equal(w.tier, 'challenge', `${id} ${w.id}: a warm-up is CHALLENGE`);
-      const from = PATH.findIndex((p) => p.id === w.from);
-      assert.ok(from >= 0 && from < at, `${id} ${w.id}: from ${w.from} is not an earlier lesson`);
-      assert.equal(w.beats.length, 1, `${id} ${w.id}: one question`);
-      assert.ok(['ask', 'type'].includes(w.beats[0].kind), `${id} ${w.id}: a warm-up asks`);
-    });
-    if (at > 0) assert.ok(l.warmup.length >= 2 || !l.steps.some((s) => s.part === 'Worked example'), `${id}: a lesson after the first opens with warm-ups`);
-  }
+  assert.deepEqual(Object.entries(parsed).flatMap(([id, l]) => warmupOff(id, l)), []);
 });
 
 // C.warmupWhy, on the first warm-up of each level, says a wrong answer
@@ -395,27 +401,73 @@ test('verify lines name real check items, and ladder headings are check items', 
   }
 });
 
-test('difficulty: each step\'s tier is the course rule\'s, and it climbs like a sawtooth', () => {
-  const shares = [];
-  contents.forEach((c, i) => {
+// The climb (ticket 80, Q2): one rule for each level, with skill counts
+// carried across the course. A level's first lesson may open GUIDED; every
+// later one opens above it and gives less help than the level's first. A
+// lesson full of new commands may dip below the lesson two before it in its
+// level: that is reported, not failed. `course` holds parsed contents in
+// course order, null for a lesson with no file.
+function climb(course) {
+  const off = [];
+  const dips = [];
+  const levels = new Map();
+  course.forEach((c, i) => {
     if (!c) return;
-    const rule = ruleTiers(contents, i);
-    c.steps.forEach((s, k) => assert.equal(s.tier, rule[k], `${c.lesson} ${s.id} is ${s.tier}; the course rule says ${rule[k]}`));
-    assert.equal(c.steps.at(-1).tier, 'challenge', `${c.lesson}: the Check is CHALLENGE`);
-    if (c.lesson.endsWith('capstone')) assert.ok(c.steps.every((s) => s.tier === 'challenge'));
-    if (i > 0) assert.notEqual(c.steps[0].tier, 'guided', `${c.lesson} opens GUIDED`);
+    const rule = ruleTiers(course, i);
+    c.steps.forEach((s, k) => {
+      if (s.tier !== rule[k]) off.push(`${c.lesson} ${s.id} is ${s.tier}; the course rule says ${rule[k]}`);
+    });
+    if (c.steps.at(-1).tier !== 'challenge') off.push(`${c.lesson}: the Check is not CHALLENGE`);
+    if (c.lesson.endsWith('capstone') && !c.steps.every((s) => s.tier === 'challenge')) off.push(`${c.lesson}: a capstone step is not CHALLENGE`);
+    const shares = levels.get(PATH[i].level) ?? [];
+    levels.set(PATH[i].level, shares);
+    if (shares.length && c.steps[0].tier === 'guided') off.push(`${c.lesson} opens GUIDED`);
     shares.push({ id: c.lesson, share: c.steps.filter((s) => s.tier !== 'guided').length / c.steps.length });
   });
-  // A lesson full of new commands may dip, but never below the lesson two
-  // before it, and every lesson gives less help than the first.
-  shares.forEach(({ id, share }, i) => {
-    if (i > 0) assert.ok(share > shares[0].share, `${id} doesn't give less help than ${shares[0].id}`);
-    if (i > 1) assert.ok(share >= shares[i - 2].share, `${id} gives more help than ${shares[i - 2].id}, two lessons before`);
-  });
+  for (const shares of levels.values()) {
+    shares.forEach(({ id, share }, i) => {
+      if (i > 0 && share <= shares[0].share) off.push(`${id} doesn't give less help than ${shares[0].id}`);
+      if (i > 1 && share < shares[i - 2].share) dips.push(`${id} gives more help than ${shares[i - 2].id}, two lessons before`);
+    });
+  }
+  return { off, dips };
+}
+
+test('difficulty: each step\'s tier is the course rule\'s, and it climbs like a sawtooth', (t) => {
+  const { off, dips } = climb(contents);
+  assert.deepEqual(off, []);
+  for (const dip of dips) t.diagnostic(dip);
   // A safety choice keeps a guess before it at every tier.
   const b1 = parsed['b-1'];
   assert.ok(b1.steps.find((s) => s.id === 'W4').beats[0].safety);
   for (const l of Object.values(parsed)) for (const s of allSteps(l)) for (const b of s.beats) if (b.safety) assert.equal(b.kind, 'predict', `${l.lesson} ${s.id}: a safety choice is a guess`);
+});
+
+// A made-up lesson file with `steps`, each [id, tier, skill]: W steps are
+// Worked examples and C the Check, each one beat the check verifies.
+function madeUp(id, steps) {
+  const heading = ([sid]) => (sid === 'C' ? '### C | Check | Check' : `### ${sid} | Worked example step ${sid.slice(1)} of ${steps.length - 1} | Do it`);
+  const text = [`---\nlesson: ${id}\ntitle: "Demo"\n---\n\n## intro\n- can: "do it"\n\n## steps`,
+    ...steps.map((st) => `\n${heading(st)}\n- tier: ${st[1]}\n- skill: ${st[2]}\n- beat: do\n- verify: ${st[0] === 'C' ? 'check all' : 'check 0'}\n- goal: "Do it."`)].join('\n');
+  return parseLesson(text, `${id}.md`);
+}
+// The real Beginner lessons, then the made-up Intermediate ones in `made`,
+// { id: content }.
+const withIntermediate = (made) => PATH.map((p) => (p.level === 'beginner' ? parsed[p.id] ?? null : made[p.id] ?? null));
+const CHECK = ['C', 'challenge', 'check'];
+
+test('difficulty: help fades within each level, a level\'s first lesson may open GUIDED, skill counts carry across levels, and a dip only reports', () => {
+  // i-1 opens GUIDED on a new skill, and commit, which Beginner asked three
+  // times, is CHALLENGE even in a Worked example. i-2 and i-3 are all Check.
+  // i-4 gives less help than i-1 but more than i-2, two lessons before.
+  const i4 = madeUp('i-4', [['W1', 'challenge', 'commit'], ['W2', 'challenge', 'start'], ['W3', 'guided', 'agent'], CHECK]);
+  const { off, dips } = climb(withIntermediate({ 'i-1': parseLesson(DEMO_I1, 'i-1.md'), 'i-2': madeUp('i-2', [CHECK]), 'i-3': madeUp('i-3', [CHECK]), 'i-4': i4 }));
+  assert.deepEqual(off, []);
+  assert.deepEqual(dips, ['i-4 gives more help than i-2, two lessons before']);
+  // A later lesson in the level still opens above GUIDED and gives less help
+  // than the level's first.
+  const i2 = madeUp('i-2', [['W1', 'guided', 'agent'], ['W2', 'guided', 'hook'], CHECK]);
+  assert.deepEqual(climb(withIntermediate({ 'i-1': parseLesson(DEMO_I1, 'i-1.md'), 'i-2': i2 })).off, ['i-2 opens GUIDED', 'i-2 doesn\'t give less help than i-1']);
 });
 
 // Action beats above GUIDED that may show nothing behind h, each with its
@@ -484,22 +536,33 @@ const R1_NOT_REUSED = {
   'b-capstone': 'no capstone step is tagged with the b-4 and b-5 skills its pool recalls, so a missed one keeps its ease for Intermediate (D12)',
 };
 
-test('warm-ups: the first two mix a recent lesson and an older one, and R1 comes back in this lesson', () => {
+// What is wrong with the order of lesson `id`'s warm-ups.
+function pairOff(id, l) {
   const off = [];
-  for (const [id, l] of Object.entries(parsed)) {
-    const [r1, r2] = l.warmup;
-    if (!r1) continue;
-    // A pool that recalls only one lesson has no lags to mix.
-    if (r2 && new Set(l.warmup.map((w) => w.from)).size > 1 && r1.from === r2.from) off.push(`${id}: R1 and R2 both come from ${r1.from}`);
-    // Where the pool holds a skill this lesson reuses, R1 is one, so a missed
-    // warm-up eases a step here.
-    const reused = (w) => l.steps.some((s) => s.skill === w.skill);
-    if (R1_NOT_REUSED[id]) {
-      if (l.warmup.some(reused)) off.push(`${id}: its pool has a skill this lesson reuses: drop the exemption`);
-    } else if (!reused(r1)) off.push(`${id}: R1 (${r1.skill}) is a skill no step here reuses`);
-  }
-  assert.deepEqual(off, []);
+  const [r1, r2] = l.warmup;
+  if (!r1) return off;
+  // A pool that recalls only one lesson has no lags to mix.
+  if (r2 && new Set(l.warmup.map((w) => w.from)).size > 1 && r1.from === r2.from) off.push(`${id}: R1 and R2 both come from ${r1.from}`);
+  // Where the pool holds a skill this lesson reuses, R1 is one, so a missed
+  // warm-up eases a step here.
+  const reused = (w) => l.steps.some((s) => s.skill === w.skill);
+  if (R1_NOT_REUSED[id]) {
+    if (l.warmup.some(reused)) off.push(`${id}: its pool has a skill this lesson reuses: drop the exemption`);
+  } else if (!reused(r1)) off.push(`${id}: R1 (${r1.skill}) is a skill no step here reuses`);
+  return off;
+}
+
+test('warm-ups: the first two mix a recent lesson and an older one, and R1 comes back in this lesson', () => {
+  assert.deepEqual(Object.entries(parsed).flatMap(([id, l]) => pairOff(id, l)), []);
   for (const id of Object.keys(R1_NOT_REUSED)) assert.ok(parsed[id]?.warmup.length, `${id}: the exemption names no lesson with warm-ups`);
+});
+
+// Ticket 85: i-1's and i-2's pools recall Beginner skills Beginner never
+// asks again. i-1's R1 is one i-1 reuses, and its R2 an older lesson's.
+test('warm-ups: a lesson may recall a lesson of an earlier level, as i-1 recalls Beginner', () => {
+  const i1 = parseLesson(DEMO_I1, 'i-1.md');
+  assert.deepEqual(i1.warmup.map((w) => [w.from, w.skill]), [['b-5', 'commit'], ['b-4', 'compact']]);
+  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1', i1)], []);
 });
 
 // A typed answer, a wrong or decoy pick, or s on any question but a guess

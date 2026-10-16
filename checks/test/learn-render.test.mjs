@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { C } from '../../learn/lib/copy.mjs';
-import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
+import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -1207,8 +1207,12 @@ test('at 60x20 and 80x24 no teaching line is cut on the intro, complete, next an
         assert.ok(!lines.some(widthCut(t, cols)), `${where} cuts a line${show}`);
         const text = flatText(lines.join(''));
         const content = lessonById(state.lesson).content;
+        // "A notch harder" shows only before a lesson with a lesson file in
+        // the same level (ticket 85).
+        const next = nextLessonOf(state);
+        const notch = next?.content && levelOf(state, next.id) === levelOf(state);
         const words = state.view === 'levelup' ? (state.levelTo === 'challenge' ? C.toChallenge : C.toHinted)
-          : state.view === 'next' ? [C.notchHarder, C.savedBreak].filter((w) => w !== C.notchHarder || content.next) : content.intro.can;
+          : state.view === 'next' ? [C.notchHarder, C.savedBreak].filter((w) => w !== C.notchHarder || notch) : content.intro.can;
         for (const word of words) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is not whole${show}`);
       }
     }
