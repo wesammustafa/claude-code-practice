@@ -1973,4 +1973,16 @@ test('the ? overlay says how to start with a still screen at 80x24, under a blan
   const small = render(help, { cols: 60, rows: 20 }, t).map(strip);
   assert.ok(!small.some((l) => /still screen|--calm/.test(l)), small.join('\n'));
   for (const [k, label] of C.keyHelp) assert.ok(small.some((l) => l.includes(k) && l.includes(label)), `${k} ${label} at 60x20`);
+  // In between, it shows whole on one row with every blank kept, or not at
+  // all: it never splits the command, and no blank gives way for it.
+  for (const [cols, rows] of [[60, 21], [61, 21], [70, 21], [80, 21], [80, 23], [72, 24], [76, 24], [100, 30]]) {
+    const lines = render(help, { cols, rows }, t).map(strip);
+    const at = `${cols}x${rows}`;
+    const calm = lines.filter((l) => /still screen|--calm/.test(l));
+    assert.ok(calm.length === 0 || (calm.length === 1 && calm[0].trim() === CALM), `${at}\n${lines.join('\n')}`);
+    const title = lines.findIndex((l) => l.trim() === C.keysTitle);
+    assert.equal(lines[title + 1].trim(), '', `${at}: the blank under the title`);
+    assert.equal(lines[title - 1].trim(), '', `${at}: the blank above it`);
+    if (cols >= 76 && rows >= 24) assert.equal(calm.length, 1, `${at}: room for it`);
+  }
 });

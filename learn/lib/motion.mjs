@@ -1,7 +1,8 @@
 // When the screen moves: one-shot progress, the gates for ambient loops, and
 // the time until the next frame. Pure: it reads no clock and picks nothing at
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
-import { beatOf, IDLE_MS, stepOf } from './flow.mjs';
+import { C } from './copy.mjs';
+import { beatOf, IDLE_MS, isDone, lessonOf, stepOf } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -28,14 +29,24 @@ export function oneShot(s, at, start, ms) {
 }
 
 const NEVER = -Infinity;
-const isDone = (st) => ['done', 'already'].includes(st?.status);
 const words = (text) => (text.match(/\S+/g) ?? []).length;
 
-// The words of the newest text on a step card: a "Not yet" line or feedback
-// that came after the card opened, else the card itself. A rung needs no
-// count: the hint box holds ambient loops anyway. Other screens count none,
-// so their grace is the shortest.
+// The screens with an ambient part: Pip's blink on the welcome and on a card
+// with nothing to answer or watch, the look marker while a card watches.
+const AMBIENT = ['welcome', 'step', 'checkonly'];
+
+// An overlay, or idle: nothing moves, and no frame is asked for.
+const frozen = (s, at) => Boolean(s.overlay || s.beat?.idle || at - s.lastActivity >= IDLE_MS);
+
+// The words of the newest text: on a step card a "Not yet" line or feedback
+// that came after the card opened, else the card itself; on the welcome and
+// the check-only card, their own words. A rung needs no count: the hint box
+// holds ambient loops anyway.
 function newestWords(s) {
+  if (s.view === 'welcome') {
+    return words([C.hi(s.facts.name), C.pip1, C.pip2, C.twoWindows, C.thisWindow, ...C.thisWindowLines, C.otherWindow, ...C.otherWindowLines, C.openSecond, C.comeBack].join(' '));
+  }
+  if (s.view === 'checkonly') return words([...C.checkOnly, ...lessonOf(s).items].join(' '));
   const st = s.beat;
   if (s.view !== 'step' || !st) return 0;
   const fx = s.fx;
@@ -57,7 +68,7 @@ const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat)
 // beside a question, options, a typed answer or the hint box. The spinner and
 // bounce never ask it: they follow the running child, and stop for an overlay.
 export function ambientAllowed(s, at) {
-  if (s.overlay || s.beat?.idle || at - s.lastActivity >= IDLE_MS) return false;
+  if (!AMBIENT.includes(s.view) || frozen(s, at)) return false;
   return at >= quietFrom(s) && !answering(s);
 }
 
@@ -69,8 +80,8 @@ function quietFrom(s) {
   return Math.max(grace, (fx.key ?? NEVER) + TIMING.keyQuiet);
 }
 
-// What every moving part draws at rest: each one-shot at its end (1), no
-// spinner, no seconds, no ambient loop.
+// What every moving part draws at rest, and while frozen: each one-shot at
+// its end (1), no spinner, no seconds, no ambient loop.
 export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, spinner: null, elapsed: null, ambient: false });
 
 // Since when a check or git child has run for the beat on screen while it is
@@ -78,30 +89,39 @@ export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer
 // this beat's.
 const childSince = (s) => (s.beat?.status === 'opening' && s.fx.run >= s.fx.check ? s.fx.run : undefined);
 
+// When each one-shot on this screen started, or undefined where it does not
+// play. Each lasts its own TIMING entry.
+function shotStarts(s) {
+  const fx = s.fx;
+  const on = (views, start) => (views.includes(s.view) ? start : undefined);
+  const entered = Math.max(fx.view ?? NEVER, fx.open ?? NEVER);
+  const st = s.view === 'step' ? s.beat : null;
+  const opened = fx.open ?? NEVER;
+  // The step's last beat done on this card cheers; any other pass hops.
+  const last = isDone(st) && fx.passLast > opened;
+  return {
+    entrance: on(['step', 'checkonly'], entered === NEVER ? undefined : entered),
+    // A rung is new text too, but no "Not yet".
+    notYet: st?.status === 'fail' && st.rung < 0 ? fx.text : undefined,
+    hop: isDone(st) && !last && fx.pass > opened ? fx.pass : undefined,
+    cheer: last ? fx.passLast : undefined,
+    stepDone: last ? fx.passLast : undefined,
+    levelUp: on(['levelup'], fx.view),
+    complete: on(['complete'], fx.view),
+    welcome: on(['welcome'], fx.view),
+  };
+}
+
 // What each moving part draws at `at`; the rest phases when motion is off.
 export function phases(s, at, caps) {
-  if (!caps?.motion || s.overlay || at === Infinity) return REST_PHASES;
-  const fx = s.fx;
-  const st = s.beat;
-  const onView = (views, ms, start) => (views.includes(s.view) ? oneShot(s, at, start, ms) : 1);
-  const entered = Math.max(fx.view ?? NEVER, fx.open ?? NEVER);
-  // A pass that ends its step cheers; any other pass hops.
-  const done = isDone(st);
-  const last = done && fx.pass === fx.passLast;
+  if (!caps?.motion || at === Infinity || frozen(s, at)) return REST_PHASES;
   const since = childSince(s);
   const ran = since === undefined ? NEVER : at - since;
   const spinner = ran < TIMING.spinnerFrom ? null
     : Math.floor((Math.min(ran, TIMING.slowAfter) - TIMING.spinnerFrom) / TIMING.tick) + Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick);
+  const shots = Object.fromEntries(Object.entries(shotStarts(s)).map(([part, start]) => [part, oneShot(s, at, start, TIMING[part])]));
   return {
-    entrance: onView(['step', 'checkonly'], TIMING.entrance, entered === NEVER ? undefined : entered),
-    // A rung is new text too, but no "Not yet".
-    notYet: st?.status === 'fail' && st.rung < 0 ? oneShot(s, at, fx.text, TIMING.notYet) : 1,
-    hop: done && !last ? oneShot(s, at, fx.pass, TIMING.hop) : 1,
-    cheer: last ? oneShot(s, at, fx.passLast, TIMING.cheer) : 1,
-    stepDone: last ? oneShot(s, at, fx.passLast, TIMING.stepDone) : 1,
-    levelUp: onView(['levelup'], TIMING.levelUp, fx.view),
-    complete: onView(['complete'], TIMING.complete, fx.view),
-    welcome: onView(['welcome'], TIMING.welcome, fx.view),
+    ...shots,
     spinner,
     elapsed: spinner !== null && ran >= TIMING.elapsedFrom ? Math.floor(ran / 1_000) : null,
     ambient: ambientAllowed(s, at),
@@ -111,14 +131,11 @@ export function phases(s, at, caps) {
 // Milliseconds until the screen next differs, or null. Null under calm,
 // with an overlay, at idle, and when nothing moves and no deadline waits.
 export function nextChange(s, at, caps) {
-  if (!caps?.motion || s.overlay || s.beat?.idle || at - s.lastActivity >= IDLE_MS) return null;
-  const fx = s.fx;
-  const p = phases(s, at, caps);
+  if (!caps?.motion || frozen(s, at)) return null;
   const times = [];
   // A one-shot still playing: its next frame on the 40 ms grid from its start.
-  const playing = { entrance: Math.max(fx.view ?? NEVER, fx.open ?? NEVER), notYet: fx.text, hop: fx.pass, cheer: fx.passLast, stepDone: fx.passLast, levelUp: fx.view, complete: fx.view, welcome: fx.view };
-  for (const [part, start] of Object.entries(playing)) {
-    if (p[part] < 1) times.push(TIMING.grid - ((at - start) % TIMING.grid));
+  for (const [part, start] of Object.entries(shotStarts(s))) {
+    if (oneShot(s, at, start, TIMING[part]) < 1) times.push(TIMING.grid - ((at - start) % TIMING.grid));
   }
   const since = childSince(s);
   if (since !== undefined) {
@@ -129,8 +146,9 @@ export function nextChange(s, at, caps) {
     const second = ran < TIMING.elapsedFrom ? TIMING.elapsedFrom : 1_000 * (Math.floor(ran / 1_000) + 1);
     times.push(tick - ran, second - ran);
   }
-  // The moment ambient loops may start: the grace and the key quiet both over.
+  // The moment ambient loops may start, on a screen that has one: the grace
+  // and the key quiet both over.
   const quiet = quietFrom(s);
-  if (!answering(s) && quiet > at) times.push(quiet - at);
+  if (AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
   return times.length ? Math.min(...times) : null;
 }

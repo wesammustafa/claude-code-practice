@@ -29,8 +29,8 @@ const kept = (rows) => rows.map((text) => ({ keep: true, text }));
 // and a GUIDED card's, the next screen's Go further line and the ? overlay's
 // calm line, each with its blank, teaching the learner can also reach
 // another way, such as behind a key, repeats with no compact form, and a
-// done beat's satisfied "Done when" line. The rows of one call are one sentence: they
-// drop whole.
+// done beat's satisfied "Done when" line. The rows of one call are one
+// sentence: they drop whole.
 const optional = (rows) => {
   const whole = {};
   return rows.map((text) => ({ optional: true, text, whole }));
@@ -959,11 +959,12 @@ const OVERLAYS = {
     };
   },
   help(ctx) {
-    const { t, inner } = ctx;
+    const { t, inner, rows } = ctx;
     return {
-      // The calm line goes before any key: at 60x20 the keys fill the room.
+      // The calm line drops before any key or blank does: it shows only on
+      // one row, from 24 rows, where the keys and their blanks leave room.
       body: [t.bold(t.fg('white', C.keysTitle)), SPACER, ...C.keyHelp.map(([k, label]) => `  ${t.fg('key', t.bold(pad(k, 10)))}${t.fg('text', label)}`),
-        ...optional(['', ...para(t, C.calm, inner, 'muted')])],
+        ...(rows >= 24 && width(C.calm) <= inner ? optional(['', ...para(t, C.calm, inner, 'muted')]) : [])],
       keys: [key('?', C.k.close), key('q', C.k.close)],
     };
   },

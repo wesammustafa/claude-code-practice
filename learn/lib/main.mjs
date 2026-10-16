@@ -47,13 +47,17 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
 
   const draw = () => screen.draw(render(state, { cols: stdout.columns || 80, rows: stdout.rows || 24 }, t));
 
+  // When a check or git child really starts. Like every dispatch an effect
+  // causes, it waits for the dispatch that asked for the run to finish.
+  const runStart = () => queueMicrotask(() => !closed && dispatch({ type: 'run-start' }));
+
   const check = singleFlight(async (lesson, items, ev, slow) => {
     // The evidence file's state before and after the run: if it changed while
     // the check ran, the result may be about the old file, so ask again.
     const before = ev ? stampOf(root, ev) : null;
     // The child starts now, not when the run was asked for: a run asked for
     // during another waits in line.
-    dispatch({ type: 'run-start' });
+    runStart();
     const r = await runCheck(root, lesson, items, { slow });
     if (closed) return;
     if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error });
@@ -61,7 +65,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     dispatch({ type: 'check', lesson, items: r.items, evidence: ev ? evidence(root, ev) : null, path: ev ?? null, stamp: before });
   });
   const git = singleFlight(async () => {
-    dispatch({ type: 'run-start' });
+    runStart();
     const r = await gitStatus(root);
     if (closed) return;
     dispatch(r.error ? { type: 'git-error', message: r.error } : { type: 'git', paths: r.paths });

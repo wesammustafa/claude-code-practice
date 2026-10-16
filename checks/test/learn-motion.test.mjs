@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { capabilities } from '../../learn/lib/caps.mjs';
-import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
+import { beatOf, DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { ambientAllowed, nextChange, oneShot, phases, REST, TIMING } from '../../learn/lib/motion.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
@@ -96,6 +96,19 @@ test('with motion off, a frame at any time is the rest frame', () => {
   }
 });
 
+// Until the frames are drawn (158 and 159), a clock changes nothing even
+// with motion on. Those tickets replace this test with tests 1 and 2.
+test('nothing moves yet: with motion on, a frame at any time is the rest frame', () => {
+  const moving = theme({ ...MOTION.full, motion: true, calm: false });
+  for (const [label, state] of screens) {
+    const size = { cols: 80, rows: 24 };
+    const rest = render(state, size, moving, REST);
+    for (const ms of [0, 80, 400]) assert.deepEqual(render(state, size, moving, { at: state.now + ms }), rest, `${label} at +${ms} ms`);
+  }
+});
+
+const beatOfKind = (s) => beatOf(s).kind;
+
 // One event at a known time: the stamp it leaves is that time.
 const at = (d, ev) => {
   const effects = d.send({ wait: 7, ...ev });
@@ -165,20 +178,36 @@ test('stamps: new text on the same card, a pass and a step\'s last pass', () => 
   assert.equal(d.state.fx.passLast, done.now);
 });
 
-test('stamps: a guess and a shown answer are no pass', () => {
+test('stamps: a guess and a shown answer are no pass, but a step they end is done all the same', () => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W4', beat: 0 } } } });
   d.key('enter');
   at(d, { type: 'key', name: '2', ch: '2' });
   assert.equal(d.state.beat.status, 'done');
   assert.equal(d.state.fx.pass, undefined, 'a predict guess');
+  assert.equal(d.state.fx.passLast, undefined, 'W4 goes on after its guess');
   const w5 = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W5', beat: 0 } } } });
   w5.key('enter');
   at(w5, { type: 'key', name: '1', ch: '1' });
   const shown = at(w5, { type: 'key', name: 's', ch: 's' });
-  at(w5, { type: 'flush', wait: DEFER_MS + 50 });
+  const reveal = at(w5, { type: 'flush', wait: DEFER_MS + 50 });
   assert.equal(w5.state.beat.feedback.kind, 'revealed');
   assert.equal(w5.state.fx.pass, undefined, 'a shown answer');
   assert.ok(w5.state.fx.text > shown.now, 'the reveal is new text');
+  assert.equal(w5.state.fx.passLast, reveal.now, 'W5 has one beat: the shown answer ends the step');
+  // b-2 W1 ends on a guess: every guess ends the step, and the step cheers.
+  for (const pick of ['1', '2']) {
+    const g = driver({ course, saved: { format: 1, welcomed: true, lessons: { 'b-2': { step: 'W1', beat: 1, warm: [] } } } });
+    g.key('enter');
+    assert.equal(beatOfKind(g.state), 'predict');
+    const guess = at(g, { type: 'key', name: pick, ch: pick });
+    assert.equal(g.state.beat.status, 'done', pick);
+    assert.equal(g.state.fx.pass, undefined, pick);
+    assert.equal(g.state.fx.passLast, guess.now, pick);
+    const p = phases(g.state, guess.now + 180, { motion: true });
+    assert.deepEqual([p.cheer, p.stepDone, p.hop], [0.5, 180 / 560, 1], pick);
+  }
+  const p = phases(w5.state, reveal.now + 180, { motion: true });
+  assert.deepEqual([p.cheer, p.stepDone, p.hop], [0.5, 180 / 560, 1], 'the same cheer after a shown answer');
 });
 
 test('stamps: a look at what the screen watches, and whether it changed; activity only while something is watched', () => {
@@ -197,6 +226,12 @@ test('stamps: a look at what the screen watches, and whether it changed; activit
   assert.equal(d.state.fx.look, other.now, 'another lesson\'s result is not a look');
   const act = at(d, { type: 'activity' });
   assert.equal(d.state.fx.activity, act.now);
+  // The look that passes ends the watch, and it differs from the last.
+  const pass = at(d, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)' });
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.fx.look, pass.now);
+  assert.equal(d.state.fx.changed, true, 'not yet, then done');
+  assert.equal(d.state.fx.seen, undefined, 'nothing is watched now');
 
   const git = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y4', beat: 0 } } } });
   git.key('enter');
@@ -240,17 +275,20 @@ test('stamps are never saved: learn.json after a run with stamps keeps its keys 
   assert.ok(Object.keys(d.state.fx).length > 3, 'the run left stamps');
   const data = snapshot(d.state);
   assert.doesNotMatch(JSON.stringify(data), /"fx"|"seen"|"passLast"/);
-  withRepo(() => repo(), (dir) => {
+  // Every key of a saved file, nested keys too, as paths.
+  const keys = (v, at = '') => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).flatMap(([k, x]) => [`${at}${k}`, ...keys(x, `${at}${k}.`)]) : []);
+  const saved = (state) => withRepo(() => repo(), (dir) => {
     mkdirSync(join(dir, '.practice'));
-    saveState(dir, data);
-    const saved = JSON.parse(readFileSync(storePath(dir), 'utf8'));
-    assert.equal(FORMAT, 1);
-    assert.deepEqual(Object.keys(saved), ['format', 'welcomed', 'eased', 'missed', 'lessons']);
-    assert.equal(saved.format, 1);
-    for (const [id, p] of Object.entries(saved.lessons)) {
-      assert.deepEqual(Object.keys(p), ['step', 'beat', 'done', 'answers', 'levels', 'lessHelp', 'moreHelpAt', 'easedSteps', 'complete', 'warm', 'recalled', 'stamps', 'bottomAt'], id);
-    }
+    saveState(dir, snapshot(state));
+    return JSON.parse(readFileSync(storePath(dir), 'utf8'));
   });
+  // The same place with no stamps at all: what the file held before motion.
+  const before = saved({ ...d.state, fx: undefined });
+  const after = saved(d.state);
+  assert.deepEqual(keys(after), keys(before));
+  assert.deepEqual(after, before);
+  assert.equal(FORMAT, 1);
+  assert.equal(after.format, 1);
 });
 
 test('the timing table is design 4.3\'s, and no one-shot lasts over 1.2 s', () => {
@@ -349,6 +387,44 @@ test('the reading grace is 400 ms a word of the newest text, at least 3 s and at
   assert.equal(y2.d.state.beat.feedback.kind, 'option');
   assert.equal(ambientAllowed(y2.d.state, pick.now + 5_599), false);
   assert.equal(ambientAllowed(y2.d.state, pick.now + 5_600), true);
+});
+
+test('the welcome and the check-only card size their grace by their own words', () => {
+  const d = driver();
+  assert.equal(d.state.view, 'welcome');
+  const t = d.state.fx.view;
+  assert.equal(ambientAllowed(d.state, t + TIMING.graceMin), false, 'the welcome holds far more than 8 words');
+  assert.equal(ambientAllowed(d.state, t + TIMING.graceMax), true);
+  const map = driver();
+  map.key('enter');
+  map.key('m');
+  map.key('down');
+  const only = at(map, { type: 'key', name: 'enter' }).now;
+  assert.equal(map.state.view, 'checkonly');
+  assert.equal(ambientAllowed(map.state, only + TIMING.keyQuiet), false, 'its sentence and items take longer than the key quiet');
+  assert.equal(ambientAllowed(map.state, only + TIMING.graceMax), true);
+});
+
+test('screens with no ambient part never allow one, and ask for no frame once their one-shots end', () => {
+  const d = driver();
+  d.key('enter');
+  assert.equal(d.state.view, 'intro');
+  const views = { intro: d.state };
+  d.key('m');
+  views.map = d.state;
+  const up = driver();
+  playUntil(up, (s) => s.view === 'levelup');
+  views.levelup = up.state;
+  playUntil(up, (s) => s.view === 'complete');
+  views.complete = up.state;
+  for (const [view, s] of Object.entries(views)) {
+    assert.equal(s.view, view);
+    const from = Math.max(s.fx.view, s.fx.key ?? -Infinity);
+    for (const ms of [TIMING.complete, TIMING.graceMax + TIMING.keyQuiet]) {
+      assert.equal(ambientAllowed(s, from + ms), false, `${view} at +${ms} ms`);
+      assert.equal(nextChange(s, from + ms, { motion: true }), null, `${view} at +${ms} ms`);
+    }
+  }
 });
 
 const ON = { motion: true };
@@ -450,6 +526,7 @@ test('nextChange: null under calm, with an overlay, at idle, and when nothing mo
   at(d, { type: 'run-start', wait: 500 });
   for (const ms of [0, 10, 700, 20_000]) assert.equal(nextChange(d.state, t + ms, OFF), null, `calm, +${ms} ms`);
   assert.equal(nextChange(d.state, t + IDLE_MS, ON), null, 'idle, even with a child still running');
+  assert.deepEqual(phases(d.state, t + IDLE_MS, ON), RESTING, 'and what idle draws is the rest frame, so no frame is owed');
   d.send({ type: 'tick', wait: IDLE_MS });
   assert.equal(d.state.beat.idle, true);
   assert.equal(nextChange(d.state, d.now, ON), null);

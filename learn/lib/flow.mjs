@@ -749,7 +749,7 @@ export function reduce(prev, ev) {
 
 // When the screen changed, and how, for the motion layer (motion.mjs). Each
 // stamp is the event's own `now`; `s.fx` lives in memory and is never saved.
-const isDone = (st) => ['done', 'already'].includes(st?.status);
+export const isDone = (st) => ['done', 'already'].includes(st?.status);
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function stampFx(prev, s, ev) {
   const fx = s.fx;
@@ -768,17 +768,19 @@ function stampFx(prev, s, ev) {
     const rung = st.rung >= 0 && st.rung !== was.rung;
     const feedback = Boolean(st.feedback) && !sameJson(st.feedback, was.feedback);
     if (notYet || rung || feedback || (st.revealed && !was.revealed)) fx.text = t;
-    // A pass: the beat on screen turned done by a result or a right answer,
-    // not by a guess or a shown answer. `passLast` is a pass that ends its step.
-    if (isDone(st) && !isDone(was) && !st.revealed && beatOf(s).kind !== 'predict') {
-      fx.pass = t;
+    if (isDone(st) && !isDone(was)) {
+      // A pass: the beat on screen turned done by a result or a right
+      // answer, not by a guess or a shown answer.
+      if (!st.revealed && beatOf(s).kind !== 'predict') fx.pass = t;
+      // `passLast`: the step's last beat turned done, by any route. The step
+      // is done all the same, so it cheers all the same.
       if (s.pos.beat === stepOf(s).beats.length - 1) fx.passLast = t;
     }
   }
   // A look: a result for what the screen watched, and whether it differs
-  // from the last one. A new thing to watch starts the comparison over.
+  // from the last one. A new thing to watch starts the comparison over,
+  // after the look that ended the old one.
   const w = watching(prev);
-  if (!sameJson(w, watching(s))) delete fx.seen;
   const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && w?.git);
   if (looked) {
     const seen = JSON.stringify(ev.type === 'check' ? [ev.items, ev.evidence ?? null] : ev.type === 'file' ? [ev.line, ev.lines] : ev.paths);
@@ -786,6 +788,7 @@ function stampFx(prev, s, ev) {
     fx.seen = seen;
     fx.look = t;
   }
+  if (!sameJson(w, watching(s))) delete fx.seen;
   if (ev.type === 'activity' && w) fx.activity = t;
 }
 
