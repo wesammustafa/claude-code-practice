@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -593,6 +593,28 @@ function folderNotes(ctx, w = ctx.W) {
   return kept(hang(mark, para(t, text, w - width(mark), 'warn')));
 }
 
+// What the lesson needs (ticket 89), as kept rows: on native Windows the
+// page's note, then the commands main found on no PATH folder, in one
+// sentence with the You need line that names each.
+function needRows(ctx) {
+  const { s, t, W } = ctx;
+  const mark = `${t.fg('warn', t.glyph.warnMark)} `;
+  const note = (text, opts) => kept(hang(mark, para(t, text, W - width(mark), 'text', opts)));
+  const win = contentOf(s).intro['win-note'];
+  const missing = missingNeeds(s);
+  const quotes = missing.map((n) => `"${n.quote}"`).join(' ');
+  // A failed prerequisite says what isn't there. Below 24 rows, where room
+  // is short, it gives way as a repeat does: the offer under it says whose
+  // work isn't done here.
+  const failed = unmet(s).map((r) => {
+    const text = (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint);
+    return repeat(kept(hang(mark, para(t, text, W - width(mark), 'warn'))), []);
+  });
+  return [...(win && t.caps.win32 ? note(win, { quote: true }) : []),
+    ...(missing.length ? note(quotes, { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : []),
+    ...failed];
+}
+
 // ---- views -------------------------------------------------------------------
 // The welcome's path hint and the map's footer say the same thing: each
 // lesson starts with less help than the one before. Help fades within a
@@ -684,11 +706,12 @@ const VIEWS = {
     // Where the level is practised (ticket 86): the question, until it has
     // an answer, in place of the start options; then the answer, on the
     // intro that asked. Both are kept rows, so the Why line gives way first.
-    // Room for 89's needs line goes here too, as kept rows above the menu.
+    // What the lesson needs (ticket 89) goes above it, kept rows too.
     const menu = asking
       ? [...kept([t.bold(t.fg('white', folderKey(s) === levelOf(s) ? C.folderAsk(levelName(s)) : C.newCopyAsk))]),
         ...kept(folderOptions(s).map((o, i) => option(i, o === 'copy' ? C.folderCopy : folderKey(s) === levelOf(s) ? C.folderOther : C.folderNewCopy)))]
-      : [...(asksHere(s) ? kept([folderLine(ctx)]) : []), ...folderNotes(ctx), ...kept([option(0, label), option(1, C.lessHelp)])];
+      : [...(asksHere(s) ? kept([folderLine(ctx)]) : []), ...folderNotes(ctx),
+        ...kept(introOptions(s).map((o, i) => option(i, o === 'start' ? label : o === 'less' ? C.lessHelp : C.openFirst(lessonLabel(unmet(s)[0].lesson)))))];
     // Why the lesson matters, in the page's words, with its blank: an
     // optional row, so below 24 rows the staircase compacts first.
     return {
@@ -703,6 +726,7 @@ const VIEWS = {
         ...staircase(ctx, m, false),
         ...(warmups ? [t.fg('muted', C.warmups(warmups))] : []),
         SPACER,
+        ...needRows(ctx),
         ...menu,
       ],
       keys: [key(t.glyph.up, C.k.choose), key('enter', asking ? C.k.answer : C.k.start), key('m', C.k.map), !asking && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],

@@ -88,6 +88,11 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     folderAsk: null,
     // The lesson whose intro took the answer, which then shows it, in memory.
     folderAnswered: null,
+    // What main found on the PATH, { command: true or false }, and, for
+    // each lesson, the folder its prerequisites were looked at in and what
+    // each one came to, { dir, met: { index: { pass, hint } } }: in memory.
+    commands: {},
+    prereqs: {},
   };
 }
 
@@ -331,6 +336,44 @@ function folderKeyPress(s, { name, ch }, effects) {
   else return;
   Object.assign(a, { missing: null, isCopy: false });
 }
+
+// ---- what a lesson needs (ticket 89) ----------------------------------------
+// The groups of commands the lesson's page needs here: a Linux-only one on
+// Linux alone.
+const needsHere = (s) => (contentOf(s)?.needs ?? []).filter((n) => !n.linux || s.facts.linux);
+// What the intro on screen asks main to look at: the commands it needs,
+// and, once its folder question has an answer, its prerequisites there.
+export function introAsks(s) {
+  if (s.view !== 'intro') return [];
+  const names = needsHere(s).flatMap((n) => n.commands);
+  const requires = contentOf(s)?.requires ?? [];
+  return [...(names.length ? [{ type: 'commands', names }] : []),
+    ...(requires.length && !asksFolder(s) && folderOf(s) ? [{ type: 'prereqs', lesson: s.lesson, dir: folderOf(s), requires }] : [])];
+}
+// A prerequisite main looked at, in the folder it looked in: a check item
+// passes or not (null: the run couldn't say, a slow item or an error); a
+// file is read as a `file` beat reads it, done once it holds a line.
+function onPrereq(s, ev) {
+  const req = contentOf(s, ev.lesson)?.requires?.[ev.at];
+  if (!req || ev.dir !== folderOf(s, ev.lesson)) return;
+  if (s.prereqs[ev.lesson]?.dir !== ev.dir) s.prereqs[ev.lesson] = { dir: ev.dir, met: {} };
+  const r = req.path ? judge({ kind: 'file', path: req.path }, ev.read) : { pass: ev.pass ?? null, hint: lessonOf(s, req.lesson).items[req.item] };
+  s.prereqs[ev.lesson].met[ev.at] = { pass: r.pass, hint: r.hint };
+  // An offer that goes takes the cursor on it back to the first option.
+  if (s.view === 'intro' && s.lesson === ev.lesson && !asksFolder(s) && s.cursor >= introOptions(s).length) s.cursor = 0;
+}
+// The intro's prerequisites that failed in the lesson's folder now, with
+// what was not there.
+export function unmet(s) {
+  const r = s.prereqs[s.lesson];
+  if (!r || r.dir !== folderOf(s) || asksFolder(s)) return [];
+  return (contentOf(s)?.requires ?? []).flatMap((req, k) => (r.met[k]?.pass === false ? [{ ...req, hint: r.met[k].hint }] : []));
+}
+// The intro's start options, and, where a prerequisite failed, its lesson.
+export const introOptions = (s) => ['start', 'less', ...(unmet(s).length ? ['first'] : [])];
+// Each You need line with the commands it names that main found on no PATH
+// folder. Nothing until main has looked.
+export const missingNeeds = (s) => needsHere(s).map((n) => ({ quote: n.quote, names: n.commands.filter((c) => s.commands[c] === false) })).filter((n) => n.names.length);
 
 // ---- hints -------------------------------------------------------------------
 // The status the hints and the key bar answer to: while r's run goes, the one
@@ -953,6 +996,12 @@ export function reduce(prev, ev) {
     case 'facts':
       Object.assign(s.facts, ev.facts);
       break;
+    case 'commands':
+      Object.assign(s.commands, ev.found);
+      break;
+    case 'prereq':
+      onPrereq(s, ev);
+      break;
     case 'notice':
       s.toast = { kind: ev.kind, message: ev.message, until: s.now + TOAST_MS * 2 };
       break;
@@ -989,6 +1038,9 @@ export function reduce(prev, ev) {
     default:
       break;
   }
+  // An intro that opens looks again at what its lesson needs, and so does
+  // one whose folder changed or got its answer.
+  if (s.view === 'intro' && (prev.view !== 'intro' || prev.lesson !== s.lesson || folderOf(prev) !== folderOf(s) || asksFolder(prev) !== asksFolder(s))) effects.push(...introAsks(s));
   stampFx(prev, s, ev);
   return { state: s, effects };
 }
@@ -1201,9 +1253,11 @@ const VIEWS = {
       else return false;
       return true;
     }
+    const options = introOptions(s);
     if (name === 'f' && folderKey(s)) askFolder(s, folderKey(s));
-    else if (name === 'up' || name === 'down') s.cursor = s.cursor ? 0 : 1;
-    else if (DIGIT.test(ch ?? '') && Number(ch) <= 2) s.cursor = Number(ch) - 1;
+    else if (name === 'up' || name === 'down') s.cursor = (s.cursor + (name === 'down' ? 1 : options.length - 1)) % options.length;
+    else if (DIGIT.test(ch ?? '') && Number(ch) <= options.length) s.cursor = Number(ch) - 1;
+    else if (name === 'enter' && options[s.cursor] === 'first') startLesson(s, unmet(s)[0].lesson, effects);
     else if (name === 'enter') {
       // A finished lesson played again keeps its badge and its ticks, but
       // every fresh check waits for new work and the help starts from the plan.

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { capabilities } from './caps.mjs';
 import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
-import { contentOf, folderKey, folderOf, initialState, levelKey, reduce, stepsOf, watching } from './flow.mjs';
+import { contentOf, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
 import { BOOT_FROM, bootChange, nextChange, REST, TIMING } from './motion.mjs';
 import { plainProgress } from './plain.mjs';
@@ -15,7 +15,7 @@ import { bootFrame, itemsMax, lessonLabel, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
-import { bytesOf, gitFirstName, gitReady, gitStatus, owing, probeFolder, runCheck, stampOf, stopChildren } from './verify.mjs';
+import { bytesOf, gitFirstName, gitReady, gitStatus, onPath, owing, probeFolder, runCheck, stampOf, stopChildren } from './verify.mjs';
 import { watchDirs } from './watch.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -172,7 +172,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   const [gitError, name] = await askGit(root);
   timers.clearTimeout(boot);
   if (closed) return 0;
-  const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 };
+  const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32, linux: platform === 'linux' };
   state = initialState({ course, saved, facts, now: now() });
   openIt();
 
@@ -217,10 +217,25 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       else if (e.type === 'stamp') queueMicrotask(() => !closed && dispatch({ type: 'stamp', key: e.key, stamp: stampOf(e.dir, e.path), dir: e.dir }));
       else if (e.type === 'git') git(e, e.dir, e.files);
       else if (e.type === 'folder') look(e);
+      else if (e.type === 'prereqs') prereqs(e);
+      else if (e.type === 'commands') queueMicrotask(() => !closed && dispatch({ type: 'commands', found: Object.fromEntries(e.names.map((n) => [n, onPath(n, env, platform)])) }));
       else if (e.type === 'save') save();
       else if (e.type === 'later') timers.setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
       else if (e.type === 'quit') quit(0);
     }
+  }
+
+  // A lesson's prerequisites, in its work folder: a check item through the
+  // check child, a file read as it is now, with no process.
+  function prereqs(e) {
+    e.requires.forEach((req, at) => {
+      const answer = (found) => !closed && dispatch({ type: 'prereq', lesson: e.lesson, dir: e.dir, at, ...found });
+      if (req.path) return queueMicrotask(() => answer({ read: bytesOf(e.dir, req.path) }));
+      checkChild(e.dir, req.lesson, [req.item]).then((r) => {
+        const item = r.items?.find((it) => it.index === req.item);
+        answer({ pass: item && !item.slow ? item.pass : null });
+      });
+    });
   }
 
   // The path prompt's ask: what is at that path, for the reducer to take or
@@ -374,5 +389,6 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // The first look: the current lesson's check, for "welcome back" and the map.
   draw();
   if ((state.view === 'resume' || state.view === 'intro') && folderOf(state)) check({}, state.lesson, null, null, folderOf(state));
+  run(introAsks(state));
   return new Promise(() => {});
 }

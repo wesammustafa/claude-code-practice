@@ -34,8 +34,11 @@ export const BEAT_KEYS = {
 // `why`: why the lesson matters; `payoff`: the one `can` line the intro and
 // complete screens flag as what the lesson builds to; `read`: one line of
 // the page's Go further list, with its Markdown link, to read next. At most
-// one of each.
-export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, read: true };
+// one of each. `need`: a line of the page's You need that names commands,
+// shown for each one the learner's PATH lacks; the front matter's `needs`
+// says which (ticket 89). `win-note`: the page's note for native Windows,
+// at most one.
+export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, read: true, need: true, 'win-note': true };
 export const LADDER_KEYS = { hint: true, bottom: true, win: true };
 // The card (the c overlay): each entry a `skill` line in the app's words,
 // then the page's command (`show`) and what it does (`does`). An entry shows
@@ -113,6 +116,7 @@ export function parseLesson(text, file = 'lesson') {
   if ('folder' in fm.fields && !['copy', 'new copy'].includes(fm.fields.folder)) throw new Error(`${file}: folder is copy or new copy, not ${fm.fields.folder}`);
   const lesson = { ...fm.fields, intro: { can: [] }, warmup: [], steps: [], ladder: [], card: [] };
   const cardLines = [];
+  const needLines = [];
   let section = null;
   let step = null;
   let beat = null;
@@ -157,6 +161,7 @@ export function parseLesson(text, file = 'lesson') {
       if (!(key in INTRO_KEYS)) fail(i, `unknown intro key ${key}`);
       if (!v.quoted) fail(i, `${key} must be a quote of the lesson`);
       if (key === 'can') lesson.intro.can.push(v.text);
+      else if (key === 'need') needLines.push({ quote: v.text, line: i });
       else if (key in lesson.intro) fail(i, `a second ${key} line in the intro`);
       else lesson.intro[key] = v.text;
       if (key === 'payoff') payoffLine = i;
@@ -232,6 +237,8 @@ export function parseLesson(text, file = 'lesson') {
   }
   // A payoff that is no `can` line would flag nothing on screen.
   if (payoffLine !== null && !lesson.intro.can.includes(lesson.intro.payoff)) fail(payoffLine, `the payoff "${lesson.intro.payoff}" is not one of the intro's can lines`);
+  lesson.needs = needsOf(fm.fields.needs, needLines, file, fail);
+  lesson.requires = requiresOf(fm.fields.requires, fm.fields.lesson, file);
   lesson.card.forEach((e, k) => {
     if (!e.show || !e.does) fail(cardLines[k], 'a card entry needs a show and a does line');
     if (!lesson.steps.some((s) => s.skill === e.skill)) fail(cardLines[k], `the card entry's skill ${e.skill} is no step of this lesson`);
@@ -247,6 +254,53 @@ export function parseLesson(text, file = 'lesson') {
   }
   return lesson;
 }
+
+// `needs: [jq python3, bwrap socat on linux]`: the commands the page's You
+// need lists, as the app looks them up on the PATH. Each item is the
+// commands the intro's need line of the same place quotes (the first item
+// the first need line), and "on linux" makes them Linux only, as the
+// sandbox's are.
+const COMMAND = /^[A-Za-z0-9][\w.+-]*$/;
+function needsOf(raw, lines, file, fail) {
+  const items = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+  if (items.length !== lines.length) {
+    throw new Error(`${file}: needs has ${items.length} item${items.length === 1 ? '' : 's'} and the intro ${lines.length} need line${lines.length === 1 ? '' : 's'}: each item is the commands one need line quotes`);
+  }
+  return items.map((item, k) => {
+    const words = item.trim().split(/\s+/);
+    const linux = words.length > 2 && words.at(-2) === 'on' && words.at(-1) === 'linux';
+    const commands = linux ? words.slice(0, -2) : words;
+    // "on" only opens the qualifier: "bwrap on mac" is no command list.
+    const bad = commands.find((c) => c === 'on' || !COMMAND.test(c));
+    if (!item.trim() || bad !== undefined) fail(lines[k].line, `needs item "${item}" is command names, then "on linux" for Linux only`);
+    return { commands, linux, quote: lines[k].quote };
+  });
+}
+
+// `requires: [b-5 check 0, i-1 file .claude/skills/five-whys/SKILL.md]`:
+// what an earlier lesson leaves that this one builds on, looked at in this
+// lesson's work folder. `<lesson> check <item>` passes when that lesson's
+// check item does, `<lesson> file <path>` once the file holds a line.
+function requiresOf(raw, id, file) {
+  const items = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+  const before = PATH.slice(0, PATH.findIndex((p) => p.id === id)).map((p) => p.id);
+  return items.map((item) => {
+    const m = item.trim().match(/^(\S+) (?:check (\d+)|file (\S+))$/);
+    if (!m) throw new Error(`${file}: requires item "${item}" is <lesson> check <item> or <lesson> file <path>`);
+    const [, lesson, n, path] = m;
+    if (!before.includes(lesson)) throw new Error(`${file}: requires item "${item}": ${lesson} is no lesson before ${id}`);
+    if (n !== undefined) {
+      if (!checks[lesson].items[Number(n)]) throw new Error(`${file}: requires item "${item}": ${lesson} has no check item ${n}`);
+      return { lesson, item: Number(n) };
+    }
+    if (!workPath(path)) throw new Error(`${file}: requires item "${item}" names a path from the work folder, like .claude/settings.json, not ${path}`);
+    return { lesson, path };
+  });
+}
+
+// A path named from the work folder, like src/ or .claude/settings.json:
+// never ./, / or .. in it, nor a backslash.
+const workPath = (path) => !path.includes('\\') && !path.startsWith('/') && !path.replace(/\/$/, '').split('/').some((part) => ['', '.', '..'].includes(part));
 
 const camel = (k) => k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
@@ -289,10 +343,9 @@ function parseVerify(beat, file) {
   const check = base.match(/^check (\d+(?: \d+)*)$/);
   if (check) return { kind: 'check', items: check[1].split(' ').map(Number), ...extra };
   if (fresh) throw new Error(`${file}:${beat.line}: only a check or a file can be fresh`);
-  // A path git status is asked about, as it names one: from the work
-  // folder, like src/ or .claude/settings.json, never ./, / or .. in it.
+  // A path git status is asked about, as it names one: from the work folder.
   const gitPath = (path) => {
-    if (path.includes('\\') || path.startsWith('/') || path.replace(/\/$/, '').split('/').some((part) => ['', '.', '..'].includes(part))) {
+    if (!workPath(path)) {
       throw new Error(`${file}:${beat.line}: a git path is named from the work folder, like src/ or .claude/settings.json, not ${path}`);
     }
     return path;
