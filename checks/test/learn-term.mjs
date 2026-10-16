@@ -52,10 +52,10 @@ export function screenModel(cols, rows) {
 
 // An output stream that keeps every write. `full` makes write() return false,
 // as a backlogged stream does, until drain() empties it.
-export function fakeOut({ isTTY = true, columns = 80, rows = 24 } = {}) {
+export function fakeOut({ columns = 80, rows = 24 } = {}) {
   const out = new EventEmitter();
   Object.assign(out, {
-    isTTY, columns, rows, writes: [], full: false,
+    isTTY: true, columns, rows, writes: [], full: false,
     write(chunk) {
       out.writes.push(String(chunk));
       return !out.full;
@@ -68,17 +68,19 @@ export function fakeOut({ isTTY = true, columns = 80, rows = 24 } = {}) {
   return out;
 }
 
+// A few turns of the event loop: a draw asked for from a microtask queues
+// behind this one.
+export const turn = async () => {
+  for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r));
+};
+
 // A clock with timers. advance(ms) runs every timer that falls due, in time
 // order, each at its own time, and lets the event loop turn after each one so
 // the draws it asks for go out at that time.
-export function fakeClock(start = 1_000_000) {
-  let time = start;
+export function fakeClock() {
+  let time = 1_000_000;
   let seq = 0;
   const timers = new Map();
-  // A few turns: a draw asked for from a microtask queues behind this one.
-  const turn = async () => {
-    for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r));
-  };
   const add = (fn, ms, every) => {
     seq += 1;
     timers.set(seq, { fn, due: time + Math.max(0, ms), every });

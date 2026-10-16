@@ -6,32 +6,32 @@ import { writeSync } from 'node:fs';
 export const ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[2J';
 export const LEAVE = '\x1b[?2004l\x1b[?25h\x1b[?1049l';
 
-// One frame: synchronized output, home, each line cleared to its end.
-export const frame = (lines) => `\x1b[?2026h\x1b[H${lines.map((l) => `${l}\x1b[0m\x1b[K`).join('\r\n')}\x1b[J\x1b[?2026l`;
+// One frame: synchronized output, home, each line cleared to its end. With
+// `wipe`, the screen is cleared first, inside the same synchronized write.
+export const frame = (lines, wipe = false) => `\x1b[?2026h${wipe ? '\x1b[2J' : ''}\x1b[H${lines.map((l) => `${l}\x1b[0m\x1b[K`).join('\r\n')}\x1b[J\x1b[?2026l`;
 
 // Only the rows that changed, each moved to and cleared on its own (`rows`
 // holds 0-based indexes). A line opens its own colors, so a row stands alone.
-export const rowFrame = (lines, rows) => `\x1b[?2026h${rows.map((i) => `\x1b[${i + 1};1H${lines[i]}\x1b[0m\x1b[K`).join('')}\x1b[?2026l`;
+const rowFrame = (lines, rows) => `\x1b[?2026h${rows.map((i) => `\x1b[${i + 1};1H${lines[i]}\x1b[0m\x1b[K`).join('')}\x1b[?2026l`;
 
 // A full frame at least this often, even when nothing changed, so a screen
 // that stray output damaged repairs itself.
 const REFRESH_MS = 10_000;
 // The write budget, guesses for ticket 126 to tune. TTY writes are
 // synchronous on POSIX, so a slow terminal shows as a slow write() call: 3 of
-// the last 10 motion frames over 12 ms stop motion for the sitting.
-const SLOW_WRITE_MS = 12;
-const SLOW_OF_LAST = [3, 10];
-// On Windows they are asynchronous, so a slow terminal shows as a slow
-// 'drain' instead: two over 100 ms within 10 s do the same. One false write
-// alone does not: a frame is a few KB, far under the 16 KB high-water mark.
-const SLOW_DRAIN_MS = 100;
-const SLOW_DRAINS = [2, 10_000];
+// the last 10 motion frames over 12 ms stop motion for the sitting. On
+// Windows they are asynchronous, so a slow terminal shows as a slow 'drain'
+// instead: two over 100 ms within 10 s do the same. One false write alone
+// does not: a frame is a few KB, far under the 16 KB high-water mark.
+const BUDGET = { slowWriteMs: 12, slowWrites: 3, ofLast: 10, slowDrainMs: 100, slowDrains: 2, withinMs: 10_000 };
 
 // `clock` times the writes (main.mjs passes performance.now). With `motion`,
 // a frame after a full one rewrites only the rows that changed, unless more
 // than half did; without it, every frame is full, as it always was. The first
 // frame, the one after clear() and one every 10 s are full in every mode.
-export function openScreen(stdout, { clock, motion = false }) {
+// `onMotionOff` runs once, when the write budget turns motion off, so the
+// caller can put the rest frame up.
+export function openScreen(stdout, { clock, motion = false, onMotionOff = () => {} }) {
   let open = true;
   // Whether each of the last motion frames was slow, newest last.
   const slow = [];
@@ -41,6 +41,10 @@ export function openScreen(stdout, { clock, motion = false }) {
   // when the last full frame went out.
   let shown = null;
   let fullAt = -Infinity;
+  // When the last write began, a drain's included: the 40 ms floor counts
+  // from it. After clear(), the next full frame also clears the screen.
+  let wroteAt = -Infinity;
+  let wipe = false;
   // A write came back false: until 'drain', only the newest frame is kept.
   let pending = false;
   let pendingFrom = 0;
@@ -60,18 +64,21 @@ export function openScreen(stdout, { clock, motion = false }) {
       if (changed?.length === 0 && !due) return false;
       const full = !changed || !motion || changed.length > lines.length / 2 || due;
       shown = lines;
+      const bytes = full ? frame(lines, wipe) : rowFrame(lines, changed);
       const began = clock();
-      if (!stdout.write(full ? frame(lines) : rowFrame(lines, changed))) {
+      wroteAt = began;
+      if (!stdout.write(bytes)) {
         pending = true;
         pendingFrom = began;
         stdout.once('drain', drained);
       }
       const took = clock() - began;
+      wipe = false;
       if (full) fullAt = at;
       if (motion) {
-        slow.push(took > SLOW_WRITE_MS);
-        if (slow.length > SLOW_OF_LAST[1]) slow.shift();
-        if (slow.filter(Boolean).length >= SLOW_OF_LAST[0]) motion = false;
+        slow.push(took > BUDGET.slowWriteMs);
+        if (slow.length > BUDGET.ofLast) slow.shift();
+        if (slow.filter(Boolean).length >= BUDGET.slowWrites) motionOff();
       }
       return true;
     },
@@ -79,9 +86,14 @@ export function openScreen(stdout, { clock, motion = false }) {
     get motion() {
       return motion;
     },
-    // The terminal may show anything now (a resize): the next frame is full.
+    get wroteAt() {
+      return wroteAt;
+    },
+    // The terminal may show anything now (a resize): the next frame clears
+    // the screen once and is full.
     clear() {
       shown = null;
+      wipe = true;
     },
     leave() {
       if (!open) return;
@@ -96,12 +108,16 @@ export function openScreen(stdout, { clock, motion = false }) {
       }
     },
   };
+  function motionOff() {
+    motion = false;
+    onMotionOff();
+  }
   function drained() {
     pending = false;
     const at = clock();
-    if (motion && at - pendingFrom > SLOW_DRAIN_MS) {
-      drains = [...drains.filter((t) => at - t < SLOW_DRAINS[1]), at];
-      if (drains.length >= SLOW_DRAINS[0]) motion = false;
+    if (motion && at - pendingFrom > BUDGET.slowDrainMs) {
+      drains = [...drains.filter((t) => at - t < BUDGET.withinMs), at];
+      if (drains.length >= BUDGET.slowDrains) motionOff();
     }
     const lines = newest;
     newest = null;

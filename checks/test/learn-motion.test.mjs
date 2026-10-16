@@ -573,12 +573,14 @@ test('render, motion, art and flow read no clock and pick nothing at random', ()
 // The screen writer (design 4.5), on an output stream and a clock the test
 // holds. A frame is 24 rows of plain text here.
 const page = (mark = '', at = -1) => Array.from({ length: 24 }, (_, i) => `row ${i + 1}${i === at ? mark : ''}`);
+// `offs` counts the calls to onMotionOff.
 const writer = (motion) => {
   const out = fakeOut();
   const clock = fakeClock();
-  const screen = openScreen(out, { motion, clock: clock.now });
+  const w = { out, clock, offs: 0, bytes: () => out.writes.join('') };
+  w.screen = openScreen(out, { motion, clock: clock.now, onMotionOff: () => { w.offs += 1; } });
   out.writes.length = 0;
-  return { out, clock, screen, bytes: () => out.writes.join('') };
+  return w;
 };
 
 test('screen writer: an identical frame writes nothing, with motion on or off', () => {
@@ -669,10 +671,15 @@ test('screen writer: after clear(), the next frame is a full one, even the same 
     model.feed(bytes());
     out.writes.length = 0;
     screen.clear();
+    assert.equal(out.writes.length, 0, 'clear() itself writes nothing');
     screen.draw(page());
     assert.equal(fromHome(out.writes.at(-1) ?? ''), true, `motion ${motion}: the same frame, whole`);
+    assert.ok(bytes().startsWith('\x1b[?2026h\x1b[2J\x1b[H'), 'and it clears the screen first, inside the synchronized write');
     model.feed(bytes());
     assert.deepEqual(model.lines(), page());
+    out.writes.length = 0;
+    screen.draw(page(' changed', 3));
+    assert.doesNotMatch(bytes(), /\x1b\[2J/, 'the frame after it clears nothing');
     out.writes.length = 0;
     screen.clear();
     screen.draw(page(' changed', 6));
@@ -682,17 +689,20 @@ test('screen writer: after clear(), the next frame is a full one, even the same 
 
 test('screen writer: while a write is pending, only the newest frame is kept, and it goes out on drain', () => {
   for (const motion of [true, false]) {
-    const { out, screen, bytes } = writer(motion);
+    const { out, clock, screen, bytes } = writer(motion);
     const model = screenModel(80, 24);
     out.full = true;
     screen.draw(page());
     assert.equal(out.writes.length, 1, 'the write that came back false');
+    assert.equal(screen.wroteAt, clock.now(), 'wroteAt: when the last write began');
     screen.draw(page(' a', 3));
     screen.draw(page(' b', 3));
     screen.draw(page(' c', 5));
     assert.equal(out.writes.length, 1, `motion ${motion}: nothing more while it is pending`);
+    clock.spend(30);
     out.drain();
     assert.equal(out.writes.length, 2, 'one frame on drain');
+    assert.equal(screen.wroteAt, clock.now(), 'the drain write is the last write now');
     model.feed(bytes());
     assert.deepEqual(model.lines(), page(' c', 5), 'the newest');
     out.drain();
@@ -725,13 +735,16 @@ test('screen writer: when 3 of the last 10 motion frames took over 12 ms, motion
   const three = slowWriter((n) => ([2, 6, 11].includes(n) ? 20 : 1));
   frames(three.screen, 1, 10);
   assert.equal(three.screen.motion, true, 'two so far');
+  assert.equal(three.offs, 0);
   frames(three.screen, 11, 11);
   assert.equal(three.screen.motion, false, 'frames 2, 6 and 11 are in the last 10');
+  assert.equal(three.offs, 1, 'onMotionOff, so the rest frame can go up');
   three.out.writes.length = 0;
   frames(three.screen, 12, 12);
   assert.equal(fromHome(three.bytes()), true, 'after that, every frame is full');
   frames(three.screen, 13, 40);
   assert.equal(three.screen.motion, false, 'for the sitting');
+  assert.equal(three.offs, 1, 'and only once');
 });
 
 test('screen writer: a drain over 100 ms twice in 10 s stops motion; one false write does not', async () => {
@@ -752,8 +765,10 @@ test('screen writer: a drain over 100 ms twice in 10 s stops motion; one false w
   await backlog(once, 3, 150);
   assert.equal(once.screen.motion, true, 'the slow drains are over 10 s apart');
   await once.clock.advance(3_000);
+  assert.equal(once.offs, 0);
   await backlog(once, 4, 101);
   assert.equal(once.screen.motion, false, 'two slow drains within 10 s');
+  assert.equal(once.offs, 1, 'onMotionOff, so the rest frame can go up');
   once.out.writes.length = 0;
   once.screen.draw(page(' 5', 5));
   assert.equal(fromHome(once.bytes()), true, 'after that, every frame is full');
