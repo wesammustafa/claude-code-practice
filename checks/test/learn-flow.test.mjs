@@ -403,6 +403,10 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   assert.throws(() => parseLesson(DEMO_B2.replace('- evidence: .practice/b-2-before.txt\n- goal', '- goal'), 'demo'), /a fresh check needs an evidence file/);
   assert.throws(() => parseLesson(DEMO_B2.replace('- where: shell', '- where: browser'), 'demo'), /unknown where browser/);
   assert.throws(() => parseLesson(DEMO_B2.replace('- skill: snapshot\n- where: shell', '- skill: snapshot\n- from: b-1\n- where: shell'), 'demo'), /only a warm-up names the lesson it comes from/);
+  // A "Done when" in the app's words is a check's or a file's expectation.
+  const said = parseLesson(DEMO_B2.replace('- goal: "Save it again."', '- goal: "Save it again."\n- say: Done when the file lists it.\n- say: Then press r.'), 'demo');
+  assert.deepEqual(said.steps[1].beats[0].lines.filter((x) => x.key === 'say').map((x) => x.doneWhen ?? false), [true, false]);
+  assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', '- verify: none\n- say: Done when it runs.'), 'demo'), /a "Done when" say line needs a check or file beat/);
 });
 
 test('warm-ups: two open the lesson, a missed skill first, always CHALLENGE, and no part of the climb', () => {

@@ -144,7 +144,12 @@ export function parseLesson(text, file = 'lesson') {
     else if (key === 'bottom') beat.bottom.push({ text: v.text });
     else if (key === 'why') beat.why.push(v.text);
     else if (key === 'accept') beat.accept.push(raw);
-    else if (['goal', 'say', 'do', 'run', 'note', 'rule', 'after', 'expect'].includes(key)) beat.lines.push({ key, text: v.text, quoted: v.quoted });
+    else if (['goal', 'say', 'do', 'run', 'note', 'rule', 'after', 'expect'].includes(key)) {
+      // A `say` that opens "Done when" is a check's expectation in the app's
+      // words, for a step whose page has none to quote: like `expect`, a done
+      // beat hides it where the evidence line replaces it.
+      beat.lines.push({ key, text: v.text, quoted: v.quoted, ...(key === 'say' && /^Done when /.test(v.text) ? { doneWhen: true } : {}) });
+    }
     else beat[camel(key)] = v.text;
   }
   for (const s of [...lesson.warmup, ...lesson.steps]) {
@@ -153,6 +158,7 @@ export function parseLesson(text, file = 'lesson') {
       b.where = b.where ?? s.where;
       if (b.where !== undefined && !WHERE.has(b.where)) throw new Error(`${file}:${b.line}: unknown where ${b.where}`);
       b.verify = parseVerify(b, file);
+      if (b.lines.some((l) => l.doneWhen) && !['check', 'file'].includes(b.verify.kind)) throw new Error(`${file}:${b.line}: a "Done when" say line needs a check or file beat`);
     }
   }
   return lesson;
