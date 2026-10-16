@@ -246,7 +246,7 @@ const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'holds', '
   'guessRight', 'nowYouKnow', 'findOutAt', 'right', 'answered', 'otherFine', 'done',
   'stepOf', 'levelUp', 'toHinted', 'toChallenge', 'nextCounts', 'k.letsGo', 'k.bringIt', 'k.moreHelp',
   'complete', 'lessonDone', 'badge', 'k.whatsNext',
-  'checkedSummary', 'handover', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'goFurther', 'k.startN', 'k.page', 'k.map', 'k.card', 'k.quit'];
+  'checkedSummary', 'handover', 'answeredSummary', 'yourClimb', 'nextUp', 'notchHarder', 'savedBreak', 'goFurther', 'recallAsk', 'k.startN', 'k.page', 'k.map', 'k.card', 'k.quit'];
 const at = (copy, k) => k.split('.').reduce((v, part) => v?.[part], copy);
 const banned = new Map();
 const bannedIn = (w) => {

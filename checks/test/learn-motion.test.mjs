@@ -1800,3 +1800,18 @@ test('your card appears whole in the frame after c and holds still: over a runni
   const down = reduce(card, { type: 'key', name: 'down', now: run + 2_000 }).state;
   for (const ms of [0, 40, 160]) assert.deepEqual(frameAt(down, run + 2_000, ms), restOf(down), `down, +${ms} ms`);
 });
+
+test('recall, then compare: the entries are whole in the first frame after space, and nothing moves while they show', () => {
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-4');
+  const at = d.now;
+  const shown = reduce(d.state, { type: 'key', name: 'space', ch: ' ', now: at }).state;
+  assert.equal(shown.overlay, 'compare');
+  const rest = restOf(shown);
+  // Every command and its quote, whole, with no row revealed after another.
+  for (const show of ['/context', '/compact', '/rewind', '/clear', '/resume', 'claude --continue']) assert.ok(rest.some((l) => l.trimStart().startsWith(show) && /^\s+"/.test(l.trimStart().slice(show.length))), `${show}\n${rest.join('\n')}`);
+  for (const size of [[60, 20], [80, 24]]) {
+    for (const ms of [0, 40, 160, 1_000, 6_000]) assert.deepEqual(frameAt(shown, at, ms, size), restOf(shown, size), `${size.join('x')}, +${ms} ms`);
+  }
+  assert.equal(nextChange(shown, at + 1, ON), null);
+});
