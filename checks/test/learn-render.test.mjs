@@ -996,9 +996,10 @@ test('a `…` cut inside a card keeps the rail: every row between the card\'s bo
 
 // The step screens a 60x20 window still cuts with a `…`: a hint box or
 // feedback that leaves the card's teaching no room, and in ASCII on Windows
-// the capstone's Windows notes. teach-merged 1.5 scopes "no teaching line is
-// cut" to the intro, complete and next screens; this list keeps the step
-// screens' count from growing unseen.
+// capstone T1.2, where the Windows note never drops (ticket 165), so the
+// teaching above it gives way instead. teach-merged 1.5 scopes "no teaching
+// line is cut" to the intro, complete and next screens; this list keeps the
+// step screens' count from growing unseen.
 const CUT_AT_60X20 = {
   full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
@@ -1186,4 +1187,30 @@ test('each level has its own first warm-up: a later level\'s first lesson with w
   const second = firstWarmup('i-2', {}, i2);
   assert.equal(stepOf(second.state).part, 'Warm-up');
   assert.ok(!explains(second), plainAt(second, 80, 24));
+});
+
+// A missed Windows note leaves a broken file (ticket 165), so on Windows the
+// note stays whole on every state of its step, at both short sizes.
+test('a Windows note is never cut: in ASCII at 60x20 and 80x24 the whole note is on every screen of its step', async () => {
+  const { lessonScreens, course } = await import('./learn-drive.mjs');
+  const notes = course.filter((l) => l.content).flatMap((l) => readFileSync(join(root, 'learn', 'lessons', `${l.id}.md`), 'utf8').split('\n')
+    .flatMap((line) => line.match(/^- win-note: "(.*)"$/)?.slice(1) ?? []));
+  assert.equal(notes.length, 3, notes.join('\n'));
+  const all = [false, true].flatMap((skipped) => course.filter((l) => l.content).flatMap((l) => lessonScreens(l.id, course, { skipped })
+    .map(([label, s]) => [`${label}${skipped ? ' (skipped)' : ''}`, s])));
+  const t = theme(CAPS.ascii);
+  const seen = new Set();
+  const states = new Set();
+  for (const [label, state] of all) {
+    const note = state.view === 'step' && state.beat ? beatOf(state).winNote : null;
+    if (!note) continue;
+    seen.add(note);
+    states.add(label.replace(/^\S+ \S+ /, '').replace(/ \d+/, '').replace(' (skipped)', ''));
+    for (const [cols, rows] of SHORT) {
+      const lines = render(state, { cols, rows }, t).map(strip);
+      assert.ok(flatText(lines.join('')).includes(flatText(note)), `${label} at ${cols}x${rows} loses the Windows note\n${lines.join('\n')}`);
+    }
+  }
+  assert.deepEqual([...seen].sort(), [...notes].sort());
+  for (const state of ['open', 'waiting', 'fail', 'hint', 'bottom', 'done']) assert.ok(states.has(state), `${state}: ${[...states]}`);
 });
