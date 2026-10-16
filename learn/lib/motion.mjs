@@ -205,13 +205,46 @@ export function shotStarts(s) {
   };
 }
 
+// The spinner's frame and the seconds, for a child that has run `ran` ms:
+// null for each until it shows.
+function spun(ran) {
+  const spinner = ran < FIRST_TICK ? null
+    : Math.floor((Math.min(ran, TIMING.slowAfter) - FIRST_TICK) / TIMING.tick) + Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick);
+  return { spinner, elapsed: spinner !== null && ran >= TIMING.elapsedFrom ? Math.floor(ran / 1_000) : null };
+}
+
+// Milliseconds until that child's spinner next turns, and until its seconds next change.
+function spinsIn(ran) {
+  let tick = ran < FIRST_TICK ? FIRST_TICK : FIRST_TICK + TIMING.tick * (Math.floor((ran - FIRST_TICK) / TIMING.tick) + 1);
+  // Past 10 s the 80 ms ticks stop moving it: every 240 ms does.
+  if (tick > TIMING.slowAfter) tick = TIMING.slowAfter + TIMING.slowTick * (Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick) + 1);
+  const second = ran < TIMING.elapsedFrom ? TIMING.elapsedFrom : 1_000 * (Math.floor(ran / 1_000) + 1);
+  return [tick - ran, second - ran];
+}
+
+// The boot frame (162): git's first questions at start, asked at `since`.
+// It goes up on the spinner's first tick, once they have run 150 ms, with
+// Pip's eyes shut, and Pip wakes as on the welcome. Without motion it is the
+// rest frame: Pip awake, no spinner.
+export const BOOT_FROM = FIRST_TICK;
+export function bootPhases(since, at, caps) {
+  if (!caps?.motion || at === Infinity) return REST_PHASES;
+  const woke = at - since - BOOT_FROM;
+  const eyes = woke < SHOTS.welcome.waking ? 'shut' : woke < SHOTS.welcome.awake ? 'waking' : undefined;
+  return { ...REST_PHASES, ...spun(at - since), eyes };
+}
+// Milliseconds until the boot frame next differs, or null without motion.
+export function bootChange(since, at, caps) {
+  if (!caps?.motion) return null;
+  const woke = at - since - BOOT_FROM;
+  return Math.min(...spinsIn(at - since), ...[SHOTS.welcome.waking, SHOTS.welcome.awake].filter((ms) => ms > woke).map((ms) => ms - woke));
+}
+
 // What each moving part draws at `at`; the rest phases when motion is off.
 export function phases(s, at, caps) {
   if (!caps?.motion || at === Infinity || s.overlay) return REST_PHASES;
   const since = childSince(s);
-  const ran = since === undefined ? NEVER : at - since;
-  const spinner = ran < FIRST_TICK ? null
-    : Math.floor((Math.min(ran, TIMING.slowAfter) - FIRST_TICK) / TIMING.tick) + Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick);
+  const { spinner, elapsed } = spun(since === undefined ? NEVER : at - since);
   const still = idle(s, at);
   const shots = Object.fromEntries(Object.entries(shotStarts(s)).map(([part, start]) => [part, still ? 1 : oneShot(s, at, start, TIMING[part])]));
   // While a child runs, its bounce holds the pulse line: no ambient loop.
@@ -219,7 +252,7 @@ export function phases(s, at, caps) {
   return {
     ...shots,
     spinner,
-    elapsed: spinner !== null && ran >= TIMING.elapsedFrom ? Math.floor(ran / 1_000) : null,
+    elapsed,
     checking: spinner !== null,
     ambient,
     look: ambient && shots.sweep === 1 ? lookNotch(s) : null,
@@ -242,14 +275,7 @@ export function nextChange(s, at, caps) {
     if (!still && oneShot(s, at, start, TIMING[part]) < 1) times.push(Math.min(every - ((at - start) % every), start + TIMING[part] - at));
   }
   const since = childSince(s);
-  if (since !== undefined) {
-    const ran = at - since;
-    let tick = ran < FIRST_TICK ? FIRST_TICK : FIRST_TICK + TIMING.tick * (Math.floor((ran - FIRST_TICK) / TIMING.tick) + 1);
-    // Past 10 s the 80 ms ticks stop moving it: every 240 ms does.
-    if (tick > TIMING.slowAfter) tick = TIMING.slowAfter + TIMING.slowTick * (Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick) + 1);
-    const second = ran < TIMING.elapsedFrom ? TIMING.elapsedFrom : 1_000 * (Math.floor(ran / 1_000) + 1);
-    times.push(tick - ran, second - ran);
-  }
+  if (since !== undefined) times.push(...spinsIn(at - since));
   // The moment ambient loops may start, on a screen that has one: the grace
   // and the key quiet both over. Once they run, each blink's start and end.
   // The look marker moves only on a look, and the app's 1 s tick draws the

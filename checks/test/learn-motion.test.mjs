@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, DEFER_MS, IDLE_MS, isDone, reduce, stepOf, tierOf, watching } from '../../learn/lib/flow.mjs';
-import { ambientAllowed, nextChange, oneShot, phases, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
-import { render } from '../../learn/lib/render.mjs';
+import { ambientAllowed, BOOT_FROM, bootChange, nextChange, oneShot, phases, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
+import { bootFrame, render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
 import { openScreen } from '../../learn/lib/screen.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -1814,4 +1814,99 @@ test('recall, then compare: the entries are whole in the first frame after space
     for (const ms of [0, 40, 160, 1_000, 6_000]) assert.deepEqual(frameAt(shown, at, ms, size), restOf(shown, size), `${size.join('x')}, +${ms} ms`);
   }
   assert.equal(nextChange(shown, at + 1, ON), null);
+});
+
+// The boot frame (162): git's first answers at start take over 150 ms. Pip
+// sits where the welcome has it, beside the app's line; `since` is when the
+// app asked git.
+const SINCE = 1_000_000;
+const bootAt = (ms, [cols, rows] = [80, 24], t = MOVING) => bootFrame(SINCE, { cols, rows }, t, ms === null ? REST : { at: SINCE + ms }).map((l) => strip(l).trimEnd());
+const BOOT_ROW = (eyes) => `   │ ${eyes} │   Asking git about this folder…`;
+
+test('the boot frame at rest, as calm draws it: Pip awake beside "Asking git about this folder…", no spinner', () => {
+  const rule = `  ${'─'.repeat(76)}`;
+  assert.deepEqual(bootAt(null), [
+    '   LEARN   Claude Code practice', '', rule, '',
+    '   ╭───────╮', BOOT_ROW('●   ●'), '   │  ╰─╯  │', '   ╰───────╯',
+    ...Array(14).fill(''), rule, '',
+  ]);
+  for (const [cols, rows] of SIZES) {
+    const size = { cols, rows };
+    for (const [name, caps] of Object.entries(MOTION)) {
+      const calm = theme({ ...caps, motion: false, calm: true });
+      assert.deepEqual(bootFrame(SINCE, size, theme({ ...caps, motion: true, calm: false }), REST), bootFrame(SINCE, size, calm), `rest is calm, ${name} at ${cols}x${rows}`);
+      for (const ms of [160, 240, 320, 3_000, 12_000]) assert.deepEqual(bootFrame(SINCE, size, calm, { at: SINCE + ms }), bootFrame(SINCE, size, calm, REST), `${name} at ${cols}x${rows}, +${ms} ms`);
+    }
+    // Every mode without motion shows the words still, with no spinner.
+    for (const [mode, env] of Object.entries({ NO_COLOR: { ...ENV, NO_COLOR: '1' }, LEARN_PLAIN: { ...ENV, LEARN_PLAIN: '1' }, 'no Unicode': { TERM: 'linux' }, 'TERM=dumb': { TERM: 'dumb' } })) {
+      const t = theme(capabilities(tty(), env, 'linux', []));
+      const rest = bootFrame(SINCE, size, t, REST);
+      assert.match(strip(rest[5]), /Asking git about this folder(…|\.\.\.)$/, `${mode} at ${cols}x${rows}`);
+      for (const ms of [160, 240, 3_000]) assert.deepEqual(bootFrame(SINCE, size, t, { at: SINCE + ms }), rest, `${mode} at ${cols}x${rows}, +${ms} ms`);
+    }
+  }
+});
+
+test('the boot frame with motion: it opens on the spinner\'s first tick with Pip\'s eyes shut, Pip wakes as on the welcome, and the spinner and bounce run until git answers', () => {
+  // 150 ms is off the 40 ms grid: the frame goes up at 160, as a check's spinner does.
+  assert.equal(BOOT_FROM, 160);
+  const f = (ms) => bootAt(ms);
+  assert.deepEqual([f(160)[5], f(160).at(-2)], [`${BOOT_ROW('─   ─')} ⠋`, pulse(0, 10)], '+160 ms: eyes shut, the spinner and the bounce start');
+  assert.deepEqual(f(239), f(160), 'one frame until +240 ms');
+  assert.deepEqual([f(240)[5], f(240).at(-2)], [`${BOOT_ROW('◡   ◡')} ⠙`, pulse(4, 10)], '+240 ms: waking');
+  assert.deepEqual([f(320)[5], f(320).at(-2)], [`${BOOT_ROW('●   ●')} ⠹`, pulse(8, 10)], '+320 ms: awake');
+  for (let ms = 320; ms < 3_000; ms += 40) assert.match(f(ms)[5], /^ {3}│ ● {3}● │/, `+${ms} ms: Pip stays awake`);
+  // From 3 s the seconds git has run, as on a slow check; slower after 10 s.
+  assert.equal(f(3_000)[5], `${BOOT_ROW('●   ●')} ⠴  3 s`);
+  assert.equal(f(12_000)[5].replace(/ \S {2}\d+ s$/, ''), BOOT_ROW('●   ●'));
+  assert.match(f(12_000)[5], / {2}12 s$/);
+  // Only rows 6 and 23 ever move.
+  const rest = bootAt(null);
+  for (const ms of [160, 240, 320, 3_000, 12_000]) assert.deepEqual(f(ms).flatMap((l, i) => (l === rest[i] ? [] : [i + 1])).filter((r) => r !== 6 && r !== 23), [], `+${ms} ms`);
+  // The frames it asks for land on the 40 ms grid from git's start.
+  const due = [];
+  for (let ms = BOOT_FROM; ms < 12_000; ms += bootChange(SINCE, SINCE + ms, ON)) due.push(ms);
+  assert.deepEqual(due.filter((ms) => ms % TIMING.grid), [], 'off the grid');
+  assert.deepEqual(due.slice(0, 4), [160, 240, 320, 400]);
+  assert.deepEqual(due.filter((ms) => ms > 2_900 && ms < 3_100), [2_960, 3_000, 3_040], 'the seconds, between two ticks');
+  assert.deepEqual(due.filter((ms) => ms >= 9_920 && ms < 10_500), [9_920, 10_000, 10_240, 10_480]);
+  assert.equal(bootChange(SINCE, SINCE + 200, OFF), null, 'none with motion off');
+  // At 60x20 the same, in the same rows, on a 56-cell rule.
+  const small = bootAt(240, [60, 20]);
+  assert.equal(small[5], `${BOOT_ROW('◡   ◡')} ⠙`);
+  assert.equal(small.at(-2), pulse(4, 10, 56));
+});
+
+test('the boot frame fits in every mode: exactly the window, no line too wide, one emoji at most, its words in place in every frame, at most three moving parts', () => {
+  const themes = {
+    ...Object.fromEntries(Object.entries(MOTION).map(([name, caps]) => [name, theme({ ...caps, motion: true, calm: false })])),
+    ASCII: theme(capabilities(tty(), { ...ENV, LEARN_PLAIN: '1' }, 'linux', [])),
+  };
+  const times = [160, 200, 240, 280, 320, 400, 3_000, 3_040, 10_000, 10_240, 29_990];
+  for (const [name, t] of Object.entries(themes)) {
+    for (const [cols, rows] of [...SIZES, [120, 40]]) {
+      const size = { cols, rows };
+      const rest = bootFrame(SINCE, size, t, REST);
+      const frames = times.map((ms) => bootFrame(SINCE, size, t, { at: SINCE + ms }));
+      [rest, ...frames].forEach((lines, k) => {
+        const where = `${name} at ${cols}x${rows}, ${k ? `+${times[k - 1]} ms` : 'rest'}`;
+        assert.equal(lines.length, rows, where);
+        lines.forEach((line, i) => {
+          assert.ok(width(line) <= cols - 1, `${where}, line ${i + 1}: ${strip(line)}`);
+          assert.ok(graphemes(strip(line)).filter(isEmoji).length <= 1, `${where}, line ${i + 1}`);
+        });
+        // The seconds git has run are the one exception, as on a slow check.
+        assert.deepEqual(movedWords(lines.map((l) => strip(l).replace(/(… \S) {2}\d+ s$/u, '$1')), rest), [], where);
+      });
+      frames.slice(1).forEach((f, k) => {
+        // The spinner and the bounce are one loop: one moving part.
+        const n = movingParts(frames[k], f, new Set()) - (f.at(-2) !== frames[k].at(-2) ? 1 : 0);
+        assert.ok(n <= 3, `${name} at ${cols}x${rows}, +${times[k + 1]} ms: ${n} parts move`);
+      });
+    }
+  }
+  // Pip's rows are the welcome's at every size, so the welcome takes its place.
+  const pipRows = (lines) => lines.flatMap((l, i) => (/│ ● {3}● │/.test(strip(l)) ? [i] : []));
+  for (const [cols, rows] of [...SIZES, [120, 40]]) assert.deepEqual(pipRows(bootFrame(SINCE, { cols, rows }, MOVING)), pipRows(render(driver().state, { cols, rows }, MOVING)), `${cols}x${rows}`);
+  assert.match(strip(bootFrame(SINCE, { cols: 60, rows: 20 }, themes.ASCII, REST)[5]), /^ {3}\| o {3}o \| {3}Asking git about this folder\.\.\.$/);
 });

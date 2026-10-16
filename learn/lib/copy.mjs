@@ -25,6 +25,8 @@ export const C = {
   otherWindowLines: ['where you type commands', 'and run Claude Code', '(this app checks it)'],
   openSecond: 'Open a second terminal now, in this same folder:',
   comeBack: 'Then come back here and press enter.',
+  // The boot frame, while git answers the first questions at start.
+  askingGit: 'Asking git about this folder…',
   gitBroken: (error) => `git isn't working here: ${error}. This isn't your work: install git, then start this app again.`,
 
   whyLead: 'Why:',
