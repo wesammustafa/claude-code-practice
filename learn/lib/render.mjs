@@ -10,7 +10,7 @@ import {
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { COMMANDS_URL, OWN_PARTS } from './content.mjs';
+import { COMMANDS_URL, OWN_PARTS, READS } from './content.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
 // Each body row says how it gives way when the body is taller than its room
@@ -1093,7 +1093,7 @@ function stepView(ctx) {
         const cw = chipWidth(ctx, beat);
         const long = cw + 22 <= inner;
         const live = l.tick === 'practice-dir' && s.facts.practiceDir;
-        const checked = done && ['check', 'file'].includes(beat.verify.kind);
+        const checked = done && looksAtFile(beat);
         // A live tick stays and takes no turn; each other command takes the next.
         const turn = checked && !live ? ++fresh : 0;
         const ticked = checked && (live || passing >= SHOTS.stepDone.tick * turn);
@@ -1112,7 +1112,7 @@ function stepView(ctx) {
         rows.push(...para(t, l.text, inner - aw, 'text').map((x, i) => `${i ? ' '.repeat(aw - 1) : t.fg('accent', t.glyph.arrow)} ${x}`));
       }
       else if (l.key === 'expect') {
-        if (['check', 'file'].includes(beat.verify.kind)) rows.push(...doneWhen(para(t, `${C.doneWhen}${l.text}`, inner, 'muted')));
+        if (looksAtFile(beat)) rows.push(...doneWhen(para(t, `${C.doneWhen}${l.text}`, inner, 'muted')));
         else rows.push(...quoted(l.text));
       }
     });
@@ -1161,7 +1161,7 @@ function stepView(ctx) {
   const tint = done ? 'ok' : style.tint;
   return {
     head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
-    body: card(ctx, { tint, where, done: done && ['check', 'file', 'git-clean'].includes(beat.verify.kind), rows, mood: stepMood(s, beat, isLastBeat) }),
+    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || beat.verify.kind === 'git-clean'), rows, mood: stepMood(s, beat, isLastBeat) }),
     keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }),
   };
 }
@@ -1269,7 +1269,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     const passes = wrapRuns([{ text: cmd, color: 'code' }, { text: ` ${C.checkPasses(items.filter((x) => x.pass).length, items.length)[0]}`, color: 'ok' }], inner - width(mark));
     rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
       ...para(t, C.runItToo(dir ? `${C.where.terminal}, ${C.inCopy}` : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
-  } else if (st.status === 'done' && ['check', 'file'].includes(beat.verify.kind)) {
+  } else if (st.status === 'done' && looksAtFile(beat)) {
     // What the file holds, beside the burst; on two lines when one is too long.
     const one = `${beat.evidence} holds ${st.evidence}`;
     const ev = !showsEvidence(s, beat, isLastBeat) ? []
@@ -1303,7 +1303,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     }
   } else if (st.status === 'waiting' && st.slowWait) {
     rows.push(...para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted'));
-  } else if (st.status === 'waiting' && ['check', 'file'].includes(beat.verify.kind)) {
+  } else if (st.status === 'waiting' && looksAtFile(beat)) {
     const [a, what, b] = (st.stale ? C.staleWatch : C.watching)(beat.watching ?? beat.evidence ?? 'your files');
     rows.push(...para(t, `${t.lead('watch')}${a}\`${what}\`${b}`, inner, 'muted'));
   } else if (beat.verify.kind === 'git-clean' && (st.status === 'waiting' || st.status === 'fail')) {
@@ -1314,7 +1314,9 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
       if (st.status === 'fail') rows.push(`  ${t.fg('muted', C.gitFailAfter)}`);
     } else rows.push(lead(t, 'watch', `${t.fg('muted', C.watchingGit)}${t.fg('code', 'git status')}${t.fg('muted', ':')} ${t.fg('ok', `${t.glyph.check} ${C.gitClean}`)}`));
   } else if (st.status === 'fail' && st.fail?.hint) {
-    rows.push(...para(t, `${C.notYet} ${diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`)));
+    // A beat that reads its file itself has a not-yet line in the app's own
+    // words, whole; a check's FAIL message is cut to what is wrong.
+    rows.push(...para(t, `${C.notYet} ${READS.has(beat.verify.kind) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`)));
   }
 
   // Feedback on a pick that wasn't right, before the answer.
@@ -1358,8 +1360,10 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   return rows;
 }
 
+// A beat whose check is about a file: a check item, or the file read here.
+const looksAtFile = (beat) => beat.verify.kind === 'check' || READS.has(beat.verify.kind);
 // Whether a done beat's footer draws the evidence line: what the file holds.
-const showsEvidence = (s, beat, isLastBeat) => isLastBeat && s.beat.status === 'done' && ['check', 'file'].includes(beat.verify.kind)
+const showsEvidence = (s, beat, isLastBeat) => isLastBeat && s.beat.status === 'done' && looksAtFile(beat)
   && Boolean(beat.evidence && s.beat.evidence) && !(beat.verify.all && s.checks[s.lesson]?.items);
 
 // The first clause of a check's FAIL message: what is wrong, before how to fix it.

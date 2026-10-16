@@ -15,7 +15,7 @@ import { bootFrame, itemsMax, lessonLabel, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
-import { evidence, gitFirstName, gitReady, gitStatus, lineCount, owing, probeFolder, runCheck, stampOf, stopChildren } from './verify.mjs';
+import { bytesOf, gitFirstName, gitReady, gitStatus, owing, probeFolder, runCheck, stampOf, stopChildren } from './verify.mjs';
 import { watchDirs } from './watch.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -196,7 +196,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (closed) return;
     if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error, asked, dir });
     if (ev && stampOf(dir, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev, dir));
-    dispatch({ type: 'check', lesson, items: r.items, evidence: ev ? evidence(dir, ev) : null, path: ev ?? null, stamp: before, asked, dir });
+    dispatch({ type: 'check', lesson, items: r.items, read: ev ? bytesOf(dir, ev) : null, path: ev ?? null, stamp: before, asked, dir });
   });
   const git = owing(async ({ asked }, dir) => {
     runStart();
@@ -205,8 +205,9 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     dispatch(r.error ? { type: 'git-error', message: r.error, asked, dir } : { type: 'git', paths: r.paths, asked, dir });
   });
 
-  // A file's first line and its state, read now: small, local and quick.
-  const file = (path, asked, dir) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, line: evidence(dir, path), lines: lineCount(dir, path), stamp: stampOf(dir, path), asked: asked ?? 0, dir }));
+  // A file's bytes and its state, read now in the lesson's folder: local and
+  // quick, with no process. The reducer decides what they mean.
+  const file = (path, asked, dir) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, read: bytesOf(dir, path), stamp: stampOf(dir, path), asked: asked ?? 0, dir }));
 
   function run(effects) {
     for (const e of effects) {

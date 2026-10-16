@@ -15,6 +15,10 @@ export const STEP_KEYS = new Set(['tier', 'skill', 'where', 'from']);
 // Where a step's work happens: the other terminal, Claude Code, a third
 // terminal for shell commands while Claude Code is still open, or an editor.
 export const WHERE = new Set(['terminal', 'claude', 'shell', 'editor']);
+// Verify kinds the app answers by reading the beat's file itself, with no
+// process: `file`, and HOLDS, what a file holds (ticket 87).
+export const HOLDS = new Set(['json', 'match', 'no-match']);
+export const READS = new Set(['file', ...HOLDS]);
 export const BEAT_KINDS = new Set(['do', 'predict', 'ask', 'type', 'self']);
 // Keys a beat may hold, and whether their value must be a quote of the page.
 export const BEAT_KEYS = {
@@ -235,7 +239,7 @@ export function parseLesson(text, file = 'lesson') {
       b.where = b.where ?? s.where;
       if (b.where !== undefined && !WHERE.has(b.where)) throw new Error(`${file}:${b.line}: unknown where ${b.where}`);
       b.verify = parseVerify(b, file);
-      if (b.lines.some((l) => l.doneWhen) && !['check', 'file'].includes(b.verify.kind)) throw new Error(`${file}:${b.line}: a "Done when" say line needs a check or file beat`);
+      if (b.lines.some((l) => l.doneWhen) && b.verify.kind !== 'check' && !READS.has(b.verify.kind)) throw new Error(`${file}:${b.line}: a "Done when" say line needs a check beat or a beat that reads a file`);
     }
   }
   return lesson;
@@ -253,12 +257,30 @@ function parseVerify(beat, file) {
   const fresh = v.match(/ fresh(?: since ([WYTCR]\d*))?$/);
   const base = fresh ? v.slice(0, fresh.index) : v;
   const extra = fresh ? { fresh: true, since: fresh[1] ?? null } : {};
+  // The beats that read a file themselves: its evidence is its own file.
+  const own = (path) => {
+    if (beat.evidence && beat.evidence !== path) throw new Error(`${file}:${beat.line}: a file check's evidence is its own file`);
+    beat.evidence = path;
+  };
   // `file <path>`: a file no check item covers, done once it holds a line.
   const path = base.match(/^file (\S+)$/);
   if (path) {
-    if (beat.evidence && beat.evidence !== path[1]) throw new Error(`${file}:${beat.line}: a file check's evidence is its own file`);
-    beat.evidence = path[1];
+    own(path[1]);
     return { kind: 'file', path: path[1], ...extra };
+  }
+  // `json <path> [<key.path>[=<value>]]`: done once the file parses, and
+  // holds the key, with that value when one is given.
+  const json = base.match(/^json (\S+)(?: ([^\s=]+)(?:=(.+))?)?$/);
+  if (json) {
+    own(json[1]);
+    return { kind: 'json', path: json[1], key: json[2] ?? null, value: json[3] ?? null, ...extra };
+  }
+  // `match <path> <regex>`: done once a line of the file matches.
+  // `no-match`: done once the file is there and no line matches.
+  const lines = base.match(/^(match|no-match) (\S+) (.+)$/);
+  if (lines) {
+    own(lines[2]);
+    return { kind: lines[1], path: lines[2], regex: lines[3], ...extra };
   }
   if (fresh && !beat.evidence) throw new Error(`${file}:${beat.line}: a fresh check needs an evidence file`);
   const check = base.match(/^check (\d+(?: \d+)*)$/);
