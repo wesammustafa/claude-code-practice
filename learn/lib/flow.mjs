@@ -69,6 +69,9 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     // How many times r asked for a run, in memory: each r's number goes out
     // on its effect and comes back on its result (`asked`).
     asks: 0,
+    // r's run on the check-only card, until its own result lands: its
+    // lesson, r's number and how far the child has got, in memory.
+    onlyRun: null,
     // The motion layer's stamps (stampFx): the first screen appears now.
     fx: { view: now },
   };
@@ -402,6 +405,7 @@ export function startLesson(s, id, effects) {
   if (!l.content) {
     s.view = 'checkonly';
     s.itemsAt = 0;
+    s.onlyRun = null;
     if (!l.newCopy) effects.push({ type: 'check', lesson: id, items: null });
     return;
   }
@@ -750,6 +754,7 @@ export function reduce(prev, ev) {
   // earlier r's, that lands first decides nothing for the beat.
   const result = RESULTS.includes(ev.type);
   if (result && s.beat?.asked && ev.asked === s.beat.asked) s.beat.asked = 0;
+  if (result && s.onlyRun && ev.asked === s.onlyRun.asked) s.onlyRun = null;
   const rRuns = result && Boolean(s.beat?.asked);
   // One check child runs at a time, so its result means the run that
   // reported has ended: the count goes with it.
@@ -765,6 +770,8 @@ export function reduce(prev, ev) {
       // by the latest r, or by the beat opening when no r is out.
       const w = watching(s)?.check;
       if (s.beat?.status === 'opening' && (ev.asked ?? 0) === (s.beat.asked || 0) && w?.lesson === ev.lesson && sameJson(ev.items ?? null, w.items)) s.beat.running = { n: ev.n, m: ev.m };
+      // On the check-only card, only r's own run counts.
+      if (s.onlyRun && ev.asked === s.onlyRun.asked && ev.lesson === s.onlyRun.lesson) s.onlyRun.running = { n: ev.n, m: ev.m };
       break;
     }
     case 'check-error':
@@ -849,6 +856,7 @@ function stampFx(prev, s, ev) {
   const opened = Boolean(st) && (!was || st.opened !== was.opened || s.lesson !== prev.lesson || !sameJson(s.pos, prev.pos));
   if (opened) fx.open = t;
   if (st?.status === 'opening' && (opened || was.status !== 'opening')) fx.check = t;
+  if (s.onlyRun && !prev.onlyRun) fx.check = t;
   // New text on the same card: a "Not yet" line, a rung, feedback, a reveal.
   if (st && was && !opened && s.view === prev.view) {
     const notYet = st.status === 'fail' && (was.status !== 'fail' || !sameJson(st.fail, was.fail));
@@ -1200,7 +1208,11 @@ const VIEWS = {
       return true;
     }
     if (name === 'r' && watching(s)) {
-      effects.push({ type: 'check', lesson: s.lesson, items: null, slow: true });
+      // As on a step card, the card says r's run is going until its own
+      // result lands.
+      s.asks += 1;
+      s.onlyRun = { lesson: s.lesson, asked: s.asks, running: null };
+      effects.push({ type: 'check', lesson: s.lesson, items: null, slow: true, asked: s.asks });
       return true;
     }
     return false;

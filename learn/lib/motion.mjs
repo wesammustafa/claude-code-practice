@@ -84,7 +84,7 @@ const AMBIENT = ['welcome', 'step', 'checkonly'];
 
 // An overlay, or idle: no one-shot and no ambient loop moves. Only an
 // overlay stops the spinner, its seconds and the bounce: they show a child
-// that is still running (for at most 150 s).
+// that is still running (for at most 150 s an item).
 const idle = (s, at) => Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
 const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
 
@@ -166,12 +166,15 @@ const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
 
 // Since when a check or git child has run for the beat on screen while it is
-// `opening`: a child that started before the status became `opening` is not
-// this beat's, and a file read starts none. Its first tick is the first 40 ms
-// boundary from its start once it has run 150 ms, then one every 80 ms.
+// `opening`, or for r on the check-only card: a child that started before
+// the status became `opening`, or before r, is not this run, and a file read
+// starts none. Its first tick is the first 40 ms boundary from its start
+// once it has run 150 ms, then one every 80 ms.
 const CHILD = ['check', 'git-clean'];
 const FIRST_TICK = Math.ceil(TIMING.spinnerFrom / TIMING.grid) * TIMING.grid;
-const childSince = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
+const running = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
+  || (s.view === 'checkonly' && s.onlyRun?.lesson === s.lesson);
+const childSince = (s) => (running(s) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
 
 // When the latest sweep started: the watcher saw a file change, or a look's
 // result differed from the last. Only while the screen watches something,

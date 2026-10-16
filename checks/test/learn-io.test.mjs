@@ -17,7 +17,7 @@ import { SHOTS } from '../../learn/lib/motion.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
-import { childEnv, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
+import { childEnv, ITEM_LIMIT, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { statusPaths } from '../paths.mjs';
@@ -125,12 +125,61 @@ test('runCheck passes on each report as item n of the m items the child runs, be
   }
 });
 
-test('every item whose own code starts a process is slow, in every lesson', () => {
-  // An item can start one through a helper, too: SLOW holds those as measured.
-  for (const id of EVERY) {
-    const spawning = lessons[id].items.map((it, i) => [i, it.check.toString()]).filter(([, src]) => /spawnSync|execFileSync\('npm'|spawn\(/.test(src)).map(([i]) => i);
-    for (const i of spawning) assert.ok((SLOW[id] ?? []).includes(i), `${id} item ${i}`);
+test('the check child\'s time limit runs from the start of each item, so slow items add up in one run without ending it', async () => {
+  // b-capstone's two slow items, each about 2.5 s here: the tool, then npm test.
+  const nap = (ms) => `setTimeout(() => process.exit(2), ${ms});\n`;
+  const dir = repo({ 'src/cli.js': nap(2_500), 'package.json': JSON.stringify({ scripts: { test: 'node -e "setTimeout(() => {}, 2500)"' } }) });
+  try {
+    const r = await runCheck(dir, 'b-capstone', [3, 4], { slow: true, limit: 4_000 });
+    assert.deepEqual(r.items?.map((i) => [i.index, i.pass]), [[3, true], [4, true]], JSON.stringify(r));
+    // One item that runs past it still ends the run.
+    write(dir, { 'src/cli.js': nap(6_000) });
+    assert.deepEqual(await runCheck(dir, 'b-capstone', [3], { slow: true, limit: 2_000 }), { error: 'it took too long' });
+    // a-capstone's slow items: five stub runs of up to 20 s in all, and npm
+    // test's up to 120 s. Each is under the limit, whatever runs before it.
+    assert.ok(ITEM_LIMIT > 5 * 20_000 && ITEM_LIMIT > 120_000, String(ITEM_LIMIT));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// What in checks/ starts a process other than git: a function or constant
+// declared at the top of a file whose own source starts one, or calls one
+// that does, by name. A top-level declaration runs to the next one.
+const STARTS = /(?<![.\w$])(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\(\s*(?!['"]git['"])/;
+const CALLS = /(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g;
+function processStarters() {
+  const dirs = [join(root, 'checks'), join(root, 'checks', 'lessons')];
+  const decls = dirs.flatMap((dir) => readdirSync(dir).filter((f) => f.endsWith('.mjs')).flatMap((f) => {
+    const out = [];
+    for (const line of readFileSync(join(dir, f), 'utf8').split('\n')) {
+      const m = line.match(/^(?:export )?(?:async )?(?:function\*?\s+([\w$]+)|(?:const|let)\s+([\w$]+)\s*=)/);
+      if (m) out.push({ name: m[1] ?? m[2], src: '' });
+      if (out.length) out.at(-1).src += `${line}\n`;
+    }
+    return out;
+  }));
+  const starters = new Set();
+  const starts = (src) => STARTS.test(src) || [...src.matchAll(CALLS)].some(([, name]) => starters.has(name));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const d of decls) {
+      if (!starters.has(d.name) && starts(d.src)) {
+        starters.add(d.name);
+        grew = true;
+      }
+    }
+  }
+  return starts;
+}
+
+test('SLOW holds exactly the items that start a process, through a helper in checks/ too', () => {
+  // Read from the code, so it holds where the reference solutions are absent.
+  const starts = processStarters();
+  const found = Object.fromEntries(EVERY.map((id) => [id, lessons[id].items.flatMap((it, i) => (starts(it.check.toString()) ? [i] : []))]).filter(([, is]) => is.length));
+  // runCommitted runs i-5's hook, runStubbed a-4's script, and testsPass is b-3's npm test.
+  assert.deepEqual([found['i-5'], found['a-4'], found['b-3']], [[2], [1, 2, 3], [1]]);
+  assert.deepEqual(found, SLOW);
 });
 
 test('children never take git\'s index lock or print color, and run one at a time', async () => {

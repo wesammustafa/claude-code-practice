@@ -260,7 +260,7 @@ test('map and check-only mode: a lesson without a content file watches its check
   assert.equal(d.state.lesson, 'b-2');
   assert.deepEqual(watching(d.state), { check: { lesson: 'b-2', items: null } });
   d.key('r');
-  assert.deepEqual(d.effects.at(-1), { type: 'check', lesson: 'b-2', items: null, slow: true });
+  assert.deepEqual(d.effects.at(-1), { type: 'check', lesson: 'b-2', items: null, slow: true, asked: 1 });
 });
 
 test('review fixes: CHALLENGE hints open after the idle offer', () => {

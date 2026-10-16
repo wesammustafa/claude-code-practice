@@ -18,18 +18,27 @@ export function childEnv(env = process.env) {
   return { ...rest, GIT_OPTIONAL_LOCKS: '0', NO_COLOR: '1' };
 }
 
+// How long the check child may run each item, from that item's start: more
+// than the slowest items' own limits (npm test's 120 s; a-4's five stub runs
+// of 20 s each), so the slow items of one run add up without ending it, and
+// items that share what a run found (a-7's) stay in one child.
+export const ITEM_LIMIT = 150_000;
+
 // Runs `items` of a lesson's check (all when null). Slow items are left out
 // unless `slow` is set, and come back marked `slow` so the screen can say
 // "press r". As the child starts each item, onRunning(n, m) hears that it
-// is on the nth of the m items it runs.
-export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {} } = {}) {
+// is on the nth of the m items it runs. An item still running `limit` ms
+// after it started stops the child.
+export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {}, limit = ITEM_LIMIT } = {}) {
   const all = lessons[lesson].items.map((_, i) => i);
   const skipped = slow ? [] : (SLOW[lesson] ?? []).filter((i) => (items ?? all).includes(i));
   const wanted = (items ?? all).filter((i) => !skipped.includes(i));
   const placeholders = skipped.map((index) => ({ index, text: lessons[lesson].items[index].text, pass: false, slow: true, hint: '' }));
   if (!wanted.length) return Promise.resolve({ items: placeholders });
   return new Promise((resolve) => {
-    const child = track(execFile(process.execPath, [RUN_CHECK, lesson, dir, ...wanted.map(String)], { env: childEnv(), timeout: 150_000, windowsHide: true, maxBuffer: 4 << 20 }, (error, stdout) => {
+    let timer;
+    const child = track(execFile(process.execPath, [RUN_CHECK, lesson, dir, ...wanted.map(String)], { env: childEnv(), windowsHide: true, maxBuffer: 4 << 20 }, (error, stdout) => {
+      clearTimeout(timer);
       try {
         const out = JSON.parse(stdout.trim().split('\n').pop());
         if (out.error) return resolve({ error: out.error });
@@ -38,6 +47,12 @@ export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {
         resolve({ error: error ? (error.killed ? 'it took too long' : error.message.split('\n')[0]) : 'it printed something unexpected' });
       }
     }));
+    // The clock starts with the child, and again as each item starts.
+    const limitFrom = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => child.kill(), limit);
+    };
+    limitFrom();
     // The child's reports, a line each; anything else on stderr is skipped.
     let rest = '';
     child.stderr.on('data', (chunk) => {
@@ -48,7 +63,9 @@ export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {
         try {
           n = JSON.parse(line).running;
         } catch {}
-        if (Number.isInteger(n)) onRunning(n, wanted.length);
+        if (!Number.isInteger(n)) continue;
+        limitFrom();
+        onRunning(n, wanted.length);
       }
     });
   });
