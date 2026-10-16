@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { C } from '../../learn/lib/copy.mjs';
-import { beatOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
+import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -2356,7 +2356,7 @@ test('c opens your card: an entry shows only after a finished step on its skill,
   r.key('c');
   const lines = cardText(r);
   const where = lines.join('\n');
-  for (const [show, does] of [['claude --version', 'A working installation prints a version number followed by (Claude Code)'], ['claude', 'Start a session in the same folder'],
+  for (const [show, does] of [['claude --version', 'A working installation prints a version number followed by (Claude Code)'], ['claude', 'Start a session'],
     ['/status', 'The /status command shows the version, model and account together']]) {
     assert.ok(lines.some((l) => new RegExp(`^B1\\s+${show.replace(/[/-]/g, '\\$&')}$`).test(l)), `${show}\n${where}`);
     assert.ok(flatText(where).includes(flatText(`"${does}"`)), `${does}\n${where}`);
@@ -2427,5 +2427,63 @@ test('? lists c for your card where it has room, a row 60x20 gives up first; the
   assert.match(keyBar(empty.state, 80, 24), /\bc card\b/, keyBar(empty.state, 80, 24));
   for (const [label, state] of endScreens().filter(([l]) => l.endsWith('next'))) {
     for (const [cols, rows] of SHORT) assert.match(keyBar(state, cols, rows), /\bc card\b/, `${label} at ${cols}x${rows}`);
+  }
+});
+
+test('c card gives way before anything else on the bar: with it taken out, every bar is the one a card with no entries draws', async () => {
+  const noCard = (state) => ({ ...state, course: state.course.map((l) => (l.content ? { ...l, content: { ...l.content, card: [] } } : l)) });
+  // The card's own bar is the card's.
+  const all = [...await everyScreen(), ...endScreens()].filter(([, state]) => state.overlay !== 'card');
+  let shown = 0;
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const [cols, rows] of SHORT) {
+      for (const [label, state] of all) {
+        const bar = strip(render(state, { cols, rows }, t).at(-1));
+        const bare = strip(render(noCard(state), { cols, rows }, t).at(-1));
+        if (bar.includes('    c card')) shown++;
+        assert.equal(bar.replace('    c card', ''), bare, `${label} at ${cols}x${rows}`);
+      }
+    }
+  }
+  assert.ok(shown > 0, 'some bar shows c card');
+  // The approved Step done bar at 80x24 (design 2.3) keeps the next step's title.
+  const done = screens.find(([l]) => l === 'W3 done')[1];
+  assert.ok(cardOf(done).length, 'W3 done has a card entry');
+  assert.equal(strip(render(done, { cols: 80, rows: 24 }, theme(CAPS.full)).at(-1)).trim(), 'enter  next: Start, sign in, trust    b back    w why    m map    q quit');
+});
+
+test('a card entry shows only after one of its own lesson\'s steps: the capstone\'s waits for the capstone, though b-3 teaches its skill too', () => {
+  const lessons = { ...finishedBefore('b-capstone') };
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons } });
+  assert.ok(lessons['b-3'].done.length && allCourse.find((l) => l.id === 'b-3').content.steps.some((x) => x.skill === 'review-diff'));
+  assert.ok(!cardOf(d.state).some((e) => e.lesson === 'b-capstone'), cardOf(d.state).map((e) => e.show).join(', '));
+  const cap = allCourse.find((l) => l.id === 'b-capstone').content;
+  const step = cap.steps.find((x) => x.skill === 'review-diff');
+  const after = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...lessons, 'b-capstone': { step: step.id, beat: 0, done: [step.id] } } } });
+  assert.deepEqual(cardOf(after.state).filter((e) => e.lesson === 'b-capstone').map((e) => e.show), ['git add -N <file>']);
+  // b-1's entries wait for b-1's own steps, though b-2 also has a start step.
+  const skipped = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { 'b-2': { step: 'W2', beat: 0, done: ['W1'] } } } });
+  assert.equal(allCourse.find((l) => l.id === 'b-2').content.steps.find((x) => x.id === 'W1').skill, 'start');
+  assert.deepEqual(cardOf(skipped.state).filter((e) => e.lesson === 'b-1'), []);
+});
+
+test('your card\'s last place is the Commands by level link, so a toast at 60x20 leaves the card ending with it', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(lessonById('b-capstone')) } } });
+  d.key('c');
+  for (let i = 0; i < 40; i++) d.key('down');
+  assert.equal(d.state.cardAt, cardOf(d.state).length, 'down stops at the link');
+  const toast = { kind: 'save', message: 'EACCES: permission denied, open /home/sam/claude-code-practice/.practice/learn.json' };
+  for (const [cols, rows] of SHORT) {
+    for (const s of [d.state, { ...d.state, toast }]) {
+      const lines = render(s, { cols, rows }, theme(CAPS.full)).map((l) => strip(l).trim());
+      const where = `${cols}x${rows}${s.toast ? ' with a toast' : ''}\n${lines.join('\n')}`;
+      const link = lines.indexOf(C.cardLink);
+      assert.ok(link > 0, where);
+      const url = [];
+      for (let i = link + 1; url.join('').length < COMMANDS_BY_LEVEL.length && i < lines.length; i++) url.push(lines[i]);
+      assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
+      if (s.toast) assert.ok(lines.some((l) => l.includes("Couldn't save your place")), `the toast stays: ${where}`);
+    }
   }
 });

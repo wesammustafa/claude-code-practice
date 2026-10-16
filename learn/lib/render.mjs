@@ -10,7 +10,7 @@ import {
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, PLANNED, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { GUIDE, OWN_PARTS } from './content.mjs';
+import { COMMANDS_URL, OWN_PARTS } from './content.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
 // Each body row says how it gives way when the body is taller than its room
@@ -221,8 +221,9 @@ function absolute(url) {
   }
 }
 
-// The keys that fit in `w` columns: a main key's long label gives way to its
-// short one first, then the optional keys go from the right; q always stays.
+// The keys that fit in `w` columns: a low key (c card) gives way first, then
+// a main key's long label to its short one, then the optional keys go from
+// the right; q always stays.
 // The `held` letter, waiting DEFER_MS to act, draws pressed: inverse.
 function keybar(t, keys, w = Infinity, held = null) {
   const draw = (list, short) => list.map((k) => {
@@ -234,6 +235,8 @@ function keybar(t, keys, w = Infinity, held = null) {
   }).join('    ');
   let list = keys.filter(Boolean);
   if (width(draw(list, false)) <= w) return draw(list, false);
+  const high = list.filter((k) => !k.low);
+  if (width(draw(high, false)) <= w) return draw(high, false);
   while (width(draw(list, true)) > w) {
     const drop = list.findLastIndex((k) => !k.main && k.key !== 'q' && k.key !== 'ctrl+c');
     if (drop < 0) break;
@@ -1154,9 +1157,10 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   const r = hintStatus(st) === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
   return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), card, key('q', C.k.quit)];
 }
-// `c card`, once the card has an entry. It sits before q, so a narrow bar
-// gives it up first.
-const cardKey = (s) => (cardOf(s).length ? key('c', C.k.card) : null);
+// `c card`, once the card has an entry. It is low: a bar too narrow for it
+// gives it up before the main key's long label, and it sits before q, so
+// a short bar drops it first too.
+const cardKey = (s) => (cardOf(s).length ? { ...key('c', C.k.card), low: true } : null);
 
 // ---- overlays ----------------------------------------------------------------
 const OVERLAYS = {
@@ -1175,8 +1179,8 @@ const OVERLAYS = {
     const calm = rows >= 24 && width(C.calm) <= inner;
     const keys = C.keyHelp.map(row);
     // c's row, under p's, shows only where every key, blank and the calm
-    // line leave it room: 60x20 gives it up.
-    if (room >= 3 + keys.length + (calm ? 2 : 0) && width(row(C.cardKey)) <= inner) keys.splice(C.keyHelp.findIndex(([k]) => k === 'p') + 1, 0, ...optional([row(C.cardKey)]));
+    // line leave it room, so it never costs a blank: 60x20 gives it up.
+    if (room >= 3 + keys.length + (calm ? 2 : 0) && width(row(C.cardKey)) <= inner) keys.splice(C.keyHelp.findIndex(([k]) => k === 'p') + 1, 0, row(C.cardKey));
     return {
       body: [t.bold(t.fg('white', C.keysTitle)), SPACER, ...keys, ...(calm ? optional(['', ...para(t, C.calm, inner, 'muted')]) : [])],
       keys: [key('?', C.k.close), key('q', C.k.close)],
@@ -1184,9 +1188,9 @@ const OVERLAYS = {
   },
   // Your card: the entries from cardOf, each its lesson, the page's command
   // and what it does, then the guide's Commands by level page. Where the
-  // card is taller than its room, it shows whole entries from s.cardAt down,
-  // one a press of the arrows; the link goes with the last entry, so the
-  // last place shows it.
+  // card is taller than its room, it shows whole places from s.cardAt down,
+  // one a press of the arrows: each entry is a place, and the link is the
+  // last, so the last place always shows it, a toast or not.
   card(ctx) {
     const { s, t, inner, room } = ctx;
     // What it does hangs under the command, past the lesson's pill.
@@ -1195,15 +1199,14 @@ const OVERLAYS = {
       return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
     });
     const head = [t.bold(t.fg('white', C.cardTitle)), ...para(t, units.length ? C.cardIntro : C.cardEmpty, inner, 'muted'), ''];
-    const url = `${GUIDE}/blob/main/docs/reference/commands.md`;
-    const link = ['', t.fg('text', C.cardLink), ...para(t, url, inner, 'key').map((x) => t.link(x, url))];
-    if (units.length) units.at(-1).push(...link);
-    else units.push(link.slice(1));
+    // Under an entry, the link keeps a blank above it.
+    units.push([...(units.length ? [''] : []), t.fg('text', C.cardLink), ...para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL))]);
     const avail = room - head.length;
     const from = units.flat().length <= avail ? 0 : Math.min(s.cardAt, units.length - 1);
-    const shown = [];
-    let k = from;
-    while (k < units.length && (k === from || shown.length + units[k].length <= avail)) shown.push(...units[k++]);
+    // The first place shown never opens on a blank: the link's goes there.
+    const shown = units[from][0] === '' ? units[from].slice(1) : [...units[from]];
+    let k = from + 1;
+    while (k < units.length && shown.length + units[k].length <= avail) shown.push(...units[k++]);
     return {
       body: [...head, ...shown],
       keys: [from > 0 || k < units.length ? key(t.glyph.up, C.k.scroll) : null, key('c', C.k.close), key('q', C.k.close)],

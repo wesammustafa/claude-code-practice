@@ -47,6 +47,8 @@ export const PATH = [
   { id: 'b-capstone', page: 'docs/beginner/capstone.md', minutes: '30 to 60 minutes' },
 ];
 export const GUIDE = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know';
+// The guide's Commands by level page, which ends your card.
+export const COMMANDS_URL = `${GUIDE}/blob/main/docs/reference/commands.md`;
 
 function value(raw) {
   const q = raw.match(/^"(.*)"$/);
