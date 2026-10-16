@@ -2,7 +2,7 @@
 // the check's real FAIL messages, so tests can look at every screen.
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadCourse, parseLesson, PATH } from '../../learn/lib/content.mjs';
+import { loadCourse, parseLesson } from '../../learn/lib/content.mjs';
 import { beatOf, DEFER_MS, hintAvailable, IDLE_MS, initialState, lessonOf, reduce, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
 import { versionSaved } from '../lessons/b-1.mjs';
 import { openRepo } from '../repo.mjs';
@@ -27,19 +27,10 @@ export const b1Only = course.map((l) => (l.id === 'b-1' ? l : { ...l, content: n
 // That course, with made-up content files for some lessons, { id: text }.
 export const courseWith = (texts) => b1Only.map((l) => (texts[l.id] ? { ...l, content: parseLesson(texts[l.id], `${l.id}.md`) } : l));
 
-// A demo course of all three levels, with the guide's Intermediate and
-// Advanced lessons after the Beginner path. Only Beginner is on PATH today,
-// so the later lessons are check-only unless `texts` gives one content.
-const later = (level, pages) => pages.map(([id, page, minutes]) => ({ id, level, page: `docs/${level}/${page}.md`, minutes }));
-export const DEMO_PATH = [...PATH,
-  ...later('intermediate', [['i-1', '01-first-skill', 'about 20 minutes'], ['i-2', '02-organize-memory', 'about 20 minutes'], ['i-3', '03-model-and-effort', 'about 15 minutes'],
-    ['i-4', '04-permissions-and-sandbox', 'about 20 minutes'], ['i-5', '05-hooks', 'about 20 minutes'], ['i-6', '06-subagents', 'about 20 minutes'], ['i-7', '07-mcp', 'about 20 minutes'],
-    ['i-8', '08-plugins', 'about 20 minutes'], ['i-capstone', 'capstone', '30 to 60 minutes']]),
-  ...later('advanced', [['a-1', '01-parallel-sessions', 'about 20 minutes'], ['a-2', '02-orchestration-patterns', 'about 20 minutes'], ['a-3', '03-dynamic-workflows', 'about 20 minutes, plus run time'],
-    ['a-4', '04-headless', 'about 20 minutes'], ['a-5', '05-github-actions', 'about 20 minutes, plus run time'], ['a-6', '06-share-your-setup', 'about 20 minutes'],
-    ['a-7', '07-bounded-runs', 'about 20 minutes, plus run time'], ['a-capstone', 'capstone', '30 to 60 minutes, plus run time']]),
-];
-export const threeLevels = (texts = {}) => loadCourse(root, DEMO_PATH).map((l) => (texts[l.id] ? { ...l, content: parseLesson(texts[l.id], `${l.id}.md`) } : l));
+// The course of all three levels, with made-up content files for some
+// lessons, { id: text }. The Intermediate and Advanced lessons have no lesson
+// file yet, so they are check-only unless `texts` gives one content.
+export const threeLevels = (texts = {}) => course.map((l) => (texts[l.id] ? { ...l, content: parseLesson(texts[l.id], `${l.id}.md`) } : l));
 
 // A made-up lesson 2 with what lesson 1 doesn't have: three warm-ups, a
 // third terminal, and a step that redoes an earlier one.
@@ -142,6 +133,19 @@ export function driver({ saved = null, facts = {}, course: lessons = b1Only } = 
   };
   const key = (name, ch) => press(name, ch);
   return { send, key, press, effects, get state() { return state; }, get now() { return now; } };
+}
+
+// On the map, moves the cursor to lesson `id`: left or right to its level,
+// then down its rows.
+export function mapTo(d, id) {
+  const levels = [...new Set(d.state.course.map((l) => l.level))];
+  const target = d.state.course.find((l) => l.id === id);
+  for (let i = 0; i < 60 && d.state.course[d.state.mapCursor].id !== id; i++) {
+    const here = levels.indexOf(d.state.course[d.state.mapCursor].level);
+    const there = levels.indexOf(target.level);
+    d.key(here === there ? 'down' : here < there ? 'right' : 'left');
+  }
+  if (d.state.course[d.state.mapCursor].id !== id) throw new Error(`mapTo: the map's cursor never reached ${id}`);
 }
 
 // Plays on as a learner who needs no help, until `stop(state)` holds: the

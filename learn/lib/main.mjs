@@ -10,7 +10,7 @@ import { contentOf, initialState, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
 import { BOOT_FROM, bootChange, nextChange, REST, TIMING } from './motion.mjs';
 import { plainProgress } from './plain.mjs';
-import { bootFrame, lessonLabel, render } from './render.mjs';
+import { bootFrame, itemsMax, lessonLabel, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
@@ -35,7 +35,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   const saved = loadState(root);
   if (!stdin.isTTY || !stdout.isTTY) {
     const results = {};
-    for (const l of course) results[l.id] = await checkChild(root, l.id, null);
+    for (const l of course) if (!l.newCopy) results[l.id] = await checkChild(root, l.id, null);
     stdout.write(plainProgress(course, results, saved));
     return 0;
   }
@@ -71,6 +71,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       draw();
     });
   }
+  const sizeNow = () => ({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
   const drawIn = (ms) => { frameTimer = timers.setTimeout(draw, ms); };
   function draw() {
     if (closed) return;
@@ -78,7 +79,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     frameTimer = null;
     if (floor() > 0) return drawIn(floor());
     const at = now();
-    const size = { cols: stdout.columns || 80, rows: stdout.rows || 24 };
+    const size = sizeNow();
     const clock = screen.motion ? { at } : REST;
     screen.draw(state ? render(state, size, t, clock) : bootFrame(askedAt, size, t, clock));
     const wait = state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion });
@@ -191,6 +192,9 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   }
 
   function dispatch(ev) {
+    // A key carries how far the check-only card's items scroll in the window
+    // as it is now drawn, so the arrows move only what it shows.
+    if (ev.type === 'key') ev = { ...ev, itemsMax: itemsMax(state, sizeNow(), t) };
     const r = reduce(state, { now: now(), ...ev });
     state = r.state;
     run(r.effects);

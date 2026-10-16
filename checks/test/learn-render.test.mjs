@@ -11,7 +11,7 @@ import { render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, playUntil, root } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, mapTo, playUntil, root } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -521,6 +521,8 @@ test('the next screen counts the questions in the steps this learner finished', 
 const HANDOVER = 'You did every task without the exact command.';
 const playedTo = (id, saved = finishedBefore(id)) => {
   const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: saved } });
+  // Every Beginner lesson done: the map opens at the next level.
+  if (d.state.view === 'map') mapTo(d, id);
   playUntil(d, (s) => s.view === 'next' && s.lesson === id);
   return d;
 };
@@ -882,7 +884,7 @@ test('spacers drop one at a time from the bottom, and the map\'s lesson rows sta
   const gaps = (cols, rows) => {
     const lines = render(map, { cols, rows }, t).map(strip);
     const at = lines.map((l, i) => (/^\s*[❯ ] [✔○] /.test(l) ? i : -1)).filter((i) => i >= 0);
-    assert.equal(at.length, allCourse.length, `${cols}x${rows}: ${lines.join('\n')}`);
+    assert.equal(at.length, 6, `${cols}x${rows}: the Beginner page: ${lines.join('\n')}`);
     return { lines, gaps: new Set(at.slice(1).map((i, k) => i - at[k])) };
   };
   // 80x24 has room for every spacer; at 60x20 the footer's spacer goes, then
@@ -1261,14 +1263,15 @@ test('decoration gives way below 24 rows only, after the spacers: the confetti, 
 test('an optional row drops before any teaching line is cut: the next screen\'s question count', () => {
   const t = theme(CAPS.full);
   const next = screens.find(([l]) => l === 'next')[1];
-  // A save error long enough to leave the body nine rows at 60x20.
-  const toast = { kind: 'save', message: `EACCES: permission denied, open ${'/home/sam/claude-code-practice'.repeat(6)}/.practice/learn.json` };
+  // A save error long enough to leave the body eight rows at 60x20. The
+  // next lesson, b-2 here, has no lesson file: no climb row under its name.
+  const toast = { kind: 'save', message: `EACCES: permission denied, open ${'/home/sam/claude-code-practice'.repeat(8)}/.practice/learn.json` };
   const lines = render({ ...next, toast }, { cols: 60, rows: 20 }, t).map(strip);
   const show = `\n${lines.join('\n')}`;
   assert.ok(!lines.some((l) => l.includes(C.answeredSummary(5))), `the count shows${show}`);
   assert.ok(!lines.some((l) => l.trim() === '…'), `a teaching line is cut${show}`);
   const text = flatText(lines.join(''));
-  for (const word of [C.checkedSummary(1, 1), C.yourClimb, C.nextUp, 'Permission modes and plan mode', C.notchHarder, C.savedBreak]) assert.ok(text.includes(flatText(word)), `"${word}"${show}`);
+  for (const word of [C.checkedSummary(1, 1), C.yourClimb, C.nextUp, 'Permission modes and plan mode', C.savedBreak]) assert.ok(text.includes(flatText(word)), `"${word}"${show}`);
   // With room, it shows.
   assert.ok(render(next, { cols: 60, rows: 20 }, t).map(strip).some((l) => l.includes(C.answeredSummary(5))));
 });
@@ -1555,7 +1558,8 @@ test('each level has its own first warm-up: a later level\'s first lesson with w
   // A made-up Intermediate lesson after the Beginner path: b-2's content
   // under the id i-1, so its warm-ups recall Beginner lessons.
   const b2 = allCourse.find((l) => l.id === 'b-2');
-  const lessons = [...allCourse, { ...b2, id: 'i-1', level: 'intermediate', content: { ...b2.content, lesson: 'i-1' } }];
+  const as = (lessons, id) => lessons.map((l) => (l.id === id ? { ...b2, id, level: 'intermediate', content: { ...b2.content, lesson: id } } : l));
+  const lessons = as(allCourse, 'i-1');
   const i1 = firstWarmup('i-1', {}, lessons);
   assert.equal(i1.state.lesson, 'i-1');
   assert.equal(stepOf(i1.state).part, 'Warm-up');
@@ -1563,7 +1567,7 @@ test('each level has its own first warm-up: a later level\'s first lesson with w
   const b2First = firstWarmup('b-2', {}, lessons);
   assert.ok(explains(b2First), plainAt(b2First, 80, 24));
   // A second Intermediate lesson with warm-ups says nothing more.
-  const i2 = [...lessons, { ...b2, id: 'i-2', level: 'intermediate', content: { ...b2.content, lesson: 'i-2' } }];
+  const i2 = as(lessons, 'i-2');
   const second = firstWarmup('i-2', {}, i2);
   assert.equal(stepOf(second.state).part, 'Warm-up');
   assert.ok(!explains(second), plainAt(second, 80, 24));

@@ -7,12 +7,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lessons } from '../../checks/lessons/index.mjs';
 import { statusPaths } from '../../checks/paths.mjs';
+import { SLOW } from './content.mjs';
 
 const RUN_CHECK = join(dirname(fileURLToPath(import.meta.url)), '..', 'run-check.mjs');
-
-// Items whose check starts another process, such as a test run. They run
-// only when the learner presses r, never on every file change.
-export const SLOW = { 'b-3': [1], 'b-capstone': [3, 4] };
 
 // The environment for every child: git must not hold .git/index.lock while
 // the learner or Claude Code commits, and no color codes in what we parse.

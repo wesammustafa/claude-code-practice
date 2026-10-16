@@ -40,16 +40,6 @@ export function effectiveTier(tier, { lessHelp = false, eased = false } = {}) {
 
 export const mix = (tiers) => TIERS.map((t) => tiers.filter((x) => x === t).length);
 
-// Targets for lessons that aren't in the app yet, so the map can show the
-// climb ahead; a lesson's own content replaces its target.
-export const PLANNED = {
-  'b-2': [8, 4, 3],
-  'b-3': [6, 5, 4],
-  'b-4': [6, 6, 4],
-  'b-5': [3, 5, 7],
-  'b-capstone': [0, 0, 8],
-};
-
 // Scales a mix to `cells` glyphs. The share of steps with less help is
 // rounded first, so a lesson with a larger share never draws fewer.
 export function scaleMix(m, cells) {

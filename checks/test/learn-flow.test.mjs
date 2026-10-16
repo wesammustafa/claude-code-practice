@@ -6,7 +6,7 @@ import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, p
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
-import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, finished, finishedBefore, playUntil } from './learn-drive.mjs';
+import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, finished, finishedBefore, mapTo, playUntil } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
@@ -998,8 +998,7 @@ test('an ease lands only where it changes the help: playing a lesson again start
   const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, finished(l)]));
   const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...done, 'b-5': { ...done['b-5'], warm: ['R1', 'R2'], easedSteps: { Y1: true } } } } });
   assert.equal(d.state.view, 'map');
-  const to = course.findIndex((l) => l.id === 'b-5');
-  while (d.state.mapCursor !== to) d.key('up');
+  mapTo(d, 'b-5');
   d.key('enter');
   assert.equal(d.state.view, 'intro');
   assert.deepEqual(d.state.progress['b-5'].easedSteps, { Y1: true });
@@ -1040,8 +1039,7 @@ test('an ease lands only where it changes the help: in a lesson played again, ev
   const done = Object.fromEntries(course.filter((l) => l.content).map((l) => [l.id, finished(l)]));
   const b5 = course.find((l) => l.id === 'b-5').content.steps.map((x) => x.id);
   const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...done, 'b-5': { complete: true, done: b5 } } } });
-  const to = course.findIndex((l) => l.id === 'b-5');
-  while (d.state.mapCursor !== to) d.key('up');
+  mapTo(d, 'b-5');
   d.key('enter');
   d.key('enter');
   playUntil(d, at5('W4'));
