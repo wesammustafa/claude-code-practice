@@ -1458,6 +1458,8 @@ const firstWarmup = (id, saved = {}, lessons = allCourse) => {
   const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore(id, lessons), ...saved } });
   assert.equal(d.state.view, 'intro', id);
   d.key('enter');
+  // A later level's first intro asks where to practise first (ticket 86).
+  if (d.state.view === 'intro') d.key('enter');
   return d;
 };
 // The same course with a warm-up in b-1, so b-2's first warm-up isn't the
