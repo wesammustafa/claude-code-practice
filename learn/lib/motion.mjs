@@ -53,8 +53,8 @@ export const SHOTS = {
   // at a time. Pip's arms are up, and COMPLETE stamps in, until `whole`.
   // The ticks appear in turn from `ticks` to `ticksBy`, each on the 40 ms
   // grid, so with five the gaps are 80 and 40 ms in turn. From `light` one
-  // light runs the trail, a stop every `stop`.
-  complete: { every: 40, fall: 400, first: 2, more: 3, whole: 480, ticks: 560, ticksBy: 800, light: 840, stop: 40 },
+  // light runs the whole trail by the last frame before the end.
+  complete: { every: 40, fall: 400, first: 2, more: 3, whole: 480, ticks: 560, ticksBy: 800, light: 840 },
   // Pip's eyes open at `waking` and are awake at `awake`; the fuse lights
   // one more link of the path every `fuse`; from `pulse` one pulse crosses
   // the arrow, a cell every `cell`.

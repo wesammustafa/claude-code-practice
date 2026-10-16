@@ -895,6 +895,23 @@ test('a level-up: Pip opens its eyes as the banner wipes in, then the arrow fill
   assert.match(frameAt(c, c.fx.view, 720)[9], /CHALLENGE ★★✦$/);
 });
 
+test("the complete screen's light runs every lesson's whole trail, from its first stop to its last, before it rests", () => {
+  const stops = (line) => [...line.replace(/\s+\d+ of \d+$/, '')].filter((c) => !'━─ '.includes(c));
+  for (const { id } of lessons) {
+    const s = screens.find(([l]) => l === `${id} complete`)[1];
+    const at = (ms) => stops(frameAt(s, s.fx.view, ms)[1]);
+    const n = at(0).length;
+    const first = SHOTS.complete.light;
+    const last = TIMING.complete - TIMING.grid;
+    assert.equal(at(first).indexOf('◉'), 0, `${id}: the first stop at +${first} ms`);
+    assert.equal(at(last).indexOf('◉'), n - 1, `${id}: the last of ${n} stops at +${last} ms`);
+    for (let ms = first; ms < last; ms += TIMING.grid) {
+      assert.ok(at(ms + TIMING.grid).indexOf('◉') >= at(ms).indexOf('◉'), `${id}: the light never runs back at +${ms} ms`);
+    }
+    assert.ok(!at(TIMING.complete).includes('◉'), `${id}: no light at rest`);
+  }
+});
+
 test('a lesson complete: confetti falls into its row, Pip throws its arms up, COMPLETE stamps in, the ticks appear from blank with the payoff last, a light runs the trail', () => {
   const s = screen('complete');
   const f = (ms) => frameAt(s, s.fx.view, ms);
@@ -922,7 +939,7 @@ test('a lesson complete: confetti falls into its row, Pip throws its arms up, CO
   // One light runs along the finished trail, then everything rests.
   const end = '   ◆━━◆   ★━━★                                12 of 12';
   assert.equal(f(880)[1], `  ●━━◉━━●━━●━━●━━●━━●━━●${end}`, '+880 ms');
-  assert.equal(f(1_040)[1], `  ●━━●━━●━━●━━●━━◉━━●━━●${end}`, '+1040 ms');
+  assert.equal(f(1_040)[1], `  ●━━●━━●━━●━━●━━●━━●━━◉${end}`, '+1040 ms: the light runs the whole trail by +1160 ms');
   assert.equal(rest[1], `  ●━━●━━●━━●━━●━━●━━●━━●${end}`);
   assert.deepEqual(f(1_200), rest, '+1200 ms: rest');
   // At 60x20 the confetti appears glyph by glyph in its own row.

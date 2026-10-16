@@ -316,9 +316,12 @@ function trail(ctx, room) {
   const now = passedNow(s);
   const entering = into(ctx, 'entrance');
   const passing = into(ctx, 'stepDone');
-  // On a lesson complete, one light runs along the finished trail.
+  // On a lesson complete, one light runs along the finished trail: on its
+  // first stop at the first frame from `light`, on its last at the last
+  // frame before the screen rests, whatever the trail's length.
   const run = into(ctx, 'complete');
-  const light = run < SHOTS.complete.light ? -1 : Math.floor((run - SHOTS.complete.light) / SHOTS.complete.stop);
+  const frames = (TIMING.complete - SHOTS.complete.light) / TIMING.grid - 1;
+  const light = run < SHOTS.complete.light ? -1 : Math.round((Math.floor((run - SHOTS.complete.light) / TIMING.grid) * (steps.length - 1)) / frames);
   const draw = (join, gap) => {
     let out = '';
     steps.forEach((step, i) => {
