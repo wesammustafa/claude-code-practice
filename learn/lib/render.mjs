@@ -5,12 +5,12 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, WARMUPS,
+  answerKey, asksFolder, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { COMMANDS_URL, OWN_PARTS } from './content.mjs';
+import { COMMANDS_URL, OWN_PARTS, WORK_LEVELS } from './content.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
 // Each body row says how it gives way when the body is taller than its room
@@ -48,6 +48,25 @@ export const titleOf = (l) => plainText(l.title);
 export const lessonLabel = (id) => id.replace(/^([a-z])-(\d+|capstone)$/, (_, l, n) => `${l.toUpperCase()}${n === 'capstone' ? 'C' : n}`);
 // A lesson's level by its guide name: 'Beginner' for b-2.
 const levelName = (s, id = s.lesson) => C.levels[levelOf(s, id)];
+
+// A folder's own name, the last part of its path.
+const baseName = (path) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+// A name cut to `n` columns at most.
+const shortName = (t, name, n) => cut(name, Math.max(4, n), t.unicode ? '…' : '.');
+// Where the lesson's level is practised in another folder than the copy
+// (ticket 86), the folder a line that sends the learner to another terminal
+// means: the work folder, or the copy for a lesson pinned to it and for a
+// beat whose command names <your repo>, which runs from the copy. Null where
+// everything happens in the copy, as in Beginner. The name is cut to `n`.
+function placeOf(s, t, beat = null, n = 24) {
+  const dir = folderOf(s);
+  if (!dir) return null;
+  const root = s.facts.root;
+  const level = WORK_LEVELS.includes(levelOf(s)) ? (s.folders[levelOf(s)] ?? root) : root;
+  const fromCopy = Boolean(beat) && [...beat.lines, ...beat.bottom].some((l) => l.text.includes('<your repo>'));
+  if (dir !== root && !fromCopy) return C.inFolder(shortName(t, baseName(dir), n));
+  return dir !== root || level !== root ? C.inCopy : null;
+}
 
 // The lesson page a quote's relative links point into: set for each frame.
 let pageUrl = '';
@@ -96,7 +115,7 @@ export function render(s, size, t, clock = REST) {
 function frameCtx(s, size, t, clock) {
   const { cols, rows } = size;
   const { W, M, top } = frameOf(size);
-  const f = { W, M, top, gap: [''], toast: s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast)}`, W, TOASTS[s.toast.kind].color) : [] };
+  const f = { W, M, top, gap: [''], toast: s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast, s, t)}`, W, TOASTS[s.toast.kind].color) : [] };
   const roomUnder = (head) => rows - top.length - head - 2 - f.gap.length - f.toast.length;
   f.ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps), roomUnder };
   return f;
@@ -198,7 +217,7 @@ export function fit(body, room, short, more) {
 }
 
 const TOASTS = {
-  stray: { emoji: 'wave', color: 'accent', text: () => C.stray },
+  stray: { emoji: 'wave', color: 'accent', text: (x, s, t) => (placeOf(s, t) ? C.strayIn(placeOf(s, t)) : C.stray) },
   hintsLater: { emoji: 'hint', color: 'accent', text: (x) => C.hintsLater(x.try) },
   pickFirst: { emoji: 'guess', color: 'accent', text: () => C.pickFirst },
   save: { emoji: 'broken', color: 'warn', text: (x) => C.saveFailed(x.message) },
@@ -290,6 +309,8 @@ function keybar(t, keys, w = Infinity, held = null) {
   if (width(draw(list, false)) <= w) return draw(list, false);
   const high = list.filter((k) => !k.low);
   if (width(draw(high, false)) <= w) return draw(high, false);
+  // The low keys are gone before any label shortens.
+  list = high;
   while (width(draw(list, true)) > w) {
     const drop = list.findLastIndex((k) => !k.main && k.key !== 'q' && k.key !== 'ctrl+c');
     if (drop < 0) break;
@@ -305,7 +326,11 @@ export function quotePath(path, win32) {
   if (/^[\w@%+=:,./~\\-]+$/.test(path)) return path;
   return win32 ? `"${path}"` : `'${path.replace(/'/g, "'\\''")}'`;
 }
-const withRoot = (text, root, win32) => text.replace('<your practice copy>', quotePath(root, win32));
+// The work folder fills <your repo> (ticket 86), where the lesson has one.
+const withRoot = (text, root, win32, dir) => {
+  const out = text.replace('<your practice copy>', quotePath(root, win32));
+  return dir ? out.replace('<your repo>', quotePath(dir, win32)) : out;
+};
 
 // A command on a dark block, one line per `w - 4` columns of the command,
 // so a long path is never cut.
@@ -427,6 +452,14 @@ function progressRule(ctx) {
 function lessonHead(ctx, right, rightText) {
   const { s, t, W } = ctx;
   const l = lessonOf(s);
+  // A work folder that isn't the copy is named beside the right-hand text,
+  // in the room the trail leaves closed up (ticket 86).
+  const dir = folderOf(s);
+  if (dir && dir !== s.facts.root) {
+    const sep = rightText ? ' · ' : '';
+    const room = W - 1 - (l.content ? width(trail(ctx, 0)) + 1 : 0) - width(rightText) - width(sep) - width(C.inFolder(''));
+    rightText = `${C.inFolder(shortName(t, baseName(dir), room))}${sep}${rightText}`;
+  }
   // The check's short title, as on the map, cut to the room the pill leaves;
   // the content file keeps the page's heading.
   const label = t.pill(lessonLabel(l.id), 'accentBg');
@@ -520,6 +553,39 @@ const goFurther = (t, read, w, url) => {
 const sentence = (t, parts, w, color) => (parts.every((x) => width(x) <= w) ? parts : [parts.join(' ')]).flatMap((x) => para(t, x, w, color));
 const hintBox = (t, lines) => lines.map((l) => `${t.fg('warn', t.glyph.bar)} ${l}`);
 
+// A folder path in `w` columns: whole where it fits, else its start and its
+// end with `…` between, so the folder's own name always shows.
+function shortPath(t, path, w) {
+  if (width(path) <= w) return path;
+  const g = graphemes(path);
+  const dots = t.unicode ? '…' : '...';
+  const end = Math.ceil((w - width(dots)) * 0.6);
+  return `${g.slice(0, w - width(dots) - end).join('')}${dots}${g.slice(-end).join('')}`;
+}
+// A level's work folder on one row: "Work folder:", then this practice copy
+// or the folder's path. `after` follows it, such as the key that changes it.
+function folderLine(ctx, path = folderOf(ctx.s), after = '') {
+  const { s, t, W } = ctx;
+  const lead = `${C.workFolder} `;
+  const room = W - width(lead) - width(after);
+  const where = path === s.facts.root ? t.fg('text', C.thisCopy) : t.fg('code', shortPath(t, path, room));
+  return `${t.fg('muted', lead)}${where}${after}`;
+}
+
+// What main found wrong with the lesson's work folder, where it isn't the
+// copy, as kept rows: before the first step, the learner knows (ticket 86).
+// Nothing until main has looked.
+function folderNotes(ctx, w = ctx.W) {
+  const { s, t } = ctx;
+  const dir = folderOf(s);
+  const found = dir && dir !== s.facts.root ? s.probes[dir] : null;
+  if (!found) return [];
+  const text = found.missing ? C.folderGone(shortPath(t, dir, w - 30)) : !found.git ? C.notGit(baseName(dir)) : !found.practice ? C.noPractice(baseName(dir)) : null;
+  if (!text) return [];
+  const mark = `${t.fg('warn', t.glyph.warnMark)} `;
+  return kept(hang(mark, para(t, text, w - width(mark), 'warn')));
+}
+
 // ---- views -------------------------------------------------------------------
 // The welcome's path hint and the map's footer say the same thing: each
 // lesson starts with less help than the one before. Help fades within a
@@ -599,6 +665,7 @@ const VIEWS = {
   intro(ctx) {
     const { s, t, W } = ctx;
     const content = contentOf(s);
+    const asking = asksFolder(s);
     const warmups = Math.min(WARMUPS, content.warmup.length);
     // The climb is the lesson's own steps: warm-ups are recall, not new help.
     const steps = stepsOf(s);
@@ -607,6 +674,15 @@ const VIEWS = {
     const option = (i, text) => (s.cursor === i
       ? `${t.fg('key', t.bold(t.glyph.pointer))} ${t.inverse(t.fg('key', t.bold(` ${text} `)))}`
       : `  ${t.fg('text', ` ${text}`)}`);
+    // Where the level is practised (ticket 86): the question, until it has
+    // an answer, in place of the start options; then the answer, on the
+    // intro that asked. Both are kept rows, so the Why line gives way first.
+    // Room for 89's needs line goes here too, as kept rows above the menu.
+    const asksHere = folderKey(s) && (folderKey(s) !== levelOf(s) || levelLessons(s, levelOf(s))[0].id === s.lesson);
+    const menu = asking
+      ? [...kept([t.bold(t.fg('white', folderKey(s) === levelOf(s) ? C.folderAsk(levelName(s)) : C.newCopyAsk))]),
+        ...kept(folderOptions(s).map((o, i) => option(i, o === 'copy' ? C.folderCopy : folderKey(s) === levelOf(s) ? C.folderOther : C.folderNewCopy)))]
+      : [...(asksHere ? kept([folderLine(ctx)]) : []), ...folderNotes(ctx), ...kept([option(0, label), option(1, C.lessHelp)])];
     // Why the lesson matters, in the page's words, with its blank: an
     // optional row, so below 24 rows the staircase compacts first.
     return {
@@ -621,10 +697,9 @@ const VIEWS = {
         ...staircase(ctx, m, false),
         ...(warmups ? [t.fg('muted', C.warmups(warmups))] : []),
         SPACER,
-        option(0, label),
-        option(1, C.lessHelp),
+        ...menu,
       ],
-      keys: [key(t.glyph.up, C.k.choose), key('enter', C.k.start), key('m', C.k.map), key('q', C.k.quit)],
+      keys: [key(t.glyph.up, C.k.choose), key('enter', asking ? C.k.choose : C.k.start), key('m', C.k.map), !asking && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
     };
   },
 
@@ -735,7 +810,8 @@ const VIEWS = {
       if (s.progress[s.lesson].bottomAt === null) body.push(...kept([`${indent}${t.fg('text', C.handover)}`]));
       // Each level's capstone invites questions, under the handover line: an
       // optional sentence, so a long toast cuts no teaching line.
-      body.push(...optional(hang(indent, para(t, C.invitation, W - width(indent), 'muted'))));
+      const place = placeOf(s, t);
+      body.push(...optional(hang(indent, para(t, place ? C.invitationAt(place) : C.invitation, W - width(indent), 'muted'))));
     }
     // The count repeats what the learner did, so it goes before a teaching line.
     body.push(...optional([lead(t, 'claude', t.fg('text', C.answeredSummary(answered)))]), SPACER, t.bold(t.fg('white', C.yourClimb)), SPACER,
@@ -782,6 +858,9 @@ const VIEWS = {
     // It and the footer explain the tier bars: a page with none has neither.
     const bars = lessons.some((l) => l.content);
     const footer = lessHelpOn(s, lessons);
+    // A later level's work folder, and the key that changes it (ticket 86).
+    const level = levelOf(s, cursor.id);
+    const folder = WORK_LEVELS.includes(level) ? [folderLine(ctx, s.folders[level] ?? s.facts.root, `   ${t.fg('muted', C.folderChange)}`), SPACER] : [];
     const legend = [];
     for (const item of TIERS.map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.tierHelp[k])}`)) {
       const last = legend.at(-1);
@@ -794,7 +873,7 @@ const VIEWS = {
     // Where the level's rows don't fit even closed up, with the footer gone,
     // the list scrolls: the rows that fit, the cursor's as near their middle
     // as the ends allow.
-    const fits = Math.max(1, ctx.roomUnder(head.length) - (bars ? legend.length : 0));
+    const fits = Math.max(1, ctx.roomUnder(head.length) - (bars ? legend.length : 0) - (folder.length ? 1 : 0));
     const at = lessons.indexOf(cursor);
     const from = lessons.length <= fits ? 0 : Math.max(0, Math.min(lessons.length - fits, at - Math.floor(fits / 2)));
     const rows = lessons.slice(from, from + fits).flatMap((l, i) => {
@@ -813,11 +892,11 @@ const VIEWS = {
       head,
       // The footer says what the welcome's hint says, on the same level: it
       // gives way before a row.
-      body: bars ? [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, ...(footer ? [SPACER, ...optional(para(t, C.mapFooter, W, 'muted'))] : [])] : rows,
+      body: [...folder, ...(bars ? [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, ...(footer ? [SPACER, ...optional(para(t, C.mapFooter, W, 'muted'))] : [])] : rows)],
       // Where the bar is short, as in ASCII at 60x20, "choose" gives way so
       // the arrows that switch level stay: the pointer shows what up and
       // down do.
-      keys: [{ ...key(t.glyph.up, C.k.choose), short: '' }, levelsOf(s).length > 1 ? key(t.glyph.sides, C.k.level) : null, key('enter', C.k.open), key('m', C.k.back), key('q', C.k.quit)],
+      keys: [{ ...key(t.glyph.up, C.k.choose), short: '' }, levelsOf(s).length > 1 ? key(t.glyph.sides, C.k.level) : null, key('enter', C.k.open), folder.length ? { ...key('f', C.k.folder), low: true } : null, key('m', C.k.back), key('q', C.k.quit)],
     };
   },
 
@@ -843,7 +922,7 @@ const VIEWS = {
       const mark = !r || r.slow ? t.fg('faint', t.glyph.dotOff) : r.pass ? t.fg('ok', passMark(index)) : t.fg('warn', t.glyph.warnMark);
       return kept(para(t, text, inner - 4).map((x, i) => `${i ? ' ' : mark} ${x}`));
     });
-    const intro = [...sentence(t, checkOnlyWords(l), inner, 'text'), SPACER];
+    const intro = [...sentence(t, checkOnlyWords(s, l), inner, 'text'), SPACER];
     const url = [...para(t, l.url, inner, 'key').map((x) => t.link(x, l.url)), SPACER];
     // What the runs said beyond the marks: kept, like a step's status line.
     // A slow item stays unchecked until r runs it; once r has, a poll keeps
@@ -857,6 +936,8 @@ const VIEWS = {
       if (unchecked) notes.push(SPACER, ...kept(para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted')));
       if (results?.error) notes.push(SPACER, ...kept(para(t, `${t.lead('broken')}${C.broken(results.error)}`, inner, 'bad')));
     }
+    const folder = folderNotes(ctx, inner);
+    if (folder.length) notes.push(SPACER, ...folder);
     // The card's text rows: the body's room less the blank above the card,
     // its two borders and its first blank.
     const room = ctx.roomUnder(head.length) - 4;
@@ -880,8 +961,9 @@ const VIEWS = {
     }
     return {
       head,
-      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: going ? 'checking' : checkOnlyMood(results) }),
-      keys: [shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, l.newCopy ? null : key('r', C.k.checkNow), key('p', C.k.page), key('m', C.k.map), key('q', C.k.quit)],
+      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}${placeOf(s, t, null, 16) ? `, ${placeOf(s, t, null, 16)}` : ''}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: going ? 'checking' : checkOnlyMood(results) }),
+      // A lesson that runs in a new copy with none given yet: f is the way on.
+      keys: [folderOf(s) ? null : mainKey('f', C.k.giveFolder), shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, folderOf(s) ? key('r', C.k.checkNow) : null, key('p', C.k.page), key('m', C.k.map), folderOf(s) && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
       itemsMax: last,
     };
   },
@@ -1001,7 +1083,7 @@ function stepView(ctx) {
       if (l.key === 'run') {
         if (hideRuns) return;
         if (!prevRun && i > 0) rows.push(SPACER);
-        const cmd = (t.caps.win32 && l.win) || withRoot(l.text, s.facts.root, t.caps.win32);
+        const cmd = (t.caps.win32 && l.win) || withRoot(l.text, s.facts.root, t.caps.win32, folderOf(s));
         const cw = chipWidth(ctx, beat);
         const long = cw + 22 <= inner;
         const live = l.tick === 'practice-dir' && s.facts.practiceDir;
@@ -1067,7 +1149,9 @@ function stepView(ctx) {
 
   const whereKey = beat.kind === 'do' ? beat.where : beat.kind;
   const whereEmoji = { terminal: 'terminal', claude: 'claude', shell: 'terminal', editor: 'editor', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
-  const where = `${t.lead(whereEmoji)}${C.where[whereKey]}`;
+  // A terminal or Claude Code names its folder where that isn't the copy.
+  const place = ['terminal', 'claude', 'shell'].includes(whereKey) ? placeOf(s, t, beat, 16) : null;
+  const where = `${t.lead(whereEmoji)}${C.where[whereKey]}${place ? `, ${place}` : ''}`;
   const tint = done ? 'ok' : style.tint;
   return {
     head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
@@ -1104,7 +1188,7 @@ function checkOnlyMood(results) {
 // Chips in a beat share one width: room for the longest command, up to the
 // card's width. A live tick beside a chip shortens to a mark when it won't fit.
 const chipWidth = (ctx, beat) => {
-  const longest = Math.max(...beat.lines.filter((l) => l.key === 'run').map((l) => Math.max(width(withRoot(l.text, ctx.s.facts.root, ctx.t.caps.win32)), width(l.win ?? ''))), ...beat.bottom.map((b) => Math.max(width(b.text), width(b.win ?? ''))), 10);
+  const longest = Math.max(...beat.lines.filter((l) => l.key === 'run').map((l) => Math.max(width(withRoot(l.text, ctx.s.facts.root, ctx.t.caps.win32, folderOf(ctx.s))), width(l.win ?? ''))), ...beat.bottom.map((b) => Math.max(width(b.text), width(b.win ?? ''))), 10);
   // Room for the tick a done command gets beside its chip.
   return Math.min(ctx.inner - 2 - width(ctx.t.glyph.check), Math.max(longest + 4, 30));
 };
@@ -1171,7 +1255,14 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   }
   if (beat.verify.all && ['done', 'already'].includes(st.status) && s.checks[s.lesson]?.items) {
     const items = s.checks[s.lesson].items;
-    rows.push(`${t.fg('ok', t.glyph.check)} ${t.fg('code', `npm run check -- ${s.lesson}`)} ${t.fg('ok', C.checkPasses(items.filter((x) => x.pass).length, items.length)[0])}`, ...para(t, C.runItToo(C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
+    // In a work folder that isn't the copy, the command names it with
+    // --dir, and runs from the copy, as the pages say.
+    const dir = folderOf(s) !== s.facts.root ? folderOf(s) : null;
+    const cmd = `npm run check -- ${s.lesson}${dir ? ` --dir ${quotePath(dir, t.caps.win32)}` : ''}`;
+    const mark = `${t.fg('ok', t.glyph.check)} `;
+    const passes = wrapRuns([{ text: cmd, color: 'code' }, { text: ` ${C.checkPasses(items.filter((x) => x.pass).length, items.length)[0]}`, color: 'ok' }], inner - width(mark));
+    rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
+      ...para(t, C.runItToo(dir ? `${C.where.terminal}, ${C.inCopy}` : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
   } else if (st.status === 'done' && ['check', 'file'].includes(beat.verify.kind)) {
     // What the file holds, beside the burst; on two lines when one is too long.
     const one = `${beat.evidence} holds ${st.evidence}`;
@@ -1246,7 +1337,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
       else if (r.kind === 'check') box.push(t.fg('muted', C.checkSays), ...para(t, r.text, hw, 'text'));
       else if (r.kind === 'quote') box.push(...para(t, r.text, hw, 'warn', { quote: true }));
       else box.push(...r.lines.flatMap((b) => {
-        const text = (t.caps.win32 && b.win) || withRoot(b.text, s.facts.root, t.caps.win32);
+        const text = (t.caps.win32 && b.win) || withRoot(b.text, s.facts.root, t.caps.win32, folderOf(s));
         return text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat), hw));
       }));
       const more = st.rung < rungs.length - 1;
@@ -1358,6 +1449,35 @@ function cardPlaces(ctx, units, title, intro) {
 const COMPARE_MIN = 24;
 
 const OVERLAYS = {
+  // The path prompt (ticket 86): what it asks for, the path as typed, its
+  // last rows where it is long, so the end the next key goes to shows, and
+  // a folder main found missing, or that main is looking.
+  folder(ctx) {
+    const { s, t, inner } = ctx;
+    const a = s.folderAsk;
+    // A level's folder, or a lesson's new copy.
+    const level = s.course.find((l) => l.level === a.key);
+    const room = inner - 4;
+    const rows = [];
+    let row = '';
+    for (const g of graphemes(a.typed)) {
+      if (width(row + g) > room) {
+        rows.push(row);
+        row = '';
+      }
+      row += g;
+    }
+    rows.push(row);
+    const shown = rows.slice(-3);
+    const input = shown.map((r, i) => `  ${t.fg('muted', i ? ' ' : rows.length > shown.length ? t.glyph.ellipsis : '›')} ${t.fg('code', r)}${i === shown.length - 1 && !a.asked ? t.inverse(' ') : ''}`);
+    const note = a.asked ? para(t, C.checking(), inner, 'key') : a.missing ? para(t, `${t.glyph.warnMark} ${C.noFolder(shortPath(t, a.missing, inner - 16))}`, inner, 'warn') : [];
+    return {
+      body: [...kept([t.bold(t.fg('white', level ? C.folderPrompt(C.levels[level.level]) : C.folderPromptNew))]),
+        ...para(t, level ? `${C.folderHow} ${C.folderEmpty}` : C.folderHow, inner, 'muted'), SPACER, ...kept(input),
+        ...(note.length ? [SPACER, ...kept(note)] : [])],
+      keys: a.asked ? [key('esc', C.k.cancel)] : [key('enter', C.k.useIt), key('esc', C.k.cancel), key('ctrl+c', C.k.quit)],
+    };
+  },
   why(ctx) {
     const { s, t, inner } = ctx;
     return {

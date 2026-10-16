@@ -1,12 +1,13 @@
 // Wiring: the terminal, the state, the checks and the watcher. All decisions
 // are in flow.mjs; this file only carries events in and effects out.
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { capabilities } from './caps.mjs';
-import { loadCourse } from './content.mjs';
+import { loadCourse, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
-import { contentOf, initialState, reduce, stepsOf, watching } from './flow.mjs';
+import { contentOf, folderKey, folderOf, initialState, levelOf, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
 import { BOOT_FROM, bootChange, nextChange, REST, TIMING } from './motion.mjs';
 import { plainProgress } from './plain.mjs';
@@ -14,7 +15,7 @@ import { bootFrame, itemsMax, lessonLabel, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
-import { evidence, gitFirstName, gitReady, gitStatus, lineCount, owing, runCheck, stampOf, stopChildren } from './verify.mjs';
+import { evidence, gitFirstName, gitReady, gitStatus, lineCount, owing, probeFolder, runCheck, stampOf, stopChildren } from './verify.mjs';
 import { watchDirs } from './watch.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -26,17 +27,68 @@ const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
 // greet.
 const ASK_GIT = (root) => Promise.all([gitReady(root), gitFirstName(root)]);
 
+// A folder path as the learner typed or pasted it, in full: quotes around
+// it and the shell's `\ ` for a space (a folder dragged onto the terminal)
+// come off, `~` is the home folder, and a relative path is from the copy,
+// as npm run check reads one.
+function folderPath(text, root, home, win32) {
+  let path = text.trim().replace(/^(['"])(.*)\1$/, '$2');
+  if (!win32) path = path.replace(/\\ /g, ' ');
+  if (path === '~' || /^~[\\/]/.test(path)) path = join(home, path.slice(1));
+  return resolve(root, path);
+}
+
+// The flags, and `--dir <folder>` (or `--dir=<folder>`): null when
+// something else is there, or --dir has no folder after it.
+function parseArgs(argv) {
+  let dir;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (FLAGS.includes(a)) continue;
+    if (a.startsWith('--dir=') && dir === undefined) dir = a.slice(6);
+    else if (a === '--dir' && dir === undefined && argv[i + 1] !== undefined) dir = argv[++i];
+    else return null;
+  }
+  return dir === '' ? null : { dir };
+}
+
 export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
-  if (argv.some((a) => !FLAGS.includes(a))) {
+  const args = parseArgs(argv);
+  if (!args) {
     stderr.write(`${C.usage}\n`);
     return 2;
   }
   const course = loadCourse(root);
-  const saved = loadState(root);
+  let saved = loadState(root);
+  // --dir answers the folder question ahead of time, for the level the app
+  // opens on, as the intro would: a folder relative to the copy, as npm run
+  // check takes one, or in full.
+  let ahead = null;
+  if (args.dir !== undefined) {
+    ahead = await probeFolder(resolve(root, args.dir));
+    if (ahead.missing) {
+      stderr.write(`${C.noFolder(ahead.path)}\n`);
+      return 2;
+    }
+    // The lesson's own key for one that runs in a new copy; else its level's,
+    // i-capstone's too, though i-capstone itself stays in the copy.
+    const opening = initialState({ course, saved, facts: { root } });
+    const key = folderKey(opening) ?? (WORK_LEVELS.includes(levelOf(opening)) ? levelOf(opening) : null);
+    if (!key) {
+      stderr.write(`${C.dirBeginner}\n`);
+      return 2;
+    }
+    saved = { ...(saved ?? {}), folders: { ...(saved?.folders ?? {}), [key]: ahead.path } };
+  }
   if (!stdin.isTTY || !stdout.isTTY) {
+    const s = initialState({ course, saved, facts: { root } });
     const results = {};
-    for (const l of course) if (!l.newCopy) results[l.id] = await checkChild(root, l.id, null);
-    stdout.write(plainProgress(course, results, saved));
+    const dirs = {};
+    for (const l of course) {
+      dirs[l.id] = folderOf(s, l.id);
+      if (dirs[l.id]) results[l.id] = await checkChild(dirs[l.id], l.id, null);
+    }
+    stdout.write(plainProgress(course, results, saved, { root, dirs }));
     return 0;
   }
 
@@ -52,6 +104,8 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   let lastSave = 0;
   const intervals = [];
   let watcher = null;
+  // The lesson's work folder and its watcher, where it is not the copy.
+  let work = { dir: root, watcher: null };
 
   // Drawing. Every dispatch asks for a frame, and one goes out per turn of the
   // event loop, so the events of one turn (a watcher's burst, keys in one
@@ -121,42 +175,53 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // causes, it waits for the dispatch that asked for the run to finish.
   const runStart = () => queueMicrotask(() => !closed && dispatch({ type: 'run-start' }));
 
-  const check = owing(async ({ slow, asked }, lesson, items, ev) => {
+  // Each run is in `dir`, the lesson's work folder, and its result says so:
+  // the reducer drops a result about a folder the lesson no longer uses.
+  const check = owing(async ({ slow, asked }, lesson, items, ev, dir) => {
     // The evidence file's state before and after the run: if it changed while
     // the check ran, the result may be about the old file, so ask again.
-    const before = ev ? stampOf(root, ev) : null;
+    const before = ev ? stampOf(dir, ev) : null;
     // The child starts now, not when the run was asked for: a run asked for
     // during another waits in line.
     runStart();
     // Each item the child starts, for the checking label to count, with the
     // items this run was asked for.
     const onRunning = (n, m) => !closed && dispatch({ type: 'running', lesson, items, n, m, asked });
-    const r = await checkChild(root, lesson, items, { slow, onRunning });
+    const r = await checkChild(dir, lesson, items, { slow, onRunning });
     if (closed) return;
-    if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error, asked });
-    if (ev && stampOf(root, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev));
-    dispatch({ type: 'check', lesson, items: r.items, evidence: ev ? evidence(root, ev) : null, path: ev ?? null, stamp: before, asked });
+    if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error, asked, dir });
+    if (ev && stampOf(dir, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev, dir));
+    dispatch({ type: 'check', lesson, items: r.items, evidence: ev ? evidence(dir, ev) : null, path: ev ?? null, stamp: before, asked, dir });
   });
-  const git = owing(async ({ asked }) => {
+  const git = owing(async ({ asked }, dir) => {
     runStart();
-    const r = await gitStatus(root);
+    const r = await gitStatus(dir);
     if (closed) return;
-    dispatch(r.error ? { type: 'git-error', message: r.error, asked } : { type: 'git', paths: r.paths, asked });
+    dispatch(r.error ? { type: 'git-error', message: r.error, asked, dir } : { type: 'git', paths: r.paths, asked, dir });
   });
 
   // A file's first line and its state, read now: small, local and quick.
-  const file = (path, asked = 0) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, line: evidence(root, path), lines: lineCount(root, path), stamp: stampOf(root, path), asked }));
+  const file = (path, asked, dir) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, line: evidence(dir, path), lines: lineCount(dir, path), stamp: stampOf(dir, path), asked: asked ?? 0, dir }));
 
   function run(effects) {
     for (const e of effects) {
-      if (e.type === 'check') check(e, e.lesson, e.items, e.evidence);
-      else if (e.type === 'file') file(e.path, e.asked);
-      else if (e.type === 'stamp') queueMicrotask(() => !closed && dispatch({ type: 'stamp', key: e.key, stamp: stampOf(root, e.path) }));
-      else if (e.type === 'git') git(e);
+      if (e.type === 'check') check(e, e.lesson, e.items, e.evidence, e.dir);
+      else if (e.type === 'file') file(e.path, e.asked, e.dir);
+      else if (e.type === 'stamp') queueMicrotask(() => !closed && dispatch({ type: 'stamp', key: e.key, stamp: stampOf(e.dir, e.path), dir: e.dir }));
+      else if (e.type === 'git') git(e, e.dir);
+      else if (e.type === 'folder') look(e);
       else if (e.type === 'save') save();
       else if (e.type === 'later') timers.setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
       else if (e.type === 'quit') quit(0);
     }
+  }
+
+  // The path prompt's ask: what is at that path, for the reducer to take or
+  // turn down.
+  const home = env.HOME || env.USERPROFILE || homedir();
+  async function look(e) {
+    const found = await probeFolder(folderPath(e.text, root, home, caps.win32));
+    if (!closed) dispatch({ type: 'probed', key: e.key, asked: e.asked, ...found });
   }
 
   // A failed save (a read-only folder, a full disk, a file another program
@@ -181,24 +246,36 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const r = reduce(state, { now: now(), ...ev });
     state = r.state;
     run(r.effects);
+    watchWork();
     requestDraw();
   }
 
   // Ask again for whatever the screen waits on.
   function poke() {
     const w = watching(state);
-    if (w?.check) check({}, w.check.lesson, w.check.items, state.view === 'step' ? stepsOf(state)[state.pos.step].beats[state.pos.beat].evidence : null);
-    if (w?.file) file(w.file);
-    if (w?.git) git();
+    if (w?.check) check({}, w.check.lesson, w.check.items, state.view === 'step' ? stepsOf(state)[state.pos.step].beats[state.pos.beat].evidence : null, w.dir);
+    if (w?.file) file(w.file, 0, w.dir);
+    if (w?.git) git({}, w.dir);
   }
 
-  watcher = watch(root, () => {
+  // The copy is always watched: its .practice/ decides whether progress
+  // saves. The lesson's work folder, where it is another, is watched too,
+  // armed again whenever the lesson on screen moves to another folder.
+  const changed = () => {
     if (closed || now() - lastSave < 400) return;
     const practiceDir = existsSync(join(root, '.practice'));
     if (practiceDir !== state.facts.practiceDir) dispatch({ type: 'facts', facts: { practiceDir } });
     dispatch({ type: 'activity' });
     poke();
-  });
+  };
+  watcher = watch(root, changed);
+  function watchWork() {
+    const dir = folderOf(state) ?? root;
+    if (closed || dir === work.dir) return;
+    work.watcher?.close();
+    work = { dir, watcher: dir === root ? null : watch(dir, changed) };
+  }
+  watchWork();
 
   function quit(code) {
     if (closed) return;
@@ -207,6 +284,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     timers.clearTimeout(frameTimer);
     stopChildren();
     watcher?.close();
+    work.watcher?.close();
     stdin.removeListener('data', onBootKey);
     stdin.removeListener('data', onData);
     if (stdin.isTTY) stdin.setRawMode(false);
@@ -224,6 +302,8 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (!existsSync(join(root, '.practice'))) return C.savedLater;
     const steps = stepsOf(state);
     const n = steps.findIndex((s) => s.id === p.step) + 1;
+    // Progress stays in the copy: from a work folder elsewhere, say where.
+    if (folderOf(state) !== root) return C.savedAtCopy(lessonLabel(state.lesson), n, steps.length, root);
     return C.savedAt(lessonLabel(state.lesson), n, steps.length);
   }
 
@@ -257,8 +337,17 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     poke();
   }, 500));
 
+  // A folder --dir gave is an answer: saved like one.
+  if (ahead) save();
+  // What each work folder is, for the notes (the copy needs none): the ones
+  // learn.json names, and --dir's.
+  for (const dir of new Set(Object.values(state.folders))) {
+    if (dir === root) continue;
+    if (dir === ahead?.path) dispatch({ type: 'probed', ...ahead });
+    else probeFolder(dir).then((found) => !closed && dispatch({ type: 'probed', ...found }));
+  }
   // The first look: the current lesson's check, for "welcome back" and the map.
   draw();
-  if (state.view === 'resume' || state.view === 'intro') check({}, state.lesson, null, null);
+  if ((state.view === 'resume' || state.view === 'intro') && folderOf(state)) check({}, state.lesson, null, null, folderOf(state));
   return new Promise(() => {});
 }

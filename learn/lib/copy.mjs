@@ -10,6 +10,10 @@ export const TERMS = {
   practiceCopy: 'practice copy',
   // The copy of the template a-5 and the Advanced capstone have the learner make.
   newCopy: 'new copy',
+  // Where a later level's lessons happen (ticket 86): the practice copy by
+  // default, or another folder, such as one of the learner's own projects.
+  workFolder: 'work folder',
+  yourRepository: 'your repository',
   tierHelp: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
   // The guide's level names, by the folder of a lesson's page.
   levels: { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' },
@@ -112,6 +116,11 @@ export const C = {
   runItToo: (place) => `Run it ${place} too: you will see the same result.`,
   eased: 'A little more help on this one: you needed help with it last time.',
   stray: "That looks like a command. Type it in your other terminal, not here.",
+  strayIn: (place) => `That looks like a command. Type it in your other terminal, ${place}, not here.`,
+  // Which folder a line that sends the learner to another terminal means,
+  // where the level's work folder isn't the copy (ticket 86).
+  inFolder: (name) => `in ${name}`,
+  inCopy: `in your ${TERMS.practiceCopy}`,
 
   levelUp: 'LEVEL UP',
   toHinted: ["You've done each of these once, with every command shown.", 'From here you get the goal. Press h when you want a hint.'],
@@ -126,6 +135,7 @@ export const C = {
   // On each level's capstone next screen only: inside a level, the next
   // lesson expects a clean tree.
   invitation: 'Questions about anything in this level? Ask in your other terminal, then compare the answer with the lesson pages.',
+  invitationAt: (place) => `Questions about anything in this level? Ask in your other terminal, ${place}, then compare the answer with the lesson pages.`,
   answeredSummary: (n) => `${n} question${n === 1 ? '' : 's'} answered`,
   yourClimb: 'Your climb',
   nextUp: 'Next up',
@@ -141,11 +151,30 @@ export const C = {
   ofDone: (n, m) => `${n} of ${m} done`,
 
   checkOnly: ["This lesson isn't in the app yet. Follow the lesson page,", "and I'll watch its check for you:"],
-  newCopy: [`This lesson runs in a ${TERMS.newCopy} of the template, so I don't`, `check it in this ${TERMS.practiceCopy}. Its check looks for:`],
+  newCopy: [`This lesson runs in a ${TERMS.newCopy} of the template, not in this`, `${TERMS.practiceCopy}. Press f to give its folder, and I'll watch its check there:`],
+  newCopyAt: [`This lesson runs in your ${TERMS.newCopy} of the template. Follow the`, "lesson page, and I'll watch its check there:"],
   newCopyPlain: `runs in a ${TERMS.newCopy} of the template, so it is not checked here`,
   // Which items the check-only card shows, where they don't all fit.
   itemsShown: (a, b, n) => `Items ${a} to ${b} of ${n}`,
   itemOf: (a, n) => `Item ${a} of ${n}`,
+
+  // The work folder (ticket 86): the intro's question, the prompt for a
+  // folder's path, and what the app found there. These are about this app
+  // and git, never about Claude Code.
+  folderAsk: (level) => `Where do you want to practise ${level}?`,
+  folderCopy: `In this ${TERMS.practiceCopy}`,
+  folderOther: `In another folder, such as ${TERMS.yourRepository}`,
+  newCopyAsk: `Where is your ${TERMS.newCopy} of the template?`,
+  folderNewCopy: `Give the folder of your ${TERMS.newCopy}`,
+  workFolder: 'Work folder:',
+  thisCopy: `this ${TERMS.practiceCopy}`,
+  folderPrompt: (level) => `The ${TERMS.workFolder} for ${level}`,
+  folderPromptNew: `The folder of your ${TERMS.newCopy} of the template`,
+  folderHow: 'Type or paste its path, then press enter.',
+  folderEmpty: `An empty line means this ${TERMS.practiceCopy}.`,
+  notGit: (name) => `git says ${name} is not a git repository. Press f to pick another folder.`,
+  noPractice: (name) => `${name} has no .practice/ folder that git ignores: set one up as Beginner lesson 1 shows.`,
+  folderGone: (path) => `No folder at ${path} any more. Press f to pick another.`,
 
   welcomeBack: 'Welcome back!',
   restartAsk: 'Start this lesson over? Your answers and ticks for it are cleared.',
@@ -180,23 +209,31 @@ export const C = {
     ['?', 'these keys'],
     ['q', 'quit (your place is saved)'],
   ],
-  // Listed under the arrows where the course has more than one level.
-  levelKey: ['← →', 'the map: another level'],
+  // Listed under the arrows where the course has more than one level, with
+  // f, which changes a later level's work folder on its map page (ticket 86).
+  levelKey: ['← →  f', `the map: another level; f: ${TERMS.workFolder}`],
+  folderChange: 'f to change',
   // Listed only where the ? overlay has a row to spare.
   cardKey: ['c', 'your card: commands from finished steps'],
   calm: 'Prefer a still screen? Quit, then start with npm run learn -- --calm.',
 
   small: 'Make this window a bit bigger (at least 60 by 20).',
   savedAt: (label, n, m) => `Saved: ${label}, step ${n} of ${m}. Run npm run learn to pick up where you left off.`,
+  // Where the lesson's work folder is another: progress stays in the copy.
+  savedAtCopy: (label, n, m, root) => `Saved: ${label}, step ${n} of ${m}. Run npm run learn in your ${TERMS.practiceCopy}, ${root}, to pick up where you left off.`,
   savedLater: 'Your place is saved once .practice/ exists (lesson 1, step 3).',
   plainIntro: 'npm run learn shows one step at a time in a terminal. Run it in a terminal window to use it.',
-  usage: 'Usage: npm run learn -- [--calm] [--plain]. --calm keeps the screen still; --plain draws plain symbols with no color.',
+  usage: 'Usage: npm run learn -- [--calm] [--plain] [--dir <folder>]. --calm keeps the screen still; --plain draws plain symbols with no color; --dir sets the work folder of the level the app opens on.',
+  noFolder: (path) => `No folder at ${path}.`,
+  dirBeginner: `Beginner practises in this ${TERMS.practiceCopy}, so --dir has no level to set yet. From Intermediate on, use it, or press f on the map.`,
+  plainIn: (dir) => ` (checked in ${dir})`,
 
   k: {
     itsOpen: "it's open", quit: 'quit', choose: 'choose', start: 'start', map: 'map', more: 'more', checkNow: 'check now',
     checkAgain: 'check again', moreHelp: 'more help', help: 'help', hint: 'hint', anotherHint: 'another hint', why: 'why', back: 'back',
     next: 'next', nextTo: (title) => `next: ${title}`, answer: 'answer', showAnswer: 'show answer', letsGo: "let's go",
     bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
+    useIt: 'use it', cancel: 'cancel', folder: 'folder', giveFolder: 'give its folder',
     continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', scroll: 'scroll', level: 'level', card: 'card', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
   },
 };

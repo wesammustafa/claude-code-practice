@@ -2,7 +2,7 @@
 // run in child processes; the app writes nothing to the practice copy.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STUB_RUNS } from '../../checks/lessons/a-4.mjs';
@@ -93,6 +93,22 @@ export function gitReady(dir) {
       resolve(error ? (error.code === 'ENOENT' ? 'git is not installed' : 'this folder is not a git repository') : null);
     });
   });
+}
+
+// What a work folder is (ticket 86): whether it is a folder at all, whether
+// git says it is a repository, and whether it has the `.practice/` folder
+// the lessons save to, ignored by git. Read, never changed.
+export async function probeFolder(path) {
+  let folder = false;
+  try {
+    folder = statSync(path).isDirectory();
+  } catch {}
+  if (!folder) return { path, missing: true, git: false, practice: false };
+  const git = (await gitReady(path)) === null;
+  const practice = git && existsSync(join(path, '.practice')) && (await new Promise((resolve) => {
+    execFile('git', ['check-ignore', '-q', '.practice/'], { cwd: path, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error) => resolve(!error));
+  }));
+  return { path, missing: false, git, practice };
 }
 
 // The first word of git's user.name, to say hello. Read, never stored.
