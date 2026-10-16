@@ -3,6 +3,6 @@
 // changes none of your work.
 import { main } from './lib/main.mjs';
 
-main().then((code) => {
+main({ argv: process.argv.slice(2) }).then((code) => {
   if (code !== undefined) process.exitCode = code;
 });

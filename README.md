@@ -29,6 +29,7 @@ It shows one step of a lesson at a time, watches your copy, and turns a step gre
 - Keys: arrows or numbers to choose, `enter` to go on, `h` for a hint, `m` for the map of lessons, `q` to quit. Your place is saved in `.practice/learn.json`.
 - If PowerShell refuses to run `npm`, run `npm.cmd run learn`.
 - Odd symbols or colors? Set `LEARN_PLAIN=1` (in PowerShell, `$env:LEARN_PLAIN=1`) before `npm run learn`. The app also follows `NO_COLOR`.
+- Prefer a still screen? Start with `npm run learn -- --calm`, or set `LEARN_CALM=1` the same way as `LEARN_PLAIN`.
 - The app has no AI in it and changes none of your work: it reads your files, runs `git status` and the lesson's check, and writes only its own file.
 
 ## Check your work
