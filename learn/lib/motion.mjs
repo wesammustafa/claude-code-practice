@@ -141,12 +141,18 @@ function blinks(s) {
 }
 
 // When the reading grace and the quiet after the last key are both over.
+// flow.mjs counts the marker's looks from the newest stamp this reads, and
+// keeps 20 s of them: the key quiet is shorter than the longest grace.
 function quietFrom(s) {
   const fx = s.fx;
   const newest = Math.max(fx.view ?? NEVER, fx.open ?? NEVER, fx.text ?? NEVER);
   const grace = fx.activity > newest ? NEVER : newest + Math.min(TIMING.graceMax, Math.max(TIMING.graceMin, newestWords(s) * TIMING.perWord));
   return Math.max(grace, (fx.key ?? NEVER) + TIMING.keyQuiet);
 }
+
+// How far into the blink cycle `at` is: shut for the first 160 ms of every
+// 6 s from the moment the gates opened.
+const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 
 // What every moving part draws at rest, and while frozen: each one-shot at
 // its end (1), no spinner, no seconds, no ambient loop: no look marker
@@ -157,8 +163,10 @@ export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer
 
 // Since when a check or git child has run for the beat on screen while it is
 // `opening`: a child that started before the status became `opening` is not
-// this beat's, and a file read starts none.
+// this beat's, and a file read starts none. Its first tick is the first 40 ms
+// boundary from its start once it has run 150 ms, then one every 80 ms.
 const CHILD = ['check', 'git-clean'];
+const FIRST_TICK = Math.ceil(TIMING.spinnerFrom / TIMING.grid) * TIMING.grid;
 const childSince = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
 
 // When the latest sweep started: the watcher saw a file change, or a look's
@@ -191,8 +199,9 @@ export function shotStarts(s) {
     complete: on(['complete'], fx.view),
     welcome: on(['welcome'], fx.view),
     sweep: sweepFrom(s),
-    // A file change: Pip glances toward the other window.
-    glance: watching(s) && !answering(s) ? fx.activity : undefined,
+    // A file change: Pip glances toward the other window, until a newer
+    // "Not yet", hop or cheer turns Pip back to the card.
+    glance: watching(s) && !answering(s) && fx.activity > Math.max(fx.text ?? NEVER, fx.pass ?? NEVER, fx.passLast ?? NEVER) ? fx.activity : undefined,
   };
 }
 
@@ -201,8 +210,8 @@ export function phases(s, at, caps) {
   if (!caps?.motion || at === Infinity || s.overlay) return REST_PHASES;
   const since = childSince(s);
   const ran = since === undefined ? NEVER : at - since;
-  const spinner = ran < TIMING.spinnerFrom ? null
-    : Math.floor((Math.min(ran, TIMING.slowAfter) - TIMING.spinnerFrom) / TIMING.tick) + Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick);
+  const spinner = ran < FIRST_TICK ? null
+    : Math.floor((Math.min(ran, TIMING.slowAfter) - FIRST_TICK) / TIMING.tick) + Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick);
   const still = idle(s, at);
   const shots = Object.fromEntries(Object.entries(shotStarts(s)).map(([part, start]) => [part, still ? 1 : oneShot(s, at, start, TIMING[part])]));
   // While a child runs, its bounce holds the pulse line: no ambient loop.
@@ -215,7 +224,7 @@ export function phases(s, at, caps) {
     ambient,
     look: ambient && shots.sweep === 1 ? lookNotch(s) : null,
     // A blink as the gates open, then every 6 s.
-    blink: ambient && blinks(s) && (at - quietFrom(s)) % TIMING.blinkEvery < TIMING.blink,
+    blink: ambient && blinks(s) && blinkInto(s, at) < TIMING.blink,
   };
 }
 
@@ -235,21 +244,21 @@ export function nextChange(s, at, caps) {
   const since = childSince(s);
   if (since !== undefined) {
     const ran = at - since;
-    let tick = ran < TIMING.spinnerFrom ? TIMING.spinnerFrom : TIMING.spinnerFrom + TIMING.tick * (Math.floor((ran - TIMING.spinnerFrom) / TIMING.tick) + 1);
+    let tick = ran < FIRST_TICK ? FIRST_TICK : FIRST_TICK + TIMING.tick * (Math.floor((ran - FIRST_TICK) / TIMING.tick) + 1);
     // Past 10 s the 80 ms ticks stop moving it: every 240 ms does.
     if (tick > TIMING.slowAfter) tick = TIMING.slowAfter + TIMING.slowTick * (Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick) + 1);
     const second = ran < TIMING.elapsedFrom ? TIMING.elapsedFrom : 1_000 * (Math.floor(ran / 1_000) + 1);
     times.push(tick - ran, second - ran);
   }
   // The moment ambient loops may start, on a screen that has one: the grace
-  // and the key quiet both over. Once they run, each blink's start and end,
-  // and the idle moment that stops the look marker.
+  // and the key quiet both over. Once they run, each blink's start and end.
+  // The look marker moves only on a look, and the app's 1 s tick draws the
+  // first idle frame, where it stops.
   const quiet = quietFrom(s);
   if (!still && AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
-  if (!still && ambientAllowed(s, at)) {
-    const e = (at - quiet) % TIMING.blinkEvery;
-    if (blinks(s)) times.push(e < TIMING.blink ? TIMING.blink - e : TIMING.blinkEvery - e);
-    if (lookNotch(s) !== null) times.push(s.lastActivity + IDLE_MS - at);
+  if (!still && ambientAllowed(s, at) && blinks(s)) {
+    const e = blinkInto(s, at);
+    times.push(e < TIMING.blink ? TIMING.blink - e : TIMING.blinkEvery - e);
   }
   return times.length ? Math.min(...times) : null;
 }

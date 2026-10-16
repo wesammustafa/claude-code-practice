@@ -144,7 +144,7 @@ function frameTimes(s) {
   if (timesOf.has(s)) return timesOf.get(s);
   const times = new Set();
   const loops = [];
-  if (phases(s, s.fx.run + TIMING.spinnerFrom, ON).spinner !== null) loops.push(...[150, 230, 3_000, 10_000, 10_240, 149_990].map((ms) => s.fx.run + ms));
+  if (phases(s, s.fx.run + 160, ON).spinner !== null) loops.push(...[160, 240, 3_000, 10_000, 10_240, 149_990].map((ms) => s.fx.run + ms));
   const open = gatesOpen(s);
   if (open !== null && phases(s, open, ON).blink) loops.push(open, open + TIMING.blink);
   for (const [part, start] of Object.entries(shotStarts(s))) {
@@ -624,14 +624,15 @@ test('phases: the welcome, a level-up and a lesson complete play from the view s
   assert.equal(phases(d.state, d.state.fx.view + 600, ON).complete, 0.5);
 });
 
-test('phases: the spinner turns from 150 ms after the child started while opening, slower after 10 s, with seconds from 3 s', () => {
+test('phases: the spinner turns from the first 40 ms boundary once the child has run 150 ms while opening, slower after 10 s, with seconds from 3 s', () => {
   const { d, t } = opened('W3');
   assert.equal(phases(d.state, t + 1_000, ON).spinner, null, 'no child yet');
   const run = at(d, { type: 'run-start', wait: 500 }).now;
   const p = (ms) => phases(d.state, run + ms, ON);
-  assert.equal(p(149).spinner, null);
-  assert.equal(p(150).spinner, 0);
-  assert.equal(p(230).spinner, 1);
+  assert.equal(p(159).spinner, null, '150 ms is off the 40 ms grid: 160 is the first frame');
+  assert.equal(p(160).spinner, 0);
+  assert.equal(p(239).spinner, 0);
+  assert.equal(p(240).spinner, 1);
   assert.equal(p(10_000).spinner, 123);
   assert.equal(p(10_240).spinner, 124);
   assert.equal(p(2_999).elapsed, null);
@@ -689,10 +690,11 @@ test('nextChange: the next 40 ms frame of a one-shot, the spinner\'s start and t
   assert.equal(nextChange(d.state, t + 10, ON), 30);
   const run = at(d, { type: 'run-start', wait: 500 }).now;
   const n = (ms) => nextChange(d.state, run + ms, ON);
-  assert.equal(n(100), 50, 'the spinner starts at 150 ms');
-  assert.equal(n(150), 80);
-  assert.equal(n(190), 40);
+  assert.equal(n(100), 60, 'the spinner starts at 160 ms, the first 40 ms boundary from 150');
+  assert.equal(n(160), 80);
+  assert.equal(n(190), 50);
   assert.equal(n(2_990), 10, 'the seconds appear at 3 s');
+  assert.equal(n(3_000), 40, 'and the next tick is at 3040 ms');
   assert.equal(n(9_995), 5, 'the seconds turn 10');
   assert.equal(n(10_000), 240, 'after 10 s the spinner turns every 240 ms');
   assert.equal(n(10_010), 230);
@@ -974,10 +976,12 @@ test('the spinner: from 150 ms of a running child, the cell after the checking l
   const s = d.state;
   const f = (ms) => frameAt(s, run, ms);
   const label = '  │  Checking .practice/version.txt…';
-  for (const ms of [0, 80, 140]) {
+  // 150 ms is off the 40 ms grid: the first frame that moves is at 160.
+  for (const ms of [0, 80, 140, 150, 159]) {
     assert.deepEqual([f(ms)[4], statusRow(f(ms))], [top('(●‿●)'), label], `+${ms} ms: the label is state; nothing moves yet`);
   }
   assert.deepEqual([f(160)[4], statusRow(f(160))], [top('(◓─◓)'), `${label} ⠋`], '+160 ms');
+  assert.deepEqual(f(239), f(160), 'one frame until +240 ms');
   assert.equal(statusRow(f(240)), `${label} ⠙`, '+240 ms');
   assert.equal(statusRow(f(320)), `${label} ⠹`, '+320 ms');
   // The ten frames of spec 3.5, then round again; Pip holds still.
@@ -985,6 +989,14 @@ test('the spinner: from 150 ms of a running child, the cell after the checking l
   for (let ms = 160; ms < 1_200; ms += 80) assert.equal(f(ms)[4], top('(◓─◓)'), `+${ms} ms`);
   // The rest frame, as calm draws it: the label and the checking face.
   assert.deepEqual([restOf(s)[4], statusRow(restOf(s))], [top('(◓─◓)'), label]);
+  // Every frame it asks for, its ticks, its seconds and its slower ticks,
+  // lands on the 40 ms grid from the child's start.
+  const due = [];
+  for (let ms = 0; ms < 12_000; ms += nextChange(s, run + ms, ON)) due.push(ms);
+  assert.deepEqual(due.filter((ms) => ms % TIMING.grid), [], 'off the grid');
+  assert.deepEqual(due.slice(1, 5), [160, 240, 320, 400]);
+  assert.deepEqual(due.filter((ms) => ms > 2_900 && ms < 3_100), [2_960, 3_000, 3_040], 'the seconds, between two ticks');
+  assert.deepEqual(due.filter((ms) => ms >= 9_920 && ms < 10_500), [9_920, 10_000, 10_240, 10_480]);
 });
 
 // The pulse line (the rule above the key bar) with a `━` segment of `n`
@@ -1003,7 +1015,7 @@ test('the bounce: a 10-cell segment on the pulse line, on the spinner\'s clock, 
   assert.deepEqual([1_520, 1_600, 2_720, 2_800].map((ms) => line(ms)), [pulse(60, 10), pulse(56, 10), pulse(0, 10), pulse(4, 10)]);
   // Spinner and bounce change together, on one 80 ms tick.
   for (let ms = 160; ms < 2_000; ms += 40) {
-    const same = (ms - 150) % 80 >= 40;
+    const same = (ms - 160) % 80 >= 40;
     if (same) assert.deepEqual(frameAt(s, run, ms), frameAt(s, run, ms - 40), `+${ms} ms`);
   }
   // After 10 s, one frame every 240 ms.
@@ -1113,6 +1125,10 @@ test('the look marker hides for 4 s after a key, stops at idle as "Stuck?" appea
   const idleAt = d.state.lastActivity + IDLE_MS;
   assert.equal(frameAt(quiet, idleAt, -1).at(-2), pulse(7, 3));
   assert.equal(frameAt(quiet, idleAt, 0).at(-2), PLAIN);
+  // No frame timer waits for it: the marker moves only on a look, and the
+  // app's 1 s tick, which brings the "Stuck?" line, draws its stop.
+  assert.equal(nextChange(quiet, quiet.now + 10, ON), null, 'between looks');
+  assert.equal(nextChange(quiet, idleAt - 10, ON), null, 'just before idle');
   d.send({ type: 'tick', wait: idleAt - d.now });
   look(100);
   assert.equal(d.state.beat.idle, true);
@@ -1132,6 +1148,25 @@ test('the look marker hides for 4 s after a key, stops at idle as "Stuck?" appea
   assert.equal(o.state.overlay, 'why');
   oLook();
   assert.deepEqual(frameAt(o.state, o.now + 5_000, 0), restOf(o.state));
+});
+
+// The stamps that hold the look marker back or start it again, as motion.mjs
+// reads them: the reading grace (view, open, text, cut short by activity),
+// the key quiet, and a sweep (activity, changedAt).
+const MARKER_STAMPS = ['view', 'open', 'text', 'key', 'activity', 'changedAt'];
+
+test('the marker counts its looks from the newest stamp that holds it back, and keeps them as long as any hold can last', () => {
+  // A hold lasts at most the longest grace: the key quiet is shorter.
+  assert.ok(TIMING.keyQuiet <= TIMING.graceMax);
+  let newestText = 0;
+  for (const [label, s] of screens) {
+    const fx = s.fx;
+    // The first screen, before any event, has nothing to count from.
+    if (!fx.looks) continue;
+    assert.equal(fx.looks.from, Math.max(...MARKER_STAMPS.map((k) => fx[k] ?? -Infinity)), label);
+    if (fx.text !== undefined && fx.text === fx.looks.from) newestText += 1;
+  }
+  assert.ok(newestText > 10, `screens whose newest hold is new text: ${newestText}`);
 });
 
 test('in the fail state the marker steps on each re-check after the "Not yet" line\'s grace; with the hint box open the pulse line stays a plain rule', () => {
@@ -1235,6 +1270,34 @@ test('Pip\'s glance: on a file change Pip looks toward the other window for 1.2 
   // A key ends it, as it ends any one-shot.
   const keyed = reduce(d.state, { type: 'key', name: 'down', now: act + 300 }).state;
   assert.equal(face(keyed, 400), top('(●‿●)'));
+  // The file change brings a new "Not yet" 60 ms later: Pip looks down at
+  // it, nods, and stays down (design 2.3); the glance does not come back.
+  const waiting = screen('W3 waiting');
+  const edit = reduce(waiting, { type: 'activity', now: waiting.now + 5_000 }).state;
+  const notYet = reduce(edit, { type: 'check', lesson: 'b-1', items: [b1Item('hello')], now: edit.now + 60 }).state;
+  assert.equal(notYet.beat.status, 'fail');
+  const down = Array.from({ length: 31 }, (_, k) => 40 * k).filter((ms) => ms >= 60 + TIMING.notYet).map((ms) => face(notYet, ms, edit.now));
+  assert.deepEqual(down, Array(down.length).fill(top('(◒‿◒)')), 'down from the nod\'s end');
+});
+
+test('no glance once the watch ends: a file change, then a look that passes the beat, hops or cheers and never looks away', () => {
+  // W3's only beat: the step is done, Pip cheers, then wears its star.
+  const waiting = screen('W3 waiting');
+  const edit = reduce(waiting, { type: 'activity', now: waiting.now + 5_000 }).state;
+  const passed = reduce(edit, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)', now: edit.now + 50 }).state;
+  // The Check's first beat, a check before its typed answer: a hop.
+  const c = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'C', beat: 0 } } } });
+  c.key('enter');
+  assert.ok(watching(c.state), 'the Check watches its check');
+  const cEdit = reduce(c.state, { type: 'activity', now: c.now + 5_000 }).state;
+  const hopped = reduce(cEdit, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], now: cEdit.now + 50 }).state;
+  for (const [what, s, from, last] of [['the step\'s last beat', passed, edit.now, true], ['a beat before the last', hopped, cEdit.now, false]]) {
+    assert.ok(isDone(s.beat), what);
+    assert.equal(watching(s), null, what);
+    assert.equal(s.fx.activity, from, what);
+    assert.equal(s.pos.beat === stepOf(s).beats.length - 1, last, what);
+    for (let ms = 50; ms <= 1_240; ms += 40) assert.doesNotMatch(frameAt(s, from, ms)[4], /◑‿◑/, `${what}, +${ms} ms`);
+  }
 });
 
 // When ambient loops may first draw on a screen: the reading grace and the
@@ -1331,14 +1394,18 @@ test('elapsed seconds: on a slow check, from 3 s of the real child start, in 1 s
   at(d, { type: 'check', lesson: 'b-1', items: [b1Item(null)], asked: d.state.beat.asked, wait: 4_000 });
   assert.notEqual(d.state.beat.status, 'opening');
   assert.equal(statusRow(frameAt(d.state, run, 4_040)), undefined);
-  // At 60x20 the longest label, with the spinner and its seconds, fits.
+  // At 60x20 the longest label, with the spinner and its seconds, fits, and
+  // so does the rest of the frame: every "Checking" card, not the sample
+  // the frame tests above draw.
   const at60 = (s, ms) => render(s, { cols: 60, rows: 20 }, MOVING, { at: s.fx.run + ms }).map(strip);
-  const spinning = screens.filter(([, x]) => x.view === 'step' && x.beat?.status === 'opening' && beatOfVerify(x) !== 'file');
+  const spinning = still.filter(([, x]) => x.view === 'step' && x.beat?.status === 'opening' && beatOfVerify(x) !== 'file');
   assert.ok(spinning.length > 20, String(spinning.length));
   for (const [label, s] of spinning) {
     const moving = reduce(s, { type: 'run-start', now: s.now + 200 }).state;
-    const row = at60(moving, 150_000).find((l) => l.includes('Checking'));
-    assert.match(row, /… \S {2}150 s$/u, label);
+    const frame = at60(moving, 150_000);
+    assert.equal(frame.length, 20, label);
+    for (const line of frame) assert.ok(width(line) <= 59, `${label}: ${line}`);
+    assert.match(frame.find((l) => l.includes('Checking')), /… \S {2}150 s$/u, label);
   }
 });
 
@@ -1375,7 +1442,10 @@ test('little at once: at most one loop, and at most three moving parts from one 
       if (s.view === 'complete' && cols === 80) assert.equal(cuts.size, 1, `${label}: Pip's top row`);
       frames.slice(1).forEach((f, k) => {
         const where = `${label} at ${cols}x${rows}, +${(times[k + 1] ?? Infinity) - s.fx.view} ms from the view`;
-        // The spinner and the bounce are one loop, on one clock.
+        // The spinner and the bounce are one loop, on one clock: one moving
+        // part. A beat that opens on a check starts its child as the card
+        // enters, so at +160 ms the entrance ends (the trail's stop and Pip)
+        // as the spinner and the bounce start.
         const status = f.findIndex((l) => l.includes('Checking'));
         const loop = status >= 0 && f[status] !== frames[k][status] && f.at(-2) !== frames[k].at(-2) ? 1 : 0;
         const n = movingParts(frames[k], f, cuts) - loop;

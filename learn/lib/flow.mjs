@@ -809,8 +809,9 @@ function stampFx(prev, s, ev) {
   if (!sameJson(w, watching(s))) delete fx.seen;
   if (ev.type === 'activity' && w) fx.activity = t;
   // The looks the look marker counts (motion.mjs): `from`, the newest stamp
-  // that can hold it back or start it again; how many came since; and the
-  // times of those in the 20 s after it, as long as that hold can last.
+  // that can hold it back or start it again (the stamps quietFrom and
+  // sweepFrom read there); how many came since; and the times of those in
+  // the 20 s after it, as long as that hold can last.
   const from = Math.max(...['key', 'view', 'open', 'text', 'activity', 'changedAt'].map((k) => fx[k] ?? -Infinity));
   if (fx.looks?.from !== from) fx.looks = { from, n: 0, early: [] };
   if (looked) {

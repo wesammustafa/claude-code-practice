@@ -507,9 +507,13 @@ test('no leaking timers: a frame timer only while something will change; none in
     const grace = app.frameTimers();
     assert.equal(grace.length, 1, 'the entrance is over, and the reading grace still runs: its end is a deadline');
     assert.ok(grace[0].ms > 1_000, `on its own timer, not the next 1 s tick (${grace[0].ms} ms)`);
+    // W3 watches its file: from here its look marker moves only when a poll's
+    // result lands, so no frame timer waits, before a look or after one.
     await clock.advance(21_000);
     assert.deepEqual(app.frameTimers(), [], 'the entrance and the reading grace are over');
-    // A still card's blink waits to change until idle: the next test.
+    const pulse = () => term.shows().split('\n').at(-2) ?? '';
+    assert.ok(await app.settle(() => pulse().includes('━━━')), `the marker:\n${term.shows()}`);
+    assert.deepEqual(app.frameTimers(), [], 'the marker shows, and waits for the next look');
     await clock.advance(IDLE_MS);
     assert.deepEqual(app.frameTimers(), [], 'idle');
     await afterQ(app);
