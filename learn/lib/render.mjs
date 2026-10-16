@@ -29,8 +29,8 @@ const kept = (rows) => rows.map((text) => ({ keep: true, text }));
 // and a GUIDED card's, the next screen's recall and Go further lines and
 // the ? overlay's calm line, each with its blank, teaching the learner can
 // also reach another way, such as behind a key, repeats with no compact
-// form, and a done beat's satisfied "Done when" line. The rows of one call are one
-// sentence: they drop whole.
+// form, a done beat's satisfied "Done when" line, and the capstone's
+// invitation to ask. The rows of one call are one sentence: they drop whole.
 const optional = (rows) => {
   const whole = {};
   return rows.map((text) => ({ optional: true, text, whole }));
@@ -662,7 +662,11 @@ const VIEWS = {
     if (results) body.push(lead(t, 'verified', t.fg('ok', C.checkedSummary(results.filter((r) => r.pass).length, results.length))));
     // The capstone's handover: plain text, shown only when no exact command
     // was shown in this play. A short window never drops it.
-    if (s.lesson.endsWith('capstone') && s.progress[s.lesson].bottomAt === null) body.push(...kept([`${' '.repeat(width(t.lead('verified')))}${t.fg('text', C.handover)}`]));
+    const indent = ' '.repeat(width(t.lead('verified')));
+    if (s.lesson.endsWith('capstone') && s.progress[s.lesson].bottomAt === null) body.push(...kept([`${indent}${t.fg('text', C.handover)}`]));
+    // Each level's capstone invites questions, under the handover line: an
+    // optional sentence, so a long toast cuts no teaching line.
+    if (s.lesson.endsWith('capstone')) body.push(...optional(hang(indent, para(t, C.invitation, W - width(indent), 'muted'))));
     // The count repeats what the learner did, so it goes before a teaching line.
     body.push(...optional([lead(t, 'claude', t.fg('text', C.answeredSummary(answered)))]), SPACER, t.bold(t.fg('white', C.yourClimb)), SPACER,
       // The climb as it was played: an eased step counts at its easier tier.

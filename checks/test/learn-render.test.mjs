@@ -648,6 +648,103 @@ test('the capstone celebrates the same with or without the exact command: step d
   assert.deepEqual(lines(plain.next).filter((l) => l !== HANDOVER), lines(helped.next));
 });
 
+// The invitation at the capstone (153, D9 (b)): one fact-free line on each
+// level's capstone next screen, under the handover line.
+const INVITE = 'Questions about anything in this level? Ask in your other terminal, then compare the answer with the lesson pages.';
+// The rows from `at` on that read as the invitation, wrapped, or null.
+const inviteFrom = (lines, at) => {
+  for (let k = at, text = ''; k < lines.length && text.length < INVITE.length; k++) {
+    text = `${text} ${lines[k].trim()}`.trim();
+    if (text === INVITE) return { from: at, to: k };
+  }
+  return null;
+};
+
+test('the capstone\'s next screen invites questions under the handover line, whole, at 60x20 and 80x24', () => {
+  const d = playedTo('b-capstone');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const lines = plainAt(d, cols, rows).split('\n');
+    const at = lines.findIndex((l) => l.trim() === HANDOVER);
+    assert.ok(at > 0, `${cols}x${rows}: no handover line`);
+    assert.ok(inviteFrom(lines, at + 1), `${cols}x${rows}: no invitation under the handover line\n${lines.join('\n')}`);
+  }
+});
+
+test('the invitation shows after an exact command too, under the check summary in the handover line\'s place', () => {
+  const d = playedTo('b-capstone', { ...finishedBefore('b-capstone'), 'b-capstone': { step: 'T6', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5'], bottomAt: 'T2' } });
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const lines = plainAt(d, cols, rows).split('\n');
+    assert.ok(!lines.some((l) => l.includes(HANDOVER)), `${cols}x${rows}`);
+    const at = lines.findIndex((l) => l.includes("The lesson's check passes: 7 of 7 items"));
+    assert.ok(at > 0, `${cols}x${rows}: no check summary`);
+    assert.ok(inviteFrom(lines, at + 1), `${cols}x${rows}: no invitation under the check summary\n${lines.join('\n')}`);
+    // Indented as the handover line is: under the summary's words.
+    assert.equal(lines[at + 1].search(/\S/), width(lines[at].slice(0, lines[at].indexOf('The lesson'))), `${cols}x${rows}`);
+  }
+});
+
+test('the invitation shows on the capstone\'s next screen only: no other screen of any lesson, and no overlay over it', async () => {
+  const t = theme(CAPS.full);
+  const over = ['p', 'c', 'space', '?', 'm'].map((k) => {
+    const d = playedTo('b-capstone');
+    d.key(k);
+    return [`b-capstone next, then ${k}`, d.state];
+  });
+  assert.deepEqual(over.map(([, s]) => s.overlay ?? s.view), ['page', 'card', 'compare', 'help', 'map']);
+  const all = [...await everyScreen(), ...endScreens(), ...over];
+  const shows = all.filter(([, state]) => flatText(render(state, { cols: 100, rows: 40 }, t).map(strip).join('')).includes(flatText(INVITE)));
+  assert.deepEqual(shows.map(([label]) => label), ['b-capstone next']);
+});
+
+test('each level\'s capstone gets the invitation: an Intermediate capstone\'s next screen shows it, and its lessons\' do not', () => {
+  // The Beginner plays, renamed into a later level: only Beginner exists today.
+  const as = (state, id) => ({
+    ...state,
+    lesson: id,
+    course: state.course.map((l) => (l.id === state.lesson ? { ...l, id } : l)),
+    progress: { ...state.progress, [id]: state.progress[state.lesson] },
+    checks: { ...state.checks, [id]: state.checks[state.lesson] },
+  });
+  const cap = as(playedTo('b-capstone').state, 'i-capstone');
+  const lesson = as(playedTo('b-5').state, 'i-5');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const lines = render(cap, { cols, rows }, theme(CAPS.full)).map(strip);
+    const at = lines.findIndex((l) => l.trim() === HANDOVER);
+    assert.ok(at > 0, `${cols}x${rows}: no handover line\n${lines.join('\n')}`);
+    assert.ok(inviteFrom(lines, at + 1), `${cols}x${rows}: no invitation\n${lines.join('\n')}`);
+    const other = render(lesson, { cols, rows }, theme(CAPS.full)).map(strip);
+    assert.ok(!flatText(other.join('')).includes(flatText(INVITE).slice(0, 30)), `i-5 at ${cols}x${rows}\n${other.join('\n')}`);
+  }
+});
+
+test('the invitation gives way whole before any teaching line is cut, and never before the handover line', () => {
+  const shown = playedTo('b-capstone').state;
+  const hidden = playedTo('b-capstone', { ...finishedBefore('b-capstone'), 'b-capstone': { step: 'T6', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5'], bottomAt: 'T2' } }).state;
+  let dropped = 0;
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    const t = theme(caps);
+    for (const [cols, rows] of SHORT) {
+      for (let n = 0; n <= 8; n++) {
+        const toast = n ? { kind: 'save', message: `EACCES: permission denied, open ${'/home/sam/claude-code-practice'.repeat(n)}/.practice/learn.json` } : null;
+        for (const [label, state] of [['handover', shown], ['no handover', hidden]]) {
+          const lines = render({ ...state, toast }, { cols, rows }, t).map(strip);
+          const where = `${label}, toast ${n}, at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
+          assert.equal(lines.length, rows, where);
+          assert.ok(!lines.some((l) => l.trim() === '…' || l.trim() === '.'), `a teaching line is cut: ${where}`);
+          const text = flatText(lines.join(''));
+          for (const word of [C.checkedSummary(7, 7), C.yourClimb, C.savedBreak]) assert.ok(text.includes(flatText(word)), `"${word}": ${where}`);
+          if (label === 'handover') assert.ok(lines.some((l) => l.trim() === HANDOVER), `no handover line: ${where}`);
+          const at = lines.findIndex((l) => l.trim().startsWith(INVITE.slice(0, 20)));
+          if (at < 0) dropped++;
+          else assert.ok(inviteFrom(lines, at), `the invitation is cut: ${where}`);
+        }
+      }
+    }
+  }
+  // A long enough toast takes it at 60x20.
+  assert.ok(dropped > 0);
+});
+
 // The row budget (142): what gives way when a screen is taller than its window.
 const SHORT = [[60, 20], [80, 24]];
 

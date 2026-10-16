@@ -113,6 +113,9 @@ export const C = {
   badge: (name) => `New badge: ${name}`,
   checkedSummary: (n, m) => `The lesson's check passes: ${n} of ${m} item${m === 1 ? '' : 's'}`,
   handover: 'You did every task without the exact command.',
+  // On each level's capstone next screen only: inside a level, the next
+  // lesson expects a clean tree.
+  invitation: 'Questions about anything in this level? Ask in your other terminal, then compare the answer with the lesson pages.',
   answeredSummary: (n) => `${n} question${n === 1 ? '' : 's'} answered`,
   yourClimb: 'Your climb',
   nextUp: 'Next up',
