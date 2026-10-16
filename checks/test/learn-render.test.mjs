@@ -2085,8 +2085,8 @@ test('a held main letter: y on the y/n prompt draws its pill inverse in color, a
 });
 
 // Pip on the card's top border: a still face for what the app saw (design 2.2).
-const FACES = { calm: ' (●‿●) ', checking: ' (◓─◓) ', worried: ' (◒‿◒) ', done: ' (★‿★) ', broken: ' (◒─◒) ' };
-const ASCII_FACES = { calm: ' (o_o) ', checking: ' (o.o) ', worried: ' (o_o) ', done: '\\(^_^)/', broken: ' (o_o) ' };
+const FACES = { rest: ' (●‿●) ', checking: ' (◓─◓) ', worried: ' (◒‿◒) ', done: ' (★‿★) ', broken: ' (◒─◒) ' };
+const ASCII_FACES = { rest: ' (o_o) ', checking: ' (o.o) ', worried: ' (o_o) ', done: '\\(^_^)/', broken: ' (o_o) ' };
 const facesOf = (t) => (t.unicode ? FACES : ASCII_FACES);
 // The face at the end of the card's top border; null on a card without
 // Pip, undefined on a screen with no card.
@@ -2098,26 +2098,23 @@ function pipOn(lines, t) {
   return Object.values(facesOf(t)).find((f) => top.endsWith(`${f}${end}`)) ?? null;
 }
 const PIP_B1 = {
-  W1: 'calm', W2: 'calm', 'W2 stuck': 'worried', 'W2 right': 'done',
-  'W3 opening': 'checking', 'W3 waiting': 'calm', 'W3 not yet': 'worried', 'W3 hint 1': 'worried', 'W3 hint 2': 'worried',
+  W1: 'rest', W2: 'rest', 'W2 stuck': 'worried', 'W2 right': 'done',
+  'W3 opening': 'checking', 'W3 waiting': 'rest', 'W3 not yet': 'worried', 'W3 hint 1': 'worried', 'W3 hint 2': 'worried',
   'W3 hint 3': 'worried', 'W3 confirm': 'worried', 'W3 bottom': 'worried', 'W3 done': 'done', 'W3 broken': 'broken',
-  'W4 predict': 'calm', 'W4 guessed': 'calm', 'W4 sign in': 'calm', 'W4 trust': 'calm',
-  W5: 'calm', 'W5 wrong': 'worried', 'W5 revealed': 'done',
-  W6: 'calm', 'W6 ask': 'calm', 'W6 decoy': 'worried', 'W6 right': 'done',
-  'W7 predict': 'calm', 'W7 guessed': 'calm', 'W7 exit': 'calm', 'W7 git opening': 'checking', 'W7 git dirty': 'worried', 'W7 git clean': 'done',
-  'Y1 eased': 'checking', 'Y1 already': 'done', Y2: 'calm', 'Y2 option': 'done', Y3: 'calm', 'Y3 hint': 'worried', 'Y3 resumed': 'calm',
+  'W4 predict': 'rest', 'W4 guessed': 'rest', 'W4 sign in': 'rest', 'W4 trust': 'rest',
+  W5: 'rest', 'W5 wrong': 'worried', 'W5 revealed': 'done',
+  W6: 'rest', 'W6 ask': 'rest', 'W6 decoy': 'worried', 'W6 right': 'done',
+  'W7 predict': 'rest', 'W7 guessed': 'rest', 'W7 exit': 'rest', 'W7 git opening': 'checking', 'W7 git dirty': 'worried', 'W7 git clean': 'done',
+  'Y1 eased': 'checking', 'Y1 already': 'done', Y2: 'rest', 'Y2 option': 'done', Y3: 'rest', 'Y3 hint': 'worried', 'Y3 resumed': 'rest',
   'Y4 opening': 'checking', 'Y4 live dirty': 'worried', 'Y4 idle': 'worried', 'Y4 live clean': 'worried', 'Y4 stray': 'worried', 'Y4 not yet': 'worried', 'Y4 done': 'done',
-  'C check': 'done', 'C typing': 'calm', 'C wrong': 'worried', 'C revealed': 'calm', 'C self': 'calm',
-  'check-only': 'calm', 'check-only results': 'worried',
+  'C check': 'rest', 'C typing': 'rest', 'C wrong': 'worried', 'C revealed': 'rest', 'C self': 'rest',
+  'check-only': 'rest', 'check-only results': 'worried',
 };
-const STILL_MODES = {
-  full: CAPS.full,
-  calm: { ...CAPS.full, motion: false, calm: true },
-  noColor: CAPS.noColor,
-  plain: CAPS.ascii,
-};
+// Calm draws the rest frame byte for byte, Pip included: learn-motion's
+// "rest equals calm" test pins that, so calm is not a mode here.
+const STILL_MODES = { full: CAPS.full, noColor: CAPS.noColor, plain: CAPS.ascii };
 
-test('Pip\'s rest face on every b-1 card says what the app saw, the same still face in calm, NO_COLOR and plain (ASCII)', () => {
+test('Pip\'s rest face on every b-1 card says what the app saw, the same still face in NO_COLOR and plain (ASCII)', () => {
   for (const [mode, caps] of Object.entries(STILL_MODES)) {
     const t = theme(caps);
     for (const [label, state] of screens) {
@@ -2179,6 +2176,47 @@ test('Pip tells the truth: the checking face only while the status is opening, o
   }
 });
 
+test('Pip tells the truth: the star only on the step\'s last beat done or already done, as the cheer; a beat before it rests, as the hop', async () => {
+  const all = cards([...screens, ...await lessonWalks()]);
+  const t = theme(CAPS.full);
+  let mid = 0;
+  for (const [label, s] of all) {
+    const face = pipOn(render(s, { cols: 80, rows: 24 }, t), t);
+    const done = ['done', 'already'].includes(s.beat?.status);
+    const last = s.view === 'step' && s.pos.beat === stepOf(s).beats.length - 1;
+    assert.equal(face === FACES.done, done && last, `${label}: ${face} while ${s.beat?.status}`);
+    if (done && !last) {
+      assert.equal(face, FACES.rest, `${label}: ${face} on a beat before the step's last`);
+      if (s.beat.status === 'already') mid++;
+    }
+  }
+  assert.ok(mid > 0, 'no beat before a step\'s last opens already done');
+});
+
+// What draws the worried face also draws a row that says so: a row led by a
+// `▲` mark ("Not yet", the git line, a check-only item), the hint box's bar
+// or the "Stuck?" offer. A `▲` beside a pick is an option's mark, not a row's.
+test('Pip tells the truth: the worried face only where the card shows a ▲ row, a hint box or "Stuck?", and always there unless it is checking or broken', async () => {
+  const all = cards([...screens, ...await lessonWalks()]);
+  const t = theme(CAPS.full);
+  let seen = 0;
+  for (const [label, s] of all) {
+    for (const [cols, rows] of SHORT) {
+      const lines = render(s, { cols, rows }, t).map(strip);
+      const face = pipOn(lines, t);
+      const shows = lines.some((l) => /^\s*│ {2}(▲ |▌ |Stuck\?)/.test(l));
+      const why = `${label} at ${cols}x${rows}: ${face}\n${lines.join('\n')}`;
+      if (face === FACES.worried) {
+        assert.ok(shows, why);
+        seen++;
+      // "Checking" and a check that could not run say more than a hint
+      // left open below them.
+      } else if (shows) assert.ok([FACES.checking, FACES.broken].includes(face), why);
+    }
+  }
+  assert.ok(seen > 1_000, `${seen} worried cards`);
+});
+
 test('Pip tells the truth: the same face for every predict answer', () => {
   let seen = 0;
   for (const l of allCourse.filter((x) => x.content)) {
@@ -2190,7 +2228,9 @@ test('Pip tells the truth: the same face for every predict answer', () => {
             const d = openAt(l.id, step.id, b, step.part === 'Warm-up' ? { warm: [step.id] } : {});
             d.key(String(i + 1));
             assert.equal(d.state.beat.answer?.index, i, `${l.id} ${step.id}.${b} picks ${i + 1}`);
-            return pipOn(render(d.state, { cols, rows }, theme(CAPS.full)), theme(CAPS.full));
+            const face = pipOn(render(d.state, { cols, rows }, theme(CAPS.full)), theme(CAPS.full));
+            assert.ok(face, `${l.id} ${step.id}.${b} at ${cols}x${rows}, pick ${i + 1}: no Pip`);
+            return face;
           }));
           assert.equal(faces.size, 1, `${l.id} ${step.id}.${b} at ${cols}x${rows}: ${[...faces].join(' | ')}`);
           seen++;

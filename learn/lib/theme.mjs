@@ -29,12 +29,12 @@ const ASCII_GLYPHS = {
 // Pip's small face on a card's top border, by mood: its eyes and mouth, and
 // its arms when they are up. Each glyph takes one cell and none is an emoji.
 const UNICODE_PIP = {
-  calm: { eye: '●', mouth: '‿' }, checking: { eye: '◓', mouth: '─' }, worried: { eye: '◒', mouth: '‿' },
+  rest: { eye: '●', mouth: '‿' }, checking: { eye: '◓', mouth: '─' }, worried: { eye: '◒', mouth: '‿' },
   done: { eye: '★', mouth: '‿' }, broken: { eye: '◒', mouth: '─' },
 };
 // ASCII Pip has three faces: at rest, checking, and done with its arms up.
 const ASCII_PIP = {
-  calm: { eye: 'o', mouth: '_' }, checking: { eye: 'o', mouth: '.' }, worried: { eye: 'o', mouth: '_' },
+  rest: { eye: 'o', mouth: '_' }, checking: { eye: 'o', mouth: '.' }, worried: { eye: 'o', mouth: '_' },
   done: { eye: '^', mouth: '_', arms: ['\\', '/'] }, broken: { eye: 'o', mouth: '_' },
 };
 

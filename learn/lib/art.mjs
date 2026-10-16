@@ -16,7 +16,8 @@ export function pip(t, mood = 'happy') {
 }
 
 // Pip's small face for a card's top border, 7 cells: ` (●‿●) `, or with
-// its arms up `\(^_^)/`.
+// its arms up `\(^_^)/`. Its moods name what the card shows (rest, checking,
+// worried, done, broken), apart from the big Pip's happy, focus and party.
 export const PIP_FACE = 7;
 export function pipFace(t, mood) {
   const { eye, mouth, arms = [' ', ' '] } = t.pipGlyphs[mood];

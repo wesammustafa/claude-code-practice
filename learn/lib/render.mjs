@@ -770,26 +770,26 @@ function stepView(ctx) {
   };
 }
 
-// Pip's face for what the card shows the app saw (design 2.2): the step
-// done or already done; a check or git run while `opening`; a check that
-// could not run; a "Not yet", a `▲` git line, a pick that wasn't right, the
-// hint box or the "Stuck?" offer; else at rest.
+// Pip's face for what the card shows the app saw (design 2.2): the step's
+// last beat done or already done, as the cheer does (a beat before it rests,
+// as the hop does); `opening`, while the card says "Checking" (a check, git
+// or a file read); a check that could not run; a "Not yet", a `▲` git line,
+// a pick that wasn't right, the hint box or the "Stuck?" offer; else at rest.
 function stepMood(s, beat, isLastBeat) {
   const st = s.beat;
-  if (st.status === 'already' || (st.status === 'done' && isLastBeat)) return 'done';
-  if (st.status === 'done') return 'calm';
+  if (['done', 'already'].includes(st.status)) return isLastBeat ? 'done' : 'rest';
   if (st.status === 'opening') return 'checking';
   if (st.status === 'broken') return 'broken';
   const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && Boolean(s.git?.paths?.length);
   const wrong = ['wrong', 'stuck'].includes(st.feedback?.kind);
   const stuck = st.idle && hintAvailable(s);
-  return st.status === 'fail' || gitLine || wrong || st.rung >= 0 || st.confirm || stuck ? 'worried' : 'calm';
+  return st.status === 'fail' || gitLine || wrong || st.rung >= 0 || st.confirm || stuck ? 'worried' : 'rest';
 }
 
 // The check-only card: a check that could not run, an item not passing yet.
 function checkOnlyMood(results) {
   if (results?.error) return 'broken';
-  return results?.items?.some((x) => !x.pass) ? 'worried' : 'calm';
+  return results?.items?.some((x) => !x.pass) ? 'worried' : 'rest';
 }
 
 // Chips in a beat share one width: room for the longest command, up to the
