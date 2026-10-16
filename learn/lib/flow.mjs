@@ -1359,6 +1359,15 @@ const VIEWS = {
       s.overlay = 'why';
       return true;
     }
+    // k: main asks the terminal to copy the beat's code block, all of it, or
+    // the Windows line that stands in for it there.
+    const code = beat.lines.find((l) => l.key === 'code');
+    if (name === 'k' && code) {
+      const text = (s.facts.win32 && code.win) || code.text;
+      effects.push({ type: 'copy', text });
+      s.toast = { kind: 'copied', lines: text.split('\n').length, until: s.now + TOAST_MS };
+      return true;
+    }
     if (name === 'r') {
       const w = watching(s);
       if (!w) return false;

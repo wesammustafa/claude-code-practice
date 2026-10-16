@@ -107,6 +107,10 @@ next: b-3
 - goal: "Run the check."
 `;
 
+// DEMO_B2 with its Worked example's run line replaced by `lines`, such as
+// a code block (ticket 90).
+export const withCode = (lines) => DEMO_B2.replace('- run: "git status --porcelain > .practice/b-2-before.txt"\n', lines.map((l) => `${l}\n`).join(''));
+
 // A made-up i-1, the first lesson of a new level, with its tiers as the
 // course rule gives them: warm-ups from Beginner (R1 a skill it reuses, R2 an
 // older lesson's), a new skill at GUIDED, and commit, which Beginner asked

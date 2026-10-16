@@ -7,7 +7,7 @@ import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
   answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
-import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
+import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
 import { COMMANDS_URL, GIT, OWN_PARTS, READS } from './content.mjs';
@@ -214,10 +214,13 @@ export function fit(body, room, short, more) {
     const teaching = list.flatMap((r, i) => (typeof r === 'string' || !(r.keep || r.optional || r.spacer) ? [i] : []));
     // Inside a card the `…` keeps the card's rail. A lone row stays: a `…`
     // in its place would hide it and free nothing.
-    const mark = (r) => (r.rail ? `${r.rail}  ${more}` : more);
+    // A code block's row gives its own mark, which points to the page, and
+    // the rows of one of its lines drop together.
+    const mark = (r) => (r.rail ? `${r.rail}  ${r.more ?? more}` : r.more ?? more);
     let cut = list;
     for (let n = 1; n <= teaching.length && cut.length > room; n++) {
       const drop = new Set(teaching.slice(-n));
+      for (const i of drop) if (list[i].whole) list.forEach((r, k) => r?.whole === list[i].whole && drop.add(k));
       cut = list.flatMap((r, i) => (!drop.has(i) ? [r] : drop.has(i - 1) ? [] : drop.has(i + 1) ? [mark(r)] : [r]));
     }
     list = cut;
@@ -234,6 +237,7 @@ const TOASTS = {
   } },
   hintsLater: { emoji: 'hint', color: 'accent', text: (x) => C.hintsLater(x.try) },
   pickFirst: { emoji: 'guess', color: 'accent', text: () => C.pickFirst },
+  copied: { emoji: 'terminal', color: 'accent', text: (x) => C.copied(x.lines) },
   save: { emoji: 'broken', color: 'warn', text: (x) => C.saveFailed(x.message) },
 };
 
@@ -373,6 +377,41 @@ function chip(t, cmd, where, w) {
     const text = ` ${t.fg('prompt', i ? ' ' : prompt)} ${t.fg('code', part)}`;
     const padded = text + ' '.repeat(Math.max(1, w - width(text)));
     return t.depth > 1 ? t.bg('codeBg', padded) : padded;
+  });
+}
+
+// A beat's code block, the lines it shows, each after its number, in `w`
+// columns. The line the beat explains has the pointer. A line wider than
+// its room breaks at a space, its next rows at its indent and under no
+// number; a word wider than a whole row is cut, never broken across rows.
+function codeRows(t, code, w) {
+  const digits = String(code.to).length;
+  const room = Math.max(10, w - digits - 5);
+  const ellipsis = t.unicode ? '…' : '.';
+  const more = t.fg('muted', `${t.glyph.ellipsis} ${C.codeMore}`);
+  return code.lines.slice(code.from - 1, code.to).flatMap((line, k) => {
+    const n = code.from + k;
+    const indent = line.match(/^ */)[0];
+    const parts = [];
+    let part = '';
+    for (const word of line.split(/(?<= )/)) {
+      if (part.trim() && width(part + word.trimEnd()) > room) {
+        parts.push(part.trimEnd());
+        part = width(indent) < room / 2 ? indent : '';
+      }
+      part += word;
+    }
+    parts.push(part.trimEnd());
+    // A line's rows give way together, and the first that goes points to
+    // the page.
+    const whole = {};
+    return parts.map((p, j) => {
+      const mark = j === 0 && n === code.point ? t.fg('accent', t.glyph.right) : ' ';
+      const num = j === 0 ? t.fg('faint', String(n).padStart(digits)) : ' '.repeat(digits);
+      const text = ` ${t.fg('code', strip(cut(p, room, ellipsis)))}`;
+      const padded = text + ' '.repeat(Math.max(1, room + 2 - width(text)));
+      return { text: `${mark} ${num} ${t.depth > 1 ? t.bg('codeBg', padded) : padded}`, whole, more };
+    });
   });
 }
 
@@ -1137,6 +1176,10 @@ function stepView(ctx) {
         const lines = chip(t, cmd, beat.where, cw);
         rows.push(lines[0] + tick, ...lines.slice(1));
         if (!nextRun && i < beat.lines.length - 1) rows.push(SPACER);
+      } else if (l.key === 'code') {
+        if (i > 0) rows.push(SPACER);
+        rows.push(...(t.caps.win32 && l.win ? chip(t, l.win, beat.where, chipWidth(ctx, beat)) : codeRows(t, l, inner)));
+        if (i < beat.lines.length - 1) rows.push(SPACER);
       } else if (l.key === 'goal') {
         rows.push(...(tier === 'challenge' ? led(t, 'goal', l.text, inner, 'white') : para(t, l.text, inner, 'white')));
       } else if (l.doneWhen) rows.push(...doneWhen(para(t, l.text, inner, 'text')));
@@ -1230,7 +1273,7 @@ function checkOnlyMood(results) {
 // Chips in a beat share one width: room for the longest command, up to the
 // card's width. A live tick beside a chip shortens to a mark when it won't fit.
 const chipWidth = (ctx, beat) => {
-  const longest = Math.max(...beat.lines.filter((l) => l.key === 'run').map((l) => Math.max(width(withRoot(l.text, ctx.s.facts.root, ctx.t.caps.win32, folderOf(ctx.s))), width(l.win ?? ''))), ...beat.bottom.map((b) => Math.max(width(b.text), width(b.win ?? ''))), 10);
+  const longest = Math.max(...beat.lines.filter((l) => l.key === 'run').map((l) => Math.max(width(withRoot(l.text, ctx.s.facts.root, ctx.t.caps.win32, folderOf(ctx.s))), width(l.win ?? ''))), ...beat.lines.filter((l) => l.key === 'code').map((l) => width(l.win ?? '')), ...beat.bottom.map((b) => Math.max(width(b.text), width(b.win ?? ''))), 10);
   // Room for the tick a done command gets beside its chip.
   return Math.min(ctx.inner - 2 - width(ctx.t.glyph.check), Math.max(longest + 4, 30));
 };
@@ -1443,11 +1486,12 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   const tier = tierOf(s);
   const style = TIER_STYLE[tier];
   const card = cardKey(s);
+  const copy = beat.lines.some((l) => l.key === 'code') ? key('k', C.k.copy) : null;
   if (st.confirm) return [mainKey('y', C.k.yes, 'warn', 'black'), key('n', C.k.no)];
   if (done) {
     const next = isLastBeat ? stepsOf(s)[s.pos.step + 1] : null;
     const label = next ? C.k.nextTo(next.title) : C.k.next;
-    return [mainKey('enter', label, undefined, undefined, C.k.next), key('b', C.k.back), beat.why.length ? key('w', C.k.why) : null, key('m', C.k.map), card, key('q', C.k.quit)];
+    return [mainKey('enter', label, undefined, undefined, C.k.next), key('b', C.k.back), beat.why.length ? key('w', C.k.why) : null, copy, key('m', C.k.map), card, key('q', C.k.quit)];
   }
   if (beat.kind === 'type') return [key('enter', C.k.answer), key('esc', C.k.clear), key('ctrl+c', C.k.quit)];
   const hint = hintAvailable(s) ? key('h', st.rung >= 0 ? C.k.moreHelp : hintStatus(st) === 'fail' ? C.k.help : C.k.hint) : null;
@@ -1460,10 +1504,10 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
     const k = v === 'none' ? 'enter' : 'space';
     // A done-label git beat at CHALLENGE: r is the try that opens h, so offer it.
     const r = !hint && tier === 'challenge' && tryFirst(s) === 'r' && !st.unlocked && rungsOf(s).length ? key('r', C.k.checkNow) : null;
-    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, key('m', C.k.map), card, key('q', C.k.quit)];
+    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, copy, key('m', C.k.map), card, key('q', C.k.quit)];
   }
   const r = hintStatus(st) === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
-  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), card, key('q', C.k.quit)];
+  return [hint, r, why, copy, key('m', C.k.map), hint ? null : key('?', C.k.more), card, key('q', C.k.quit)];
 }
 // The next screen's enter: the next lesson, or the map after the last.
 const nextKey = (s) => {

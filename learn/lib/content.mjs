@@ -26,7 +26,7 @@ export const BEAT_KINDS = new Set(['do', 'predict', 'ask', 'type', 'self']);
 // Keys a beat may hold, and whether their value must be a quote of the page.
 export const BEAT_KEYS = {
   where: false, verify: false, 'done-label': false, watching: false, evidence: false, safety: false, tick: false, skill: false,
-  say: false, ask: false, other: false, decoy: false, 'reveal-at': false, recall: false, accept: false,
+  say: false, ask: false, other: false, decoy: false, 'reveal-at': false, recall: false, accept: false, code: false,
   goal: true, do: true, run: true, win: true, expect: true, note: true, rule: true, after: true, why: true,
   codespace: true, 'win-note': true, hint: true, bottom: true, because: true, point: true, reveal: true, self: true,
   right: null, wrong: null, option: null, stuck: null,
@@ -215,10 +215,26 @@ export function parseLesson(text, file = 'lesson') {
       last.because = v.text;
     } else if (key === 'win') {
       // A Windows line replaces the command line just above it: a run line,
-      // or the last bottom line when that came last.
+      // a code block, or the last bottom line when that came last.
       const last = beat.lastKey === 'bottom' ? beat.bottom.at(-1) : beat.lines.at(-1);
-      if (beat.lastKey !== 'bottom' && last?.key !== 'run') fail(i, 'a win line with no run or bottom line above it');
+      if (beat.lastKey !== 'bottom' && !['run', 'code'].includes(last?.key)) fail(i, 'a win line with no run, code or bottom line above it');
       last.win = v.text;
+    } else if (key === 'code') {
+      if (beat.lines.some((l) => l.key === 'code')) fail(i, 'a second code block on one beat');
+      const open = lines[i + 1]?.match(FENCE);
+      if (!open) fail(i, 'a code line with no fenced block under it');
+      const end = lines.findIndex((l, k) => k > i + 1 && closes(open[1], l));
+      if (end < 0) fail(i, 'a code block with no closing fence');
+      const block = lines.slice(i + 2, end);
+      if (!block.some((l) => l.trim())) fail(i, 'an empty code block');
+      const shows = raw.match(/^(?:lines (\d+)-(\d+) )?point (\d+)$/);
+      if (!shows) fail(i, 'a code line is [lines <first>-<last>] point <line>, the lines this beat shows and the one it explains');
+      const [from, to, point] = [Number(shows[1] ?? 1), Number(shows[2] ?? block.length), Number(shows[3])];
+      if (from < 1 || to > block.length || from > to) fail(i, `lines ${from}-${to}: the block has ${block.length} lines`);
+      if (to - from + 1 > CODE_LINES) fail(i, `this beat shows ${to - from + 1} lines of code; a beat shows at most ${CODE_LINES}: name the lines it shows, as lines ${from}-${from + CODE_LINES - 1}`);
+      if (point < from || point > to) fail(i, `point ${point} is not a line this beat shows (${from} to ${to})`);
+      beat.lines.push({ key: 'code', text: block.join('\n'), quoted: true, info: open[2].trim(), lines: block, from, to, point });
+      i = end;
     } else if (key === 'tick') {
       const last = beat.lines.at(-1);
       if (last?.key !== 'run') fail(i, 'a tick line with no run line above it');
@@ -318,6 +334,35 @@ function requiresOf(raw, id, at, fail) {
 // A path named from the work folder, like src/ or .claude/settings.json:
 // never ./, / or .. in it, nor a backslash.
 const workPath = (path) => !path.includes('\\') && !path.startsWith('/') && !path.replace(/\/$/, '').split('/').some((part) => ['', '.', '..'].includes(part));
+
+// A code block (ticket 90): one fenced block of the page, for code a quote
+// can't carry, such as a loop, a JSON file or a script. A beat holds one:
+//
+//   - code: lines 9-16 point 12
+//   ```bash
+//   <the page block's lines>
+//   ```
+//
+// The fence opens on the line under the `code` line, at its first column,
+// with the page's info string, and its lines are the page block's lines exactly, less the indent the
+// page's fence has (three spaces inside a numbered step), blank lines
+// included: the guide's quote check compares them with the page's blocks.
+// The `code` line is the app's own words: `point <n>` is the line the beat
+// explains, counted from the block's first line, and the card marks it.
+// A beat shows at most CODE_LINES lines, so a longer block names the lines
+// the beat shows, `lines <first>-<last>`, which hold its point: each beat
+// that explains a part of a longer block carries the whole block again,
+// with its own window. A `win` line right after the block replaces it on
+// native Windows, as it replaces a run line.
+export const CODE_LINES = 8;
+// A fence at the start of a line, three backticks or tildes or more, with
+// the page's info string; it closes on a line of the same character, at
+// least as long, as CommonMark has it.
+const FENCE = /^(`{3,}|~{3,})([^`]*)$/;
+const closes = (fence, line) => {
+  const m = line.match(/^(`{3,}|~{3,})[ \t]*$/);
+  return Boolean(m) && m[1][0] === fence[0] && m[1].length >= fence.length;
+};
 
 const camel = (k) => k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 

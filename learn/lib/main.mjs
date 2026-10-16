@@ -219,6 +219,9 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       else if (e.type === 'folder') look(e);
       else if (e.type === 'prereqs') prereqs(e);
       else if (e.type === 'commands') queueMicrotask(() => !closed && dispatch({ type: 'commands', found: Object.fromEntries(e.names.map((n) => [n, onPath(n, env, platform)])) }));
+      // OSC 52: the terminal puts the text on the clipboard where it allows
+      // that, and ignores it elsewhere.
+      else if (e.type === 'copy') stdout.write(`\x1b]52;c;${Buffer.from(e.text).toString('base64')}\x07`);
       else if (e.type === 'save') save();
       else if (e.type === 'later') timers.setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
       else if (e.type === 'quit') quit(0);
