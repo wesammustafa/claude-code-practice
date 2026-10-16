@@ -1,7 +1,7 @@
 // Draws a state as exactly `rows` lines, none wider than `cols - 1`. Four
 // regions: the header (where am I), the body (what to do now, with how it's
 // going at the bottom of the card), and the key bar pinned to the bottom.
-import { banner, bannerWidth, burst, confetti, pip } from './art.mjs';
+import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './art.mjs';
 import { C } from './copy.mjs';
 import { REST } from './motion.mjs';
 import {
@@ -303,11 +303,18 @@ function lessonHead(ctx, right, rightText) {
   ];
 }
 
-function card(ctx, { tint, where, done, rows }) {
+// Pip, at the end of a card's top border, needs the face and the two rule
+// cells after it, and leaves at least one rule cell before it.
+const PIP_ROOM = PIP_FACE + 3;
+
+function card(ctx, { tint, where, done, rows, mood }) {
   const { t, W } = ctx;
   const rail = t.fg(tint, t.glyph.rail);
   const left = `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(where, 'chipBg')}${done ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
-  const top = left + t.fg(tint, t.glyph.rule.repeat(Math.max(0, W - width(left))));
+  const fill = Math.max(0, W - width(left));
+  const top = fill >= PIP_ROOM
+    ? `${left}${t.fg(tint, t.glyph.rule.repeat(fill - PIP_FACE - 2))}${pipFace(t, mood)}${t.fg(tint, t.glyph.rule.repeat(2))}`
+    : left + t.fg(tint, t.glyph.rule.repeat(fill));
   // Each row carries the rail, so a `…` cut inside the card keeps it.
   // A blank row that is part of a sentence, such as the Why line's, is the
   // rail alone too.
@@ -590,7 +597,7 @@ const VIEWS = {
     if (results?.error) rows.push(SPACER, lead(t, 'broken', t.fg('bad', C.broken(results.error))));
     return {
       head: lessonHead(ctx, '', l.minutes),
-      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}`, rows }),
+      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}`, rows, mood: checkOnlyMood(results) }),
       keys: [key('r', C.k.checkNow), key('p', C.k.page), key('m', C.k.map), key('q', C.k.quit)],
     };
   },
@@ -758,9 +765,31 @@ function stepView(ctx) {
   const tint = done ? 'ok' : style.tint;
   return {
     head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
-    body: card(ctx, { tint, where, done: done && ['check', 'file', 'git-clean'].includes(beat.verify.kind), rows }),
+    body: card(ctx, { tint, where, done: done && ['check', 'file', 'git-clean'].includes(beat.verify.kind), rows, mood: stepMood(s, beat, isLastBeat) }),
     keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }),
   };
+}
+
+// Pip's face for what the card shows the app saw (design 2.2): the step's
+// last beat done or already done, as the cheer does (a beat before it rests,
+// as the hop does); `opening`, while the card says "Checking" (a check, git
+// or a file read); a check that could not run; a "Not yet", a `▲` git line,
+// a pick that wasn't right, the hint box or the "Stuck?" offer; else at rest.
+function stepMood(s, beat, isLastBeat) {
+  const st = s.beat;
+  if (['done', 'already'].includes(st.status)) return isLastBeat ? 'done' : 'rest';
+  if (st.status === 'opening') return 'checking';
+  if (st.status === 'broken') return 'broken';
+  const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && Boolean(s.git?.paths?.length);
+  const wrong = ['wrong', 'stuck'].includes(st.feedback?.kind);
+  const stuck = st.idle && hintAvailable(s);
+  return st.status === 'fail' || gitLine || wrong || st.rung >= 0 || st.confirm || stuck ? 'worried' : 'rest';
+}
+
+// The check-only card: a check that could not run, an item not passing yet.
+function checkOnlyMood(results) {
+  if (results?.error) return 'broken';
+  return results?.items?.some((x) => !x.pass) ? 'worried' : 'rest';
 }
 
 // Chips in a beat share one width: room for the longest command, up to the
