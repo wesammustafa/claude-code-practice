@@ -86,7 +86,7 @@ const AMBIENT = ['welcome', 'step', 'checkonly'];
 // overlay stops the spinner, its seconds and the bounce: they show a child
 // that is still running (for at most 150 s an item).
 const idle = (s, at) => Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
-const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
+export const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
 
 // The words of the newest text: on a step card a "Not yet" line or feedback
 // that came after the card opened, else the card itself; on the welcome and
@@ -112,14 +112,20 @@ function newestWords(s) {
 // answer, the y/n before the exact command, or the hint box.
 const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat) && (Boolean(beatOf(s).ask) || s.beat.rung >= 0 || s.beat.confirm);
 
-// Whether ambient loops (look marker, blink) may draw: not during the reading
-// grace (400 ms a word of the newest text, 3 s to 20 s, ended by an activity
-// stamp), not within 4 s of a key, not at idle, not with an overlay, not
-// beside a question, options, a typed answer or the hint box. The spinner and
-// bounce never ask it: they follow the running child, and stop for an overlay.
+// Whether ambient loops (look marker, blink) may draw: on a screen that has
+// one, when the learner is settled. The spinner and bounce never ask it:
+// they follow the running child, and stop for an overlay.
 export function ambientAllowed(s, at) {
-  if (!AMBIENT.includes(s.view) || frozen(s, at)) return false;
-  return at >= quietFrom(s) && !answering(s);
+  return AMBIENT.includes(s.view) && settled(s, at);
+}
+
+// Not during the reading grace (400 ms a word of the newest text, 3 s to
+// 20 s, ended by an activity stamp), not within 4 s of a key, not at idle,
+// not with an overlay, not beside a question, options, a typed answer or the
+// hint box. The detailed Pip's ambient life asks this alone, on every screen
+// it is drawn on.
+export function settled(s, at) {
+  return !frozen(s, at) && at >= quietFrom(s) && !answering(s);
 }
 
 // Where the look marker stands: from the left, one notch on for each look

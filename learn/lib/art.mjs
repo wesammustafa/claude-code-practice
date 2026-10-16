@@ -1,7 +1,7 @@
 // Pip the mascot, block-letter banners, the check burst and confetti. Each
 // has a plain ASCII form. Nothing here is random: the same screen draws the
 // same art every time.
-import { renderPip, restPose } from './pip/pip.mjs';
+import { PALETTE, rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
 import { width } from './text.mjs';
 
 // Pip is the pip-terminal package's (pip/pip.mjs, as it ships): its glyph
@@ -49,6 +49,72 @@ function ink(t, row, places) {
 export function pip(t, mood = 'happy', frame) {
   const places = ['eeeeeeeee', t.unicode ? 'ooooeoooo' : 'ooooooooo', 'o  eme  o', 'ooooooooo'];
   return renderPip(poseOf(t, mood, frame), { size: 'glyph', depth: 1, unicode: t.unicode }).map((row, i) => ink(t, row, places[i]));
+}
+
+// The detailed Pip, the package's half-cell raster at one of its sizes, for
+// a screen with rows to spare (render.mjs's pipSlot). Each cell is two of
+// its pixels, over and under. `face` is the row its eyes are on.
+export const PIP_RASTER = {
+  small: { cols: SIZES.small[0], rows: SIZES.small[1], face: 5 },
+  standard: { cols: SIZES.standard[0], rows: SIZES.standard[1], face: 9 },
+};
+// The package's 256-color picks: the xterm cube and grays (pip.mjs's own,
+// which it does not export).
+const XTERM = Array.from({ length: 240 }, (_, i) => {
+  if (i >= 216) return [8 + (i - 216) * 10, 8 + (i - 216) * 10, 8 + (i - 216) * 10];
+  const levels = [0, 95, 135, 175, 215, 255];
+  return [levels[Math.floor(i / 36)], levels[Math.floor(i / 6) % 6], levels[i % 6]];
+});
+function xterm(c) {
+  let best = 0;
+  let far = Infinity;
+  XTERM.forEach((p, i) => {
+    const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2;
+    if (d < far) [best, far] = [i, d];
+  });
+  return 16 + best;
+}
+const BACKDROP = [1, 3, 5].map((i) => parseInt(PALETTE.background.slice(i, i + 2), 16));
+
+// `pose` from the package's controller, as `rows` lines of `cols` cells.
+// The package paints its own dark backdrop; here a pixel of that backdrop
+// is the terminal's own background instead, so no rectangle shows on
+// another. A cell with both halves backdrop is a space, one ink half is `▀`
+// or `▄` over the default background, two are `▀` in both colors. 256
+// colors, or 24-bit where the terminal reports it. Without a pose, blank
+// rows of the same size (to measure a screen with it).
+export function pipRaster(t, pose, size) {
+  const { cols, rows } = PIP_RASTER[size];
+  if (!pose) return Array.from({ length: rows }, () => ' '.repeat(cols));
+  const { pixels } = rasterizePip(pose, { columns: cols, rows });
+  const codes = new Map();
+  const code = (at, bg) => {
+    const c = pixels.subarray(at, at + 3);
+    const key = `${bg}:${c.join(',')}`;
+    if (!codes.has(key)) codes.set(key, t.depth >= 24 ? `${bg ? 48 : 38};2;${c.join(';')}` : `${bg ? 48 : 38};5;${xterm(c)}`);
+    return codes.get(key);
+  };
+  const backdrop = (at) => pixels[at] === BACKDROP[0] && pixels[at + 1] === BACKDROP[1] && pixels[at + 2] === BACKDROP[2];
+  return Array.from({ length: rows }, (_, row) => {
+    let line = '';
+    let fg = null;
+    let bg = null;
+    for (let col = 0; col < cols; col++) {
+      const over = (row * 2 * cols + col) * 3;
+      const under = over + cols * 3;
+      const ink = [!backdrop(over), !backdrop(under)];
+      // A space shows only its background, so it keeps the foreground.
+      const [ch, f, b] = !ink[0] && !ink[1] ? [' ', fg, null]
+        : !ink[1] ? ['▀', code(over, false), null]
+          : !ink[0] ? ['▄', code(under, false), null]
+            : ['▀', code(over, false), code(under, true)];
+      const set = [...(f !== fg ? [f ?? '39'] : []), ...(b !== bg ? [b ?? '49'] : [])];
+      if (set.length) line += `\x1b[${set.join(';')}m`;
+      [fg, bg] = [f, b];
+      line += ch;
+    }
+    return fg || bg ? `${line}\x1b[39;49m` : line;
+  });
 }
 
 // Pip's small face for a card's top border, 7 cells: ` [●‿●] `. Its moods

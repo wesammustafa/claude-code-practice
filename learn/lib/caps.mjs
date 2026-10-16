@@ -21,5 +21,8 @@ export function capabilities(stream = process.stdout, env = process.env, platfor
   // clickable where the terminal is known to support them.
   const links = !plain && Boolean(env.WT_SESSION || env.TERM_PROGRAM === 'iTerm.app' || env.TERM_PROGRAM === 'vscode' || env.TERM_PROGRAM === 'WezTerm' || env.KITTY_WINDOW_ID || env.VTE_VERSION);
   const motion = tty && depth > 1 && unicode && !plain && !calm && env.TERM !== 'dumb';
-  return { tty, depth, unicode, links, motion, calm, win32: platform === 'win32', codespace: env.CODESPACES === 'true' };
+  // Over SSH: a frame crosses the network, so the detailed Pip does not
+  // breathe there.
+  const remote = Boolean(env.SSH_CONNECTION || env.SSH_TTY);
+  return { tty, depth, unicode, links, motion, calm, remote, win32: platform === 'win32', codespace: env.CODESPACES === 'true' };
 }

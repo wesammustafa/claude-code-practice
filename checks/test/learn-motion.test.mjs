@@ -10,7 +10,8 @@ import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, DEFER_MS, IDLE_MS, isDone, reduce, stepOf, tierOf, watching } from '../../learn/lib/flow.mjs';
 import { ambientAllowed, BOOT_FROM, bootChange, nextChange, oneShot, phases, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
-import { bootFrame, render } from '../../learn/lib/render.mjs';
+import { restPose } from '../../learn/lib/pip/pip.mjs';
+import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
 import { openScreen } from '../../learn/lib/screen.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -109,6 +110,25 @@ test('rest equals calm: with motion caps, the rest frame is the motion-off frame
       }
     }
   }
+  // The detailed Pip (170) at rest is its state's rest pose, the pose main
+  // draws with motion off: the same frame, motion caps or calm, on every
+  // screen and boot frame that has room for it.
+  let rasters = 0;
+  for (const depth of [8, 24]) {
+    const moving = theme({ ...MOTION.full, depth, motion: true, calm: false });
+    const calm = theme({ ...MOTION.full, depth, motion: false, calm: true });
+    for (const [cols, rows] of [...SIZES, [120, 40]]) {
+      const size = { cols, rows };
+      for (const [label, state] of [['boot', null], ...screens]) {
+        if (!pipSlot(state, size, moving)) continue;
+        rasters += 1;
+        const pose = restPose(pipTarget(state, state?.now ?? 0).state);
+        const [rest, still] = state ? [render(state, size, moving, REST, pose), render(state, size, calm, REST, pose)] : [bootFrame(0, size, moving, REST, pose), bootFrame(0, size, calm, REST, pose)];
+        assert.deepEqual(rest, still, `${label} at ${cols}x${rows}, depth ${depth}, with the raster`);
+      }
+    }
+  }
+  assert.ok(rasters > 0);
 });
 
 test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), a frame at any time is the rest frame', () => {
