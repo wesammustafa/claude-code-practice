@@ -65,6 +65,8 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
 
 // ---- lookups -----------------------------------------------------------------
 export const lessonOf = (s, id = s.lesson) => s.course.find((l) => l.id === id);
+// A lesson's level is its id's letter: b-2 is Beginner, i-1 Intermediate.
+export const levelOf = (id) => id.split('-')[0];
 export const contentOf = (s, id = s.lesson) => lessonOf(s, id)?.content;
 // The steps a learner meets, in order: the warm-up questions chosen when the
 // lesson started, then the lesson's own steps.

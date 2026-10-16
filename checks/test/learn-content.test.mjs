@@ -7,9 +7,10 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GUIDE, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
-import { C } from '../../learn/lib/copy.mjs';
+import { C, TERMS } from '../../learn/lib/copy.mjs';
+import { levelOf } from '../../learn/lib/flow.mjs';
 import { lessons } from '../lessons/index.mjs';
-import { ruleTiers } from '../../learn/lib/tiers.mjs';
+import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
 import { root } from './learn-drive.mjs';
 
 const dir = join(root, 'learn', 'lessons');
@@ -95,6 +96,25 @@ test('warm-ups: questions from an earlier lesson, numbered, from memory', () => 
       assert.ok(['ask', 'type'].includes(w.beats[0].kind), `${id} ${w.id}: a warm-up asks`);
     });
     if (at > 0) assert.ok(l.warmup.length >= 2 || !l.steps.some((s) => s.part === 'Worked example'), `${id}: a lesson after the first opens with warm-ups`);
+  }
+});
+
+// C.warmupWhy, on the first warm-up of each level, says a wrong answer
+// shows the lesson's words at once: every warm-up there must. A wrong pick
+// shows its option's because, and a wrong typed answer the first hint.
+test('the level\'s first lesson with warm-ups shows the lesson\'s words on every wrong answer', () => {
+  const firsts = new Map();
+  for (const p of PATH) {
+    const l = parsed[p.id];
+    if (l?.warmup.length && !firsts.has(levelOf(p.id))) firsts.set(levelOf(p.id), p.id);
+  }
+  assert.equal(firsts.get('b'), 'b-2');
+  for (const id of firsts.values()) {
+    for (const w of parsed[id].warmup) {
+      const b = w.beats[0];
+      if (b.kind === 'type') assert.ok(b.hints.length, `${id} ${w.id}: a wrong typed answer shows no quote`);
+      else for (const o of b.options) if (o.kind !== 'right') assert.ok(o.because, `${id} ${w.id}: "${o.text}" shows no quote`);
+    }
   }
 });
 
@@ -201,6 +221,42 @@ test('the app\'s own words claim only what the app saw', () => {
     assert.equal(claims(copy).length, 1, `${k}, on a celebration`);
   }
   assert.equal(C.where.ask, 'quick question', 'the where label stays off the celebration list');
+});
+
+// One name for each thing (TERMS in copy.mjs). An older name is an alias,
+// and so is any table of the three tiers that words them differently. A
+// sentence that tells the learner what a tier change gives them and which
+// key to press (doneBefore, toHinted) is no table: it isn't checked here.
+const ALIASES = [/practice folder/i, /\byour copy\b/i, /\bgoal and hints\b/i, /\bgoal only\b/i];
+const aliasIn = (w) => ALIASES.filter((re) => re.test(w)).map((re) => `"${w}" matches ${re}`);
+const aliases = (copy) => {
+  const out = copyWords(copy).flatMap(aliasIn);
+  const walk = (v, at) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+    const keys = Object.keys(v);
+    if (keys.length === TIERS.length && TIERS.every((k) => typeof v[k] === 'string')) {
+      if (TIERS.some((k) => v[k] !== TERMS.tierHelp[k])) out.push(`${at} describes the tiers a second way`);
+    } else for (const k of keys) walk(v[k], at ? `${at}.${k}` : k);
+  };
+  walk(copy, '');
+  return out;
+};
+
+test('one name for each thing: the app\'s words use no alias of a TERMS name', () => {
+  assert.equal(TERMS.practiceCopy, 'practice copy');
+  assert.deepEqual(TERMS.tierHelp, { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' });
+  assert.deepEqual(aliases(C), []);
+  // A lesson file's unquoted lines are the app's words too; its quotes are the guide's.
+  for (const [id, l] of Object.entries(parsed)) {
+    for (const step of allSteps(l)) assert.deepEqual(appWords(step).flatMap(aliasIn), [], `${id} ${step.id}`);
+  }
+  assert.equal(C.pip1, "I'm Pip. I watch your practice copy and light up");
+  assert.equal(C.cleanCopy, 'Your practice copy is clean: nothing to commit.');
+  for (const bad of ["I'm Pip. I watch your practice folder and light up", 'Your copy is clean: nothing to commit.', 'goal and hints', 'goal only']) {
+    assert.equal(aliases({ ...C, x: bad }).length, 1, bad);
+  }
+  assert.equal(aliases({ ...C, legend: { guided: 'all commands', hinted: 'hints on h', challenge: 'nothing more' } }).length, 1, 'a second tier description');
+  assert.deepEqual(aliases({ ...C, legend: { ...TERMS.tierHelp } }), [], 'the same words again are no alias');
 });
 
 test('every word the levelup, complete and next screens read is on the celebration list', () => {
