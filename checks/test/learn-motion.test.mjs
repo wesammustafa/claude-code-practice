@@ -9,8 +9,9 @@ import { join } from 'node:path';
 import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, DEFER_MS, IDLE_MS, isDone, reduce, stepOf, tierOf, watching } from '../../learn/lib/flow.mjs';
-import { ambientAllowed, BOOT_FROM, bootChange, nextChange, oneShot, phases, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
-import { bootFrame, render } from '../../learn/lib/render.mjs';
+import { ambientAllowed, BOOT_FROM, bootChange, nextChange, oneShot, phases, pipGates, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
+import { createPip, restPose } from '../../learn/lib/pip/pip.mjs';
+import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
 import { openScreen } from '../../learn/lib/screen.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -109,6 +110,39 @@ test('rest equals calm: with motion caps, the rest frame is the motion-off frame
       }
     }
   }
+  // The detailed Pip (170): with motion off, main's controller gives the
+  // rest pose of the screen's state, even just as a level-up or complete
+  // screen arrives, when its reaction would play; that frame is the calm
+  // one, motion caps or calm, on every screen and boot frame with room.
+  let rasters = 0;
+  let reacting = 0;
+  for (const depth of [8, 24]) {
+    const moving = theme({ ...MOTION.full, depth, motion: true, calm: false });
+    const calm = theme({ ...MOTION.full, depth, motion: false, calm: true });
+    for (const [cols, rows] of [...SIZES, [120, 40]]) {
+      const size = { cols, rows };
+      for (const [label, state] of [['boot', null], ...screens]) {
+        const slot = pipSlot(state, size, moving);
+        if (!slot) continue;
+        rasters += 1;
+        // As main sets it: working from git's question, then this screen.
+        const target = pipTarget(state, state ? state.fx.view : 0);
+        const pip = createPip({ state: 'working', at: (state?.fx.view ?? 0) - 1_000 });
+        const { state: next, since, ...event } = target;
+        pip.setState(next, { at: since ?? 0, ...event });
+        const at = (state?.fx.view ?? 0) + 200;
+        const gates = (motion) => pipGates(state, at, { motion, truecolor: depth >= 24, remote: false });
+        const still = pip.pose(at, gates(false));
+        assert.deepEqual(still, restPose(next), `${label} at ${cols}x${rows}: the rest pose`);
+        if (JSON.stringify(pip.pose(at, gates(true))) !== JSON.stringify(still)) reacting += 1;
+        const draw = (t, pose) => (state ? render(state, size, t, REST, { size: slot, pose }) : bootFrame(0, size, t, REST, { size: slot, pose }));
+        assert.deepEqual(draw(moving, still), draw(calm, restPose(next)), `${label} at ${cols}x${rows}, depth ${depth}, with the raster`);
+      }
+    }
+  }
+  assert.ok(rasters > 0);
+  // With motion on, those same moments move: the check above is not idle.
+  assert.ok(reacting > 0);
 });
 
 test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), a frame at any time is the rest frame', () => {
@@ -722,22 +756,22 @@ test('the welcome: Pip wakes, the fuse runs along the path, one pulse crosses th
   const f = (ms) => frameAt(s, start, ms);
   const rest = restOf(s);
   const path = (lit) => `  B1 ${['B2', 'B3', 'B4', 'B5', '🏆'].map((b, i) => `${i < lit ? '━━' : '──'} ${b}`).join(' ')}   each stop a little harder`;
-  const eyes = (e) => `   │ ${e} │   👋 Hi Sam! Let's learn Claude Code by using it.`;
+  const eyes = (e) => `   │  ${e}  │   I'm Pip. I watch your practice copy and light up`;
   const arrow = (a) => `  │  one step at a time,     │  ${a}   │  and run Claude Code      │`;
-  assert.deepEqual([...rowsOf(f(0), 2), ...rowsOf(f(0), 6), ...rowsOf(f(0), 13)], [path(1), eyes('─   ─'), arrow('──▸')], '+0 ms');
-  assert.deepEqual(rowsOf(f(80), 6), [eyes('◡   ◡')], '+80 ms');
-  assert.deepEqual([...rowsOf(f(160), 2), ...rowsOf(f(160), 6)], [path(3), eyes('●   ●')], '+160 ms: the fuse reaches B4, Pip is awake');
+  assert.deepEqual([...rowsOf(f(0), 2), ...rowsOf(f(0), 7), ...rowsOf(f(0), 13)], [path(1), eyes('─‿─'), arrow('──▸')], '+0 ms');
+  assert.deepEqual(rowsOf(f(80), 7), [eyes('◒‿◒')], '+80 ms');
+  assert.deepEqual([...rowsOf(f(160), 2), ...rowsOf(f(160), 7)], [path(3), eyes('●‿●')], '+160 ms: the fuse reaches B4, Pip is awake');
   assert.deepEqual([...rowsOf(f(320), 2), ...rowsOf(f(320), 13)], [path(5), arrow('━─▸')], '+320 ms: the fuse reaches the cup');
   assert.deepEqual(rowsOf(f(400), 13), [arrow('─━▸')], '+400 ms');
-  assert.deepEqual([...rowsOf(rest, 2), ...rowsOf(rest, 6), ...rowsOf(rest, 13)], [path(0), eyes('●   ●'), arrow('──▸')]);
+  assert.deepEqual([...rowsOf(rest, 2), ...rowsOf(rest, 7), ...rowsOf(rest, 13)], [path(0), eyes('●‿●'), arrow('──▸')]);
   // Pip's eyes move only in the first 160 ms; at 480 ms everything rests.
-  for (let ms = 160; ms < 480; ms += 40) assert.deepEqual(rowsOf(f(ms), 6), rowsOf(rest, 6), `+${ms} ms`);
+  for (let ms = 160; ms < 480; ms += 40) assert.deepEqual(rowsOf(f(ms), 7), rowsOf(rest, 7), `+${ms} ms`);
   for (const ms of [480, 2_000]) assert.deepEqual(f(ms), rest, `+${ms} ms`);
   // At 60x20 the windows sit closer, with a one-cell arrow: the pulse
   // crosses it too, and the fuse and the wake-up run.
   const small = (ms) => frameAt(s, start, ms, [60, 20]);
   assert.match(small(0)[1], /^ {2}B1 ━━ B2 ── B3/);
-  assert.match(small(0)[5], /│ ─ {3}─ │/);
+  assert.match(small(0)[6], /│ {2}─‿─ {2}│/);
   assert.match(small(320)[11], /│ ━▸ │/);
   assert.match(restOf(s, [60, 20])[11], /│ ─▸ │/);
 });
@@ -751,8 +785,8 @@ test('a card enters: its words whole at once, the top rule grows from the pill, 
   const pill = '  ╭─  💬 in Claude Code  ';
   assert.deepEqual([...rowsOf(f(0), 2), ...rowsOf(f(0), 5)], [trail('○'), `${pill}${'─'.repeat(18)}`], '+0 ms');
   assert.deepEqual(rowsOf(f(40), 5), [`${pill}${'─'.repeat(35)}`], '+40 ms');
-  assert.deepEqual([...rowsOf(f(80), 2), ...rowsOf(f(80), 5)], [trail('◉'), `${pill}${'─'.repeat(44)} (─‿─) ──`], '+80 ms');
-  assert.deepEqual([...rowsOf(f(160), 2), ...rowsOf(f(160), 5)], [trail('●'), `${pill}${'─'.repeat(44)} (●‿●) ──`], '+160 ms: rest');
+  assert.deepEqual([...rowsOf(f(80), 2), ...rowsOf(f(80), 5)], [trail('◉'), `${pill}${'─'.repeat(44)} [─‿─] ──`], '+80 ms');
+  assert.deepEqual([...rowsOf(f(160), 2), ...rowsOf(f(160), 5)], [trail('●'), `${pill}${'─'.repeat(44)} [●‿●] ──`], '+160 ms: rest');
   // Every row but the trail and the border is the rest frame's from +0 ms,
   // and on a card with a question nothing moves again.
   const rest = restOf(s);
@@ -767,21 +801,21 @@ test('a card enters: its words whole at once, the top rule grows from the pill, 
   const checking = screen('W3 opening');
   assert.equal(checking.beat.status, 'opening');
   const face = (s, ms) => frameAt(s, checking.fx.open, ms)[4].slice(-9, -2);
-  assert.deepEqual([80, 160].map((ms) => face(checking, ms)), [' (─‿─) ', ' (●‿●) '], 'no child yet');
+  assert.deepEqual([80, 160].map((ms) => face(checking, ms)), [' [─‿─] ', ' [●‿●] '], 'no child yet');
   const running = reduce(checking, { type: 'run-start', now: checking.fx.open }).state;
-  assert.deepEqual([80, 160].map((ms) => face(running, ms)), [' (─‿─) ', ' (◓─◓) '], 'its child started as it opened');
+  assert.deepEqual([80, 160].map((ms) => face(running, ms)), [' [─‿─] ', ' [◒─◒] '], 'its child started as it opened');
 });
 
-test('a new "Not yet": the line whole at once, its mark pops, Pip looks down, nods, and looks back down', () => {
+test('a new "Not yet": the line whole at once, its mark pops, Pip wears its worried face, nods with both eyes open, and wears it again', () => {
   const s = screen('W3 not yet');
   const f = (ms) => frameAt(s, s.fx.text, ms);
   const top = (face) => `  ╭─  💻 in your other terminal  ──────────────────────────────────── ${face} ──`;
   const line = (mark) => `  │  ${mark} Not yet: .practice/version.txt is empty.`;
   const at = (ms) => [f(ms)[4], f(ms).find((l) => l.includes('Not yet'))];
-  assert.deepEqual(at(0), [top('(◒‿◒)'), line('△')], '+0 ms');
-  assert.deepEqual(at(80), [top('(◒‿◒)'), line('▲')], '+80 ms');
-  assert.deepEqual(at(160), [top('(●‿●)'), line('▲')], '+160 ms: a nod');
-  assert.deepEqual(at(360), [top('(◒‿◒)'), line('▲')], '+360 ms: back down');
+  assert.deepEqual(at(0), [top('[●‿◒]'), line('△')], '+0 ms');
+  assert.deepEqual(at(80), [top('[●‿◒]'), line('▲')], '+80 ms');
+  assert.deepEqual(at(160), [top('[●‿●]'), line('▲')], '+160 ms: a nod');
+  assert.deepEqual(at(360), [top('[●‿◒]'), line('▲')], '+360 ms: worried again');
   // The check's result differs from the last, so a sweep crosses the pulse
   // line (row 23) in 400 ms. Nothing else moves, and from 400 ms nothing
   // moves at all.
@@ -803,7 +837,7 @@ test('a new "Not yet": the line whole at once, its mark pops, Pip looks down, no
 const faces = (s, start) => Array.from({ length: 31 }, (_, k) => frameAt(s, start, 40 * k)[4].slice(-9, -2));
 
 test('a hop for 240 ms on a right answer or a beat\'s "Done.", the same for each; a guess gets none', () => {
-  const hop = [...Array(6).fill('\\(●▽●)/'), ...Array(25).fill(' (●‿●) ')];
+  const hop = [...Array(6).fill('+[●‿●]+'), ...Array(25).fill(' [●‿●] ')];
   const done = screen('C check');
   assert.equal(done.beat.status, 'already');
   // Its card then has nothing to answer or watch: once the gates open, Pip
@@ -825,7 +859,7 @@ test('a hop for 240 ms on a right answer or a beat\'s "Done.", the same for each
     g.key('enter');
     g.send({ type: 'key', name: pick, ch: pick, wait: 7 });
     assert.equal(g.state.beat.status, 'done');
-    assert.deepEqual(faces(g.state, g.now), Array(31).fill(' (●‿●) '), `guess ${pick}`);
+    assert.deepEqual(faces(g.state, g.now), Array(31).fill(' [●‿●] '), `guess ${pick}`);
   }
 });
 
@@ -842,7 +876,7 @@ test('a step done: the stop pops and its link fills, the rule grows, Pip cheers,
   const words = (ms) => rowsOf(f(ms), 17, 19).map((l) => l.slice(26));
   assert.deepEqual(words(0), ['Step 3 done!', '.practice/version.txt holds 2.1.285 (Claude Code)', '🔥 3 steps this session']);
 
-  assert.deepEqual([...rowsOf(f(0), 2, 3), ...rowsOf(f(0), 5)], [trail('✦──'), rule(13), top('\\(★▽★)/')], '+0 ms');
+  assert.deepEqual([...rowsOf(f(0), 2, 3), ...rowsOf(f(0), 5)], [trail('✦──'), rule(13), top('+[^‿^]+')], '+0 ms');
   assert.deepEqual(chips(0), [1], '+0 ms: mkdir keeps its live tick');
   assert.deepEqual(art(0), ['', '', ''], '+0 ms: the art is blank');
   assert.deepEqual(rowsOf(f(120), 2, 3), [trail('●━─'), rule(16)], '+120 ms');
@@ -850,12 +884,12 @@ test('a step done: the stop pops and its link fills, the rule grows, Pip cheers,
   assert.deepEqual(rowsOf(f(240), 2, 3), [trail('●━━'), rule(19)], '+240 ms: rest');
   assert.deepEqual(chips(240), [0, 1, 2], '+240 ms: and then the version');
   assert.deepEqual(art(320), ['', ' ▀█▄', ''], '+320 ms: the first stroke');
-  assert.deepEqual(f(320)[4], top('\\(★▽★)/'));
-  assert.deepEqual(f(360)[4], top(' (★‿★) '), '+360 ms: Pip rests');
+  assert.deepEqual(f(320)[4], top('+[^‿^]+'));
+  assert.deepEqual(f(360)[4], top(' [^‿^] '), '+360 ms: Pip rests');
   assert.deepEqual(art(400), ['', ' ▀█▄    ▄█▀', '   ▀█▄█▀'], '+400 ms');
   assert.deepEqual(art(480), ['           ▄█▀', ' ▀█▄    ▄█▀', '   ▀█▄█▀'], '+480 ms');
   assert.deepEqual(art(560), ['✦          ▄█▀   ·', ' ▀█▄    ▄█▀    ✦', '·  ▀█▄█▀     ·'], '+560 ms: the sparks, the still art');
-  assert.deepEqual(f(560), rest, 'no afterglow: the rest frame keeps the burst and Pip\'s star face');
+  assert.deepEqual(f(560), rest, 'no afterglow: the rest frame keeps the burst and Pip\'s done face');
   // At 60x20 the same cells change: the rule grows from 9 cells to 14.
   const small = (ms) => frameAt(s, s.fx.passLast, ms, [60, 20])[2];
   assert.deepEqual([small(0), small(240)], [`  ${'━'.repeat(9)}${'─'.repeat(47)}`, `  ${'━'.repeat(14)}${'─'.repeat(42)}`]);
@@ -869,7 +903,7 @@ test('a step done: the stop pops and its link fills, the rule grows, Pip cheers,
   assert.equal(stepOf(again).id, 'W3');
   assert.ok(isDone(again.beat) && again.progress['b-1'].done.includes('W3'));
   const g = (ms) => frameAt(again, again.fx.passLast, ms);
-  assert.equal(g(0)[4].slice(-9, -2), '\\(★▽★)/', 'it cheers');
+  assert.equal(g(0)[4].slice(-9, -2), '+[^‿^]+', 'it cheers');
   for (let ms = 0; ms <= 560; ms += 40) assert.equal(g(ms)[2], restOf(again)[2], `+${ms} ms: row 3`);
 });
 
@@ -877,10 +911,10 @@ test('a level-up: Pip opens its eyes as the banner wipes in, then the arrow fill
   const s = screen('level up hinted');
   const f = (ms) => frameAt(s, s.fx.view, ms);
   const rest = restOf(s);
-  assert.deepEqual(rowsOf(f(0), 6, 8), ['   │ ─   ─ │    ▌', '   │  ───  │    ▌', '   ╰───────╯    ▌'], '+0 ms');
-  assert.deepEqual(rowsOf(f(240), 6, 8), ['   │ ●   ● │    █   █▀▀ █ █ █▀▀▌', '   │  ───  │    █   █▀▀ █ █ █▀▀▌', '   ╰───────╯    █▄▄ █▄▄ ▀▄▀ █▄▄▌'], '+240 ms');
+  assert.deepEqual(rowsOf(f(0), 6, 8), ['   ╭───┴───╮    ▌', '   │  ─‿─  │    ▌', '   ╰───────╯    ▌'], '+0 ms');
+  assert.deepEqual(rowsOf(f(240), 6, 8), ['   ╭───┴───╮    █   █▀▀ █ █ █▀▀▌', '   │  ●‿●  │    █   █▀▀ █ █ █▀▀▌', '   ╰───────╯    █▄▄ █▄▄ ▀▄▀ █▄▄▌'], '+240 ms');
   assert.deepEqual(rowsOf(f(480), 6, 8), rowsOf(rest, 6, 8), '+480 ms: the focus face, the whole banner');
-  assert.deepEqual(rowsOf(rest, 6), ['   │ ◉   ◉ │    █   █▀▀ █ █ █▀▀ █     █ █ █▀█']);
+  assert.deepEqual(rowsOf(rest, 5, 7), ['       ●', '   ╭───┴───╮    █   █▀▀ █ █ █▀▀ █     █ █ █▀█', '   │  ◒─◒  │    █   █▀▀ █ █ █▀▀ █     █ █ █▀▀']);
   const arrow = (ms) => f(ms)[9];
   assert.equal(arrow(0), '    GUIDED ★☆☆    ────────     HINTED ★ ☆');
   assert.equal(arrow(480), '    GUIDED ★☆☆    ────────     HINTED ★ ☆');
@@ -912,7 +946,7 @@ test("the complete screen's light runs every lesson's whole trail, from its firs
   }
 });
 
-test('a lesson complete: confetti falls into its row, Pip throws its arms up, COMPLETE stamps in, the ticks appear from blank with the payoff last, a light runs the trail', () => {
+test('a lesson complete: confetti falls into its row, Pip cheers with sparks, COMPLETE stamps in, the ticks appear from blank with the payoff last, a light runs the trail', () => {
   const s = screen('complete');
   const f = (ms) => frameAt(s, s.fx.view, ms);
   const rest = restOf(s);
@@ -921,10 +955,11 @@ test('a lesson complete: confetti falls into its row, Pip throws its arms up, CO
   assert.deepEqual(rowsOf(f(0), 5, 6), [even, odd], '+0 ms');
   assert.deepEqual(rowsOf(f(400), 5, 6), [odd, even], '+400 ms');
   assert.deepEqual(rowsOf(rest, 5, 6), ['  ✦     ·     ◆     •     ✧     ■     ✦     ·     ◆     •     ✧     ■     ✦', ''], 'rest');
-  assert.deepEqual(rowsOf(f(0), 7, 10), ['  \\╭───────╮/', '   │ ✦   ✦ │', '   │  ╰─╯  │', '   ╰───────╯'], '+0 ms: arms up');
-  assert.deepEqual(rowsOf(f(240), 8, 10), ['   │ ✦   ✦ │    █▀▀ █▀█ █▀▄▀█ █▀█', '   │  ╰─╯  │    █   █ █ █ ▀ █ █▀▀', '   ╰───────╯    █▄▄ █▄█ █   █ █'], '+240 ms: half the word');
-  assert.deepEqual(rowsOf(f(480), 7, 10), rowsOf(rest, 7, 10), '+480 ms: arms down, star eyes, the whole banner');
-  assert.deepEqual(rowsOf(rest, 7, 8), ['   ╭───────╮', '   │ ★   ★ │    █▀▀ █▀█ █▀▄▀█ █▀█ █   █▀▀ ▀█▀ █▀▀']);
+  // The cheer is as wide as Pip: its sparks on the antenna's row, in line.
+  assert.deepEqual(rowsOf(f(0), 7, 10), ['    +  ●  +', '   ╭───┴───╮', '   │  ^‿^  │', '   ╰───────╯'], '+0 ms: sparks');
+  assert.deepEqual(rowsOf(f(240), 7, 10), ['    +  ●  +', '   ╭───┴───╮    █▀▀ █▀█ █▀▄▀█ █▀█', '   │  ^‿^  │    █   █ █ █ ▀ █ █▀▀', '   ╰───────╯    █▄▄ █▄█ █   █ █'], '+240 ms: half the word');
+  assert.deepEqual(rowsOf(f(480), 7, 10), rowsOf(rest, 7, 10), '+480 ms: no sparks, the happy face, the whole banner');
+  assert.deepEqual(rowsOf(rest, 7, 9), ['       ●', '   ╭───┴───╮    █▀▀ █▀█ █▀▄▀█ █▀█ █   █▀▀ ▀█▀ █▀▀', '   │  ^‿^  │    █   █ █ █ ▀ █ █▀▀ █   █▀▀  █  █▀▀']);
   // "You practised:": the marks start blank, then appear in turn, and the
   // payoff's 🏁 lands last.
   const can = ['install Claude Code', 'sign in', 'start it in a repository', 'tell which version, model and account a session is using'];
@@ -988,24 +1023,24 @@ function checkingW3(after = 200) {
 const top = (face) => `  ╭─  💻 in your other terminal  ──────────────────────────────────── ${face} ──`;
 const statusRow = (lines) => lines.find((l) => l.includes('Checking'));
 
-test('the spinner: from 150 ms of a running child, the cell after the checking label turns every 80 ms, and Pip looks up and holds its checking face', () => {
+test('the spinner: from 150 ms of a running child, the cell after the checking label turns every 80 ms, and Pip wears and holds its checking face', () => {
   const { d, run } = checkingW3();
   const s = d.state;
   const f = (ms) => frameAt(s, run, ms);
   const label = '  │  Checking .practice/version.txt…';
   // 150 ms is off the 40 ms grid: the first frame that moves is at 160.
   for (const ms of [0, 80, 140, 150, 159]) {
-    assert.deepEqual([f(ms)[4], statusRow(f(ms))], [top('(●‿●)'), label], `+${ms} ms: the label is state; nothing moves yet`);
+    assert.deepEqual([f(ms)[4], statusRow(f(ms))], [top('[●‿●]'), label], `+${ms} ms: the label is state; nothing moves yet`);
   }
-  assert.deepEqual([f(160)[4], statusRow(f(160))], [top('(◓─◓)'), `${label} ⠋`], '+160 ms');
+  assert.deepEqual([f(160)[4], statusRow(f(160))], [top('[◒─◒]'), `${label} ⠋`], '+160 ms');
   assert.deepEqual(f(239), f(160), 'one frame until +240 ms');
   assert.equal(statusRow(f(240)), `${label} ⠙`, '+240 ms');
   assert.equal(statusRow(f(320)), `${label} ⠹`, '+320 ms');
   // The ten frames of spec 3.5, then round again; Pip holds still.
   assert.deepEqual(Array.from({ length: 11 }, (_, k) => statusRow(f(160 + 80 * k)).at(-1)).join(''), '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋');
-  for (let ms = 160; ms < 1_200; ms += 80) assert.equal(f(ms)[4], top('(◓─◓)'), `+${ms} ms`);
+  for (let ms = 160; ms < 1_200; ms += 80) assert.equal(f(ms)[4], top('[◒─◒]'), `+${ms} ms`);
   // The rest frame, as calm draws it: the label and the checking face.
-  assert.deepEqual([restOf(s)[4], statusRow(restOf(s))], [top('(◓─◓)'), label]);
+  assert.deepEqual([restOf(s)[4], statusRow(restOf(s))], [top('[◒─◒]'), label]);
   // Every frame it asks for, its ticks, its seconds and its slower ticks,
   // lands on the 40 ms grid from the child's start.
   const due = [];
@@ -1137,7 +1172,7 @@ test('the look marker hides for 4 s after a key, stops at idle as "Stuck?" appea
   look();
   assert.equal(frameAt(d.state, d.now, 0).at(-2), pulse(7, 3));
   // Idle: 120 s with no key and no file activity. The marker stops, the
-  // "Stuck?" offer appears and Pip looks down at it.
+  // "Stuck?" offer appears and Pip wears its worried face.
   const quiet = d.state;
   const idleAt = d.state.lastActivity + IDLE_MS;
   assert.equal(frameAt(quiet, idleAt, -1).at(-2), pulse(7, 3));
@@ -1157,7 +1192,7 @@ test('the look marker hides for 4 s after a key, stops at idle as "Stuck?" appea
   const stuck = frameAt(looked, looked.now, 0);
   assert.equal(stuck.at(-2), PLAIN);
   assert.ok(stuck.some((l) => l.includes(C.stuckOffer)));
-  assert.match(stuck[4], / \(◒‿◒\) ──$/);
+  assert.match(stuck[4], / \[●‿◒\] ──$/);
   // With an overlay: its own rest frame.
   const { d: o, look: oLook } = watchedW3();
   oLook();
@@ -1268,37 +1303,38 @@ test('Pip\'s glance: on a file change Pip looks toward the other window for 1.2 
   const { d } = watchedW3();
   const act = at(d, { type: 'activity', wait: 500 }).now;
   const face = (s, ms, from = act) => frameAt(s, from, ms)[4];
-  assert.deepEqual([0, 600, 1_160].map((ms) => face(d.state, ms)), Array(3).fill(top('(◑‿◑)')), 'design 2.3');
-  assert.equal(face(d.state, 1_200), top('(●‿●)'), '+1200 ms: back at the learner');
+  assert.deepEqual([0, 600, 1_160].map((ms) => face(d.state, ms)), Array(3).fill(top('[◑‿◑]')), 'design 2.3');
+  assert.equal(face(d.state, 1_200), top('[●‿●]'), '+1200 ms: back at the learner');
   assert.equal(nextChange(d.state, act + 600, ON) <= 600, true, 'its end is a frame');
-  // Over a worried face too: it looks away, then back down.
+  // Over a worried face too: it looks away, then wears it again.
   const failing = screen('W3 not yet');
   const away = reduce(failing, { type: 'activity', now: failing.now + 5_000 }).state;
-  assert.deepEqual([0, 1_200].map((ms) => face(away, ms, away.now)), [top('(◑‿◑)'), top('(◒‿◒)')]);
+  assert.deepEqual([0, 1_200].map((ms) => face(away, ms, away.now)), [top('[◑‿◑]'), top('[●‿◒]')]);
   // W1 watches nothing: a file change stamps nothing, and Pip stays.
   const w1 = opened('W1');
   const still = at(w1.d, { type: 'activity', wait: 500 }).now;
   assert.equal(w1.d.state.fx.activity, undefined);
-  for (const ms of [0, 600]) assert.match(frameAt(w1.d.state, still, ms)[4], / \(●‿●\) ──$/, `W1, +${ms} ms`);
+  for (const ms of [0, 600]) assert.match(frameAt(w1.d.state, still, ms)[4], / \[●‿●\] ──$/, `W1, +${ms} ms`);
   // A child running: Pip holds its checking face.
   const { d: c, run } = checkingW3();
   const busy = reduce(c.state, { type: 'activity', now: run + 500 }).state;
-  assert.equal(face(busy, 100, run + 500), top('(◓─◓)'));
+  assert.equal(face(busy, 100, run + 500), top('[◒─◒]'));
   // A key ends it, as it ends any one-shot.
   const keyed = reduce(d.state, { type: 'key', name: 'down', now: act + 300 }).state;
-  assert.equal(face(keyed, 400), top('(●‿●)'));
-  // The file change brings a new "Not yet" 60 ms later: Pip looks down at
-  // it, nods, and stays down (design 2.3); the glance does not come back.
+  assert.equal(face(keyed, 400), top('[●‿●]'));
+  // The file change brings a new "Not yet" 60 ms later: Pip wears its
+  // worried face, nods, and keeps it (design 2.3); the glance does not come
+  // back.
   const waiting = screen('W3 waiting');
   const edit = reduce(waiting, { type: 'activity', now: waiting.now + 5_000 }).state;
   const notYet = reduce(edit, { type: 'check', lesson: 'b-1', items: [b1Item('hello')], now: edit.now + 60 }).state;
   assert.equal(notYet.beat.status, 'fail');
-  const down = Array.from({ length: 31 }, (_, k) => 40 * k).filter((ms) => ms >= 60 + TIMING.notYet).map((ms) => face(notYet, ms, edit.now));
-  assert.deepEqual(down, Array(down.length).fill(top('(◒‿◒)')), 'down from the nod\'s end');
+  const worried = Array.from({ length: 31 }, (_, k) => 40 * k).filter((ms) => ms >= 60 + TIMING.notYet).map((ms) => face(notYet, ms, edit.now));
+  assert.deepEqual(worried, Array(worried.length).fill(top('[●‿◒]')), 'worried from the nod\'s end');
 });
 
 test('no glance once the watch ends: a file change, then a look that passes the beat, hops or cheers and never looks away', () => {
-  // W3's only beat: the step is done, Pip cheers, then wears its star.
+  // W3's only beat: the step is done, Pip cheers, then wears its done face.
   const waiting = screen('W3 waiting');
   const edit = reduce(waiting, { type: 'activity', now: waiting.now + 5_000 }).state;
   const passed = reduce(edit, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], read: Buffer.from('2.1.285 (Claude Code)\n'), now: edit.now + 50 }).state;
@@ -1330,7 +1366,7 @@ test('Pip\'s blink: 160 ms shut every 6 s once the gates open, on the welcome an
   assert.equal(beatOfVerify(s), 'self');
   const q = gateOpens(s);
   const face = (ms) => frameAt(s, q, ms)[4].slice(-9, -2);
-  assert.deepEqual([-10, 0, 150, 160, 5_990, 6_000, 6_150, 6_160].map(face), [' (●‿●) ', ' (─‿─) ', ' (─‿─) ', ' (●‿●) ', ' (●‿●) ', ' (─‿─) ', ' (─‿─) ', ' (●‿●) ']);
+  assert.deepEqual([-10, 0, 150, 160, 5_990, 6_000, 6_150, 6_160].map(face), [' [●‿●] ', ' [─‿─] ', ' [─‿─] ', ' [●‿●] ', ' [●‿●] ', ' [─‿─] ', ' [─‿─] ', ' [●‿●] ']);
   assert.equal(nextChange(s, q + 10, ON), 150, 'the eyes open');
   assert.equal(nextChange(s, q + 160, ON), 5_840, 'the next blink');
   // Nothing else on the card moves.
@@ -1338,21 +1374,21 @@ test('Pip\'s blink: 160 ms shut every 6 s once the gates open, on the welcome an
   // Until 120 s with no key: then no blink, and no frame is asked for.
   const idleAt = s.lastActivity + IDLE_MS;
   const later = Math.ceil((idleAt - q) / 6_000) * 6_000;
-  assert.equal(face(later), ' (●‿●) ', 'idle');
+  assert.equal(face(later), ' [●‿●] ', 'idle');
   assert.equal(nextChange(s, q + later, ON), null);
   // The welcome's big Pip blinks the same way.
   const w = screen('welcome');
   const wq = gateOpens(w);
-  assert.match(frameAt(w, wq, 0)[5], /│ ─ {3}─ │/);
-  assert.match(frameAt(w, wq, 160)[5], /│ ● {3}● │/);
+  assert.match(frameAt(w, wq, 0)[6], /│ {2}─‿─ {2}│/);
+  assert.match(frameAt(w, wq, 160)[6], /│ {2}●‿● {2}│/);
   // Not where the card watches something, has a question, or Pip wears its
-  // star; and never in the rest frame.
+  // done face; and never in the rest frame.
   for (const label of ['W3 waiting', 'W5', 'W3 done', 'Y4 live dirty']) {
     const x = screen(label);
     const xq = gatesOpen(x) ?? x.now + 30_000;
     for (const ms of [0, 80, 6_000, 6_080]) assert.equal(frameAt(x, xq, ms)[4], restOf(x)[4], `${label}, +${ms} ms`);
   }
-  assert.equal(restOf(s)[4].slice(-9, -2), ' (●‿●) ');
+  assert.equal(restOf(s)[4].slice(-9, -2), ' [●‿●] ');
 });
 
 test('no ambient loop on any screen beside a question, its options, a typed answer, the hint box or an overlay, however long it waits', () => {
@@ -1379,11 +1415,11 @@ test('Pip tells the truth: the checking face only while the card says "Checking"
       [...frames, rest].forEach((f, k) => {
         const where = `${label} at ${cols}x${rows}, ${times[k] ?? 'rest'}`;
         const pip = strip(f[4] ?? '');
-        if (pip.includes('(◓─◓)')) {
+        if (pip.includes('[◒─◒]')) {
           checking += 1;
           assert.equal(s.beat?.status, 'opening', where);
         }
-        if (pip.includes('(◑‿◑)')) assert.ok(s.fx.activity !== undefined && watching(s), where);
+        if (pip.includes('[◑‿◑]')) assert.ok(s.fx.activity !== undefined && watching(s), where);
       });
     }
   }
@@ -1446,7 +1482,7 @@ test('one-shots end: 1.2 s after the last one starts, no frame is asked for unle
 // that touch, so `cuts` holds the rows where a part starts right under
 // another: on the complete screen, Pip's top row, under the confetti.
 const movingParts = (a, b, cuts) => a.reduce((n, line, i) => (line !== b[i] && (i === 0 || cuts.has(i) || a[i - 1] === b[i - 1]) ? n + 1 : n), 0);
-const partCuts = (s, rest) => new Set(s.view === 'complete' ? [rest.findIndex((l) => /^ +╭───────╮$/.test(strip(l).trimEnd()))].filter((i) => i > 0) : []);
+const partCuts = (s, rest) => new Set(s.view === 'complete' ? [rest.findIndex((l) => /^ +●$/.test(strip(l).trimEnd()))].filter((i) => i > 0) : []);
 
 test('little at once: at most one loop, and at most three moving parts from one frame to the next', () => {
   for (const [cols, rows] of SIZES) {
@@ -1505,7 +1541,7 @@ test('a key ends every one-shot but the one it started, and still does its job',
   assert.notDeepEqual(frameAt(d.state, d.now, 40), restOf(d.state), 'the entrance enter started');
   d.send({ type: 'key', name: '1', ch: '1', wait: 400 });
   assert.equal(d.state.beat.feedback.kind, 'right');
-  assert.equal(frameAt(d.state, d.now, 40)[4].slice(-9, -2), '\\(★▽★)/', 'the cheer the right pick started');
+  assert.equal(frameAt(d.state, d.now, 40)[4].slice(-9, -2), '+[^‿^]+', 'the cheer the right pick started');
   // enter and g work while the level-up plays (133).
   const up = screen('level up hinted');
   assert.equal(reduceKey(up, up.fx.view + 100, 'enter').view, 'step');
@@ -1534,7 +1570,7 @@ function passW3(before = () => {}, saved = {}) {
 test('Pip tells the truth: the same cheer with and without hints, the bottom rung, an ease or less help; the same face for every guess', () => {
   const plain = passW3();
   const cheer = cheerOf(plain, plain.fx.passLast);
-  assert.equal(cheer[0][0], '\\(★▽★)/');
+  assert.equal(cheer[0][0], '+[^‿^]+');
   const hints = passW3((d) => {
     d.send({ type: 'check', lesson: 'b-1', items: [b1Item('')] });
     d.key('h');
@@ -1576,8 +1612,11 @@ test('Pip tells the truth: the same cheer with and without hints, the bottom run
 });
 
 test('render, motion, art and flow read no clock and pick nothing at random', () => {
-  for (const f of ['render.mjs', 'motion.mjs', 'art.mjs', 'flow.mjs']) {
-    const src = readFileSync(join(root, 'learn', 'lib', f), 'utf8');
+  for (const f of ['render.mjs', 'motion.mjs', 'art.mjs', 'flow.mjs', 'pip/pip.mjs']) {
+    // Pip's package says in a comment that it uses no Math.random(): its
+    // code, without the comments, is what is read.
+    const raw = readFileSync(join(root, 'learn', 'lib', f), 'utf8');
+    const src = f === 'pip/pip.mjs' ? raw.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '') : raw;
     for (const bad of [/Math\.random/, /Date\.now/, /performance\.now/, /new Date\b/]) assert.doesNotMatch(src, bad, `${f}: ${bad}`);
   }
 });
@@ -1821,13 +1860,13 @@ test('recall, then compare: the entries are whole in the first frame after space
 // app asked git.
 const SINCE = 1_000_000;
 const bootAt = (ms, [cols, rows] = [80, 24], t = MOVING) => bootFrame(SINCE, { cols, rows }, t, ms === null ? REST : { at: SINCE + ms }).map((l) => strip(l).trimEnd());
-const BOOT_ROW = (eyes) => `   │ ${eyes} │   Asking git about this folder…`;
+const BOOT_ROW = (eyes) => `   │  ${eyes}  │   Asking git about this folder…`;
 
 test('the boot frame at rest, as calm draws it: Pip awake beside "Asking git about this folder…", no spinner', () => {
   const rule = `  ${'─'.repeat(76)}`;
   assert.deepEqual(bootAt(null), [
     '   LEARN   Claude Code practice', '', rule, '',
-    '   ╭───────╮', BOOT_ROW('●   ●'), '   │  ╰─╯  │', '   ╰───────╯',
+    '       ●', '   ╭───┴───╮', BOOT_ROW('●‿●'), '   ╰───────╯',
     ...Array(14).fill(''), rule, '',
   ]);
   for (const [cols, rows] of SIZES) {
@@ -1841,7 +1880,7 @@ test('the boot frame at rest, as calm draws it: Pip awake beside "Asking git abo
     for (const [mode, env] of Object.entries({ NO_COLOR: { ...ENV, NO_COLOR: '1' }, LEARN_PLAIN: { ...ENV, LEARN_PLAIN: '1' }, 'no Unicode': { TERM: 'linux' }, 'TERM=dumb': { TERM: 'dumb' } })) {
       const t = theme(capabilities(tty(), env, 'linux', []));
       const rest = bootFrame(SINCE, size, t, REST);
-      assert.match(strip(rest[5]), /Asking git about this folder(…|\.\.\.)$/, `${mode} at ${cols}x${rows}`);
+      assert.match(strip(rest[6]), /Asking git about this folder(…|\.\.\.)$/, `${mode} at ${cols}x${rows}`);
       for (const ms of [160, 240, 3_000]) assert.deepEqual(bootFrame(SINCE, size, t, { at: SINCE + ms }), rest, `${mode} at ${cols}x${rows}, +${ms} ms`);
     }
   }
@@ -1851,18 +1890,18 @@ test('the boot frame with motion: it opens on the spinner\'s first tick with Pip
   // 150 ms is off the 40 ms grid: the frame goes up at 160, as a check's spinner does.
   assert.equal(BOOT_FROM, 160);
   const f = (ms) => bootAt(ms);
-  assert.deepEqual([f(160)[5], f(160).at(-2)], [`${BOOT_ROW('─   ─')} ⠋`, pulse(0, 10)], '+160 ms: eyes shut, the spinner and the bounce start');
+  assert.deepEqual([f(160)[6], f(160).at(-2)], [`${BOOT_ROW('─‿─')} ⠋`, pulse(0, 10)], '+160 ms: eyes shut, the spinner and the bounce start');
   assert.deepEqual(f(239), f(160), 'one frame until +240 ms');
-  assert.deepEqual([f(240)[5], f(240).at(-2)], [`${BOOT_ROW('◡   ◡')} ⠙`, pulse(4, 10)], '+240 ms: waking');
-  assert.deepEqual([f(320)[5], f(320).at(-2)], [`${BOOT_ROW('●   ●')} ⠹`, pulse(8, 10)], '+320 ms: awake');
-  for (let ms = 320; ms < 3_000; ms += 40) assert.match(f(ms)[5], /^ {3}│ ● {3}● │/, `+${ms} ms: Pip stays awake`);
+  assert.deepEqual([f(240)[6], f(240).at(-2)], [`${BOOT_ROW('◒‿◒')} ⠙`, pulse(4, 10)], '+240 ms: waking');
+  assert.deepEqual([f(320)[6], f(320).at(-2)], [`${BOOT_ROW('●‿●')} ⠹`, pulse(8, 10)], '+320 ms: awake');
+  for (let ms = 320; ms < 3_000; ms += 40) assert.match(f(ms)[6], /^ {3}│ {2}●‿● {2}│/, `+${ms} ms: Pip stays awake`);
   // From 3 s the seconds git has run, as on a slow check; slower after 10 s.
-  assert.equal(f(3_000)[5], `${BOOT_ROW('●   ●')} ⠴  3 s`);
-  assert.equal(f(12_000)[5].replace(/ \S {2}\d+ s$/, ''), BOOT_ROW('●   ●'));
-  assert.match(f(12_000)[5], / {2}12 s$/);
-  // Only rows 6 and 23 ever move.
+  assert.equal(f(3_000)[6], `${BOOT_ROW('●‿●')} ⠴  3 s`);
+  assert.equal(f(12_000)[6].replace(/ \S {2}\d+ s$/, ''), BOOT_ROW('●‿●'));
+  assert.match(f(12_000)[6], / {2}12 s$/);
+  // Only rows 7 and 23 ever move.
   const rest = bootAt(null);
-  for (const ms of [160, 240, 320, 3_000, 12_000]) assert.deepEqual(f(ms).flatMap((l, i) => (l === rest[i] ? [] : [i + 1])).filter((r) => r !== 6 && r !== 23), [], `+${ms} ms`);
+  for (const ms of [160, 240, 320, 3_000, 12_000]) assert.deepEqual(f(ms).flatMap((l, i) => (l === rest[i] ? [] : [i + 1])).filter((r) => r !== 7 && r !== 23), [], `+${ms} ms`);
   // The frames it asks for land on the 40 ms grid from git's start.
   const due = [];
   for (let ms = BOOT_FROM; ms < 12_000; ms += bootChange(SINCE, SINCE + ms, ON)) due.push(ms);
@@ -1873,7 +1912,7 @@ test('the boot frame with motion: it opens on the spinner\'s first tick with Pip
   assert.equal(bootChange(SINCE, SINCE + 200, OFF), null, 'none with motion off');
   // At 60x20 the same, in the same rows, on a 56-cell rule.
   const small = bootAt(240, [60, 20]);
-  assert.equal(small[5], `${BOOT_ROW('◡   ◡')} ⠙`);
+  assert.equal(small[6], `${BOOT_ROW('◒‿◒')} ⠙`);
   assert.equal(small.at(-2), pulse(4, 10, 56));
 });
 
@@ -1906,9 +1945,9 @@ test('the boot frame fits in every mode: exactly the window, no line too wide, o
     }
   }
   // Pip's rows are the welcome's at every size, so the welcome takes its place.
-  const pipRows = (lines) => lines.flatMap((l, i) => (/│ ● {3}● │/.test(strip(l)) ? [i] : []));
+  const pipRows = (lines) => lines.flatMap((l, i) => (/│ {2}●‿● {2}│/.test(strip(l)) ? [i] : []));
   for (const [cols, rows] of [...SIZES, [120, 40]]) assert.deepEqual(pipRows(bootFrame(SINCE, { cols, rows }, MOVING)), pipRows(render(driver().state, { cols, rows }, MOVING)), `${cols}x${rows}`);
-  assert.match(strip(bootFrame(SINCE, { cols: 60, rows: 20 }, themes.ASCII, REST)[5]), /^ {3}\| o {3}o \| {3}Asking git about this folder\.\.\.$/);
+  assert.match(strip(bootFrame(SINCE, { cols: 60, rows: 20 }, themes.ASCII, REST)[6]), /^ {3}\| {2}o_o {2}\| {3}Asking git about this folder\.\.\.$/);
 });
 
 test('phases: a git child for a beat on part of the tree turns the spinner, as a whole-tree git child does', () => {
