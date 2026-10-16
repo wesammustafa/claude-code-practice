@@ -1,6 +1,6 @@
 // The learn app's motion plumbing: the gate and the calm switch, the frame
-// clock, the in-memory stamps, and the pure timing module. Nothing moves yet,
-// so every frame is the rest frame.
+// clock, the in-memory stamps, the pure timing module, and the screen writer.
+// Nothing moves yet, so every frame is the rest frame.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -11,9 +11,11 @@ import { beatOf, DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { ambientAllowed, nextChange, oneShot, phases, REST, TIMING } from '../../learn/lib/motion.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
+import { openScreen } from '../../learn/lib/screen.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { repo, withRepo } from './helpers.mjs';
 import { allScreens, b1Item, course, driver, lessonScreens, playUntil, root } from './learn-drive.mjs';
+import { fakeClock, fakeOut, screenModel } from './learn-term.mjs';
 
 // A terminal that can show everything: a TTY with 256 colors.
 const tty = (depth = 8) => ({ isTTY: true, getColorDepth: () => depth });
@@ -566,4 +568,193 @@ test('render, motion, art and flow read no clock and pick nothing at random', ()
     const src = readFileSync(join(root, 'learn', 'lib', f), 'utf8');
     for (const bad of [/Math\.random/, /Date\.now/, /performance\.now/, /new Date\b/]) assert.doesNotMatch(src, bad, `${f}: ${bad}`);
   }
+});
+
+// The screen writer (design 4.5), on an output stream and a clock the test
+// holds. A frame is 24 rows of plain text here.
+const page = (mark = '', at = -1) => Array.from({ length: 24 }, (_, i) => `row ${i + 1}${i === at ? mark : ''}`);
+const writer = (motion) => {
+  const out = fakeOut();
+  const clock = fakeClock();
+  const screen = openScreen(out, { motion, clock: clock.now });
+  out.writes.length = 0;
+  return { out, clock, screen, bytes: () => out.writes.join('') };
+};
+
+test('screen writer: an identical frame writes nothing, with motion on or off', () => {
+  for (const motion of [true, false]) {
+    const { out, screen } = writer(motion);
+    screen.draw(page());
+    assert.equal(out.writes.length, 1, 'the first frame');
+    screen.draw(page());
+    screen.draw(page());
+    assert.equal(out.writes.length, 1, `motion ${motion}: the same frame again writes nothing`);
+  }
+});
+
+test('screen writer: a still screen still gets one full frame every 10 s, so stray output is repaired', async () => {
+  for (const motion of [true, false]) {
+    const { out, clock, screen, bytes } = writer(motion);
+    screen.draw(page());
+    out.writes.length = 0;
+    await clock.advance(9_999);
+    screen.draw(page());
+    assert.equal(out.writes.length, 0, 'before 10 s, nothing');
+    await clock.advance(1);
+    screen.draw(page());
+    assert.equal(out.writes.length, 1, `motion ${motion}: at 10 s, a frame`);
+    assert.ok(bytes().includes('\x1b[H'), 'a full frame, from home');
+    const model = screenModel(80, 24);
+    model.feed(bytes());
+    assert.deepEqual(model.lines(), page());
+    out.writes.length = 0;
+    await clock.advance(5_000);
+    screen.draw(page());
+    assert.equal(out.writes.length, 0, 'the 10 s count starts again from that frame');
+  }
+});
+
+// The rows a write moves the cursor to, 1-based, and whether it starts from home.
+const rowsWritten = (bytes) => [...bytes.matchAll(/\x1b\[(\d+);1H/g)].map((m) => Number(m[1]));
+const fromHome = (bytes) => bytes.includes('\x1b[H');
+
+test('screen writer: with motion on, a one-row change writes that row alone, in one synchronized write', () => {
+  const { out, screen, bytes } = writer(true);
+  const model = screenModel(80, 24);
+  screen.draw(page());
+  model.feed(bytes());
+  out.writes.length = 0;
+  screen.draw(page(' changed', 6));
+  assert.equal(out.writes.length, 1);
+  const w = bytes();
+  assert.deepEqual(rowsWritten(w), [7]);
+  assert.equal(fromHome(w), false, 'no full frame');
+  assert.ok(w.startsWith('\x1b[?2026h') && w.endsWith('\x1b[?2026l'), 'inside synchronized output');
+  model.feed(w);
+  assert.deepEqual(model.lines(), page(' changed', 6), 'the terminal shows the new frame');
+});
+
+test('screen writer: with motion off, a one-row change is a full frame, as today', () => {
+  const { out, screen, bytes } = writer(false);
+  screen.draw(page());
+  out.writes.length = 0;
+  screen.draw(page(' changed', 6));
+  assert.equal(fromHome(bytes()), true);
+  assert.deepEqual(rowsWritten(bytes()), []);
+});
+
+test('screen writer: when more than half the rows changed, a full frame goes out', () => {
+  const { out, screen, bytes } = writer(true);
+  const model = screenModel(80, 24);
+  screen.draw(page());
+  model.feed(bytes());
+  const half = page().map((l, i) => (i < 12 ? `${l} x` : l));
+  out.writes.length = 0;
+  screen.draw(half);
+  assert.equal(rowsWritten(bytes()).length, 12, 'half the rows: a row-diff');
+  model.feed(bytes());
+  const more = half.map((l, i) => (i < 13 ? `${l} y` : l));
+  out.writes.length = 0;
+  screen.draw(more);
+  assert.equal(fromHome(bytes()), true, '13 of 24: a full frame');
+  model.feed(bytes());
+  assert.deepEqual(model.lines(), more);
+});
+
+test('screen writer: after clear(), the next frame is a full one, even the same frame', () => {
+  for (const motion of [true, false]) {
+    const { out, screen, bytes } = writer(motion);
+    const model = screenModel(80, 24);
+    screen.draw(page());
+    model.feed(bytes());
+    out.writes.length = 0;
+    screen.clear();
+    screen.draw(page());
+    assert.equal(fromHome(out.writes.at(-1) ?? ''), true, `motion ${motion}: the same frame, whole`);
+    model.feed(bytes());
+    assert.deepEqual(model.lines(), page());
+    out.writes.length = 0;
+    screen.clear();
+    screen.draw(page(' changed', 6));
+    assert.equal(fromHome(out.writes.at(-1) ?? ''), true, `motion ${motion}: a one-row change after clear(), whole`);
+  }
+});
+
+test('screen writer: while a write is pending, only the newest frame is kept, and it goes out on drain', () => {
+  for (const motion of [true, false]) {
+    const { out, screen, bytes } = writer(motion);
+    const model = screenModel(80, 24);
+    out.full = true;
+    screen.draw(page());
+    assert.equal(out.writes.length, 1, 'the write that came back false');
+    screen.draw(page(' a', 3));
+    screen.draw(page(' b', 3));
+    screen.draw(page(' c', 5));
+    assert.equal(out.writes.length, 1, `motion ${motion}: nothing more while it is pending`);
+    out.drain();
+    assert.equal(out.writes.length, 2, 'one frame on drain');
+    model.feed(bytes());
+    assert.deepEqual(model.lines(), page(' c', 5), 'the newest');
+    out.drain();
+    assert.equal(out.writes.length, 2, 'a second drain writes nothing');
+  }
+});
+
+// A writer whose writes take `cost(n)` ms on the fake clock, n counting from 1.
+const slowWriter = (cost) => {
+  const w = writer(true);
+  const write = w.out.write;
+  let n = 0;
+  w.out.write = (chunk) => {
+    n += 1;
+    w.clock.spend(cost(n));
+    return write(chunk);
+  };
+  return w;
+};
+
+test('screen writer: when 3 of the last 10 motion frames took over 12 ms, motion stops for the sitting', () => {
+  // Frame n is page(n): each a one-row change from the one before.
+  const frames = (screen, from, to) => { for (let n = from; n <= to; n++) screen.draw(page(` ${n}`, n % 24)); };
+  const two = slowWriter((n) => (n === 1 || n === 5 ? 13 : 12));
+  frames(two.screen, 1, 20);
+  assert.equal(two.screen.motion, true, 'two slow frames, and 12 ms is not over 12');
+  const apart = slowWriter((n) => ([1, 5, 12].includes(n) ? 13 : 1));
+  frames(apart.screen, 1, 20);
+  assert.equal(apart.screen.motion, true, 'frames 1 and 12 are 11 apart: never 3 in 10');
+  const three = slowWriter((n) => ([2, 6, 11].includes(n) ? 20 : 1));
+  frames(three.screen, 1, 10);
+  assert.equal(three.screen.motion, true, 'two so far');
+  frames(three.screen, 11, 11);
+  assert.equal(three.screen.motion, false, 'frames 2, 6 and 11 are in the last 10');
+  three.out.writes.length = 0;
+  frames(three.screen, 12, 12);
+  assert.equal(fromHome(three.bytes()), true, 'after that, every frame is full');
+  frames(three.screen, 13, 40);
+  assert.equal(three.screen.motion, false, 'for the sitting');
+});
+
+test('screen writer: a drain over 100 ms twice in 10 s stops motion; one false write does not', async () => {
+  // A frame whose write comes back false, then a drain `ms` later.
+  const backlog = async (w, n, ms) => {
+    w.out.full = true;
+    w.screen.draw(page(` ${n}`, n));
+    await w.clock.advance(ms);
+    w.out.drain();
+  };
+  const once = writer(true);
+  await backlog(once, 1, 400);
+  assert.equal(once.screen.motion, true, 'one slow drain is a sample, not a trend');
+  await once.clock.advance(4_000);
+  await backlog(once, 2, 90);
+  assert.equal(once.screen.motion, true, 'a drain of 90 ms is not slow');
+  await once.clock.advance(6_000);
+  await backlog(once, 3, 150);
+  assert.equal(once.screen.motion, true, 'the slow drains are over 10 s apart');
+  await once.clock.advance(3_000);
+  await backlog(once, 4, 101);
+  assert.equal(once.screen.motion, false, 'two slow drains within 10 s');
+  once.out.writes.length = 0;
+  once.screen.draw(page(' 5', 5));
+  assert.equal(fromHome(once.bytes()), true, 'after that, every frame is full');
 });
