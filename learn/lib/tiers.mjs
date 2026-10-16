@@ -1,9 +1,10 @@
 // How much help a step gets. GUIDED shows every command, HINTED shows the
 // goal with hints on request, CHALLENGE shows the goal only. A skill's help
 // fades each time a lesson asks for it again, in any level, so each lesson
-// opens a little harder than the one before it in its level. A level's first
+// after a level's first gives less help than that first one. A level's first
 // lesson brings new skills, so it may start with more help than the capstone
-// before it.
+// before it, and a lesson full of new skills may give more help than the one
+// two before it in its level: the climb test reports that dip, not fails it.
 export const TIERS = ['guided', 'hinted', 'challenge'];
 const rank = (t) => TIERS.indexOf(t);
 const at = (i) => TIERS[Math.max(0, Math.min(2, i))];

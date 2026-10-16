@@ -405,15 +405,15 @@ test('verify lines name real check items, and ladder headings are check items', 
 // carried across the course. A level's first lesson may open GUIDED; every
 // later one opens above it and gives less help than the level's first. A
 // lesson full of new commands may dip below the lesson two before it in its
-// level: that is reported, not failed. `lessons` holds parsed contents in
+// level: that is reported, not failed. `course` holds parsed contents in
 // course order, null for a lesson with no file.
-function climb(lessons) {
+function climb(course) {
   const off = [];
   const dips = [];
   const levels = new Map();
-  lessons.forEach((c, i) => {
+  course.forEach((c, i) => {
     if (!c) return;
-    const rule = ruleTiers(lessons, i);
+    const rule = ruleTiers(course, i);
     c.steps.forEach((s, k) => {
       if (s.tier !== rule[k]) off.push(`${c.lesson} ${s.id} is ${s.tier}; the course rule says ${rule[k]}`);
     });

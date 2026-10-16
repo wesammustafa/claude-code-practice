@@ -270,7 +270,7 @@ const CAPSTONE_TO_I1 = readFileSync(join(root, 'learn', 'lessons', 'b-capstone.m
 
 // Help fades within a level (ticket 85): a level's first lesson may start
 // with more help than the capstone before it.
-test('the next screen from b-capstone to i-1 names i-1 and says nothing of a notch harder, though i-1 has a lesson file', () => {
+test('the next screen from b-capstone to i-1 names i-1 and says nothing of a notch harder, nor draws its bar, though i-1 has a lesson file', () => {
   const course = threeLevels({ 'b-capstone': CAPSTONE_TO_I1, 'i-1': DEMO_I1 });
   const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-capstone', course) } });
   playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-capstone');
@@ -279,7 +279,9 @@ test('the next screen from b-capstone to i-1 names i-1 and says nothing of a not
     const where = `${size.join('x')}\n${lines.join('\n')}`;
     const up = lines.findIndex((l) => l.includes(C.nextUp));
     assert.ok(up > 0 && lines[up].includes('I1'), where);
-    assert.ok(!has(lines, 'A notch harder'), where);
+    assert.ok(!has(lines, C.notchHarder.slice(0, 15)), where);
+    // The bar is drawn beside "A notch harder", so it goes with it.
+    assert.ok(!lines.slice(up).some((l) => /[●◆★]{3}/.test(l)), where);
   }
   d.key('enter');
   assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'i-1']);
@@ -292,17 +294,22 @@ test('the Intermediate map page with i-1\'s lesson file keeps its tier bars and 
     const where = `${size.join('x')}\n${lines.join('\n')}`;
     assert.match(lines.find((l) => / I1 /.test(l)) ?? '', /[●◆★]/, where);
     assert.ok(has(lines, C.help), where);
-    assert.ok(!has(lines, 'so it starts with less help'), where);
+    assert.ok(!has(lines, C.mapFooter.slice(0, 20)), where);
   }
 });
 
-test('the welcome\'s path hint shows on a level with a lesson file, and not on one where every lesson is check-only', () => {
-  const hint = 'each stop a little harder';
-  // Intermediate's path line leaves room for the hint from 100 columns.
+test('the welcome\'s path hint shows where the map\'s footer does: on Beginner, not on a later level, with a lesson file or without', () => {
+  // Intermediate's path line would leave room for the hint from 100
+  // columns.
   const wide = [100, 24];
-  assert.equal(screen(welcomeAt('i-1', threeLevels({ 'i-1': DEMO_I1 })).state, wide)[1].trim(), `I1 ── I2 ── I3 ── I4 ── I5 ── I6 ── I7 ── I8 ── 🏆   ${hint}`);
-  for (const id of ['i-1', 'a-1']) assert.ok(!screen(welcomeAt(id).state, wide)[1].includes(hint), id);
-  assert.ok(screen(welcomeAt('b-1').state)[1].endsWith(`🏆   ${hint}`));
+  const withI1 = threeLevels({ 'i-1': DEMO_I1 });
+  assert.equal(screen(welcomeAt('i-1', withI1).state, wide)[1].trim(), 'I1 ── I2 ── I3 ── I4 ── I5 ── I6 ── I7 ── I8 ── 🏆');
+  for (const id of ['i-1', 'a-1']) assert.ok(!screen(welcomeAt(id).state, wide)[1].includes(C.pathHint), id);
+  assert.ok(screen(welcomeAt('b-1').state)[1].endsWith(`🏆   ${C.pathHint}`));
+  // The map agrees: its footer shows on Beginner's page and not on
+  // Intermediate's.
+  assert.ok(screen(mapAt('b-1', withI1).state, wide).join(' ').includes(C.mapFooter));
+  assert.ok(!screen(mapAt('i-1', withI1).state, wide).join(' ').includes(C.mapFooter.slice(0, 20)));
 });
 
 test('skill counts carry across levels: after Beginner, i-1 opens GUIDED on its new skill and commit comes back at CHALLENGE', () => {

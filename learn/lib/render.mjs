@@ -521,6 +521,13 @@ const sentence = (t, parts, w, color) => (parts.every((x) => width(x) <= w) ? pa
 const hintBox = (t, lines) => lines.map((l) => `${t.fg('warn', t.glyph.bar)} ${l}`);
 
 // ---- views -------------------------------------------------------------------
+// The welcome's path hint and the map's footer say the same thing: each
+// lesson starts with less help than the one before. Help fades within a
+// level, and a later level's first lesson may start with more help than the
+// capstone before it, so both show only on the course's first level, and
+// only where a lesson file climbs.
+const lessHelpOn = (s, lessons) => lessons[0] === s.course[0] && lessons.some((l) => l.content);
+
 const VIEWS = {
   welcome(ctx) {
     const { s, t, W } = ctx;
@@ -539,8 +546,7 @@ const VIEWS = {
     const link = (i) => (i < lit ? ` ${t.bold(t.fg('gold', t.glyph.bold.repeat(2)))} ` : t.fg('faint', ` ${t.glyph.rule.repeat(2)} `));
     // The heat runs cool to hot across the level, however long.
     const path = `${ids.map((l, i) => `${t.fg(heat[Math.floor((i * heat.length) / ids.length)], t.bold(lessonLabel(l.id)))}${link(i)}`).join('')}${t.emoji('cup') || lessonLabel(cap.id)}`;
-    // A level whose lessons are all check-only has no help to fade: no hint.
-    const hint = lessons.some((l) => l.content) ? t.fg('muted', `   ${C.pathHint}`) : '';
+    const hint = lessHelpOn(s, lessons) ? t.fg('muted', `   ${C.pathHint}`) : '';
     const eyes = e < at.waking || ctx.ph.blink ? 'shut' : e < at.awake ? 'waking' : undefined;
     const body = [
       withPip(ctx, pip(t, 'happy', eyes), [
@@ -747,8 +753,9 @@ const VIEWS = {
       const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
       const mixed = `   ${mixBar(ctx, nextLesson, BAR)}  `;
       body.push(SPACER, ...hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x))));
-      // Its climb, where it has a lesson file to climb. Help fades within a
-      // level: the first lesson of the next may start with more help.
+      // Its climb beside "A notch harder", where it has a lesson file to
+      // climb. Help fades within a level: the first lesson of the next may
+      // start with more help, so neither the bar nor the line shows there.
       if (nextLesson.content && levelOf(s, nextLesson.id) === levelOf(s)) body.push(...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
     }
     body.push(SPACER, ...para(t, C.savedBreak, W, 'muted'));
@@ -774,10 +781,7 @@ const VIEWS = {
     // The legend's items run on under "Help:" when one row can't hold them.
     // It and the footer explain the tier bars: a page with none has neither.
     const bars = lessons.some((l) => l.content);
-    // The footer says each lesson starts with less help than the one before:
-    // false for a level's first lesson after another level, whose help fades
-    // anew.
-    const footer = bars && lessons[0] === s.course[0];
+    const footer = lessHelpOn(s, lessons);
     const legend = [];
     for (const item of TIERS.map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.tierHelp[k])}`)) {
       const last = legend.at(-1);
@@ -807,7 +811,8 @@ const VIEWS = {
     });
     return {
       head,
-      // The footer says what the welcome's hint says: it gives way before a row.
+      // The footer says what the welcome's hint says, on the same level: it
+      // gives way before a row.
       body: bars ? [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, ...(footer ? [SPACER, ...optional(para(t, C.mapFooter, W, 'muted'))] : [])] : rows,
       // Where the bar is short, as in ASCII at 60x20, "choose" gives way so
       // the arrows that switch level stay: the pointer shows what up and
