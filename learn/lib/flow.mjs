@@ -714,10 +714,22 @@ export function reduce(prev, ev) {
   const result = RESULTS.includes(ev.type);
   if (result && s.beat?.asked && ev.asked === s.beat.asked) s.beat.asked = 0;
   const rRuns = result && Boolean(s.beat?.asked);
+  // One check child runs at a time, so its result means the run that
+  // reported has ended: the count goes with it.
+  if ((ev.type === 'check' || ev.type === 'check-error') && s.beat?.running) s.beat.running = null;
   switch (ev.type) {
     case 'check':
       onCheck(s, ev, effects, rRuns);
       break;
+    case 'running': {
+      // The check child starts its nth item of m. Only the run the card says
+      // "Checking" for counts: this beat's check (its lesson and its items,
+      // so a run the beat before asked for, still going, is not it), asked
+      // by the latest r, or by the beat opening when no r is out.
+      const w = watching(s)?.check;
+      if (s.beat?.status === 'opening' && (ev.asked ?? 0) === (s.beat.asked || 0) && w?.lesson === ev.lesson && sameJson(ev.items ?? null, w.items)) s.beat.running = { n: ev.n, m: ev.m };
+      break;
+    }
     case 'check-error':
       s.checks[ev.lesson] = { ...(s.checks[ev.lesson] ?? {}), error: ev.message };
       if (!rRuns && s.view === 'step' && s.beat && beatOf(s).verify.kind === 'check' && !['done', 'already'].includes(s.beat.status)) {
@@ -1046,7 +1058,7 @@ const VIEWS = {
       // goes out on the effect and comes back on the result. `before` keeps
       // the status "Checking" covers, for the hints and the key bar.
       s.asks += 1;
-      Object.assign(st, { status: 'opening', slowWait: false, asked: s.asks, before: st.status === 'opening' ? st.before : st.status });
+      Object.assign(st, { status: 'opening', slowWait: false, asked: s.asks, running: null, before: st.status === 'opening' ? st.before : st.status });
       if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks });
       if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks });
       if (w.git) effects.push({ type: 'git', asked: s.asks });

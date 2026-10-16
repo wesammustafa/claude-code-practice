@@ -26,7 +26,7 @@ const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
 // greet.
 const ASK_GIT = (root) => Promise.all([gitReady(root), gitFirstName(root)]);
 
-export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
   if (argv.some((a) => !FLAGS.includes(a))) {
     stderr.write(`${C.usage}\n`);
     return 2;
@@ -35,7 +35,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   const saved = loadState(root);
   if (!stdin.isTTY || !stdout.isTTY) {
     const results = {};
-    for (const l of course) results[l.id] = await runCheck(root, l.id, null);
+    for (const l of course) results[l.id] = await checkChild(root, l.id, null);
     stdout.write(plainProgress(course, results, saved));
     return 0;
   }
@@ -144,7 +144,10 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // The child starts now, not when the run was asked for: a run asked for
     // during another waits in line.
     runStart();
-    const r = await runCheck(root, lesson, items, { slow });
+    // Each item the child starts, for the checking label to count, with the
+    // items this run was asked for.
+    const onRunning = (n, m) => !closed && dispatch({ type: 'running', lesson, items, n, m, asked });
+    const r = await checkChild(root, lesson, items, { slow, onRunning });
     if (closed) return;
     if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error, asked });
     if (ev && stampOf(root, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev));

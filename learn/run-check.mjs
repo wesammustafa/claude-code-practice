@@ -2,6 +2,8 @@
 // Runs some or all items of one lesson's check against a folder and prints
 // one line of JSON, with the same pass rule as `npm run check`. The learn app
 // runs this in a child process, so a slow item never freezes the screen.
+// Before each item it writes {"running": n} to stderr, n counting from 1
+// through the items it runs, so the screen can say how far it has got.
 //
 //   node learn/run-check.mjs <lesson> <dir> [index ...]
 import { existsSync } from 'node:fs';
@@ -21,8 +23,9 @@ const wanted = indexes.length ? indexes.map(Number) : items.map((_, i) => i);
 if (wanted.some((i) => !Number.isInteger(i) || !items[i])) fail(`no item ${indexes.join(' ')} in ${lesson}`);
 
 const repo = openRepo(resolve(dir));
-const results = wanted.map((index) => {
+const results = wanted.map((index, k) => {
   const item = items[index];
+  process.stderr.write(`${JSON.stringify({ running: k + 1 })}\n`);
   let outcome;
   try {
     outcome = item.check(repo);
