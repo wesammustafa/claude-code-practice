@@ -180,6 +180,24 @@ export const finished = (l) => ({ complete: true, done: l.content.steps.map((x) 
 // Every lesson in the app before `id`, finished.
 export const finishedBefore = (id, lessons = course) => Object.fromEntries(lessons.slice(0, lessons.findIndex((l) => l.id === id)).filter((l) => l.content).map((l) => [l.id, finished(l)]));
 
+// DEMO_B2 with its Your turn step verified by reading a file: `verify` is the
+// value of its verify line. The learner is on that step.
+const reading = (verify) => DEMO_B2.replace('- verify: check 0 fresh\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', `- verify: ${verify}`);
+export function onReading(verify, extra = {}) {
+  const d = driver({ course: courseWith({ 'b-2': reading(verify) }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { warm: ['R1', 'R2', 'R3'], done: ['R1', 'R2', 'R3', 'W1'], step: 'Y1', beat: 0, ...extra } } } });
+  for (let i = 0; i < 3 && d.state.view !== 'step'; i++) d.key('enter');
+  if (stepOf(d.state)?.id !== 'Y1') throw new Error(`onReading: on ${d.state.view}, not Y1`);
+  return d;
+}
+// A file's bytes, as main reads them.
+export const bytes = (text) => Buffer.from(text);
+// r, then the file as it is now (null: no file): the beat's state after.
+export function tryNow(d, path, text, stamp = 'x') {
+  d.key('r');
+  d.send({ type: 'file', path, read: text === null ? null : bytes(text), stamp, asked: d.state.beat.asked });
+  return d.state.beat;
+}
+
 // Lesson 1 alone by default; lessonScreens passes the whole course.
 export function driver({ saved = null, facts = {}, course: lessons = b1Only } = {}) {
   let now = 1_000;
@@ -237,8 +255,8 @@ export function playUntil(d, stop) {
       d.send({ type: 'check', lesson: s.lesson, items, path: beat.evidence ?? null, stamp: 'a' });
       d.send({ type: 'check', lesson: s.lesson, items: items.map((it) => ({ ...it, pass: true, hint: '' })), path: beat.evidence ?? null, stamp: 'b' });
     } else if (v.kind === 'file') {
-      d.send({ type: 'file', path: v.path, line: null, stamp: 'a' });
-      d.send({ type: 'file', path: v.path, line: 'src/config.js', stamp: 'b' });
+      d.send({ type: 'file', path: v.path, read: null, stamp: 'a' });
+      d.send({ type: 'file', path: v.path, read: Buffer.from('src/config.js'), stamp: 'b' });
     } else if (v.kind === 'git-clean') {
       if (beat.doneLabel) d.key('space');
       d.send({ type: 'git', paths: [] });
@@ -291,7 +309,7 @@ export function allScreens() {
   d.key('y'); snap('W3 bottom');
   d.key('w'); snap('W3 why');
   d.key('w');
-  d.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)' }); snap('W3 done');
+  d.send({ type: 'check', lesson: 'b-1', items: [passed], read: Buffer.from('2.1.285 (Claude Code)\n') }); snap('W3 done');
   d.key('enter'); snap('W4 predict');
   d.key('2'); snap('W4 guessed');
   d.key('enter'); snap('W4 sign in');
@@ -314,7 +332,7 @@ export function allScreens() {
   // The bottom rung at W3 eased save-version: Y1 comes back GUIDED, so the
   // level-up waits for Y2.
   d.key('enter'); snap('Y1 eased');
-  d.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)' }); snap('Y1 already');
+  d.send({ type: 'check', lesson: 'b-1', items: [passed], read: Buffer.from('2.1.285 (Claude Code)\n') }); snap('Y1 already');
   d.key('enter'); snap('level up hinted');
   d.key('enter'); snap('Y2');
   d.key('1'); snap('Y2 option');
@@ -401,13 +419,13 @@ export function lessonScreens(id, lessons = course, { skipped = false } = {}) {
         out.push([`${at} checking, hint open`, d.state]);
         d.send({ type: 'check', lesson: id, items, path: beat.evidence ?? null, stamp: 'b', asked: d.state.beat.asked });
       }
-      d.send({ type: 'check', lesson: id, items: items.map((it) => ({ ...it, pass: true, hint: '' })), evidence: 'a line of evidence', path: beat.evidence ?? null, stamp: 'c' });
+      d.send({ type: 'check', lesson: id, items: items.map((it) => ({ ...it, pass: true, hint: '' })), read: Buffer.from('a line of evidence'), path: beat.evidence ?? null, stamp: 'c' });
       out.push([`${at} done`, d.state]);
     } else if (v.kind === 'file') {
-      d.send({ type: 'file', path: v.path, line: null, stamp: '' });
+      d.send({ type: 'file', path: v.path, read: null, stamp: '' });
       out.push([`${at} waiting`, d.state]);
       climb(d, at, out);
-      d.send({ type: 'file', path: v.path, line: 'src/config.js', stamp: 'x' });
+      d.send({ type: 'file', path: v.path, read: Buffer.from('src/config.js'), stamp: 'x' });
       out.push([`${at} done`, d.state]);
     } else if (v.kind === 'git-clean') {
       d.send({ type: 'git', paths: ['src/config.js', 'test/config.test.js'] });

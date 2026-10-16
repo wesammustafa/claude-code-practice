@@ -113,6 +113,24 @@ test('a result from another folder than the lesson\'s decides nothing', () => {
   assert.equal(d.state.beat.status, 'already');
 });
 
+test('a beat that reads a file (json, match, no-match) reads it in the work folder: on opening, on r, and only a result from there decides', () => {
+  const path = '.claude/skills/tdd/SKILL.md';
+  for (const verify of [`json ${path}`, `match ${path} ^name: tdd$`, `no-match ${path} TODO`]) {
+    const d = atI1({ intermediate: MINE }, threeLevels({ 'i-1': DEMO_I1.replace('- verify: check 0\n', `- verify: ${verify}\n`) }));
+    toW1(d);
+    assert.equal(d.state.beat.status, 'opening', verify);
+    assert.deepEqual(lastOf(d.effects, 'file'), { type: 'file', path, dir: MINE }, verify);
+    assert.deepEqual(watching(d.state), { file: path, dir: MINE }, verify);
+    d.key('r');
+    assert.deepEqual(lastOf(d.effects, 'file'), { type: 'file', path, asked: d.state.asks, dir: MINE }, `${verify}: r's read too`);
+    const read = Buffer.from(verify.startsWith('json') ? '{"name": "tdd"}' : 'name: tdd\n');
+    d.send({ type: 'file', path, read, stamp: 'a', asked: d.state.beat.asked, dir: COPY });
+    assert.equal(d.state.beat.status, 'opening', `${verify}: a read of the copy is not about this folder`);
+    d.send({ type: 'file', path, read, stamp: 'a', asked: d.state.beat.asked, dir: MINE });
+    assert.ok(['done', 'already'].includes(d.state.beat.status), `${verify}: ${d.state.beat.status}`);
+  }
+});
+
 // ---- the question at a level's first intro ------------------------------------
 const FULL = theme({ tty: true, depth: 8, unicode: true, links: true, win32: false });
 const ASCII = theme({ tty: true, depth: 1, unicode: false, links: false, win32: true });
@@ -732,15 +750,16 @@ test('a work folder that isn\'t a git repository, has no git-ignored .practice/,
 
 // ---- main --------------------------------------------------------------------
 // main() on a fake terminal, in a copy of the template with DEMO_I1 as its
-// i-1 and Beginner finished, its learn.json saving `folders`. The check
-// child is a stand-in that records the folder it was asked to check.
+// i-1 (or `i1`) and Beginner finished, its learn.json saving `folders` and
+// any `saved` lessons. The check child is a stand-in that records the folder
+// it was asked to check.
 const CALM = { ...process.env, CODESPACES: '', LEARN_CALM: '1', NO_COLOR: '', LEARN_PLAIN: '', TERM: 'xterm-256color' };
-function inCopy({ folders, argv = [], env = {} } = {}) {
+function inCopy({ folders, argv = [], env = {}, i1 = DEMO_I1, saved = {} } = {}) {
   const copy = exportHead(root);
   rmSync(join(copy, '.practice'), { recursive: true, force: true });
-  writeFileSync(join(copy, 'learn', 'lessons', 'i-1.md'), DEMO_I1);
+  writeFileSync(join(copy, 'learn', 'lessons', 'i-1.md'), i1);
   mkdirSync(join(copy, '.practice'));
-  const lessons = Object.fromEntries(course.filter((l) => l.level === 'beginner').map((l) => [l.id, { ...finished(l), step: null }]));
+  const lessons = { ...Object.fromEntries(course.filter((l) => l.level === 'beginner').map((l) => [l.id, { ...finished(l), step: null }])), ...saved };
   writeFileSync(storePath(copy), JSON.stringify({ format: 1, welcomed: true, lessons, ...(folders ? { folders: folders(copy) } : {}) }));
   const stdin = new PassThrough();
   Object.assign(stdin, { isTTY: true, setRawMode() {} });
@@ -799,6 +818,31 @@ test('main: the check and the watcher run in the work folder, and learn.json sta
     assert.ok(await until(() => app.exited() === 0));
     assert.ok(existsSync(storePath(app.copy)), 'learn.json is in the copy');
     assert.ok(!existsSync(join(mine, '.practice', 'learn.json')), 'and not in the work folder');
+  } finally {
+    app.close();
+    rmSync(mine, { recursive: true, force: true });
+  }
+});
+
+test('main: a json beat reads its file in the work folder, with no process, and shows the key\'s value', async () => {
+  const mine = repo();
+  mkdirSync(join(mine, '.practice'));
+  const i1 = DEMO_I1.replace('- verify: check 0\n- watching: .claude/skills/tdd/SKILL.md\n', '- verify: json .practice/i-1.json name\n');
+  const app = inCopy({ folders: () => ({ intermediate: mine }), i1, saved: { 'i-1': { step: 'W1', beat: 0, warm: ['R1', 'R2'], done: ['R1', 'R2'] } } });
+  const words = () => app.frame().replace(/\s+/g, ' ');
+  try {
+    assert.ok(await until(() => words().includes('Welcome back')), app.frame());
+    app.type('\r');
+    assert.ok(await until(() => words().includes('Watching .practice/i-1.json')), app.frame());
+    // The copy holds the file too, with another name: only the work folder's counts.
+    writeFileSync(join(app.copy, '.practice', 'i-1.json'), '{"name": "copy"}');
+    writeFileSync(join(mine, '.practice', 'i-1.json'), '{"name": "tdd"}');
+    assert.ok(await until(() => {
+      app.onChanges[mine]();
+      return words().includes('holds tdd');
+    }), app.frame());
+    // The only check run is the lesson's whole check, which the resume screen asks for.
+    assert.ok(app.ran.every((r) => r.items === null), `a check child ran for the beat: ${JSON.stringify(app.ran)}`);
   } finally {
     app.close();
     rmSync(mine, { recursive: true, force: true });

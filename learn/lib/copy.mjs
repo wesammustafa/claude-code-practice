@@ -60,6 +60,17 @@ export const C = {
   watching: (what) => [`Watching `, what, ". I'll turn green the moment it's right."],
   staleWatch: (what) => [`Watching `, what, ". It's from an earlier step: I'll turn green once you make it again."],
   fileEmpty: (path) => `${path} has no line in it yet.`,
+  // What a file holds, for a beat that reads it (ticket 87): the not-yet lines.
+  noFile: (path) => `${path} is not there yet.`,
+  notText: (path, what) => `${path} is not a text file yet: it holds ${what}.`,
+  notJson: (path, error) => `${path} does not parse as JSON yet (${error}).`,
+  noKey: (path, key) => `${path} has no ${key} yet.`,
+  noLine: (path) => `${path} has no line like that yet.`,
+  stillHas: (path, line) => `${path} still has: ${line}`,
+  notValue: (path, key, found, value) => `${path} has ${key} ${found}, not ${value}, yet.`,
+  // A binary file's evidence: its kind and size, never its bytes.
+  pngImage: (w, h) => `a PNG image, ${w} x ${h}`,
+  binaryData: (size) => `binary data, ${size}`,
   andMore: (line, n) => `${line} and ${n} more line${n === 1 ? '' : 's'}`,
   slowWait: 'Part of this check takes a while, so it runs only when you ask: press r when you are ready.',
   doneBefore: { hinted: "You've done this before, so you get the goal: press h for hints.", challenge: "You've done this before, so you get just the goal." },
