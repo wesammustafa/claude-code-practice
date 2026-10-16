@@ -62,6 +62,7 @@ export const C = {
   fileEmpty: (path) => `${path} has no line in it yet.`,
   // What a file holds, for a beat that reads it (ticket 87): the not-yet lines.
   noFile: (path) => `${path} is not there yet.`,
+  notText: (path, what) => `${path} is not a text file yet: it holds ${what}.`,
   notJson: (path, error) => `${path} does not parse as JSON yet (${error}).`,
   noKey: (path, key) => `${path} has no ${key} yet.`,
   noLine: (path) => `${path} has no line like that yet.`,

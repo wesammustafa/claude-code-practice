@@ -2876,6 +2876,19 @@ test('a reading beat\'s not-yet line is shown whole, and its pass shows what the
       assert.equal(lines.length, size[1], where);
       for (const line of lines) assert.ok(width(line) <= size[0] - 1, `${where}: ${strip(line)}`);
       assert.ok(prose(broken.state, size, t).includes('Not yet: .claude/settings.json does not parse as JSON yet ('), `${where}: ${prose(broken.state, size, t)}`);
+      // A parse error that quotes a line break, and a value that holds one,
+      // still draw exactly the window: the frame, joined, splits into rows.
+      const multi = onReading('json .claude/settings.json permissions.deny');
+      tryNow(multi, '.claude/settings.json', 'deny:\n{\n  "permissions": {}\n}\n');
+      const value = onReading('json .practice/i-2-hook.json prompt');
+      tryNow(value, '.practice/i-2-hook.json', null);
+      tryNow(value, '.practice/i-2-hook.json', '{"prompt": "line one\\nline two\\nthree"}');
+      assert.equal(value.state.beat.status, 'done', where);
+      for (const d of [multi, value]) {
+        const frame = render(d.state, { cols: size[0], rows: size[1] }, t).join('\n').split('\n');
+        assert.equal(frame.length, size[1], `${where}: ${frame.map(strip).join(' / ')}`);
+        for (const line of frame) assert.doesNotMatch(strip(line), /[\r\t\x07]/, where);
+      }
       const json = onReading('json .claude/settings.json permissions.deny');
       tryNow(json, '.claude/settings.json', null);
       tryNow(json, '.claude/settings.json', '{"permissions": {"deny": ["Read(./.env)"]}}');

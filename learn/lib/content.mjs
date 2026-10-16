@@ -16,8 +16,9 @@ export const STEP_KEYS = new Set(['tier', 'skill', 'where', 'from']);
 // terminal for shell commands while Claude Code is still open, or an editor.
 export const WHERE = new Set(['terminal', 'claude', 'shell', 'editor']);
 // Verify kinds the app answers by reading the beat's file itself, with no
-// process: `file`, and what a file holds (ticket 87).
-export const READS = new Set(['file', 'json', 'match', 'no-match']);
+// process: `file`, and HOLDS, what a file holds (ticket 87).
+export const HOLDS = new Set(['json', 'match', 'no-match']);
+export const READS = new Set(['file', ...HOLDS]);
 export const BEAT_KINDS = new Set(['do', 'predict', 'ask', 'type', 'self']);
 // Keys a beat may hold, and whether their value must be a quote of the page.
 export const BEAT_KEYS = {
@@ -238,7 +239,7 @@ export function parseLesson(text, file = 'lesson') {
       b.where = b.where ?? s.where;
       if (b.where !== undefined && !WHERE.has(b.where)) throw new Error(`${file}:${b.line}: unknown where ${b.where}`);
       b.verify = parseVerify(b, file);
-      if (b.lines.some((l) => l.doneWhen) && b.verify.kind !== 'check' && !READS.has(b.verify.kind)) throw new Error(`${file}:${b.line}: a "Done when" say line needs a check or file beat`);
+      if (b.lines.some((l) => l.doneWhen) && b.verify.kind !== 'check' && !READS.has(b.verify.kind)) throw new Error(`${file}:${b.line}: a "Done when" say line needs a check beat or a beat that reads a file`);
     }
   }
   return lesson;

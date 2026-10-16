@@ -407,7 +407,7 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   // A "Done when" in the app's words is a check's or a file's expectation.
   const said = parseLesson(DEMO_B2.replace('- goal: "Save it again."', '- goal: "Save it again."\n- say: Done when the file lists it.\n- say: Then press r.'), 'demo');
   assert.deepEqual(said.steps[1].beats[0].lines.filter((x) => x.key === 'say').map((x) => x.doneWhen ?? false), [true, false]);
-  assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', '- verify: none\n- say: Done when it runs.'), 'demo'), /a "Done when" say line needs a check or file beat/);
+  assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', '- verify: none\n- say: Done when it runs.'), 'demo'), /a "Done when" say line needs a check beat or a beat that reads a file/);
 });
 
 test('the grammar: an intro holds one quoted why and one quoted payoff', () => {
@@ -1956,7 +1956,8 @@ test('evidence skips a leading front matter block and lines that are only ---, {
   const skill = '---\nname: tdd\ndescription: Test first.\n---\n\n# Test-driven development\n';
   const file = onReading('file .claude/agents/reviewer.md');
   tryNow(file, '.claude/agents/reviewer.md', null);
-  assert.equal(tryNow(file, '.claude/agents/reviewer.md', '---\nname: reviewer\n---\nReview the diff.\nThen say what is wrong.\n').evidence, 'Review the diff. and 1 more line');
+  // It shows the first line that says something, and counts every line.
+  assert.equal(tryNow(file, '.claude/agents/reviewer.md', '---\nname: reviewer\n---\nReview the diff.\nThen say what is wrong.\n').evidence, 'Review the diff. and 4 more lines');
   // A check beat: the evidence is its evidence file's, as main read it.
   const check = driver({ course: courseWith({ 'b-2': DEMO_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R2', 'R3'], done: ['R1', 'R2', 'R3'], step: 'W1', beat: 0 } } } });
   check.key('enter');
@@ -1972,11 +1973,66 @@ test('evidence skips a leading front matter block and lines that are only ---, {
   // With no closing line it is no front matter: only the --- line goes.
   const open = onReading('file notes.md');
   tryNow(open, 'notes.md', null);
-  assert.equal(tryNow(open, 'notes.md', '---\nname: tdd\n').evidence, 'name: tdd');
+  assert.equal(tryNow(open, 'notes.md', '---\nname: tdd\n').evidence, 'name: tdd and 1 more line');
+});
+
+test('a file beat is done once its file holds any line, front matter or a lone --- included; a file that only opens a block shows that line', () => {
+  const path = '.claude/skills/tdd/SKILL.md';
+  const d = onReading(`file ${path}`);
+  tryNow(d, path, null);
+  const st = tryNow(d, path, '---\nname: tdd\ndescription: x\n---\n');
+  assert.equal(st.status, 'done');
+  assert.equal(st.evidence, 'name: tdd and 3 more lines');
+  const lone = onReading('file notes.md');
+  tryNow(lone, 'notes.md', null);
+  assert.equal(tryNow(lone, 'notes.md', '\n---\n').evidence, '---');
+  const blank = onReading('file notes.md');
+  assert.equal(tryNow(blank, 'notes.md', ' \n\n').fail.hint, 'notes.md has no line in it yet.');
+});
+
+test('a json key path follows an array only by its indexes: length is no key of one', () => {
+  const path = '.claude/settings.json';
+  const d = onReading(`json ${path} permissions.deny.length`);
+  assert.equal(tryNow(d, path, '{"permissions": {"deny": []}}').fail.hint, '.claude/settings.json has no permissions.deny.length yet.');
+  const first = onReading(`json ${path} permissions.deny.0`);
+  assert.equal(tryNow(first, path, '{"permissions": {"deny": []}}').status, 'fail');
+  assert.equal(tryNow(first, path, '{"permissions": {"deny": ["Read(./.env)"]}}').evidence, 'Read(./.env)');
+  const map = onReading(`json ${path} env.length`);
+  assert.equal(tryNow(map, path, '{"env": {"length": "3"}}').evidence, '3', 'an object may hold a key named length');
+});
+
+test('what the screen shows of a file is one row: no line break, tab or escape sequence, and one emoji at most', () => {
+  const path = '.claude/settings.json';
+  // V8's parse error quotes the file, line breaks and all.
+  const broken = onReading(`json ${path} permissions.deny`);
+  const hint = tryNow(broken, path, 'deny:\n{\n  "permissions": {}\n}\n').fail.hint;
+  assert.match(hint, /^\.claude\/settings\.json does not parse as JSON yet \(/);
+  assert.doesNotMatch(hint, /\p{Cc}/u, hint);
+  const value = onReading('json .practice/i-2-hook.json prompt');
+  assert.equal(tryNow(value, '.practice/i-2-hook.json', '{"prompt": "line one\\nline two\\tthree"}').evidence, 'line one line two three');
+  const match = onReading('match notes.md TODO');
+  assert.equal(tryNow(match, 'notes.md', 'a\tTODO \x1b[31mred\x1b[0m\r\n').evidence, 'a TODO red');
+  const no = onReading('no-match notes.md TODO');
+  assert.equal(tryNow(no, 'notes.md', 'TODO \x1b[2J\x07X 🚀 ship 🎉 it\n').fail.hint, 'notes.md still has: TODO X 🚀 ship * it');
+  const file = onReading('file notes.md');
+  tryNow(file, 'notes.md', null);
+  assert.equal(tryNow(file, 'notes.md', '\x1b]8;;https://example.com\x07link\x1b]8;;\x07 text\n').evidence, 'link text');
 });
 
 // A PNG's first bytes: the signature, then its IHDR chunk, 800 by 600.
 const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000320000002580806000000', 'hex');
+test('json, match and no-match on a binary file: not yet, and the line names its kind and size, never its bytes', () => {
+  const path = '.practice/i-7-page.png';
+  const png = Buffer.concat([PNG, Buffer.from('TODO {}'), Buffer.alloc(3000, 7)]);
+  for (const verify of [`json ${path}`, `match ${path} PNG`, `no-match ${path} TODO`]) {
+    const d = onReading(verify);
+    d.key('r');
+    d.send({ type: 'file', path, read: png, stamp: 'b', asked: d.state.beat.asked });
+    assert.equal(d.state.beat.status, 'fail', verify);
+    assert.equal(d.state.beat.fail.hint, '.practice/i-7-page.png is not a text file yet: it holds a PNG image, 800 x 600.', verify);
+    assert.equal(d.state.beat.evidence ?? null, null, verify);
+  }
+});
 test('a binary file\'s evidence is its kind and size, never its bytes: a PNG is an image and its size', () => {
   const path = '.practice/i-7-page.png';
   const d = onReading(`file ${path}`);

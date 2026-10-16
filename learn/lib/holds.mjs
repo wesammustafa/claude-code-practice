@@ -4,10 +4,11 @@
 // decide what they mean. Pure: nothing here reads the disk or starts a
 // process.
 import { C } from './copy.mjs';
+import { graphemes, isEmoji } from './text.mjs';
 
 // A file's text: UTF-16 with a byte-order mark (Windows PowerShell 5.1
 // writes it), or UTF-8 with or without one.
-export function textOf(buf) {
+function textOf(buf) {
   return buf[0] === 0xff && buf[1] === 0xfe ? buf.subarray(2).toString('utf16le') : buf.toString('utf8').replace(/^﻿/, '');
 }
 
@@ -21,50 +22,68 @@ function binaryOf(buf) {
   return C.binaryData(buf.length < 1024 ? `${buf.length} bytes` : `${Math.round(buf.length / 1024)} KB`);
 }
 
-// The lines of a file that say something, trimmed: not a leading front
-// matter block, and no line that is only ---, { or [, which open one.
-function saying(text) {
-  const lines = text.split(/\r?\n/);
-  const end = lines[0]?.trim() === '---' ? lines.findIndex((l, i) => i > 0 && l.trim() === '---') : -1;
-  return lines.slice(end + 1).map((l) => l.trim()).filter((l) => l && !['---', '{', '['].includes(l));
+// Text from the learner's file as one screen row, at most `max` characters:
+// escape sequences and control characters go (a tab or line break becomes a
+// space), and each emoji after the first becomes *, so a row holds one.
+const ESC = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|.)?/gs;
+function oneRow(s, max = 60) {
+  let emoji = 0;
+  const flat = s.replace(ESC, '').replace(/[\t\n\v\f\r]+/g, ' ').replace(/\p{Cc}/gu, '').trim();
+  return graphemes(flat).slice(0, max).map((g) => (isEmoji(g) && emoji++ ? '*' : g)).join('');
+}
+
+// The line a file shows of itself: its first line that says something, not
+// in a leading front matter block and not only ---, { or [, which open one.
+// A file that is all front matter shows its first line inside, and one
+// whose every line only opens a block shows that line.
+const OPENS = ['---', '{', '['];
+function firstOf(text) {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const end = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
+  const says = (l) => !OPENS.includes(l);
+  const line = lines.slice(end + 1).find(says) ?? lines.find(says) ?? lines[0];
+  return line === undefined ? null : oneRow(line);
 }
 
 // The line a done beat shows of its file, to show what the learner made.
 export function evidenceOf(buf) {
   if (!buf) return null;
-  return binaryOf(buf) ?? saying(textOf(buf))[0]?.slice(0, 60) ?? null;
+  return binaryOf(buf) ?? firstOf(textOf(buf));
 }
 
 // The value at a dotted key path, or `undefined` where any part is missing.
+// An array's parts are its indexes, so `length` is no key of one.
 function at(value, key) {
   let v = value;
   for (const part of key.split('.')) {
-    if (v === null || typeof v !== 'object' || !Object.hasOwn(v, part)) return undefined;
+    if (v === null || typeof v !== 'object') return undefined;
+    if (Array.isArray(v) ? !/^\d+$/.test(part) || Number(part) >= v.length : !Object.hasOwn(v, part)) return undefined;
     v = v[part];
   }
   return v;
 }
-const shown = (v) => (typeof v === 'string' ? v : JSON.stringify(v)).slice(0, 60);
+const shown = (v) => oneRow(typeof v === 'string' ? v : JSON.stringify(v));
 
 // Whether `buf` (null: no file) passes a reading beat's verify, with the
 // evidence a pass shows or the not-yet line a miss gets.
 export function judge(verify, buf) {
   const { path } = verify;
   if (!buf) return { pass: false, hint: verify.kind === 'file' ? C.fileEmpty(path) : C.noFile(path) };
+  const binary = binaryOf(buf);
+  if (binary) return verify.kind === 'file' ? { pass: true, evidence: binary } : { pass: false, hint: C.notText(path, binary) };
   const text = textOf(buf);
   if (verify.kind === 'file') {
-    const binary = binaryOf(buf);
-    if (binary) return { pass: true, evidence: binary };
-    // A list shows its first line and how many more, so a short list shows.
-    const lines = saying(text);
-    if (!lines.length) return { pass: false, hint: C.fileEmpty(path) };
-    const first = lines[0].slice(0, 60);
-    return { pass: true, evidence: lines.length > 1 ? C.andMore(first, lines.length - 1) : first };
+    // Done once it holds any line. A list shows its first line that says
+    // something and how many more lines it holds, so a short list shows.
+    const count = text.split(/\r?\n/).filter((l) => l.trim()).length;
+    if (!count) return { pass: false, hint: C.fileEmpty(path) };
+    const first = firstOf(text);
+    return { pass: true, evidence: count > 1 ? C.andMore(first, count - 1) : first };
   }
   if (verify.kind === 'match' || verify.kind === 'no-match') {
     const re = new RegExp(verify.regex);
     const hit = text.split(/\r?\n/).find((l) => re.test(l));
-    const line = hit === undefined ? null : hit.trim().slice(0, 60);
+    const line = hit === undefined ? null : oneRow(hit);
     if (verify.kind === 'match') return line === null ? { pass: false, hint: C.noLine(path) } : { pass: true, evidence: line };
     return line === null ? { pass: true, evidence: null } : { pass: false, hint: C.stillHas(path, line) };
   }
@@ -72,7 +91,7 @@ export function judge(verify, buf) {
   try {
     value = JSON.parse(text);
   } catch (error) {
-    return { pass: false, hint: C.notJson(path, error.message) };
+    return { pass: false, hint: C.notJson(path, oneRow(error.message, Infinity)) };
   }
   if (!verify.key) return { pass: true, evidence: evidenceOf(buf) };
   const found = at(value, verify.key);
