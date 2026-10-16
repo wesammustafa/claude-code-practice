@@ -1,22 +1,25 @@
 // The learn app's edges: keys, the check child, git, the watcher, the saved
-// state, the plain fallback, a full run on a fake terminal, and the promise
-// that it reads the practice copy and changes nothing but its own file.
+// state, the plain fallback, full runs on a fake terminal with the frames and
+// timers they leave, and the promise that it reads the practice copy and
+// changes nothing but its own file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PassThrough, Writable } from 'node:stream';
+import { PassThrough } from 'node:stream';
+import { IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
-import { strip } from '../../learn/lib/text.mjs';
+import { strip, width } from '../../learn/lib/text.mjs';
 import { childEnv, runCheck, singleFlight, SLOW } from '../../learn/lib/verify.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { statusPaths } from '../paths.mjs';
 import { check, exportHead, repo, withRepo, write } from './helpers.mjs';
 import { root } from './learn-drive.mjs';
+import { fakeClock, fakeOut, screenModel, turn } from './learn-term.mjs';
 
 const BEGINNER = ['b-1', 'b-2', 'b-3', 'b-4', 'b-5', 'b-capstone'];
 const RUN_CHECK = join(root, 'learn', 'run-check.mjs');
@@ -190,15 +193,28 @@ test('without a terminal it prints the path as plain text and exits 0', () => {
   for (const id of BEGINNER) assert.match(r.stdout, new RegExp(lessons[id].title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
-// A terminal the test can type into and read from.
+// The full runs keep calm full frames whatever CI's environment holds, so
+// lastFrame() can split on a bare CSI H.
+const CALM_ENV = { ...process.env, CODESPACES: '', LEARN_CALM: '1', NO_COLOR: '', LEARN_PLAIN: '', TERM: 'xterm-256color' };
+
+// A terminal the test can type into and read from. Its stdout keeps every
+// write in `writes`, replays it into a 90x30 screen model, and can be made to
+// back up (fakeOut's `full` and `drain()`).
 function fakeTerminal() {
   const stdin = new PassThrough();
   Object.assign(stdin, { isTTY: true, setRawMode: () => stdin });
-  let screen = '';
-  const stdout = new Writable({ write(chunk, _enc, cb) { screen += chunk.toString(); cb(); } });
-  Object.assign(stdout, { isTTY: true, columns: 90, rows: 30, getColorDepth: () => 8 });
-  const lastFrame = () => strip(screen.split('\x1b[H').at(-1) ?? '');
-  return { stdin, stdout, lastFrame, type: (s) => stdin.write(s) };
+  const model = screenModel(90, 30);
+  const stdout = fakeOut({ columns: 90, rows: 30 });
+  const write = stdout.write;
+  stdout.write = (chunk) => {
+    model.feed(String(chunk));
+    return write(chunk);
+  };
+  stdout.getColorDepth = () => 8;
+  const lastFrame = () => strip(stdout.writes.join('').split('\x1b[H').at(-1) ?? '');
+  // What the terminal shows, whatever kind of frames drew it.
+  const shows = () => model.lines().join('\n');
+  return { stdin, stdout, model, lastFrame, shows, writes: stdout.writes, type: (s) => stdin.write(s) };
 }
 const until = async (fn, ms = 8_000) => {
   const end = Date.now() + ms;
@@ -217,7 +233,7 @@ test('a full run on a fake terminal: writing version.txt turns step 3 done, and 
   const before = outside();
   const term = fakeTerminal();
   let exited = null;
-  main({ stdin: term.stdin, stdout: term.stdout, env: { ...process.env, CODESPACES: '' }, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
   try {
     assert.ok(await until(() => term.lastFrame().includes("Let's learn Claude Code")), term.lastFrame());
     term.type('\r');
@@ -244,6 +260,301 @@ test('a full run on a fake terminal: writing version.txt turns step 3 done, and 
   }
 });
 
+// With motion, whatever CI's environment holds.
+const MOTION_ENV = { ...CALM_ENV, LEARN_CALM: '' };
+
+// main() on a fake terminal and a fake clock: every timer main sets waits for
+// the test to move the clock. The check and git children are real, and so is
+// the watcher unless `watch` replaces it. Each write's time is in `times`;
+// with `writeMs` set, every write takes that long on the clock.
+function clockedRun(env, { watch } = {}) {
+  const dir = exportHead(root);
+  rmSync(join(dir, '.practice'), { recursive: true, force: true });
+  const term = fakeTerminal();
+  const clock = fakeClock();
+  const app = { dir, term, clock, exited: null, times: [], writeMs: 0 };
+  const write = term.stdout.write;
+  term.stdout.write = (chunk) => {
+    app.times.push(clock.now());
+    clock.spend(app.writeMs);
+    return write(chunk);
+  };
+  // When each frame from write `from` on went out.
+  app.frameTimes = (from = 0) => app.times.slice(from).filter((_, i) => term.writes[from + i].startsWith('\x1b[?2026h'));
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, now: clock.now, perf: clock.now, timers: clock, watch, exit: (code) => { app.exited = code; } });
+  // Until fn() holds, moving the clock 40 ms at a time while the children run.
+  app.settle = async (fn, ms = 8_000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      if (fn()) return true;
+      await clock.advance(40);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return false;
+  };
+  // The frame timers waiting: main's only timeouts in these runs (no letter
+  // is waiting for its 300 ms, no Escape for its 50 ms).
+  app.frameTimers = () => clock.pending().filter((x) => x.every === null);
+  // Type, then let the clock run until the screen shows `text`.
+  app.press = async (keys, text) => {
+    term.type(keys);
+    assert.ok(await app.settle(() => term.shows().includes(text)), `after ${JSON.stringify(keys)}, no ${text}:\n${term.shows()}`);
+  };
+  // From the welcome to step 3, which waits for .practice/version.txt.
+  app.toWaiting = async () => {
+    await app.press('\r', "You'll be able to");
+    await app.press('\r', 'step 1 of 12');
+    await app.press(' ', 'step 2 of 12');
+    await app.press('1', 'step 2 of 12');
+    await app.press('\r', 'Watching .practice/version.txt');
+  };
+  app.close = () => {
+    if (app.exited === null) term.type('\x03');
+    rmSync(dir, { recursive: true, force: true });
+  };
+  return app;
+}
+test('draws: one frame for the events of one turn, a key within one frame, and never two frames under 40 ms apart', async () => {
+  const app = clockedRun(MOTION_ENV);
+  const { term, clock } = app;
+  try {
+    assert.ok(await app.settle(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await clock.advance(1_000);
+    let n = term.writes.length;
+    term.type('\r\r');
+    await turn();
+    assert.equal(term.writes.length - n, 1, 'two keys in one read, the intro and then step 1: one frame');
+    assert.match(term.shows(), /step 1 of 12/);
+    n = term.writes.length;
+    term.type(' ');
+    await turn();
+    assert.equal(term.writes.length - n, 0, 'the frame before went out 0 ms ago');
+    await clock.advance(39);
+    assert.equal(term.writes.length - n, 0, '39 ms after it');
+    await clock.advance(1);
+    assert.ok(term.writes.length - n >= 1, '40 ms after it');
+    assert.match(term.shows(), /step 2 of 12/);
+  } finally {
+    app.close();
+  }
+});
+
+// Every gap between frames, in ms.
+const gaps = (times) => times.slice(1).map((t, i) => t - times[i]);
+
+test('draws: a frame that goes out on drain counts for the 40 ms floor', async () => {
+  const app = clockedRun(CALM_ENV);
+  const { term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await clock.advance(1_000);
+    const from = term.writes.length;
+    term.stdout.full = true;
+    term.type('\r');
+    await turn();
+    assert.equal(term.writes.length - from, 1, 'the intro, and its write comes back false');
+    await clock.advance(45);
+    term.type('\r');
+    await turn();
+    assert.equal(term.writes.length - from, 1, 'step 1 is kept for the drain');
+    await clock.advance(10);
+    term.stdout.drain();
+    assert.equal(term.writes.length - from, 2, 'step 1 goes out on the drain');
+    term.type(' ');
+    await turn();
+    assert.equal(term.writes.length - from, 2, 'the drain wrote 0 ms ago');
+    await clock.advance(200);
+    assert.match(term.shows(), /step 2 of 12/);
+    const times = app.frameTimes(from);
+    assert.ok(gaps(times).every((g) => g >= 40), `frames at ${times.map((t) => t - times[0])} ms`);
+  } finally {
+    app.close();
+  }
+});
+
+test('draws: a watcher burst and the dispatch it queues from a microtask make one frame', async () => {
+  let changed = null;
+  const watch = (_root, onChange) => {
+    changed = onChange;
+    return { close() {} };
+  };
+  const app = clockedRun(CALM_ENV, { watch });
+  const { dir, term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await app.toWaiting();
+    await clock.advance(1_000);
+    // Any check the polls started is over.
+    await new Promise((r) => setTimeout(r, 500));
+    mkdirSync(join(dir, '.practice'));
+    writeFileSync(join(dir, '.practice', 'version.txt'), '2.1.285 (Claude Code)\n');
+    const n = term.writes.length;
+    // The new folder, the activity, and the check it asks for again, whose
+    // start is dispatched from a microtask, the way a file read is.
+    changed();
+    await turn();
+    assert.equal(term.writes.length - n, 1, 'one frame');
+    assert.deepEqual(app.frameTimers(), [], 'and no second one waiting for the floor');
+    assert.match(term.shows(), /mkdir -p \.practice +✔/, 'it shows the new folder');
+    assert.ok(await app.settle(() => term.shows().includes('Step 3 done!')), term.shows());
+  } finally {
+    app.close();
+  }
+});
+
+test('resize: one full frame that clears the screen, at the new size', async () => {
+  const app = clockedRun(CALM_ENV);
+  const { term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await clock.advance(1_000);
+    for (const [cols, rows] of [[60, 20], [60, 20], [80, 24]]) {
+      const n = term.writes.length;
+      Object.assign(term.stdout, { columns: cols, rows });
+      term.stdout.emit('resize');
+      await turn();
+      assert.equal(term.writes.length - n, 1, `${cols}x${rows}: one write, even at the same size`);
+      const w = term.writes.at(-1);
+      assert.ok(w.startsWith('\x1b[?2026h\x1b[2J\x1b[H'), 'cleared and drawn whole, in one synchronized write');
+      assert.equal(w.split('\x1b[2J').length, 2, 'cleared once');
+      const shown = term.model.lines();
+      assert.ok(shown.slice(0, rows).every((l) => width(l) <= cols - 1), shown.join('\n'));
+      assert.deepEqual(shown.slice(rows), Array(30 - rows).fill(''), 'nothing left below the frame');
+      assert.match(shown.join('\n'), /Let's learn Claude Code/);
+      await clock.advance(1_000);
+    }
+    term.type('\r');
+    await turn();
+    assert.doesNotMatch(term.writes.at(-1), /\x1b\[2J/, 'the next frame clears nothing');
+  } finally {
+    app.close();
+  }
+});
+
+test('draws: when slow writes stop motion, the rest frame is asked for at once', async () => {
+  const app = clockedRun(MOTION_ENV);
+  const { term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await clock.advance(1_000);
+    app.writeMs = 13;
+    const n = term.writes.length;
+    for (const [i, key] of ['\r', '\r', ' '].entries()) {
+      if (i) await clock.advance(40);
+      term.type(key);
+      await turn();
+      assert.equal(term.writes.length - n, i + 1, `slow frame ${i + 1}`);
+    }
+    // The third slow frame turned motion off; nothing moves under calm, so
+    // only the rest frame waits.
+    const rest = app.frameTimers();
+    assert.equal(rest.length, 1, 'the rest frame');
+    assert.ok(rest[0].ms <= 40, String(rest[0].ms));
+    await clock.advance(40);
+    assert.deepEqual(app.frameTimers(), [], 'and after it, none');
+  } finally {
+    app.close();
+  }
+});
+
+test('no leaking timers: a frame timer only while something will change; none in calm, with an overlay, at idle, after one-shots end, or after q', async () => {
+  const app = clockedRun(MOTION_ENV);
+  const { term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    const first = app.frameTimers();
+    assert.equal(first.length, 1, 'the welcome plays: one frame timer');
+    assert.ok(first[0].ms > 0 && first[0].ms <= 40, `due on the 40 ms grid, not in ${first[0].ms} ms`);
+    term.type('?');
+    await clock.advance(400);
+    assert.match(term.shows(), /Keys/, 'the ? overlay');
+    assert.deepEqual(app.frameTimers(), [], 'an overlay');
+    await clock.advance(1_000);
+    assert.deepEqual(app.frameTimers(), [], 'an overlay, a second later');
+    await app.press('?', "Let's learn Claude Code");
+    await app.toWaiting();
+    assert.equal(app.frameTimers().length, 1, 'the card enters: one frame timer');
+    await clock.advance(200);
+    const grace = app.frameTimers();
+    assert.equal(grace.length, 1, 'the entrance is over, and the reading grace still runs: its end is a deadline');
+    assert.ok(grace[0].ms > 1_000, `on its own timer, not the next 1 s tick (${grace[0].ms} ms)`);
+    await clock.advance(21_000);
+    assert.deepEqual(app.frameTimers(), [], 'the entrance and the reading grace are over');
+    // Nothing in this build still waits to change by idle, so this case only
+    // bites once 159's loops wait on a still card.
+    await clock.advance(IDLE_MS);
+    assert.deepEqual(app.frameTimers(), [], 'idle');
+    await afterQ(app);
+  } finally {
+    app.close();
+  }
+});
+
+// q while a frame timer runs (after a key, the end of the 4 s key quiet is
+// one): the app quits, and no timer of any kind is left.
+async function afterQ(app) {
+  const { term, clock } = app;
+  term.type('\x1b[A');
+  await turn();
+  assert.equal(app.frameTimers().length, 1, 'a frame timer runs when q comes');
+  term.type('q');
+  await clock.advance(400);
+  assert.equal(app.exited, 0);
+  assert.deepEqual(clock.pending(), [], 'after q, no timer of any kind');
+}
+
+test('calm: no frame timer, and nothing is written for 3 s on a waiting card', async () => {
+  const app = clockedRun(CALM_ENV);
+  const { term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    assert.deepEqual(app.frameTimers(), [], 'the welcome, still');
+    await app.toWaiting();
+    await clock.advance(40);
+    assert.deepEqual(app.frameTimers(), [], 'the card, still');
+    const n = term.writes.length;
+    await clock.advance(3_000);
+    assert.equal(term.writes.length, n, 'nothing written');
+  } finally {
+    app.close();
+  }
+});
+
+test('a motion run on a fake terminal: step 3 done, a key gives the rest frame, a still intro writes nothing, and nothing after q', async () => {
+  const app = clockedRun(MOTION_ENV);
+  const { dir, term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await app.press('\r', "You'll be able to");
+    await clock.advance(40);
+    let n = term.writes.length;
+    await clock.advance(1_500);
+    assert.equal(term.writes.length, n, 'the intro writes nothing for 1.5 s');
+    await app.press('\r', 'step 1 of 12');
+    await app.press(' ', 'step 2 of 12');
+    await app.press('1', 'step 2 of 12');
+    await app.press('\r', 'Watching .practice/version.txt');
+    mkdirSync(join(dir, '.practice'));
+    writeFileSync(join(dir, '.practice', 'version.txt'), '2.1.285 (Claude Code)\n');
+    assert.ok(await app.settle(() => term.shows().includes('Step 3 done!')), term.shows());
+    assert.match(term.shows(), /DONE/);
+    assert.ok(term.writes.some((w) => /\x1b\[\d+;1H/.test(w)), 'some frames rewrote only their changed rows');
+    // A key while the step-done burst plays (158): the next frame is the rest frame.
+    term.type('\x1b[A');
+    await clock.advance(40);
+    const next = term.shows();
+    await clock.advance(2_000);
+    assert.equal(term.shows(), next, 'the frame after the key is the one the screen rests on');
+    await afterQ(app);
+    n = term.writes.length;
+    await clock.advance(15_000);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(term.writes.length, n, 'nothing is written after q');
+  } finally {
+    app.close();
+  }
+});
+
 test('a save that fails shows a note and the app keeps going', async () => {
   const dir = exportHead(root);
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
@@ -251,7 +562,7 @@ test('a save that fails shows a note and the app keeps going', async () => {
   writeFileSync(join(dir, '.practice'), 'not a folder');
   const term = fakeTerminal();
   let exited = null;
-  main({ stdin: term.stdin, stdout: term.stdout, env: { ...process.env, CODESPACES: '' }, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
   try {
     assert.ok(await until(() => term.lastFrame().includes("Let's learn Claude Code")));
     term.type('\r');

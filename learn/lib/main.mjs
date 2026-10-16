@@ -8,6 +8,7 @@ import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, initialState, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
+import { nextChange, REST, TIMING } from './motion.mjs';
 import { plainProgress } from './plain.mjs';
 import { lessonLabel, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
@@ -20,8 +21,9 @@ export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const POLL_CHECK_MS = 2_000;
 const POLL_GIT_MS = 2_000;
 const FLAGS = ['--calm', '--plain'];
+const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
 
-export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, exit = (code) => process.exit(code) } = {}) {
   if (argv.some((a) => !FLAGS.includes(a))) {
     stderr.write(`${C.usage}\n`);
     return 2;
@@ -40,12 +42,41 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   const [gitError, name] = await Promise.all([gitReady(root), gitFirstName(root)]);
   const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 };
   let state = initialState({ course, saved, facts, now: now() });
-  const screen = openScreen(stdout);
+  // When the write budget stops motion, the rest frame goes up on time.
+  const screen = openScreen(stdout, { clock: perf, motion: caps.motion, onMotionOff: () => requestDraw() });
   let closed = false;
   let lastSave = 0;
-  const timers = [];
+  const intervals = [];
 
-  const draw = () => screen.draw(render(state, { cols: stdout.columns || 80, rows: stdout.rows || 24 }, t));
+  // Drawing. Every dispatch asks for a frame, and one goes out per turn of the
+  // event loop, so the events of one turn (a watcher's burst, keys in one
+  // read) make one frame. After each draw, nextChange sets the one frame
+  // timer, or none. No two frames go out less than 40 ms apart: the floor
+  // counts from the screen's last write, a drain's included, on the
+  // monotonic clock. Each effect's frames keep to the 40 ms grid from its
+  // own start (motion.mjs); a key's frame is not held back to a grid.
+  let drawAsked = false;
+  let frameTimer = null;
+  const floor = () => TIMING.grid - (perf() - screen.wroteAt);
+  function requestDraw() {
+    if (drawAsked || closed) return;
+    drawAsked = true;
+    setImmediate(() => {
+      drawAsked = false;
+      draw();
+    });
+  }
+  const drawIn = (ms) => { frameTimer = timers.setTimeout(draw, ms); };
+  function draw() {
+    if (closed) return;
+    timers.clearTimeout(frameTimer);
+    frameTimer = null;
+    if (floor() > 0) return drawIn(floor());
+    const at = now();
+    screen.draw(render(state, { cols: stdout.columns || 80, rows: stdout.rows || 24 }, t, screen.motion ? { at } : REST));
+    const wait = nextChange(state, at, { motion: screen.motion });
+    if (wait !== null) drawIn(Math.max(wait, floor()));
+  }
 
   // When a check or git child really starts. Like every dispatch an effect
   // causes, it waits for the dispatch that asked for the run to finish.
@@ -81,7 +112,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       else if (e.type === 'stamp') queueMicrotask(() => !closed && dispatch({ type: 'stamp', key: e.key, stamp: stampOf(root, e.path) }));
       else if (e.type === 'git') git();
       else if (e.type === 'save') save();
-      else if (e.type === 'later') setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
+      else if (e.type === 'later') timers.setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
       else if (e.type === 'quit') quit(0);
     }
   }
@@ -105,7 +136,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const r = reduce(state, { now: now(), ...ev });
     state = r.state;
     run(r.effects);
-    if (!closed) draw();
+    requestDraw();
   }
 
   // Ask again for whatever the screen waits on.
@@ -116,7 +147,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (w?.git) git();
   }
 
-  const watcher = watchDirs(root, () => {
+  const watcher = watch(root, () => {
     if (closed || now() - lastSave < 400) return;
     const practiceDir = existsSync(join(root, '.practice'));
     if (practiceDir !== state.facts.practiceDir) dispatch({ type: 'facts', facts: { practiceDir } });
@@ -127,7 +158,8 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   function quit(code) {
     if (closed) return;
     closed = true;
-    for (const id of timers) clearInterval(id);
+    for (const id of intervals) timers.clearInterval(id);
+    timers.clearTimeout(frameTimer);
     stopChildren();
     watcher.close();
     stdin.removeListener('data', onData);
@@ -152,7 +184,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   function onData(chunk) {
     for (const ev of parse(chunk.toString('utf8'))) dispatch(ev);
     // A lone Escape, or the start of a sequence that never completes.
-    if (parse.pending()) setTimeout(() => { for (const ev of parse.flush()) dispatch(ev); }, 50);
+    if (parse.pending()) timers.setTimeout(() => { for (const ev of parse.flush()) dispatch(ev); }, 50);
   }
 
   stdin.setRawMode(true);
@@ -160,7 +192,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   stdin.resume();
   stdout.on('resize', () => {
     screen.clear();
-    draw();
+    requestDraw();
   });
   if (stdin === process.stdin) {
     for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => quit(0));
@@ -172,9 +204,9 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     });
   }
 
-  timers.push(setInterval(() => dispatch({ type: 'tick' }), 1_000));
+  intervals.push(timers.setInterval(() => dispatch({ type: 'tick' }), 1_000));
   let lastPoll = 0;
-  timers.push(setInterval(() => {
+  intervals.push(timers.setInterval(() => {
     const w = watching(state);
     if (!w || now() - lastPoll < (w.git ? POLL_GIT_MS : POLL_CHECK_MS)) return;
     lastPoll = now();
