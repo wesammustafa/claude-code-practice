@@ -1764,7 +1764,7 @@ const B4_NEXT = `
          ◆◆◆◆◆    HINTED ★★☆    the goal, hints if you ask
   ●●●●●    GUIDED ★☆☆    every command shown
 
-  Say B4's commands to yourself, then press space.
+  Say to yourself what B4 taught you, then press space.
 
   📖 Go further: "Explore the context window: an interactive view of what
      fills a session."
@@ -1803,7 +1803,7 @@ test('every next screen but a capstone\'s shows its Go further line whole at 60x
         const at = lines.findIndex((l) => l.trimStart().startsWith(flag));
         if (`${label} at ${cols}x${rows}` in GO_FURTHER_GIVES) {
           assert.equal(at, -1, where);
-          assert.ok(lines.some((l) => l.trim() === "Say B2's commands to yourself, then press space."), where);
+          assert.ok(lines.some((l) => l.trim() === C.recallAsk('B2')), where);
           gave.add(`${label} at ${cols}x${rows}`);
           continue;
         }
@@ -2522,9 +2522,9 @@ const compared = (lines, show) => {
   return [lines[k].slice(show.length).trimStart(), ...lines.slice(k + 1, end + 1)].join(' ');
 };
 
-test('the next screen asks for the lesson\'s commands from memory, and shows none of them until space', () => {
+test('the next screen asks the learner to recall what the lesson put on the card, and shows none of it until space', () => {
   for (const [label, state] of endScreens().filter(([l]) => l.endsWith('next'))) {
-    const ask = `Say ${RECALL[state.lesson]}'s commands to yourself, then press space.`;
+    const ask = `Say to yourself what ${RECALL[state.lesson]} taught you, then press space.`;
     for (const [cols, rows] of SHORT) {
       const lines = render(state, { cols, rows }, theme(CAPS.full)).map((l) => strip(l).trim());
       const where = `${label} at ${cols}x${rows}\n${lines.join('\n')}`;
@@ -2587,4 +2587,78 @@ test('the comparison fits at 60x20 and 80x24: where it is taller than the window
   const tall = cardText(d);
   assert.ok(tall.join('').includes(COMMANDS_BY_LEVEL) && B4_CARD.every(([show, does]) => compared(tall, show) === `"${does}"`), tall.join('\n'));
   assert.doesNotMatch(tall.at(-1), /scroll/);
+});
+
+// The comparison as the arrows show it, from its first place to the link:
+// each place's lines, in order, at one size, each frame exactly the window.
+const comparePlaces = (d, cols, rows) => {
+  while (d.state.cardAt) d.key('up');
+  const out = [];
+  for (let i = 0; i < 20; i++) {
+    const frame = render(d.state, { cols, rows }, theme(CAPS.full)).map(strip);
+    assert.equal(frame.length, rows, `${cols}x${rows}`);
+    for (const l of frame) assert.ok(width(l) <= cols - 1, `${cols}x${rows}: ${l}`);
+    const lines = frame.map((l) => l.trim());
+    out.push(lines);
+    if (lines.join('').includes(COMMANDS_BY_LEVEL)) break;
+    d.key('down');
+  }
+  return out;
+};
+
+test('every lesson\'s comparison fits at 60x20 and 80x24, and shows each of its entries whole, beside its command', () => {
+  for (const id of Object.keys(RECALL)) {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+    playUntil(d, (s) => s.view === 'next' && s.lesson === id);
+    d.key('space');
+    assert.equal(d.state.overlay, 'compare', id);
+    const card = lessonById(id).content.card;
+    assert.ok(card.length, id);
+    for (const [cols, rows] of SHORT) {
+      const seen = new Set();
+      for (const lines of comparePlaces(d, cols, rows)) {
+        const where = `${id} at ${cols}x${rows}\n${lines.join('\n')}`;
+        for (const { show, does } of card) {
+          const said = compared(lines, show);
+          if (said === undefined) continue;
+          // Its quote whole, with inline code drawn in its color.
+          assert.ok(said.startsWith('"') && said.endsWith('"') && flatText(said) === flatText(does), `${show}: ${where}`);
+          seen.add(show);
+        }
+      }
+      assert.deepEqual([...seen], card.map((e) => e.show), `${id} at ${cols}x${rows}`);
+    }
+  }
+});
+
+test('a command too long to leave its quote room beside it puts the quote under it, whole', () => {
+  // 51 columns: at 80x24 it would leave its quote 19 beside it.
+  const long = '/a-command-long-enough-to-crowd-its-quote-out-of-it';
+  const lessons = allCourse.map((l) => (l.id === 'b-4' ? { ...l, content: { ...l.content, card: l.content.card.map((e, k) => (k ? e : { ...e, show: long })) } } : l));
+  const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-4');
+  d.key('space');
+  const [first, ...rest] = lessons.find((l) => l.id === 'b-4').content.card;
+  for (const [cols, rows] of SHORT) {
+    const places = comparePlaces(d, cols, rows);
+    const lines = places[0];
+    const where = `${cols}x${rows}\n${lines.join('\n')}`;
+    const k = lines.indexOf(long);
+    assert.ok(k > 0, where);
+    const end = lines.findIndex((l, j) => j > k && l.endsWith('"'));
+    assert.equal(lines.slice(k + 1, end + 1).join(' '), `"${first.does}"`, where);
+    assert.ok(lines[k + 1].startsWith('"'), where);
+    // The rest are under it the same way, each whole.
+    for (const { show } of rest) assert.ok(places.flat().includes(show), `${show}: ${where}`);
+  }
+});
+
+test('a next screen whose lesson put nothing on the card asks for no recall', () => {
+  const lessons = allCourse.map((l) => (l.id === 'b-4' ? { ...l, content: { ...l.content, card: [] } } : l));
+  const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4', lessons) } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-4');
+  for (const [cols, rows] of SHORT) {
+    const lines = cardText(d, cols, rows);
+    assert.ok(!lines.includes(C.recallAsk('B4')), `${cols}x${rows}\n${lines.join('\n')}`);
+  }
 });

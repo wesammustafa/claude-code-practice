@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -657,7 +657,7 @@ const VIEWS = {
     // Only the questions in steps this learner finished: the app saw those.
     const answered = stepsOf(s).filter((st) => s.progress[s.lesson].done.includes(st.id)).flatMap((st) => st.beats)
       .filter((b) => b.ask && b.kind !== 'predict').length;
-    const nextLesson = content.next ? lessonOf(s, content.next) : null;
+    const nextLesson = nextLessonOf(s);
     const body = [];
     if (results) body.push(lead(t, 'verified', t.fg('ok', C.checkedSummary(results.filter((r) => r.pass).length, results.length))));
     // The capstone's handover: plain text, shown only when no exact command
@@ -668,8 +668,9 @@ const VIEWS = {
       // The climb as it was played: an eased step counts at its easier tier.
       ...staircase(ctx, mix(tiersOf(s).filter((_, i) => stepsOf(s)[i].part !== 'Warm-up')), true));
     // Recall, then compare: the lesson's card entries from memory first. An
-    // optional sentence, so a long toast cuts no teaching line; Go further,
-    // under it, gives way first.
+    // optional sentence, so a long toast cuts no teaching line: where it
+    // drops, c still shows the same entries. Go further, under it, gives way
+    // first.
     if (recallOf(s).length) body.push(...optional(['', ...para(t, C.recallAsk(lessonLabel(s.lesson)), W, 'text')]));
     // A source to read next, one optional sentence: p shows it too. A
     // capstone has none.
@@ -1163,8 +1164,8 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
 }
 // The next screen's enter: the next lesson, or the map after the last.
 const nextKey = (s) => {
-  const id = contentOf(s).next;
-  return id && lessonOf(s, id) ? mainKey('enter', C.k.startN(lessonLabel(id))) : mainKey('enter', C.k.map);
+  const next = nextLessonOf(s);
+  return next ? mainKey('enter', C.k.startN(lessonLabel(next.id))) : mainKey('enter', C.k.map);
 };
 // `c card`, once the card has an entry. It is low: a bar too narrow for it
 // gives it up before the main key's long label, and it sits before q, so
@@ -1190,6 +1191,9 @@ function cardPlaces(ctx, units, title, intro) {
   while (k < places.length && shown.length + places[k].length <= avail) shown.push(...places[k++]);
   return { body: [...head, ...shown], scroll: from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null };
 }
+
+// The fewest columns the comparison gives what a command does beside it.
+const COMPARE_MIN = 24;
 
 const OVERLAYS = {
   why(ctx) {
@@ -1227,13 +1231,17 @@ const OVERLAYS = {
     return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)] };
   },
   // Recall, then compare: the lesson's own entries, whole as soon as space
-  // asks. One lesson needs no pill, so what it does sits beside the command.
-  // Enter goes on as from the next screen; space goes back to it.
+  // asks. One lesson needs no pill, so what it does sits beside the command,
+  // or under it, as on the card, where a long command would leave it less
+  // than COMPARE_MIN columns. Enter goes on as from the next screen; space
+  // goes back to it.
   compare(ctx) {
     const { s, t, inner } = ctx;
     const entries = recallOf(s);
-    const col = Math.max(...entries.map((e) => width(e.show))) + 3;
-    const units = entries.map((e) => hang(t.fg('code', pad(e.show, col)), para(t, e.does, inner - col, 'text', { quote: true })));
+    const col = Math.max(0, ...entries.map((e) => width(e.show))) + 3;
+    const units = entries.map((e) => (inner - col >= COMPARE_MIN
+      ? hang(t.fg('code', pad(e.show, col)), para(t, e.does, inner - col, 'text', { quote: true }))
+      : [t.fg('code', e.show), ...hang('   ', para(t, e.does, inner - 3, 'text', { quote: true }))]));
     const { body, scroll } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
     return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)] };
   },

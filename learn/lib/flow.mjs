@@ -118,6 +118,14 @@ export function cardOf(s) {
 // The entries the next screen asks the learner to recall: this lesson's own
 // on the card.
 export const recallOf = (s) => cardOf(s).filter((e) => e.lesson === s.lesson);
+// The overlays the arrows scroll, each by its entries: one place an entry,
+// then the Commands by level link, the last (render.mjs).
+const SCROLLED = { card: cardOf, compare: recallOf };
+// Where the next screen's enter goes: the next lesson, or null for the map.
+export const nextLessonOf = (s) => {
+  const id = contentOf(s)?.next;
+  return (id && lessonOf(s, id)) || null;
+};
 // Whether the learner did what the step on screen asks again: finished a
 // step on its skill, in any lesson. A capstone step draws on every lesson
 // before it, so there it takes a finished step on every skill they teach.
@@ -849,7 +857,9 @@ const letter = (ev) => Boolean(ev.ch) && /^[\x21-\x7e]$/.test(ev.ch) && !DIGIT.t
 // swallowed until the typing stops.
 function guardKey(s, ev, effects) {
   if (ev.name === 'ctrl-c') return effects.push({ type: 'quit' });
-  if (typingAnswer(s) || s.overlay) {
+  // The comparison's enter goes on, as the next screen's does, so its keys
+  // keep the guard.
+  if (typingAnswer(s) || (s.overlay && s.overlay !== 'compare')) {
     s.held = null;
     return onKey(s, ev, effects);
   }
@@ -893,12 +903,8 @@ function onKey(s, ev, effects) {
       return VIEWS.next(s, ev, effects);
     }
     if (['escape', 'enter', 'q', '?', 'p', 'w', 'c'].includes(name) || (s.overlay === 'compare' && name === 'space')) s.overlay = null;
-    // The card's arrows, and the comparison's: one place a press, each entry
-    // and then the Commands by level link, the last (render.mjs).
-    else if (['card', 'compare'].includes(s.overlay) && (name === 'up' || name === 'down')) {
-      const n = (s.overlay === 'card' ? cardOf(s) : recallOf(s)).length;
-      s.cardAt = Math.max(0, Math.min(n, s.cardAt + (name === 'down' ? 1 : -1)));
-    }
+    // The arrows: one place a press.
+    else if (SCROLLED[s.overlay] && (name === 'up' || name === 'down')) s.cardAt = Math.max(0, Math.min(SCROLLED[s.overlay](s).length, s.cardAt + (name === 'down' ? 1 : -1)));
     return;
   }
   if (name === 'q') return effects.push({ type: 'quit' });
@@ -1102,8 +1108,8 @@ const VIEWS = {
       return true;
     }
     if (name !== 'enter') return false;
-    const nextId = contentOf(s)?.next;
-    if (nextId && lessonOf(s, nextId)) startLesson(s, nextId, effects);
+    const next = nextLessonOf(s);
+    if (next) startLesson(s, next.id, effects);
     else s.view = 'map';
     return true;
   },
