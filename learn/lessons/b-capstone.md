@@ -297,3 +297,8 @@ badge: Beginner
 - narrow "These changes are uncommitted": Which files does the check list, and do they belong in the fix commit?
 - hint: "The check reads only that commit, so if you change it later, save it again."
 - hint: "Don't put a `linkcheck.json` in your copy, because the check counts it as a change."
+
+## card
+- skill: review-diff
+- show: "git add -N <file>"
+- does: "`git diff` leaves out a new file until you run `git add -N <file>`"
