@@ -425,6 +425,19 @@ test('the grammar: an intro holds one quoted why and one quoted payoff', () => {
   assert.throws(() => parseLesson(typo, 'demo'), new RegExp(`^Error: demo:${at}: the payoff "do it now" is not one of the intro's can lines$`));
 });
 
+test('the grammar: an intro holds one quoted read line with one link, at most', () => {
+  const intro = (lines) => DEMO_B2.replace('- can: "do it"', `- can: "do it"\n${lines}`);
+  const line = '[Read this](https://example.com/page): what it covers.';
+  assert.equal(parseLesson(intro(`- read: "${line}"`), 'demo').intro.read, line);
+  assert.equal(parseLesson(DEMO_B2, 'demo').intro.read, undefined);
+  assert.throws(() => parseLesson(intro(`- read: ${line}`), 'demo'), /demo:\d+: read must be a quote of the lesson/);
+  assert.throws(() => parseLesson(intro(`- read: "${line}"\n- read: "${line}"`), 'demo'), /demo:\d+: a second read line in the intro/);
+  // The p overlay spells out its one link's address.
+  for (const bad of ['Read this next: what it covers.', `${line} [And this](https://example.com/other).`]) {
+    assert.throws(() => parseLesson(intro(`- read: "${bad}"`), 'demo'), /^Error: demo:\d+: a read line links one page to read, with a Markdown link$/, bad);
+  }
+});
+
 test('warm-ups: two open the lesson, a missed skill first, always CHALLENGE, and no part of the climb', () => {
   const d = onB2({}, { missed: ['exit'] });
   assert.equal(d.state.view, 'intro');
