@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
@@ -522,11 +523,11 @@ test('boot: when git takes over 150 ms at start, the screen opens with Pip wakin
     assert.deepEqual(term.writes, [], 'nothing is drawn, and the screen is not opened, before git has run 160 ms');
     await clock.advance(1);
     assert.equal(ENTERS(term.writes), 1);
-    assert.match(term.shows(), /│ ─ {3}─ │ {3}Asking git about this folder… ⠋/, '+160 ms: Pip\'s eyes shut, the spinner starts');
+    assert.match(term.shows(), /│ {2}─‿─ {2}│ {3}Asking git about this folder… ⠋/, '+160 ms: Pip\'s eyes shut, the spinner starts');
     await clock.advance(80);
-    assert.match(term.shows(), /│ ◡ {3}◡ │ {3}Asking git about this folder… ⠙/, '+240 ms: waking');
+    assert.match(term.shows(), /│ {2}◒‿◒ {2}│ {3}Asking git about this folder… ⠙/, '+240 ms: waking');
     await clock.advance(80);
-    assert.match(term.shows(), /│ ● {3}● │ {3}Asking git about this folder… ⠹/, '+320 ms: awake');
+    assert.match(term.shows(), /│ {2}●‿● {2}│ {3}Asking git about this folder… ⠹/, '+320 ms: awake');
     git.answer([null, 'Sam']);
     await turn();
     await clock.advance(40);
@@ -566,7 +567,7 @@ test('boot: with motion off, the boot frame shows its words still, with Pip awak
   const { term, clock } = app;
   try {
     await clock.advance(160);
-    assert.match(term.shows(), /│ ● {3}● │ {3}Asking git about this folder…\n/);
+    assert.match(term.shows(), /│ {2}●‿● {2}│ {3}Asking git about this folder…\n/);
     const n = term.writes.length;
     assert.deepEqual(app.frameTimers(), []);
     await clock.advance(5_000);
@@ -1132,4 +1133,16 @@ test('package.json: one new script, no dependencies', () => {
   assert.equal(pkg.engines.node, '>=22');
   const src = readdirSync(join(root, 'learn'), { recursive: true }).filter((f) => f.endsWith('.mjs')).map((f) => readFileSync(join(root, 'learn', f), 'utf8')).join('\n');
   assert.doesNotMatch(src, /import\.meta\.main|styleText|from '(?!node:|\.)/, 'needs a newer Node or a package');
+});
+
+// Pip comes from the owner's pip-terminal package (1.0.0): its src/pip.mjs as
+// it ships, with its MIT license and nothing else of the package. The
+// recorded hashes are the package's files (a Windows checkout's CRLF read as
+// LF); edit Pip in the package, not here.
+test("Pip's artwork is the pip-terminal package's pip.mjs, unedited, beside its license", () => {
+  const dir = join(root, 'learn', 'lib', 'pip');
+  const sha = (f) => createHash('sha256').update(readFileSync(join(dir, f), 'utf8').replace(/\r\n/g, '\n')).digest('hex');
+  assert.deepEqual(readdirSync(dir).sort(), ['LICENSE', 'pip.mjs']);
+  assert.equal(sha('pip.mjs'), '25e2f3132c2fda60608351441eb565924b9c28ab5080271682aaa9c472561f0f');
+  assert.equal(sha('LICENSE'), 'd46d50acb422b8ac0c16a2d78e50515b1e007e61a6c0d0cf22dbb904bcabf5ea');
 });

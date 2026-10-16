@@ -480,16 +480,16 @@ function lessonHead(ctx, right, rightText) {
 // cells after it, and leaves at least one rule cell before it.
 const PIP_ROOM = PIP_FACE + 3;
 
-// Pip's face in this frame, over the `mood` it rests in: arms up for a hop
+// Pip's face in this frame, over the `mood` it rests in: sparks for a hop
 // or a cheer; away while the card enters, then landing with its eyes shut;
 // on a new "Not yet", a nod; on a file change, a glance; and its blink.
 function pipNow(ctx, shown) {
-  // Checking, with motion: Pip looks up once a child has run 150 ms, and
-  // holds still.
+  // Checking, with motion: Pip wears its checking face once a child has
+  // run 150 ms, and holds still.
   const mood = shown === 'checking' && !ctx.ph.checking ? 'rest' : shown;
   const e = into(ctx, 'entrance');
   const n = into(ctx, 'notYet');
-  if (into(ctx, 'hop') < Infinity || into(ctx, 'cheer') < Infinity) return { mood, frame: 'up' };
+  if (into(ctx, 'hop') < Infinity || into(ctx, 'cheer') < Infinity) return { mood, frame: 'sparks' };
   if (n < Infinity) return { mood: n >= SHOTS.notYet.nod ? 'rest' : mood };
   if (e < SHOTS.entrance.land) return null;
   if (e < Infinity) return { mood, frame: 'shut' };
@@ -724,10 +724,11 @@ const VIEWS = {
     const word = banner(t, C.levelUp, e < at.whole ? { cells: Math.round((bannerWidth(C.levelUp) * e) / at.whole) } : {});
     const fits = t.unicode && W >= 14 + bannerWidth(C.levelUp);
     const plain = t.bold(t.fg('accent', C.levelUp));
-    // Pip and the banner: decoration, leaving the word.
+    // Pip and the banner, or the word beside Pip's face: decoration,
+    // leaving the word.
     const top = decor(fits
       ? [` ${art[0]}`, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
-      : [` ${art[0]}`, ` ${art[1]}    ${plain}`, ` ${art[2]}`, ` ${art[3]}`], [` ${plain}`]);
+      : [` ${art[0]}`, ` ${art[1]}`, ` ${art[2]}    ${plain}`, ` ${art[3]}`], [` ${plain}`]);
     const lines = toChallenge ? C.toChallenge : C.toHinted;
     const tint = TIER_STYLE[s.levelTo].tint;
     // The arrow's 8 cells fill a third at a time, rounded up.
@@ -774,8 +775,6 @@ const VIEWS = {
       confettiRows = [confetti(t, W, { turn: k, row: 0 })];
       under = spacer(confetti(t, W, { turn: k, row: 1 }));
     }
-    // Arms up: past the first row's sides, where its margin was.
-    const top = `${cheer ? '' : ' '}${art[0]}`;
     // The ticks appear in turn from blank, the payoff's mark last.
     const order = [...content.intro.can.filter((c) => c !== content.intro.payoff), ...content.intro.can.filter((c) => c === content.intro.payoff)];
     // Each lands on the 40 ms grid, where a frame is drawn.
@@ -786,8 +785,8 @@ const VIEWS = {
         decor(confettiRows),
         under,
         decor(fits
-          ? [top, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
-          : [top, ` ${art[1]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[2]}`, ` ${art[3]}`], [` ${t.bold(t.fg('ok', C.complete))}`]),
+          ? [` ${art[0]}`, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
+          : [` ${art[0]}`, ` ${art[1]}`, ` ${art[2]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[3]}`], [` ${t.bold(t.fg('ok', C.complete))}`]),
         SPACER,
         lead(t, 'party', t.bold(t.fg('white', C.lessonDone(label)))),
         ...content.intro.can.flatMap((c) => canLine(t, c, c === content.intro.payoff, t.fg('ok', t.glyph.check), W - 8, e < lands(c))),
@@ -996,13 +995,15 @@ function windows(ctx) {
   return left.map((l, i) => `${l}${i === 2 ? arrow : ' '.repeat(width(arrow))}${right[i]}`);
 }
 
-// Pip with text beside it, from Pip's second row, or from its first when the
-// text needs all four. Decoration: below 24 rows Pip can give way, leaving
-// the text. Each part wraps to the width it is given.
+// Pip with text beside it, from Pip's face row (its third, under the
+// antenna and the head's top), or as low as Pip's four rows still hold the
+// text, or from its first when the text needs all four. Decoration: below
+// 24 rows Pip can give way, leaving the text. Each part wraps to the width
+// it is given.
 function withPip(ctx, art, parts) {
   const text = (w) => parts.flatMap((part) => part(w));
   const beside = text(ctx.W - 13);
-  const from = beside.length > 3 ? 0 : 1;
+  const from = Math.max(0, Math.min(2, art.length - beside.length));
   const rows = Array.from({ length: Math.max(art.length, from + beside.length) }, (_, i) => {
     const x = beside[i - from];
     return x === undefined ? ` ${art[i] ?? ''}` : ` ${art[i] ?? ' '.repeat(9)}   ${x}`;
