@@ -3,8 +3,8 @@
 The practice repository for [Claude Code: Everything You Need to Know](https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know). The lessons live in the guide; this repository holds the small app you practice on and a check for every core lesson and capstone.
 
 <p align="center">
-  <!-- Captured from the learning app at template commit 92d427f on 2026-10-11. -->
-  <img src=".github/readme/learn-lesson-complete.png" width="640" alt="Each finished lesson lists what you can now do. After Beginner lesson 1: install Claude Code, sign in, start it in a repository, and tell which version, model and account a session is using, plus a new badge, Explorer." />
+  <!-- Captured from the learning app at template commit f136c1e on 2026-10-16. -->
+  <img src=".github/readme/learn-lesson-complete.png" width="640" alt="Each finished lesson lists what you practised, with a flag on the skill the lesson builds to. After Beginner lesson 1: install Claude Code, sign in, start it in a repository, and tell which version, model and account a session is using, plus a new badge, Explorer." />
   <br />
   <sub>The learning app, <code>npm run learn</code>, at the end of Beginner lesson 1.</sub>
 </p>
@@ -24,7 +24,7 @@ Run the learning app in one terminal, and use Claude Code in a second terminal b
 npm run learn
 ```
 
-It shows one step of a lesson at a time, watches your copy, and turns a step green as soon as your work is there. The help shrinks as you go: every command at first, then hints, then only the goal. Every Beginner lesson and the capstone are in the app. From lesson 2 on, each opens with two warm-up questions from earlier lessons, and is planned to start with less help than the one before. A lesson you skipped doesn't count toward that, so a skill from it can come back with more help. The Intermediate and Advanced lessons are on the map too, one level a page: while you follow a lesson's page, the app watches its check, and counts the lesson done once the whole check passes (press `r` for the slower parts). Lesson 5 and the capstone of Advanced run in a new copy of the template, so the app doesn't check them here.
+It shows one step of a lesson at a time, watches your copy, and turns a step green as soon as your work is there. The help shrinks each time a skill comes back: every command at first, then hints, then only the goal. Every Beginner lesson and the capstone are in the app. From lesson 2 on, each opens with two warm-up questions from earlier lessons, and is planned to start with less help than the one before. A lesson you skipped doesn't count toward that, so a skill from it can come back with more help. The Intermediate and Advanced lessons are on the map too, one level a page: while you follow a lesson's page, the app watches its check, and counts the lesson done once the whole check passes (press `r` for the slower parts). Lesson 5 and the capstone of Advanced run in a new copy of the template, so the app doesn't check them here.
 
 - Keys: arrows or numbers to choose, `enter` to go on, `h` for a hint, `m` for the map of lessons, `q` to quit. Your place is saved in `.practice/learn.json`.
 - If PowerShell refuses to run `npm`, run `npm.cmd run learn`.
