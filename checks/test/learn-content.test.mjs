@@ -9,7 +9,6 @@ import { join } from 'node:path';
 import { GUIDE, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
-import { levelOf } from '../../learn/lib/flow.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
 import { root } from './learn-drive.mjs';
@@ -175,9 +174,9 @@ test('the level\'s first lesson with warm-ups shows the lesson\'s words on every
   const firsts = new Map();
   for (const p of PATH) {
     const l = parsed[p.id];
-    if (l?.warmup.length && !firsts.has(levelOf(p.id))) firsts.set(levelOf(p.id), p.id);
+    if (l?.warmup.length && !firsts.has(p.level)) firsts.set(p.level, p.id);
   }
-  assert.equal(firsts.get('b'), 'b-2');
+  assert.equal(firsts.get('beginner'), 'b-2');
   for (const id of firsts.values()) {
     for (const w of parsed[id].warmup) {
       const b = w.beats[0];

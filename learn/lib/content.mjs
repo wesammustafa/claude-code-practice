@@ -36,15 +36,16 @@ export const LADDER_KEYS = { hint: true, bottom: true, win: true };
 export const CARD_KEYS = { skill: false, show: true, does: true };
 const OPTION_KEYS = new Set(['right', 'wrong', 'option', 'stuck', 'other', 'decoy']);
 
-// The guide's Beginner path, in course order. Pages and time estimates for
+// The guide's Beginner path, in course order. Each entry's level is the
+// folder of its page (copy.mjs names it). Pages and time estimates for
 // lessons the app shows only through their check.
 export const PATH = [
-  { id: 'b-1', page: 'docs/beginner/01-install-and-look-around.md', minutes: 'about 20 minutes' },
-  { id: 'b-2', page: 'docs/beginner/02-permission-modes-and-plan-mode.md', minutes: 'about 20 minutes' },
-  { id: 'b-3', page: 'docs/beginner/03-first-change.md', minutes: 'about 20 minutes' },
-  { id: 'b-4', page: 'docs/beginner/04-keep-a-session-on-track.md', minutes: 'about 20 minutes' },
-  { id: 'b-5', page: 'docs/beginner/05-project-memory.md', minutes: 'about 20 minutes' },
-  { id: 'b-capstone', page: 'docs/beginner/capstone.md', minutes: '30 to 60 minutes' },
+  { id: 'b-1', level: 'beginner', page: 'docs/beginner/01-install-and-look-around.md', minutes: 'about 20 minutes' },
+  { id: 'b-2', level: 'beginner', page: 'docs/beginner/02-permission-modes-and-plan-mode.md', minutes: 'about 20 minutes' },
+  { id: 'b-3', level: 'beginner', page: 'docs/beginner/03-first-change.md', minutes: 'about 20 minutes' },
+  { id: 'b-4', level: 'beginner', page: 'docs/beginner/04-keep-a-session-on-track.md', minutes: 'about 20 minutes' },
+  { id: 'b-5', level: 'beginner', page: 'docs/beginner/05-project-memory.md', minutes: 'about 20 minutes' },
+  { id: 'b-capstone', level: 'beginner', page: 'docs/beginner/capstone.md', minutes: '30 to 60 minutes' },
 ];
 export const GUIDE = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know';
 // The guide's Commands by level page, which ends your card.
@@ -226,10 +227,10 @@ function parseVerify(beat, file) {
   throw new Error(`${file}:${beat.line}: unknown verify value ${v}`);
 }
 
-// Every Beginner lesson in course order: its check module and, when it has
+// Every lesson on `path` in course order: its check module and, when it has
 // one, its content file. `root` is the practice copy the app runs from.
-export function loadCourse(root) {
-  return PATH.map((entry) => {
+export function loadCourse(root, path = PATH) {
+  return path.map((entry) => {
     const file = join(root, 'learn', 'lessons', `${entry.id}.md`);
     const content = existsSync(file) ? parseLesson(readFileSync(file, 'utf8'), `learn/lessons/${entry.id}.md`) : null;
     const check = checks[entry.id];

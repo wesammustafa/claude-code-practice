@@ -761,7 +761,7 @@ test('the invitation gives way whole before any teaching line is cut, and never 
           // The order today: the recall prompt goes first, then the
           // question count, then the invitation.
           const count = lines.some((l) => / answered$/.test(l.trim()));
-          const recall = text.includes(flatText(C.recallAsk('CAP')));
+          const recall = text.includes(flatText(C.recallAsk('BC')));
           if (count) assert.ok(at >= 0, `the invitation goes before the count: ${where}`);
           if (recall) assert.ok(count, `the count goes before the recall prompt: ${where}`);
         }
@@ -1555,7 +1555,7 @@ test('each level has its own first warm-up: a later level\'s first lesson with w
   // A made-up Intermediate lesson after the Beginner path: b-2's content
   // under the id i-1, so its warm-ups recall Beginner lessons.
   const b2 = allCourse.find((l) => l.id === 'b-2');
-  const lessons = [...allCourse, { ...b2, id: 'i-1', content: { ...b2.content, lesson: 'i-1' } }];
+  const lessons = [...allCourse, { ...b2, id: 'i-1', level: 'intermediate', content: { ...b2.content, lesson: 'i-1' } }];
   const i1 = firstWarmup('i-1', {}, lessons);
   assert.equal(i1.state.lesson, 'i-1');
   assert.equal(stepOf(i1.state).part, 'Warm-up');
@@ -1563,7 +1563,7 @@ test('each level has its own first warm-up: a later level\'s first lesson with w
   const b2First = firstWarmup('b-2', {}, lessons);
   assert.ok(explains(b2First), plainAt(b2First, 80, 24));
   // A second Intermediate lesson with warm-ups says nothing more.
-  const i2 = [...lessons, { ...b2, id: 'i-2', content: { ...b2.content, lesson: 'i-2' } }];
+  const i2 = [...lessons, { ...b2, id: 'i-2', level: 'intermediate', content: { ...b2.content, lesson: 'i-2' } }];
   const second = firstWarmup('i-2', {}, i2);
   assert.equal(stepOf(second.state).part, 'Warm-up');
   assert.ok(!explains(second), plainAt(second, 80, 24));
@@ -2578,7 +2578,7 @@ const COMMANDS_BY_LEVEL = 'https://github.com/wesammustafa/Claude-Code-Everythin
 // Every entry the lesson files put on the card, in course order.
 const CARD_SHOWS = ['claude --version', 'claude', '/status', '/exit', 'Shift+Tab', 'Ctrl+O', '/diff', 'git diff',
   '/context', '/compact', '/rewind', '/clear', '/resume', 'claude --continue', '/init', '/context all', 'git add -N <file>'];
-const shownOn = (lines) => CARD_SHOWS.filter((show) => lines.some((l) => l.endsWith(`  ${show}`) && /^(B\d|CAP)\s/.test(l)));
+const shownOn = (lines) => CARD_SHOWS.filter((show) => lines.some((l) => l.endsWith(`  ${show}`) && /^(B\d|BC)\s/.test(l)));
 
 test('your card scrolls with the arrows where it is taller than the window, and ends with the guide\'s Commands by level link', () => {
   const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(lessonById('b-capstone')) } } });
@@ -2691,7 +2691,7 @@ test('your card\'s last place is the Commands by level link, so a toast at 60x20
 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
-const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'CAP' };
+const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];

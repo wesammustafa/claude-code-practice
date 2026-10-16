@@ -18,7 +18,7 @@ export const COLORS = {
 const UNICODE_GLYPHS = {
   rule: '─', bold: '━', rail: '│', bar: '▌', tl: '╭', tr: '╮', bl: '╰', br: '╯',
   check: '✔', warnMark: '▲', pointer: '❯', arrow: '➜', right: '▸', star: '★', starOff: '☆',
-  dot: '●', dotOff: '○', diamond: '◆', diamondOff: '◇', ellipsis: '…', bullet: '·', up: '↑↓',
+  dot: '●', dotOff: '○', diamond: '◆', diamondOff: '◇', ellipsis: '…', bullet: '·', up: '↑↓', sides: '←→',
   // A trail stop's pops: a ring as a card enters, a spark as its step passes.
   // A new "Not yet" mark pops from hollow.
   ring: '◉', spark: '✦', warnPop: '△',
@@ -29,7 +29,7 @@ const UNICODE_GLYPHS = {
 const ASCII_GLYPHS = {
   rule: '-', bold: '=', rail: '|', bar: '|', tl: '+', tr: '+', bl: '+', br: '+',
   check: '[x]', warnMark: '!', pointer: '>', arrow: '->', right: '>', star: '*', starOff: '.',
-  dot: '#', dotOff: 'o', diamond: '+', diamondOff: '+', ellipsis: '...', bullet: '|', up: 'up/down',
+  dot: '#', dotOff: 'o', diamond: '+', diamondOff: '+', ellipsis: '...', bullet: '|', up: 'up/down', sides: 'left/right',
   ring: '@', spark: '*', warnPop: '!',
 };
 
