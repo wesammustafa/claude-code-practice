@@ -679,8 +679,8 @@ test('a done beat hides its satisfied "Done when" line: W3 done at 60x20 is the 
     '   enter  next    b back    w why    m map    q quit',
   ];
   mockup.forEach((row, i) => {
-    // Rows 2 and 3 (the trail and the rule) and the pulse row are motion's.
-    if (row === null || i === 1 || i === 2) return;
+    // The pulse row is motion's.
+    if (row === null) return;
     assert.equal(lines[i], row, `row ${i + 1}`);
   });
   assert.ok(!lines.some((l) => l.includes(C.doneWhen)));
@@ -1743,13 +1743,14 @@ test('the Why line\'s lead is in accent and its quote in text, and a step\'s not
 });
 
 // Go further (146). The b-4 next screen as energy-and-teaching 3.1 draws it,
-// at 80x24. Two rows are not this ticket's and are the app's as it draws
+// at 80x24. Three rows are not this ticket's and are the app's as it draws
 // them: the trail, whose done steps are filled where the mockup drew them
-// hollow, and B5's mix bar, which is B5's plan.
+// hollow, the progress rule under it (157), full where the mockup drew a
+// plain rule, and B5's mix bar, which is B5's plan.
 const B4_NEXT = `
    B4   Keep a session on track                                    COMPLETE ✔
   ★━━★━━★   ●━━●   ◆   ●━━●━━●   ◆━━◆━━◆━━◆   ★━━★                    15 of 15
-  ────────────────────────────────────────────────────────────────────────────
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   ✅ The lesson's check passes: 2 of 2 items
   💬 9 questions answered
@@ -2239,4 +2240,93 @@ test('Pip tells the truth: the same face for every predict answer', () => {
     }
   }
   assert.ok(seen > 0);
+});
+
+// The progress rule and a passed stop (157, D5 (a)): energy-and-teaching
+// 2.3's "Step done" rest frame, rows 2 and 3.
+test('a passed step\'s stop is green before enter and its link fills: W3 done at 80x24 is the step-done mockup', () => {
+  const state = screens.find(([l]) => l === 'W3 done')[1];
+  const lines = render(state, { cols: 80, rows: 24 }, theme(CAPS.full));
+  assert.equal(strip(lines[1]).trimEnd(), '  ●━━●━━●━━○──○──○──○   ◇──◇──◇   ☆──☆                            step 3 of 12');
+  assert.equal(strip(lines[2]).trimEnd(), `  ${'━'.repeat(19)}${'─'.repeat(57)}`);
+  // The three passed stops and the links after them are green; no stop
+  // keeps the accent "current" glyph.
+  assert.equal(colored(lines[1]).ok, '●━━●━━●━━');
+  assert.equal(colored(lines[1]).accent, undefined);
+});
+
+test('row 3 counts the steps passed on lesson screens, in ASCII too; the welcome keeps its plain rule and the map its own bar', () => {
+  const at = (label, cols, rows, caps) => render(screens.find(([l]) => l === label)[1], { cols, rows }, theme(caps)).map((l) => strip(l).trimEnd());
+  // energy-and-teaching 2.5, ASCII at 60x20, watching: 2 of 12 steps done.
+  const ascii = at('W3 waiting', 60, 20, CAPS.ascii);
+  assert.equal(ascii[1], '  #==#==#--o--o--o--o   +--+--+   .--.        step 3 of 12');
+  assert.equal(ascii[2], `  ${'='.repeat(9)}${'-'.repeat(47)}`);
+  // 2.4 at 60x20, watching, in Unicode.
+  assert.equal(at('W3 waiting', 60, 20, CAPS.full)[2], `  ${'━'.repeat(9)}${'─'.repeat(47)}`);
+  // A lesson not started has nothing passed; a finished one is full.
+  assert.equal(at('intro', 80, 24, CAPS.full)[2], `  ${'─'.repeat(76)}`);
+  assert.equal(at('complete', 80, 24, CAPS.full)[2], `  ${'━'.repeat(76)}`);
+  // The welcome's rule is plain, and the map keeps its bar on row 2 over a
+  // plain rule, whatever the lesson's progress.
+  assert.equal(at('welcome', 80, 24, CAPS.full)[2], `  ${'─'.repeat(76)}`);
+  const map = at('map', 80, 24, CAPS.full);
+  assert.match(map[1], /^  ━*─+ \d+%$/);
+  assert.equal(map[2], `  ${'─'.repeat(76)}`);
+});
+
+test('a stop is passed only once its step\'s last beat is done, by any route: a done earlier beat keeps the accent and row 3 still', () => {
+  const at = (label) => render(screens.find(([l]) => l === label)[1], { cols: 80, rows: 24 }, theme(CAPS.full));
+  // W4's predict beat is done, but it is beat 1 of 3: 3 of 12 passed.
+  const guessed = at('W4 guessed');
+  assert.equal(colored(guessed[1]).ok, '●━━●━━●━━');
+  assert.equal(colored(guessed[1]).accent, '●');
+  assert.equal(strip(guessed[2]).trimEnd(), `  ${'━'.repeat(19)}${'─'.repeat(57)}`);
+  // Y1 already done counts, as a done one does: 8 of 12.
+  const already = at('Y1 already');
+  assert.equal(colored(already[1]).ok, '●━━●━━●━━●━━●━━●━━●━━●');
+  assert.equal(colored(already[1]).accent, undefined);
+  assert.equal(strip(already[2]).trimEnd(), `  ${'━'.repeat(51)}${'─'.repeat(25)}`);
+});
+
+test('a step done before keeps the accent "current" glyph until it passes again: back with b, and on a replay', () => {
+  const t = theme(CAPS.full);
+  const row2 = (d) => render(d.state, { cols: 80, rows: 24 }, t)[1];
+  // Back from W4 to W3: W3 is the current stop and its link to W4 is faint.
+  const d = driver();
+  playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'W4');
+  d.key('b');
+  assert.equal(stepOf(d.state).id, 'W3');
+  assert.match(strip(row2(d)), /^  ●━━●━━●──○──○──○──○ /);
+  assert.equal(colored(row2(d)).ok, '●━━●━━');
+  assert.equal(colored(row2(d)).accent, '●');
+  // A replay of a finished lesson: every step is in done, and the one on
+  // screen is current until its last beat is done.
+  const r = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(lessonById('b-1')) } } });
+  if (r.state.view !== 'map') r.key('m');
+  while (r.state.mapCursor !== 0) r.key('up');
+  r.key('enter');
+  r.key('enter');
+  assert.equal(stepOf(r.state).id, 'W1');
+  assert.match(strip(row2(r)), /^  ●──●━━●━━/);
+  assert.equal(colored(row2(r)).accent, '●');
+  playUntil(r, (s) => s.view === 'step' && stepOf(s).id === 'W2' && s.beat.status === 'done');
+  assert.match(strip(row2(r)), /^  ●━━●━━●━━●━━●━━●━━●   ◆━━◆━━◆   ★━━★ /);
+  assert.equal(colored(row2(r)).accent, undefined);
+});
+
+test('row 3 counts the warm-ups on the plan as steps, with the trail closed up at 60x20', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-2') } });
+  if (d.state.view === 'map') d.key('enter');
+  const rows = () => render(d.state, { cols: 60, rows: 20 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
+  assert.equal(d.state.view, 'intro');
+  assert.match(rows()[1], /^  ☆☆ ◇ ○{7} ◇{4} ☆☆ +16 steps$/);
+  assert.equal(rows()[2], `  ${'─'.repeat(56)}`);
+  d.key('enter');
+  playUntil(d, (s) => s.view === 'step' && s.beat.status === 'done');
+  assert.equal(stepOf(d.state).id, 'R1');
+  // 1 of 16 over 56 cells.
+  assert.equal(rows()[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'R2');
+  assert.equal(rows()[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
 });
