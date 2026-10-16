@@ -74,8 +74,14 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
 
 // ---- lookups -----------------------------------------------------------------
 export const lessonOf = (s, id = s.lesson) => s.course.find((l) => l.id === id);
-// A lesson's level is its id's letter: b-2 is Beginner, i-1 Intermediate.
-export const levelOf = (id) => id.split('-')[0];
+// A lesson's level, from its PATH entry: 'beginner' for b-2.
+export const levelOf = (s, id = s.lesson) => lessonOf(s, id)?.level;
+// The lessons of a level, in course order, capstone last.
+export const levelLessons = (s, level) => s.course.filter((l) => l.level === level);
+// The course's levels, in course order.
+export const levelsOf = (s) => [...new Set(s.course.map((l) => l.level))];
+// A lesson's number within its level, as its page says "Lesson 2 of 8".
+export const lessonNumber = (s, id = s.lesson) => levelLessons(s, levelOf(s, id)).findIndex((l) => l.id === id) + 1;
 export const contentOf = (s, id = s.lesson) => lessonOf(s, id)?.content;
 // The steps a learner meets, in order: the warm-up questions chosen when the
 // lesson started, then the lesson's own steps.
@@ -1125,11 +1131,23 @@ const VIEWS = {
     else s.view = 'map';
     return true;
   },
+  // The map shows the level of the lesson under the cursor: up and down
+  // move within it, so the cursor is always on a row the map draws; left
+  // and right go to the level before or after, at its next lesson.
   map(s, { name }, effects) {
-    const n = s.course.length;
-    if (name === 'up') s.mapCursor = (s.mapCursor + n - 1) % n;
-    else if (name === 'down') s.mapCursor = (s.mapCursor + 1) % n;
-    else if (name === 'enter') startLesson(s, s.course[s.mapCursor].id, effects);
+    const at = s.course[s.mapCursor];
+    const here = levelLessons(s, levelOf(s, at.id));
+    const levels = levelsOf(s);
+    const i = here.indexOf(at);
+    const to = (l) => (s.mapCursor = s.course.indexOf(l));
+    if (name === 'up') to(here[(i + here.length - 1) % here.length]);
+    else if (name === 'down') to(here[(i + 1) % here.length]);
+    else if (name === 'left' || name === 'right') {
+      const level = levels[levels.indexOf(levelOf(s, at.id)) + (name === 'left' ? -1 : 1)];
+      if (!level) return true;
+      const lessons = levelLessons(s, level);
+      to(lessons.find((l) => !s.progress[l.id].complete) ?? lessons[0]);
+    } else if (name === 'enter') startLesson(s, at.id, effects);
     else return false;
     return true;
   },

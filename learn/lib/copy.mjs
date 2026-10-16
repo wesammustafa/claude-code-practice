@@ -9,11 +9,15 @@
 export const TERMS = {
   practiceCopy: 'practice copy',
   tierHelp: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
+  // The guide's level names, by the folder of a lesson's page.
+  levels: { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' },
 };
 
 export const C = {
   appName: 'Claude Code practice',
-  pathLabel: (done, total) => `Beginner path · ${done} of ${total} done`,
+  levels: TERMS.levels,
+  levelPath: (level) => `${level} path`,
+  pathLabel: (level, done, total) => `${C.levelPath(level)} · ${done} of ${total} done`,
   pathHint: 'each stop a little harder',
   hi: (name) => `Hi ${name || 'there'}! Let's learn Claude Code by using it.`,
   pip1: `I'm Pip. I watch your ${TERMS.practiceCopy} and light up`,
@@ -40,7 +44,7 @@ export const C = {
   stepOf: (n, m) => `step ${n} of ${m}`,
 
   where: { terminal: 'in your other terminal', claude: 'in Claude Code', shell: 'in a third terminal', editor: 'in your editor', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
-  warmup: (n) => `Warm-up from lesson ${n}`,
+  warmup: (n, level) => `Warm-up from ${level ? `${level} lesson` : 'lesson'} ${n}`,
   warmupWhy: "A warm-up brings back an earlier lesson from memory. A wrong answer is fine: you see the lesson's words at once.",
   warmups: (n) => `${n} warm-up${n === 1 ? '' : 's'} first`,
   done: 'DONE',
@@ -170,6 +174,8 @@ export const C = {
     ['?', 'these keys'],
     ['q', 'quit (your place is saved)'],
   ],
+  // Listed under the arrows where the course has more than one level.
+  levelKey: ['← →', 'the map: another level'],
   // Listed only where the ? overlay has a row to spare.
   cardKey: ['c', 'your card: commands from finished steps'],
   calm: 'Prefer a still screen? Quit, then start with npm run learn -- --calm.',
@@ -185,6 +191,6 @@ export const C = {
     checkAgain: 'check again', moreHelp: 'more help', help: 'help', hint: 'hint', anotherHint: 'another hint', why: 'why', back: 'back',
     next: 'next', nextTo: (title) => `next: ${title}`, answer: 'answer', showAnswer: 'show answer', letsGo: "let's go",
     bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
-    continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', scroll: 'scroll', card: 'card', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
+    continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', scroll: 'scroll', level: 'level', card: 'card', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
   },
 };

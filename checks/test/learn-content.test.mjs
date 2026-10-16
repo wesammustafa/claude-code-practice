@@ -9,7 +9,6 @@ import { join } from 'node:path';
 import { GUIDE, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
-import { levelOf } from '../../learn/lib/flow.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
 import { root } from './learn-drive.mjs';
@@ -175,9 +174,9 @@ test('the level\'s first lesson with warm-ups shows the lesson\'s words on every
   const firsts = new Map();
   for (const p of PATH) {
     const l = parsed[p.id];
-    if (l?.warmup.length && !firsts.has(levelOf(p.id))) firsts.set(levelOf(p.id), p.id);
+    if (l?.warmup.length && !firsts.has(p.level)) firsts.set(p.level, p.id);
   }
-  assert.equal(firsts.get('b'), 'b-2');
+  assert.equal(firsts.get('beginner'), 'b-2');
   for (const id of firsts.values()) {
     for (const w of parsed[id].warmup) {
       const b = w.beats[0];
@@ -314,6 +313,10 @@ const aliases = (copy) => {
 test('one name for each thing: the app\'s words use no alias of a TERMS name', () => {
   assert.equal(TERMS.practiceCopy, 'practice copy');
   assert.deepEqual(TERMS.tierHelp, { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' });
+  // The guide's level names, one each: the map, the welcome and a warm-up read them here.
+  assert.deepEqual(TERMS.levels, { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' });
+  assert.equal(C.levels, TERMS.levels);
+  assert.equal(C.pathLabel(TERMS.levels.intermediate, 2, 9), 'Intermediate path · 2 of 9 done');
   assert.deepEqual(aliases(C), []);
   // A lesson file's unquoted lines are the app's words too; its quotes are the guide's.
   for (const [id, l] of Object.entries(parsed)) {
