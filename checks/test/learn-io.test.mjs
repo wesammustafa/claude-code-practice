@@ -695,6 +695,32 @@ for (const [mode, env, dots] of [['calm', CALM_ENV, '…'], ['plain', { ...CALM_
   });
 }
 
+test('check item progress: a beat\'s opening run reports through main() as well, as the run of the items it was asked for', async () => {
+  const fake = heldCheck();
+  const app = clockedRun(CALM_ENV, { runCheck: fake.run });
+  const { term } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await app.press('\r', "You'll be able to");
+    await app.press('\r', 'step 1 of 12');
+    await app.press(' ', 'step 2 of 12');
+    await app.press('1', 'step 2 of 12');
+    fake.held = true;
+    await app.press('\r', 'Checking .practice/version.txt');
+    assert.ok(await app.settle(() => fake.runs.length > 0));
+    const [run] = fake.runs;
+    assert.equal(run.slow, false, 'the opening run, not r\'s');
+    // Step 3 checks one item; this fake child says it runs two, so the
+    // count shows.
+    run.onRunning(1, 2);
+    assert.ok(await app.settle(() => term.shows().includes('Checking item 1 of 2…')), term.shows());
+    run.end();
+    assert.ok(await app.settle(() => term.shows().includes('Watching .practice/version.txt')), term.shows());
+  } finally {
+    app.close();
+  }
+});
+
 test('resize: one full frame that clears the screen, at the new size', async () => {
   const app = clockedRun(CALM_ENV);
   const { term, clock } = app;

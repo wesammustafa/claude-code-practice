@@ -144,8 +144,9 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // The child starts now, not when the run was asked for: a run asked for
     // during another waits in line.
     runStart();
-    // Each item the child starts, for the checking label to count.
-    const onRunning = (n, m) => !closed && dispatch({ type: 'running', lesson, n, m, asked });
+    // Each item the child starts, for the checking label to count, with the
+    // items this run was asked for.
+    const onRunning = (n, m) => !closed && dispatch({ type: 'running', lesson, items, n, m, asked });
     const r = await checkChild(root, lesson, items, { slow, onRunning });
     if (closed) return;
     if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error, asked });
