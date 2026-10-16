@@ -76,28 +76,29 @@ function xterm(c) {
 }
 
 // `pose` from the package's controller, as `rows` lines of `cols` cells.
-// The package paints its own backdrop and softens each edge toward it; here
-// the backdrop is the terminal's own background, whatever it is, so neither
-// a rectangle nor a dark rim shows on another. The pose is rasterized over
-// black and over white: where the two differ the backdrop shows through, by
-// as much as they differ. A pixel at least half Pip is Pip's own color,
-// unmixed; one less is background. A cell with both halves background is a
-// space, one ink half is `▀` or `▄` over the default background, two are
-// `▀` in both colors. 256 colors, or 24-bit where the terminal reports it.
-// Without a pose, blank rows of the same size (to measure a screen with it).
+// The package paints its own backdrop (#1E1E1E) and softens each edge
+// toward it. Here the backdrop is the terminal's own background, so no
+// rectangle shows on another one: the pose is also rasterized over black
+// and over white, and where the two differ the backdrop shows through, by
+// as much as they differ. A pixel less than PIP_SEEN Pip is background; any
+// other is the package's own pixel, soft edge and all, so Pip looks as the
+// package draws it. A cell with both halves background is a space, one ink
+// half is `▀` or `▄` over the default background, two are `▀` in both
+// colors. 256 colors, or 24-bit where the terminal reports it. Without a
+// pose, blank rows of the same size (to measure a screen with it).
+export const PIP_SEEN = 0.08;
 export function pipRaster(t, pose, size) {
   const { cols, rows } = PIP_RASTER[size];
   if (!pose) return Array.from({ length: rows }, () => ' '.repeat(cols));
+  const own = rasterizePip(pose, { columns: cols, rows }).pixels;
   const dark = rasterizePip(pose, { columns: cols, rows, palette: { background: '#000000' } }).pixels;
   const light = rasterizePip(pose, { columns: cols, rows, palette: { background: '#FFFFFF' } }).pixels;
-  // How much of the pixel at `at` is Pip, 0 to 1: over black it is that
-  // much of Pip's color, so its color is that divided by it.
+  // How much of the pixel at `at` is Pip, 0 to 1.
   const cover = (at) => 1 - (light[at] - dark[at] + light[at + 1] - dark[at + 1] + light[at + 2] - dark[at + 2]) / 765;
-  const inked = (at) => cover(at) >= 0.5;
+  const inked = (at) => cover(at) >= PIP_SEEN;
   const codes = new Map();
   const code = (at, bg) => {
-    const a = cover(at);
-    const c = [0, 1, 2].map((k) => Math.min(255, Math.round(dark[at + k] / a)));
+    const c = [own[at], own[at + 1], own[at + 2]];
     const key = `${bg}:${c.join(',')}`;
     if (!codes.has(key)) codes.set(key, t.depth >= 24 ? `${bg ? 48 : 38};2;${c.join(';')}` : `${bg ? 48 : 38};5;${xterm(c)}`);
     return codes.get(key);

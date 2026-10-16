@@ -247,7 +247,7 @@ test('beside the raster, text starts on the row of Pip\'s eyes, and the banner s
 
 // The package paints every pixel it leaves empty in its backdrop, #1E1E1E
 // (README): 234 in 256 colors. It softens each edge toward that backdrop.
-test('the raster\'s cells: the package\'s pixels two to a cell, its backdrop and its soft edges the terminal\'s own background, in 256 colors or 24-bit where the terminal reports it', () => {
+test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges included, its backdrop the terminal\'s own background, in 256 colors or 24-bit where the terminal reports it', () => {
   const cases = [
     ['boot at 60x20', 'small', 'working', (t, pip) => bootFrame(0, size(60, 20), t, undefined, pip)],
     ['complete at 120x40', 'standard', 'success', (t, pip) => render(screen('complete'), size(120, 40), t, undefined, pip)],
@@ -259,7 +259,8 @@ test('the raster\'s cells: the package\'s pixels two to a cell, its backdrop and
     const [dark, light] = [over('#000000'), over('#FFFFFF')];
     const at3 = (row, col, under) => ((row * 2 + under) * cols + col) * 3;
     const cover = (row, col, under) => 1 - [0, 1, 2].reduce((n, k) => n + light[at3(row, col, under) + k] - dark[at3(row, col, under) + k], 0) / 765;
-    const ink = (row, col, under) => cover(row, col, under) >= 0.5;
+    // A pixel less than 8% Pip is the terminal's background (PIP_SEEN).
+    const ink = (row, col, under) => cover(row, col, under) >= 0.08;
     const whole = (row, col, under) => cover(row, col, under) === 1;
     let soft = 0;
     for (const depth of [8, 24]) {
@@ -281,8 +282,7 @@ test('the raster\'s cells: the package\'s pixels two to a cell, its backdrop and
           const at = `${where}, row ${r} cell ${k}: ${JSON.stringify(c)}`;
           for (const code of [c.fg, c.bg].filter(Boolean)) assert.match(code, depth === 24 ? /^[34]8;2;/ : /^[34]8;5;/, at);
           // A space keeps the terminal's background; an ink half alone is
-          // over the terminal's background; two are both colors. A pixel
-          // less than half Pip is background.
+          // over the terminal's background; two are both colors.
           if (!ink(r, k, 0) && !ink(r, k, 1)) {
             assert.deepEqual([c.ch, c.bg], [' ', null], at);
             spaces += 1;
@@ -290,14 +290,12 @@ test('the raster\'s cells: the package\'s pixels two to a cell, its backdrop and
           else if (!ink(r, k, 0)) assert.deepEqual([c.ch, c.bg], ['▄', null], at);
           else assert.equal(c.ch, '▀', at);
           soft += [0, 1].filter((u) => ink(r, k, u) && !whole(r, k, u)).length;
-          // Where a pixel is all Pip, its color is the package's pick.
+          // Every pixel drawn, soft edge or whole, is the package's own
+          // color pick for it: Pip looks as the package draws it.
           const { fg, bg } = own[r][k];
-          if (c.ch === '▀' && whole(r, k, 0)) assert.equal(c.fg, fg, at);
-          if (c.ch === '▀' && ink(r, k, 1) && whole(r, k, 1)) assert.equal(c.bg, bg, at);
-          if (c.ch === '▄' && whole(r, k, 1)) assert.equal(c.fg, bg.replace(/^48/, '38'), at);
-          // A soft edge is Pip's own color, not darkened toward the
-          // package's backdrop: Pip's colors all have a channel of 0xCE or more.
-          if (depth === 24) for (const code of [c.fg, c.bg].filter(Boolean)) assert.ok(Math.max(...code.split(';').slice(2).map(Number)) >= 0xCE, at);
+          if (c.ch === '▀') assert.equal(c.fg, fg, at);
+          if (c.ch === '▀' && ink(r, k, 1)) assert.equal(c.bg, bg, at);
+          if (c.ch === '▄') assert.equal(c.fg, bg.replace(/^48/, '38'), at);
         });
         // The row is exactly the raster's width: nothing after it but text, three cells on.
         const rest = cellsOf(lines[top + r]).slice(left + cols);
