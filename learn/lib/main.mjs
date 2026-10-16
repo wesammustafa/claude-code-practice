@@ -15,7 +15,7 @@ import { bootFrame, itemsMax, lessonLabel, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
-import { bytesOf, gitFirstName, gitReady, gitStatus, onPath, owing, probeFolder, runCheck, stampOf, stopChildren } from './verify.mjs';
+import { bytesOf, gitFirstName, gitReady, gitStatus, onPath, owing, probeFolder, runCheck, singleFlight, stampOf, stopChildren } from './verify.mjs';
 import { watchDirs } from './watch.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -225,18 +225,20 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     }
   }
 
-  // A lesson's prerequisites, in its work folder: a check item through the
-  // check child, a file read as it is now, with no process.
-  function prereqs(e) {
-    e.requires.forEach((req, at) => {
-      const answer = (found) => !closed && dispatch({ type: 'prereq', lesson: e.lesson, dir: e.dir, at, ...found });
-      if (req.path) return queueMicrotask(() => answer({ read: bytesOf(e.dir, req.path) }));
-      checkChild(e.dir, req.lesson, [req.item]).then((r) => {
+  // A lesson's prerequisites, in its work folder, in turn: a check item
+  // through the check child, a file read as it is now, with no process. One
+  // ask at a time; a later ask waits in line and takes the place of one
+  // already waiting (singleFlight), and each answer carries its ask's number.
+  const prereqs = singleFlight(async (e) => {
+    for (const [at, req] of e.requires.entries()) {
+      const found = await (req.path ? { read: bytesOf(e.dir, req.path) } : checkChild(e.dir, req.lesson, [req.item]).then((r) => {
         const item = r.items?.find((it) => it.index === req.item);
-        answer({ pass: item && !item.slow ? item.pass : null });
-      });
-    });
-  }
+        return { pass: item ? item.pass : null };
+      }));
+      if (closed) return;
+      dispatch({ type: 'prereq', lesson: e.lesson, dir: e.dir, at, asked: e.asked, ...found });
+    }
+  });
 
   // The path prompt's ask: what is at that path, for the reducer to take or
   // turn down.

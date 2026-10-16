@@ -1112,7 +1112,9 @@ test('main: a prerequisite check item runs through the check child in the work f
   try {
     assert.ok(await until(() => words().includes(C.buildsOnCheck('B5', 'a committed CLAUDE.md holds the rule saved in .practice/b-5-rule.txt')) && words().includes(C.buildsOnFile('B4', C.fileEmpty(skill)))), app.frame());
     assert.deepEqual(app.ran.filter((r) => r.lesson !== 'i-1'), [{ dir: mine, lesson: 'b-5', items: [0] }], 'one check child, for the check item, in the work folder');
-    assert.ok(words().includes(C.openFirst('B5')), app.frame());
+    // B5 and B4 are practised in the copy, so doing them again there would
+    // not set the work folder right: neither is offered.
+    assert.ok(!words().includes(C.openFirst('B5')) && !words().includes(C.openFirst('B4')), app.frame());
     // Set right in the work folder (the copy says nothing), the intro sees it when it opens again.
     write(app.copy, { [skill]: '---\nname: five-whys\n---\n' });
     write(mine, { [skill]: '---\nname: five-whys\n---\n' });
@@ -1122,6 +1124,42 @@ test('main: a prerequisite check item runs through the check child in the work f
     app.type('m');
     assert.ok(await until(() => !words().includes('builds on') && words().includes(C.startLesson(1))), app.frame());
     assert.deepEqual(app.ran.filter((r) => r.lesson !== 'i-1').map((r) => r.dir), [mine, mine]);
+  } finally {
+    app.close();
+    rmSync(mine, { recursive: true, force: true });
+  }
+});
+
+test('main: the prerequisites\' check items run one ask at a time; a later ask waits in line, in place of one already waiting', async () => {
+  const mine = repo();
+  mkdirSync(join(mine, '.practice'));
+  const i1 = DEMO_I1.replace('next: i-2\n---', 'next: i-2\nrequires: [b-5 check 0]\n---');
+  // Each b-5 run waits until the test answers it.
+  const waiting = [];
+  const checks = (dir, lesson) => (lesson === 'b-5' ? new Promise((answer) => waiting.push(answer)) : { items: [] });
+  const app = inCopy({ folders: () => ({ intermediate: mine }), i1, checks });
+  const words = () => app.frame().replace(/\x1b\[K/g, '').replace(/\s+/g, ' ');
+  const b5 = () => app.ran.filter((r) => r.lesson === 'b-5').length;
+  const reopen = async () => {
+    app.type('m');
+    assert.ok(await until(() => app.frame().includes('Intermediate path')), app.frame());
+    app.type('m');
+    assert.ok(await until(() => app.frame().includes(C.startLesson(1))), app.frame());
+  };
+  try {
+    assert.ok(await until(() => b5() === 1), JSON.stringify(app.ran));
+    // Two more looks while the first runs: no second child starts.
+    await reopen();
+    await reopen();
+    await until(() => false, 100);
+    assert.equal(b5(), 1, 'a second check child ran beside the first');
+    // The first answers: it fails. Then the last ask runs, once, and passes.
+    waiting[0]({ items: [{ index: 0, pass: false, hint: 'not yet' }] });
+    assert.ok(await until(() => words().includes('builds on') && b5() === 2), app.frame());
+    waiting[1]({ items: [{ index: 0, pass: true }] });
+    assert.ok(await until(() => !words().includes('builds on')), app.frame());
+    await until(() => false, 100);
+    assert.equal(b5(), 2, 'the ask that was waiting in line ran too');
   } finally {
     app.close();
     rmSync(mine, { recursive: true, force: true });

@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -40,6 +40,10 @@ const optional = (rows) => {
 // `alt`, decoration leaves `alt` behind.
 const repeat = (rows, alt) => ({ block: 'repeat', rows, alt });
 const decor = (rows, alt = []) => ({ block: 'decor', rows, alt });
+// Kept notes that give way to `alt`, kept too, after optional teaching and
+// before any teaching row is cut, at any size: the intro's notes before the
+// learner starts, whose short form hands them to a key.
+const notes = (rows, alt) => ({ block: 'notes', rows, alt });
 
 // A lesson's title on one row, its code spans as plain text: a-4's is
 // "Script Claude Code with `claude -p`".
@@ -162,9 +166,9 @@ export function bootFrame(since, size, t, clock = REST) {
 // The body in `room` rows. What gives way, in order: below 24 rows repeats
 // compact; spacers drop one at a time from the bottom; below 24 rows
 // decoration gives way, from the top; optional teaching drops from the
-// bottom, a sentence at a time; then teaching rows are cut from the bottom,
-// each run of cut rows under one `…`. Kept rows stay, so the list can
-// still be taller than `room`.
+// bottom, a sentence at a time; notes take their short form; then teaching
+// rows are cut from the bottom, each run of cut rows under one `…`. Kept
+// rows stay, so the list can still be taller than `room`.
 export function fit(body, room, short, more) {
   let list = body;
   const size = (l = list) => l.reduce((n, r) => n + (r?.block ? r.rows.length : 1), 0);
@@ -190,6 +194,7 @@ export function fit(body, room, short, more) {
     if (i < 0) break;
     list = [...list.slice(0, i), ...list[i].alt, ...list.slice(i + 1)];
   }
+  const notesAt = list.find((r) => r?.block === 'notes');
   list = list.flatMap((r) => (r?.block ? r.rows : [r]));
   const dropped = new Set();
   while (list.length > room) {
@@ -202,6 +207,9 @@ export function fit(body, room, short, more) {
   // A sentence can free more rows than were needed: fit again without it,
   // so the spacers and decoration that gave way first come back while they fit.
   if (dropped.size && list.length < room) return fit(body.filter((r) => !dropped.has(r)), room, short, more);
+  // Notes still too tall take their short form, and the body fits again, so
+  // what gave way before them comes back while it fits.
+  if (notesAt && list.length > room) return fit(body.flatMap((r) => (r === notesAt ? notesAt.alt : [r])), room, short, more);
   if (list.length > room) {
     const teaching = list.flatMap((r, i) => (typeof r === 'string' || !(r.keep || r.optional || r.spacer) ? [i] : []));
     // Inside a card the `…` keeps the card's rail. A lone row stays: a `…`
@@ -578,41 +586,40 @@ function folderLine(ctx, path = folderOf(ctx.s), after = '') {
   return `${t.fg('muted', lead)}${where}${after}`;
 }
 
+// A warning in `w` columns, as kept rows: the warn mark, then the text
+// wrapped under its first word.
+function warnNote(t, text, w, color = 'warn', opts) {
+  const mark = `${t.fg('warn', t.glyph.warnMark)} `;
+  return kept(hang(mark, para(t, text, w - width(mark), color, opts)));
+}
+
 // What main found wrong with the lesson's work folder, where it isn't the
 // copy, as kept rows: before the first step, the learner knows (ticket 86).
 // Nothing until main has looked.
 function folderNotes(ctx, w = ctx.W) {
   const { s, t } = ctx;
-  const dir = folderOf(s);
-  const found = dir && dir !== s.facts.root ? s.probes[dir] : null;
-  if (!found) return [];
-  const text = found.missing ? C.folderGone(shortPath(t, dir, w - 30)) : found.gitBroken ? C.folderGitBroken(found.gitBroken)
-    : !found.git ? C.notGit : !found.practice ? C.noPractice : null;
-  if (!text) return [];
-  const mark = `${t.fg('warn', t.glyph.warnMark)} `;
-  return kept(hang(mark, para(t, text, w - width(mark), 'warn')));
+  const problem = folderProblem(s);
+  if (!problem) return [];
+  const found = s.probes[folderOf(s)];
+  const text = { missing: () => C.folderGone(shortPath(t, folderOf(s), w - 30)), gitBroken: () => C.folderGitBroken(found.gitBroken), notGit: () => C.notGit, noPractice: () => C.noPractice }[problem]();
+  return warnNote(t, text, w);
 }
 
-// What the lesson needs (ticket 89), as kept rows: on native Windows the
-// page's note, then the commands main found on no PATH folder, in one
-// sentence with the You need line that names each.
-function needRows(ctx) {
-  const { s, t, W } = ctx;
-  const mark = `${t.fg('warn', t.glyph.warnMark)} `;
-  const note = (text, opts) => kept(hang(mark, para(t, text, W - width(mark), 'text', opts)));
+// What the intro says before the learner starts, in `w` columns, each note
+// its kept rows: what main found wrong with the work folder (ticket 86),
+// then what the lesson needs (ticket 89): on native Windows the page's
+// note, as a beat shows it; the commands main found on no PATH folder, in
+// one sentence with the You need line that names each; and each
+// prerequisite that failed, with what isn't there.
+function noteRows(ctx, w) {
+  const { s, t } = ctx;
   const win = contentOf(s).intro['win-note'];
   const missing = missingNeeds(s);
   const quotes = missing.map((n) => `"${n.quote}"`).join(' ');
-  // A failed prerequisite says what isn't there. Below 24 rows, where room
-  // is short, it gives way as a repeat does: the offer under it says whose
-  // work isn't done here.
-  const failed = unmet(s).map((r) => {
-    const text = (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint);
-    return repeat(kept(hang(mark, para(t, text, W - width(mark), 'warn'))), []);
-  });
-  return [...(win && t.caps.win32 ? note(win, { quote: true }) : []),
-    ...(missing.length ? note(quotes, { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : []),
-    ...failed];
+  return [asksFolder(s) ? [] : folderNotes(ctx, w),
+    win && t.caps.win32 ? kept(para(t, win, w, 'text', { quote: true })) : [],
+    missing.length ? warnNote(t, quotes, w, 'text', { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : [],
+    ...unmet(s).map((r) => warnNote(t, (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
 }
 
 // ---- views -------------------------------------------------------------------
@@ -706,12 +713,17 @@ const VIEWS = {
     // Where the level is practised (ticket 86): the question, until it has
     // an answer, in place of the start options; then the answer, on the
     // intro that asked. Both are kept rows, so the Why line gives way first.
-    // What the lesson needs (ticket 89) goes above it, kept rows too.
+    // The notes before the start (86's folder note, 89's needs) are kept
+    // too, under the answer. Where they don't fit once the Why line is
+    // gone, they give way to one row that hands them to n, so no teaching
+    // row is cut.
+    const shown = noteRows(ctx, W).flat();
+    const before = shown.length ? [notes(shown, warnNote(t, C.notesShort, W))] : [];
     const menu = asking
-      ? [...kept([t.bold(t.fg('white', folderKey(s) === levelOf(s) ? C.folderAsk(levelName(s)) : C.newCopyAsk))]),
+      ? [...before, ...kept([t.bold(t.fg('white', folderKey(s) === levelOf(s) ? C.folderAsk(levelName(s)) : C.newCopyAsk))]),
         ...kept(folderOptions(s).map((o, i) => option(i, o === 'copy' ? C.folderCopy : folderKey(s) === levelOf(s) ? C.folderOther : C.folderNewCopy)))]
-      : [...(asksHere(s) ? kept([folderLine(ctx)]) : []), ...folderNotes(ctx),
-        ...kept(introOptions(s).map((o, i) => option(i, o === 'start' ? label : o === 'less' ? C.lessHelp : C.openFirst(lessonLabel(unmet(s)[0].lesson)))))];
+      : [...(asksHere(s) ? kept([folderLine(ctx)]) : []), ...before,
+        ...kept(introOptions(s).map((o, i) => option(i, o === 'start' ? label : o === 'less' ? C.lessHelp : C.openFirst(lessonLabel(offered(s))))))];
     // Why the lesson matters, in the page's words, with its blank: an
     // optional row, so below 24 rows the staircase compacts first.
     return {
@@ -726,7 +738,6 @@ const VIEWS = {
         ...staircase(ctx, m, false),
         ...(warmups ? [t.fg('muted', C.warmups(warmups))] : []),
         SPACER,
-        ...needRows(ctx),
         ...menu,
       ],
       keys: [key(t.glyph.up, C.k.choose), key('enter', asking ? C.k.answer : C.k.start), key('m', C.k.map), !asking && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
@@ -1499,6 +1510,21 @@ function cardPlaces(ctx, units, title, intro) {
 const COMPARE_MIN = 24;
 
 const OVERLAYS = {
+  // The intro's notes before the start, whole, for where the intro has room
+  // for only the row that points here. Where they are taller than the
+  // room, whole notes from s.cardAt down, one a press of the arrows.
+  notes(ctx) {
+    const { s, t, inner, room } = ctx;
+    const head = [t.bold(t.fg('white', C.notesTitle)), ''];
+    const places = noteRows(ctx, inner).map((n) => n.map((r) => r.text));
+    const avail = room - head.length;
+    const from = places.flat().length <= avail ? 0 : Math.min(s.cardAt, places.length - 1);
+    const k = places.length ? placesTo(places, from, avail) : 0;
+    return {
+      body: [...head, ...places.slice(from, k).flat()],
+      keys: [from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null, key('n', C.k.close), key('q', C.k.close)],
+    };
+  },
   // The path prompt (ticket 86): what it asks for, the path as typed, its
   // last rows where it is long, so the end the next key goes to shows, and
   // a folder main found missing, or that main is looking.

@@ -207,14 +207,16 @@ export const C = {
   newCopyIsCopy: `That is this ${TERMS.practiceCopy}. Give the folder of your ${TERMS.newCopy} of the template.`,
   folderGone: (path) => `No folder at ${path} any more. Press f to pick another.`,
   // What a lesson needs before it starts (ticket 89). A prerequisite that
-  // failed in the work folder: the lesson it comes from, and the check item
-  // that doesn't pass or what the file lacks; the offer says it alone where
-  // room is short.
-  buildsOnCheck: (label, item) => `This lesson builds on ${label}, whose check doesn't pass here yet: ${item}`,
+  // failed in the work folder: the lesson it comes from, and the one check
+  // item that doesn't pass or what the one file lacks.
+  buildsOnCheck: (label, item) => `This lesson builds on ${label}. One item of its check doesn't pass here yet: ${item}`,
   buildsOnFile: (label, hint) => `This lesson builds on ${label}: ${hint}`,
-  openFirst: (label) => `Open ${label} first: it isn't done here yet`,
+  openFirst: (label) => `Open ${label} first`,
   // Commands no PATH folder holds, before the page's You need lines that name them.
   notOnPath: (...names) => `No ${names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0]} on your PATH. You need:`,
+  // Where the intro has no room for all of that, one row hands it to n.
+  notesShort: 'Read this before you start: press n',
+  notesTitle: 'Before you start',
 
   welcomeBack: 'Welcome back!',
   restartAsk: 'Start this lesson over? Your answers and ticks for it are cleared.',

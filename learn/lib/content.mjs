@@ -237,8 +237,13 @@ export function parseLesson(text, file = 'lesson') {
   }
   // A payoff that is no `can` line would flag nothing on screen.
   if (payoffLine !== null && !lesson.intro.can.includes(lesson.intro.payoff)) fail(payoffLine, `the payoff "${lesson.intro.payoff}" is not one of the intro's can lines`);
-  lesson.needs = needsOf(fm.fields.needs, needLines, file, fail);
-  lesson.requires = requiresOf(fm.fields.requires, fm.fields.lesson, file);
+  // The front matter's line for `key`, for an error to name.
+  const fmLine = (key) => {
+    const i = lines.slice(0, start).findIndex((l) => l.startsWith(`${key}:`));
+    return i < 0 ? null : i;
+  };
+  lesson.needs = needsOf(fm.fields.needs, needLines, fmLine('needs'), fail);
+  lesson.requires = requiresOf(fm.fields.requires, fm.fields.lesson, fmLine('requires'), fail);
   lesson.card.forEach((e, k) => {
     if (!e.show || !e.does) fail(cardLines[k], 'a card entry needs a show and a does line');
     if (!lesson.steps.some((s) => s.skill === e.skill)) fail(cardLines[k], `the card entry's skill ${e.skill} is no step of this lesson`);
@@ -255,16 +260,19 @@ export function parseLesson(text, file = 'lesson') {
   return lesson;
 }
 
+// A front matter list: an inline or block list, or one item alone.
+const listOf = (raw) => (raw === undefined ? [] : Array.isArray(raw) ? raw : [raw]);
+
 // `needs: [jq python3, bwrap socat on linux]`: the commands the page's You
 // need lists, as the app looks them up on the PATH. Each item is the
 // commands the intro's need line of the same place quotes (the first item
 // the first need line), and "on linux" makes them Linux only, as the
-// sandbox's are.
+// sandbox's are. Errors name the front matter's needs line.
 const COMMAND = /^[A-Za-z0-9][\w.+-]*$/;
-function needsOf(raw, lines, file, fail) {
-  const items = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+function needsOf(raw, lines, at, fail) {
+  const items = listOf(raw);
   if (items.length !== lines.length) {
-    throw new Error(`${file}: needs has ${items.length} item${items.length === 1 ? '' : 's'} and the intro ${lines.length} need line${lines.length === 1 ? '' : 's'}: each item is the commands one need line quotes`);
+    fail(at ?? lines[0].line, `needs has ${items.length} item${items.length === 1 ? '' : 's'} and the intro ${lines.length} need line${lines.length === 1 ? '' : 's'}: each item is the commands one need line quotes`);
   }
   return items.map((item, k) => {
     const words = item.trim().split(/\s+/);
@@ -272,7 +280,7 @@ function needsOf(raw, lines, file, fail) {
     const commands = linux ? words.slice(0, -2) : words;
     // "on" only opens the qualifier: "bwrap on mac" is no command list.
     const bad = commands.find((c) => c === 'on' || !COMMAND.test(c));
-    if (!item.trim() || bad !== undefined) fail(lines[k].line, `needs item "${item}" is command names, then "on linux" for Linux only`);
+    if (!item.trim() || bad !== undefined) fail(at, `needs item "${item}" is command names, then "on linux" for Linux only`);
     return { commands, linux, quote: lines[k].quote };
   });
 }
@@ -280,20 +288,29 @@ function needsOf(raw, lines, file, fail) {
 // `requires: [b-5 check 0, i-1 file .claude/skills/five-whys/SKILL.md]`:
 // what an earlier lesson leaves that this one builds on, looked at in this
 // lesson's work folder. `<lesson> check <item>` passes when that lesson's
-// check item does, `<lesson> file <path>` once the file holds a line.
-function requiresOf(raw, id, file) {
-  const items = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
-  const before = PATH.slice(0, PATH.findIndex((p) => p.id === id)).map((p) => p.id);
+// check item does, `<lesson> file <path>` once the file holds a line. A
+// check item that starts another process (SLOW) runs only on r, so it is no
+// prerequisite; a file is a file, not a folder. Errors name the front
+// matter's requires line.
+function requiresOf(raw, id, at, fail) {
+  const items = listOf(raw);
+  const here = PATH.findIndex((p) => p.id === id);
+  if (items.length && here < 0) fail(at, `requires: ${id} is no lesson on the path`);
+  const before = PATH.slice(0, here).map((p) => p.id);
+  const seen = new Set();
   return items.map((item) => {
     const m = item.trim().match(/^(\S+) (?:check (\d+)|file (\S+))$/);
-    if (!m) throw new Error(`${file}: requires item "${item}" is <lesson> check <item> or <lesson> file <path>`);
+    if (!m) fail(at, `requires item "${item}" is <lesson> check <item> or <lesson> file <path>`);
     const [, lesson, n, path] = m;
-    if (!before.includes(lesson)) throw new Error(`${file}: requires item "${item}": ${lesson} is no lesson before ${id}`);
+    if (!before.includes(lesson)) fail(at, `requires item "${item}": ${lesson} is no lesson before ${id}`);
+    if (seen.has(m[0])) fail(at, `requires item "${item}" is named twice`);
+    seen.add(m[0]);
     if (n !== undefined) {
-      if (!checks[lesson].items[Number(n)]) throw new Error(`${file}: requires item "${item}": ${lesson} has no check item ${n}`);
+      if (!checks[lesson].items[Number(n)]) fail(at, `requires item "${item}": ${lesson} has no check item ${n}`);
+      if (SLOW[lesson]?.includes(Number(n))) fail(at, `requires item "${item}": ${lesson}'s check item ${n} starts another process, so it runs only on r`);
       return { lesson, item: Number(n) };
     }
-    if (!workPath(path)) throw new Error(`${file}: requires item "${item}" names a path from the work folder, like .claude/settings.json, not ${path}`);
+    if (!workPath(path) || path.endsWith('/')) fail(at, `requires item "${item}" names a file from the work folder, like .claude/settings.json, not ${path}`);
     return { lesson, path };
   });
 }
@@ -366,9 +383,12 @@ function parseVerify(beat, file) {
 // Every lesson on `path` in course order: its check module and, when it has
 // one, its content file. `root` is the practice copy the app runs from.
 export function loadCourse(root, path = PATH) {
-  return path.map((entry) => {
+  return path.map((entry, at) => {
     const file = join(root, 'learn', 'lessons', `${entry.id}.md`);
     const content = existsSync(file) ? parseLesson(readFileSync(file, 'utf8'), `learn/lessons/${entry.id}.md`) : null;
+    // A prerequisite comes from a lesson this course puts first.
+    const late = content?.requires.find((r) => !path.slice(0, at).some((p) => p.id === r.lesson));
+    if (late) throw new Error(`learn/lessons/${entry.id}.md: requires ${late.lesson}, no lesson before ${entry.id} here`);
     const check = checks[entry.id];
     return {
       ...entry,

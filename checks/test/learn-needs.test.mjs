@@ -4,9 +4,10 @@
 // finds out before spending usage.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseLesson } from '../../learn/lib/content.mjs';
+import { loadCourse, parseLesson, PATH } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { introAsks } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
@@ -37,10 +38,12 @@ test('front matter names the commands the page needs: each needs item is the com
 
 test('a needs item the app can\'t read, or one with no need line to quote, is an error naming the file', () => {
   const bad = [
-    [{ front: ['needs: [jq]'] }, /i-1\.md: needs has 1 item and the intro 0 need lines/],
-    [{ intro: [`- need: "${NEED_JQ}"`] }, /i-1\.md: needs has 0 items and the intro 1 need line/],
-    [{ front: ['needs: [jq, python3]'], intro: [`- need: "${NEED_JQ}"`] }, /needs has 2 items and the intro 1 need line/],
-    [{ front: ['needs: [jq;rm]'], intro: [`- need: "${NEED_JQ}"`] }, /i-1\.md:\d+: needs item "jq;rm" is command names/],
+    // The front matter's needs line, the sixth, is the one named; with no
+    // needs line, the need line is.
+    [{ front: ['needs: [jq]'] }, /i-1\.md:6: needs has 1 item and the intro 0 need lines/],
+    [{ intro: [`- need: "${NEED_JQ}"`] }, /i-1\.md:\d+: needs has 0 items and the intro 1 need line/],
+    [{ front: ['needs: [jq, python3]'], intro: [`- need: "${NEED_JQ}"`] }, /i-1\.md:6: needs has 2 items and the intro 1 need line/],
+    [{ front: ['needs: [jq;rm]'], intro: [`- need: "${NEED_JQ}"`] }, /i-1\.md:6: needs item "jq;rm" is command names/],
     [{ front: ['needs: [../bin/jq]'], intro: [`- need: "${NEED_JQ}"`] }, /needs item "\.\.\/bin\/jq"/],
     [{ front: ['needs: [bwrap on mac]'], intro: [`- need: "${NEED_SANDBOX}"`] }, /needs item "bwrap on mac"/],
     [{ front: ['needs: [on linux]'], intro: [`- need: "${NEED_SANDBOX}"`] }, /needs item "on linux"/],
@@ -132,47 +135,69 @@ test('front matter names a prerequisite: an earlier lesson\'s check item, or a f
   const l = parseLesson(withNeeds({ front: [`requires: [b-5 check 0, b-4 file ${SKILL}]`] }).replace('lesson: i-1', 'lesson: i-3'), 'i-3.md');
   assert.deepEqual(l.requires, [{ lesson: 'b-5', item: 0 }, { lesson: 'b-4', path: SKILL }]);
   assert.deepEqual(parse().requires, []);
+  // Each error names the front matter's requires line, the sixth.
   const bad = [
-    ['requires: [b-5]', /i-1\.md: requires item "b-5" is <lesson> check <item> or <lesson> file <path>/],
+    ['requires: [b-5]', /i-1\.md:6: requires item "b-5" is <lesson> check <item> or <lesson> file <path>/],
     ['requires: [b-5 check]', /requires item "b-5 check"/],
     ['requires: [b-5 check x]', /requires item "b-5 check x"/],
-    ['requires: [b-5 check 9]', /b-5 has no check item 9/],
+    ['requires: [b-5 check 9]', /i-1\.md:6: requires item "b-5 check 9": b-5 has no check item 9/],
     ['requires: [z-9 check 0]', /z-9 is no lesson before i-1/],
     ['requires: [i-1 check 0]', /i-1 is no lesson before i-1/],
     ['requires: [i-2 check 0]', /i-2 is no lesson before i-1/],
-    ['requires: [b-5 file ../secret.txt]', /a path from the work folder, like/],
-    ['requires: [b-5 file /etc/passwd]', /a path from the work folder, like/],
-    ['requires: [b-5 file a\\b.txt]', /a path from the work folder, like/],
+    ['requires: [b-5 file ../secret.txt]', /names a file from the work folder, like/],
+    ['requires: [b-5 file /etc/passwd]', /names a file from the work folder, like/],
+    ['requires: [b-5 file a\\b.txt]', /names a file from the work folder, like/],
+    // A folder is no file: reading it finds no line.
+    ['requires: [b-4 file .claude/skills/]', /names a file from the work folder, like .* not \.claude\/skills\//],
+    // A check item that starts another process runs only on r.
+    ['requires: [b-3 check 1]', /b-3's check item 1 starts another process/],
+    ['requires: [b-5 check 0, b-5 check 0]', /requires item "b-5 check 0" is named twice/],
   ];
   for (const [line, error] of bad) assert.throws(() => parse({ front: [line] }), error, line);
+  // A lesson off the path has nothing before it.
+  assert.throws(() => parseLesson(withNeeds({ front: ['requires: [a-7 check 0]'] }).replace('lesson: i-1', 'lesson: zz-9'), 'zz-9.md'), /zz-9\.md:6: requires: zz-9 is no lesson on the path/);
 });
 
+test('a course that puts a prerequisite\'s lesson after the lesson that needs it does not load', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'learn-requires-'));
+  try {
+    mkdirSync(join(dir, 'learn', 'lessons'), { recursive: true });
+    writeFileSync(join(dir, 'learn', 'lessons', 'i-1.md'), withNeeds({ front: ['requires: [b-5 check 0]'] }));
+    const at = (id) => PATH.find((p) => p.id === id);
+    assert.equal(loadCourse(dir, [at('b-5'), at('i-1')])[1].content.requires.length, 1);
+    assert.throws(() => loadCourse(dir, [at('i-1'), at('b-5')]), /learn\/lessons\/i-1\.md: requires b-5, no lesson before i-1 here/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const COPY = '/home/sam/claude-code-practice';
 const REQUIRES = { front: [`requires: [b-5 check 0, b-4 file ${SKILL}]`] };
+const ASKED = [{ lesson: 'b-5', item: 0 }, { lesson: 'b-4', path: SKILL }];
 const B5_ITEM = 'a committed CLAUDE.md holds the rule saved in `.practice/b-5-rule.txt`';
 const lastOf = (effects, type) => effects.filter((e) => e.type === type).at(-1);
 
-test('the intro looks for its prerequisites in the work folder; one that fails says so and offers its lesson', () => {
-  const d = atIntro(REQUIRES);
-  const ask = { type: 'prereqs', lesson: 'i-1', dir: MINE, requires: [{ lesson: 'b-5', item: 0 }, { lesson: 'b-4', path: SKILL }] };
-  assert.deepEqual(introAsks(d.state), [ask]);
+test('the intro looks for its prerequisites in the work folder; one that fails says so, and is offered where that lesson is practised in the same folder', () => {
+  const d = atIntro(REQUIRES, {}, { intermediate: COPY });
+  assert.deepEqual(introAsks(d.state), [{ type: 'prereqs', lesson: 'i-1', dir: COPY, requires: ASKED }]);
   // Until main answers, the intro says nothing and offers the two starts.
   for (const size of SIZES) assert.ok(!flat(screen(d.state, size)).includes('builds on'), screen(d.state, size).join('\n'));
   // A result from another folder says nothing about this one.
-  d.send({ type: 'prereq', lesson: 'i-1', dir: '/home/sam/claude-code-practice', at: 0, pass: false });
-  assert.ok(!flat(screen(d.state)).includes('builds on'));
   d.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 0, pass: false });
-  d.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 1, read: null });
+  assert.ok(!flat(screen(d.state)).includes('builds on'));
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: false });
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: null });
   for (const size of SIZES) {
     const lines = screen(d.state, size);
     const text = flat(lines);
     const where = `${size}\n${lines.join('\n')}`;
-    // The prerequisite says what isn't there where it has room; the offer
-    // says whose work it is.
-    if (text.includes('builds on')) {
+    // Each says what isn't there, or at 60x20, with no room for both, the
+    // row that hands them to n does; the offer says whose work it is.
+    if (size[1] < 24 && text.includes(C.notesShort)) assert.ok(!text.includes('builds on'), where);
+    else {
       assert.ok(text.includes(C.buildsOnCheck('B5', words(B5_ITEM))), where);
       assert.ok(text.includes(C.buildsOnFile('B4', C.fileEmpty(SKILL))), where);
     }
-    if (size[1] >= 24) assert.ok(text.includes('builds on'), where);
     assert.ok(text.includes(C.startLesson(1)) && text.includes(C.openFirst('B5')), where);
   }
   // The offer is the third option: down twice, or 3, then enter opens B5.
@@ -181,17 +206,17 @@ test('the intro looks for its prerequisites in the work folder; one that fails s
   d.key('enter');
   assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'b-5']);
   // Back at i-1 the intro looks again; what passes now says nothing.
-  const again = atIntro(REQUIRES);
-  again.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 0, pass: true });
-  again.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 1, read: Buffer.from('---\nname: five-whys\n---\n') });
+  const again = atIntro(REQUIRES, {}, { intermediate: COPY });
+  again.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: true });
+  again.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: Buffer.from('---\nname: five-whys\n---\n') });
   const text = flat(screen(again.state));
   assert.ok(!text.includes('builds on') && !text.includes(C.openFirst('B5')), text);
-  // An item the check could not decide (a slow one, an error) says nothing.
-  again.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 0, pass: null });
+  // An item the check could not decide (an error) says nothing.
+  again.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: null });
   assert.ok(!flat(screen(again.state)).includes('builds on'));
   // 3 then enter goes too, and with nothing to offer 3 does nothing.
-  const three = atIntro(REQUIRES);
-  three.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 1, read: Buffer.from('') });
+  const three = atIntro(REQUIRES, {}, { intermediate: COPY });
+  three.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: Buffer.from('') });
   three.key('3');
   three.key('enter');
   assert.deepEqual([three.state.view, three.state.lesson], ['intro', 'b-4']);
@@ -199,19 +224,56 @@ test('the intro looks for its prerequisites in the work folder; one that fails s
   assert.equal(again.state.cursor, 0);
 });
 
+test('a prerequisite that fails in the learner\'s own repository says so, but offers no lesson practised in another folder', () => {
+  // Intermediate practises in my-app; Beginner in the practice copy, so
+  // doing B5 again there would not change what my-app holds.
+  const d = atIntro(REQUIRES);
+  assert.deepEqual(introAsks(d.state), [{ type: 'prereqs', lesson: 'i-1', dir: MINE, requires: ASKED }]);
+  d.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 0, pass: false });
+  for (const size of SIZES) {
+    const text = flat(screen(d.state, size));
+    assert.ok(text.includes(C.buildsOnCheck('B5', words(B5_ITEM))), `${size}\n${screen(d.state, size).join('\n')}`);
+    assert.ok(!text.includes(C.openFirst('B5')), text);
+  }
+  d.key('3');
+  assert.equal(d.state.cursor, 0, 'there is no third option');
+  d.key('down');
+  d.key('down');
+  assert.equal(d.state.cursor, 0);
+});
+
 test('while the folder question waits for an answer the prerequisites wait too; the answer asks for them in that folder', () => {
   const d = atIntro(REQUIRES, {}, null);
   assert.deepEqual(introAsks(d.state), []);
   d.key('enter');
-  assert.deepEqual(lastOf(d.effects, 'prereqs'), { type: 'prereqs', lesson: 'i-1', dir: '/home/sam/claude-code-practice', requires: [{ lesson: 'b-5', item: 0 }, { lesson: 'b-4', path: SKILL }] });
+  assert.deepEqual(lastOf(d.effects, 'prereqs'), { type: 'prereqs', lesson: 'i-1', dir: COPY, requires: ASKED, asked: 1 });
+});
+
+test('each ask for the prerequisites has its number: an answer to an older ask that lands after a newer one says nothing', () => {
+  const d = atIntro(REQUIRES, {}, { intermediate: COPY });
+  // main's first look at startup has no number; each intro opened after has the next.
+  d.key('m');
+  d.key('enter');
+  assert.equal(lastOf(d.effects, 'prereqs').asked, 1);
+  d.key('m');
+  d.key('enter');
+  assert.equal(lastOf(d.effects, 'prereqs').asked, 2);
+  // The newer ask's answer: it passes. The older one's, landing late, says nothing.
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: true, asked: 2 });
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: false, asked: 1 });
+  assert.ok(!flat(screen(d.state)).includes('builds on'), screen(d.state).join('\n'));
+  // In order, each answer counts.
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: Buffer.from('x\n'), asked: 1 });
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: null, asked: 2 });
+  assert.ok(flat(screen(d.state)).includes(C.buildsOnFile('B4', C.fileEmpty(SKILL))), screen(d.state).join('\n'));
 });
 
 test('an offer that goes once its prerequisite passes leaves the cursor on the start option', () => {
-  const d = atIntro(REQUIRES);
-  d.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 0, pass: false });
+  const d = atIntro(REQUIRES, {}, { intermediate: COPY });
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: false });
   d.key('3');
   assert.equal(d.state.cursor, 2);
-  d.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 0, pass: true });
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: true });
   assert.ok(screen(d.state).some((l) => l.includes(`❯  ${C.startLesson(1)}`)), screen(d.state).join('\n'));
 });
 
@@ -219,111 +281,198 @@ test('an offer that goes once its prerequisite passes leaves the cursor on the s
 // b-4's intro, the longest Beginner one: a Why line, four can lines and a payoff.
 const B4_INTRO = readFileSync(join(root, 'learn', 'lessons', 'b-4.md'), 'utf8').match(/## intro\n([\s\S]*?)\n## /)[1];
 const NEED_SHORT = '`jq`, for the load log in the Worked example.';
+// Advanced lesson 7's You need line, the longest that names commands.
+const NEED_LONG = 'bash and `jq`, on macOS, Linux or WSL 2. On Linux and WSL 2, the sandbox needs `bubblewrap` and `socat`';
 const MODES = [FULL, theme({ tty: true, depth: 4, unicode: true, links: false, win32: true }), theme({ tty: true, depth: 1, unicode: true, links: false, win32: false }), ASCII_WIN];
 const widthCut = (t, cols) => (l) => width(l) === cols - 1 && (t.unicode ? l.endsWith('…') : /\S\.$/.test(l));
-// A full intro for `id` with `front` and `intro` lines, and `extra` more can lines.
-const fullIntro = (id, { front = [], intro = [] }, extra = 0) => withNeeds({ front }).replace('lesson: i-1', `lesson: ${id}`)
-  .replace(/## intro\n[\s\S]*?\n## warm-up/, `## intro\n${B4_INTRO}${[...Array.from({ length: extra }, (_, k) => `- can: "practise skill ${k + 1}"`), ...intro].map((l) => `${l}\n`).join('')}\n## warm-up`);
+// A full intro for `id` with `front` and `intro` lines, and `extra` more can
+// lines; with `why: false`, without its Why line.
+const fullIntro = (id, { front = [], intro = [] }, extra = 0, why = true) => withNeeds({ front }).replace('lesson: i-1', `lesson: ${id}`)
+  .replace(/## intro\n[\s\S]*?\n## warm-up/, `## intro\n${why ? B4_INTRO : B4_INTRO.replace(/- why: .*\n/, '')}${[...Array.from({ length: extra }, (_, k) => `- can: "practise skill ${k + 1}"`), ...intro].map((l) => `${l}\n`).join('')}\n## warm-up`);
+const WHY = B4_INTRO.match(/- why: "(.*)"/)[1];
+const NOT_GIT = { missing: false, git: false, gitBroken: null, practice: false };
 
-test('the intro\'s new rows share its row plan with the Why line and the folder question: at 60x20 and 80x24 no teaching line is cut, and the Why line gives way first', () => {
-  const sandbox = { front: ['needs: [jq, bwrap socat on linux]', 'requires: [b-5 check 0]'], intro: [`- need: "${NEED_SHORT}"`, `- need: "${NEED_SANDBOX}"`] };
-  // Intermediate lesson 1's page has the Windows note; lesson 2's needs jq
-  // and builds on Beginner lesson 5, and is the level's first intro when the
-  // learner opens it first. Advanced lesson 7's needs two You need lines.
-  const windows = { intro: [`- win-note: "${WINDOWS}"`] };
-  const first = { front: ['needs: [jq]', 'requires: [b-5 check 0]'], intro: [`- need: "${NEED_SHORT}"`] };
-  // At `id`'s intro, with every command missing and the prerequisite
-  // failing: its level's folder question waiting (`asking`), answered there
-  // with this practice copy (`answered`), or saved before (`saved`).
-  const COPY = '/home/sam/claude-code-practice';
-  const at = (id, opts, extra, mode) => {
-    const course = threeLevels({ [id]: fullIntro(id, opts, extra) });
-    // Every lesson before it finished, but its level's: its folder question
-    // is the level's first.
-    const lessons = Object.fromEntries(course.slice(0, course.findIndex((l) => l.id === id)).map((l) => [l.id, { complete: true }]));
-    const level = course.find((l) => l.id === id).level;
-    const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons, ...(mode === 'saved' ? { folders: { [level]: MINE } } : {}) } });
-    assert.equal(d.state.lesson, id);
-    if (mode === 'answered') d.key('enter');
-    d.send({ type: 'commands', found: { jq: false, bwrap: false, socat: false } });
-    d.send({ type: 'prereq', lesson: id, dir: mode === 'saved' ? MINE : COPY, at: 0, pass: false });
-    return d.state;
-  };
-  const cases = [
-    // A level's first intro: the folder question, then its answer.
-    ...[0, 1].flatMap((extra) => [
-      [`first, asking, the Windows note, ${extra} more can lines`, at('i-1', windows, extra, 'asking'), [C.folderAsk('Intermediate'), C.folderOther], WINDOWS],
-      [`first, answered, the Windows note, ${extra} more can lines`, at('i-1', windows, extra, 'answered'), [C.workFolder, C.startLesson(1)], WINDOWS],
-      [`first, asking, a command missing, ${extra} more can lines`, at('i-2', first, extra, 'asking'), [C.folderAsk('Intermediate'), C.folderOther, words(NEED_SHORT)]],
-    ]),
-    ['first, answered, a command and a prerequisite missing', at('i-2', first, 0, 'answered'), [C.workFolder, words(NEED_SHORT), C.openFirst('B5')]],
-    // A later intro with two You need lines missing.
-    ['later, two needs', at('a-7', sandbox, 0, 'saved'), [words(NEED_SHORT), words(NEED_SANDBOX), C.openFirst('B5')]],
-  ];
-  const why = parse().intro.why ?? B4_INTRO.match(/- why: "(.*)"/)[1];
+// At `id`'s intro, with every command missing and every prerequisite
+// failing: its level's folder question waiting (`asking`), answered there
+// with this practice copy (`answered`), or my-app saved before (`saved`),
+// where `probe` is what main found there.
+function crowded(id, opts, { extra = 0, mode = 'saved', probe = null, why = true } = {}) {
+  const course = threeLevels({ [id]: fullIntro(id, opts, extra, why) });
+  // Every lesson before it finished, but its level's: its folder question
+  // is the level's first.
+  const lessons = Object.fromEntries(course.slice(0, course.findIndex((l) => l.id === id)).map((l) => [l.id, { complete: true }]));
+  const level = course.find((l) => l.id === id).level;
+  const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons, ...(mode === 'saved' ? { folders: { [level]: MINE } } : {}) } });
+  assert.equal(d.state.lesson, id);
+  if (mode === 'answered') d.key('enter');
+  const dir = mode === 'saved' ? MINE : COPY;
+  if (probe) d.send({ type: 'probed', path: dir, ...probe });
+  const { content } = d.state.course.find((l) => l.id === id);
+  d.send({ type: 'commands', found: Object.fromEntries(content.needs.flatMap((n) => n.commands).map((c) => [c, false])) });
+  content.requires.forEach((r, at) => d.send({ type: 'prereq', lesson: id, dir, at, ...(r.path ? { read: null } : { pass: false }) }));
+  return d;
+}
+
+// Every note the intro has for `state`, whole, as the n overlay shows it at 80x24.
+function notesOf(d, t) {
+  d.key('n');
+  if (d.state.overlay !== 'notes') return '';
+  const text = flat(render(d.state, { cols: 100, rows: 40 }, t).map(strip));
+  d.key('n');
+  assert.equal(d.state.overlay, null);
+  return text;
+}
+
+// An intro at 60x20 and 80x24 in every mode: no teaching line cut, every can
+// line whole, `rows` whole; the notes whole, or the one row that hands them
+// to n. Where that row shows, the notes would not fit without the Why line
+// either (`twin` is the same intro with none): the Why line gives way first.
+function fits(label, d, rows, twin = null) {
+  const state = d.state;
+  const can = [...state.course.find((l) => l.id === state.lesson).content.intro.can];
   let dropped = 0;
-  for (const [label, state, rows, winNote] of cases) {
-    const can = [...state.course.find((l) => l.id === state.lesson).content.intro.can];
-    for (const t of MODES) {
-      for (const [cols, size] of SIZES) {
-        const lines = render(state, { cols, rows: size }, t).map(strip);
-        const where = `${label} at ${cols}x${size}\n${lines.join('\n')}`;
-        assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where}: a row is dropped`);
-        assert.ok(!lines.some(widthCut(t, cols)), `${where}: a line is cut`);
-        const text = flat(lines);
-        for (const c of can) assert.ok(text.includes(words(c)), `${where}: "${c}" is not whole`);
-        for (const r of rows) assert.ok(text.includes(r), `${where}: "${r}" is not whole`);
-        if (winNote && t.caps.win32) assert.ok(text.includes(winNote), `${where}: the Windows note`);
-        // The Why line is whole, or gone with nothing else gone.
-        if (text.includes(`${C.whyLead} "${why.slice(0, 20)}`)) assert.ok(text.includes(words(why)), `${where}: the Why line is cut`);
-        else dropped += 1;
+  let short = 0;
+  for (const t of MODES) {
+    for (const [cols, size] of SIZES) {
+      const lines = render(state, { cols, rows: size }, t).map(strip);
+      const where = `${label} at ${cols}x${size}\n${lines.join('\n')}`;
+      assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where}: a row is dropped`);
+      assert.ok(!lines.some(widthCut(t, cols)), `${where}: a line is cut`);
+      const text = flat(lines);
+      for (const c of can) assert.ok(text.includes(words(c)), `${where}: "${c}" is not whole`);
+      for (const r of rows) assert.ok(text.includes(r), `${where}: "${r}" is not whole`);
+      if (text.includes(`${C.whyLead} "${WHY.slice(0, 20)}`)) assert.ok(text.includes(words(WHY)), `${where}: the Why line is cut`);
+      else dropped += 1;
+      if (text.includes(C.notesShort)) {
+        short += 1;
+        if (twin) assert.ok(flat(render(twin.state, { cols, rows: size }, t).map(strip)).includes(C.notesShort), `${where}: the notes gave way before the Why line`);
       }
     }
   }
+  return { dropped, short };
+}
+
+test('the intro\'s notes share its row plan with the Why line and the folder question: no teaching line is cut, the Why line gives way first, and notes with no room left take one row that hands them to n', () => {
+  const sandbox = { front: ['needs: [jq, bwrap socat on linux]', 'requires: [b-5 check 0]'], intro: [`- need: "${NEED_SHORT}"`, `- need: "${NEED_SANDBOX}"`] };
+  const windows = { intro: [`- win-note: "${WINDOWS}"`] };
+  const first = { front: ['needs: [jq]', 'requires: [b-5 check 0]'], intro: [`- need: "${NEED_SHORT}"`] };
+  // The longest real You need lines, the Windows note, a prerequisite and
+  // a work folder that isn't a git repository, all on one intro.
+  const everything = { front: ['needs: [jq python3, bash jq bwrap socat]', `requires: [b-5 check 0, i-1 file ${SKILL}]`], intro: [`- need: "${NEED_JQ}"`, `- need: "${NEED_LONG}"`, `- win-note: "${WINDOWS}"`] };
+  const cases = [
+    // A level's first intro: the folder question, then its answer.
+    ...[0, 1].flatMap((extra) => [
+      [`first, asking, the Windows note, ${extra} more can lines`, 'i-1', windows, { extra, mode: 'asking' }, [C.folderAsk('Intermediate'), C.folderOther]],
+      [`first, answered, the Windows note, ${extra} more can lines`, 'i-1', windows, { extra, mode: 'answered' }, [C.workFolder, C.startLesson(1)]],
+      [`first, asking, a command missing, ${extra} more can lines`, 'i-2', first, { extra, mode: 'asking' }, [C.folderAsk('Intermediate'), C.folderOther]],
+    ]),
+    ['first, answered, a command and a prerequisite missing', 'i-2', first, { mode: 'answered' }, [C.workFolder, C.openFirst('B5')]],
+    ['saved, a prerequisite missing in my-app', 'i-2', { front: ['requires: [b-5 check 0]'] }, {}, [C.buildsOnCheck('B5', words(B5_ITEM))]],
+    ['saved, not a git repository, the Windows note and a command missing', 'i-1', { ...first, intro: [...first.intro, ...windows.intro] }, { probe: NOT_GIT }, [C.startLesson(1)]],
+    // In the copy B5 is offered, as its lesson is practised there; in
+    // my-app only I1 is.
+    ['first, answered, everything', 'i-3', everything, { mode: 'answered' }, [C.workFolder, C.openFirst('B5')]],
+    ['saved, everything in my-app', 'i-3', everything, { probe: NOT_GIT, extra: 1 }, [C.openFirst('I1')]],
+    ['later, two needs', 'a-7', sandbox, {}, []],
+  ];
+  let dropped = 0;
+  let short = 0;
+  for (const [label, id, opts, how, rows] of cases) {
+    const d = crowded(id, opts, how);
+    const r = fits(label, d, rows, crowded(id, opts, { ...how, why: false }));
+    dropped += r.dropped;
+    short += r.short;
+    // Whatever the intro shows, n shows every note whole.
+    const all = notesOf(d, WIN);
+    const { content } = d.state.course.find((l) => l.id === id);
+    for (const n of content.needs.filter((x) => !x.linux)) assert.ok(all.includes(words(n.quote)), `${label}: n shows "${n.quote}"\n${all}`);
+    if (content.intro['win-note']) assert.ok(all.includes(`"${WINDOWS}"`), `${label}: n shows the Windows note`);
+    if (how.probe) assert.ok(all.includes(C.notGit), `${label}: n shows the folder's note`);
+  }
   assert.ok(dropped > 0, 'the Why line never had to give way');
+  assert.ok(short > 0, 'the notes never had to give way');
+});
+
+test('a failed prerequisite outlasts the Why line: below 24 rows the Why line goes and the prerequisite stays whole', () => {
+  const opts = { front: ['requires: [b-5 check 0]'] };
+  const d = crowded('i-2', opts);
+  for (const rows of [20, 22]) {
+    const text = flat(render(d.state, { cols: 60, rows }, FULL).map(strip));
+    assert.ok(text.includes(C.buildsOnCheck('B5', words(B5_ITEM))), `60x${rows}\n${text}`);
+    assert.ok(!text.includes(C.notesShort), `60x${rows}: the one note fits whole`);
+  }
+  assert.ok(!flat(render(d.state, { cols: 60, rows: 20 }, FULL).map(strip)).includes(words(WHY)), 'at 60x20 the Why line gave way');
+});
+
+test('n opens the intro\'s notes whole, a note at a time where they are taller than the room, and n closes them', () => {
+  const everything = { front: ['needs: [jq python3, bash jq bwrap socat]', `requires: [b-5 check 0, i-1 file ${SKILL}]`], intro: [`- need: "${NEED_JQ}"`, `- need: "${NEED_LONG}"`, `- win-note: "${WINDOWS}"`] };
+  const d = crowded('i-3', everything, { probe: NOT_GIT });
+  d.key('n');
+  assert.equal(d.state.overlay, 'notes');
+  const seen = new Set();
+  for (let k = 0; k < 6; k++) {
+    const lines = render(d.state, { cols: 60, rows: 20 }, WIN).map(strip);
+    assert.ok(!lines.some((l) => l.trim() === '…'), lines.join('\n'));
+    assert.ok(lines.some((l) => l.includes(C.notesTitle)), lines.join('\n'));
+    seen.add(flat(lines));
+    d.key('down');
+  }
+  const all = [...seen].join(' ');
+  for (const text of [C.notGit, `"${WINDOWS}"`, words(NEED_JQ), words(NEED_LONG), C.buildsOnCheck('B5', words(B5_ITEM)), C.buildsOnFile('I1', C.fileEmpty(SKILL))]) {
+    assert.ok(all.includes(text), `the notes never show "${text}"`);
+  }
+  d.key('n');
+  assert.equal(d.state.overlay, null);
+  // With nothing to say, n does nothing.
+  const quiet = atIntro();
+  quiet.key('n');
+  assert.equal(quiet.state.overlay, null);
 });
 
 // Each intro in learn/lessons as the learner may meet it: every command it
 // needs missing, every prerequisite failing, on native Windows, and, in a
-// later level, as its level's first intro, asking and then answered there.
+// later level, as its level's first intro, asking and then answered there,
+// and in a saved work folder that isn't a git repository.
 test('every lesson file\'s intro fits at 60x20 and 80x24 with everything it needs missing: no teaching line cut', () => {
-  const COPY = '/home/sam/claude-code-practice';
   const states = course.filter((l) => l.content).flatMap((l) => {
     // Every lesson before it finished, and no work folder saved yet.
     const lessons = Object.fromEntries(course.slice(0, course.indexOf(l)).map((x) => [x.id, { complete: true }]));
-    const modes = l.level === 'beginner' ? ['beginner'] : ['asking', 'answered'];
+    const modes = l.level === 'beginner' ? ['beginner'] : ['asking', 'answered', 'saved'];
     return modes.map((mode) => {
-      const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons } });
+      const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons, ...(mode === 'saved' ? { folders: { [l.level]: MINE } } : {}) } });
       assert.deepEqual([d.state.view, d.state.lesson], ['intro', l.id]);
       if (mode === 'answered') d.key('enter');
+      const dir = mode === 'saved' ? MINE : COPY;
+      if (mode === 'saved') d.send({ type: 'probed', path: dir, ...NOT_GIT });
       d.send({ type: 'commands', found: Object.fromEntries(l.content.needs.flatMap((n) => n.commands).map((c) => [c, false])) });
-      l.content.requires.forEach((r, at) => d.send({ type: 'prereq', lesson: l.id, dir: COPY, at, ...(r.path ? { read: null } : { pass: false }) }));
-      return [`${l.id} ${mode}`, d.state];
+      l.content.requires.forEach((r, at) => d.send({ type: 'prereq', lesson: l.id, dir, at, ...(r.path ? { read: null } : { pass: false }) }));
+      return [`${l.id} ${mode}`, d];
     });
   });
   assert.ok(states.length >= 6);
-  for (const [label, state] of states) {
-    const { content } = state.course.find((l) => l.id === state.lesson);
-    const rows = [...content.intro.can, ...content.needs.map((n) => n.quote), ...(content.intro['win-note'] ? [content.intro['win-note']] : [])];
+  for (const [label, d] of states) {
+    const { content } = d.state.course.find((l) => l.id === d.state.lesson);
+    fits(label, d, []);
+    // Each note shows whole on the intro, or behind n.
+    const notes = [...content.needs.map((n) => n.quote), ...(content.intro['win-note'] ? [content.intro['win-note']] : [])];
     for (const t of MODES) {
       for (const [cols, size] of SIZES) {
-        const lines = render(state, { cols, rows: size }, t).map(strip);
-        const where = `${label} at ${cols}x${size}\n${lines.join('\n')}`;
-        assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where}: a row is dropped`);
-        assert.ok(!lines.some(widthCut(t, cols)), `${where}: a line is cut`);
-        const text = flat(lines);
-        for (const r of rows) assert.ok(text.includes(words(r)), `${where}: "${r}" is not whole`);
+        const text = flat(render(d.state, { cols, rows: size }, t).map(strip));
+        if (text.includes(C.notesShort)) continue;
+        for (const n of notes) assert.ok(text.includes(words(n)), `${label} at ${cols}x${size}: "${n}" is not whole\n${text}`);
       }
     }
+    const all = notesOf(d, WIN);
+    for (const n of notes) assert.ok(all.includes(words(n)), `${label}: n shows "${n}"`);
   }
 });
 
 test('what main finds, on the PATH and in the work folder, is never saved', () => {
-  const d = atIntro({ ...REQUIRES, front: [...REQUIRES.front, 'needs: [jq]'], intro: [`- need: "${NEED_JQ}"`] });
+  const d = atIntro({ ...REQUIRES, front: [...REQUIRES.front, 'needs: [jq]'], intro: [`- need: "${NEED_JQ}"`] }, {}, { intermediate: COPY });
   const before = JSON.stringify(snapshot(d.state));
   d.send({ type: 'commands', found: { jq: false } });
-  d.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 0, pass: false });
-  d.send({ type: 'prereq', lesson: 'i-1', dir: MINE, at: 1, read: null });
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: false });
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: null });
   assert.ok(flat(screen(d.state)).includes(C.openFirst('B5')));
   assert.equal(JSON.stringify(snapshot(d.state)), before);
 });
