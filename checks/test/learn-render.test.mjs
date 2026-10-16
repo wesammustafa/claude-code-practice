@@ -2151,6 +2151,38 @@ test('the checking label names what is checked: "Checking <watched path>…", an
   }
 });
 
+// Check item progress (163): the check child reports each item as it starts it.
+test('a run of several items says how far it has got, "Checking item n of m…", once a report for the current ask arrives', () => {
+  const labels = (d) => SHORT.map(([cols, rows]) => checkingRows(d, cols, rows).map((l) => l.replace(/^[\s│]+/, '').trimEnd()));
+  const both = (...label) => SHORT.map(() => label);
+  // The capstone's test run: two slow items.
+  const d = openAt('b-capstone', 'T4', 2);
+  assert.equal(beatOf(d.state).watching, 'npm test');
+  assert.deepEqual(labels(d), both('Checking npm test…'), 'no report yet');
+  const saved = snapshot(d.state);
+  d.send({ type: 'running', lesson: 'b-capstone', n: 1, m: 2, asked: 0, wait: 40 });
+  assert.deepEqual(labels(d), both('Checking item 1 of 2…'), 'the opening run reports its first item');
+  assert.deepEqual(snapshot(d.state), saved, 'a report saves nothing');
+  const placeholders = [3, 4].map((index) => ({ index, text: 'x', pass: false, slow: true, hint: '' }));
+  d.send({ type: 'check', lesson: 'b-capstone', items: placeholders });
+  d.key('r');
+  assert.deepEqual(labels(d), both('Checking npm test…'), 'r asks again: no report for its run yet');
+  d.send({ type: 'running', lesson: 'b-capstone', n: 2, m: 2, asked: 0, wait: 40 });
+  assert.deepEqual(labels(d), both('Checking npm test…'), 'a poll\'s run, not r\'s, reports nothing on the card');
+  d.send({ type: 'running', lesson: 'b-1', n: 1, m: 2, asked: d.state.beat.asked, wait: 40 });
+  assert.deepEqual(labels(d), both('Checking npm test…'), 'another lesson\'s check is not this one');
+  d.send({ type: 'running', lesson: 'b-capstone', n: 1, m: 2, asked: d.state.beat.asked, wait: 40 });
+  assert.deepEqual(labels(d), both('Checking item 1 of 2…'));
+  d.send({ type: 'running', lesson: 'b-capstone', n: 2, m: 2, asked: d.state.beat.asked, wait: 40 });
+  assert.deepEqual(labels(d), both('Checking item 2 of 2…'));
+  d.send({ type: 'check', lesson: 'b-capstone', items: placeholders.map((i) => ({ ...i, slow: false, hint: 'npm test failed.' })), asked: d.state.beat.asked });
+  assert.deepEqual(labels(d), both(), 'the result ends it');
+  // A run of one item has nothing to count: the label keeps what it checks.
+  const w = openAt('b-1', 'W3', 0);
+  w.send({ type: 'running', lesson: 'b-1', n: 1, m: 1, asked: 0, wait: 40 });
+  assert.deepEqual(labels(w), both('Checking .practice/version.txt…'));
+});
+
 test('r over a "Not yet" with a hint open: "Checking" takes the "Not yet" row, and the hint box and the key bar stay, at 60x20 and 80x24', () => {
   const d = openAt('b-1', 'W3', 0);
   failCheck(d);

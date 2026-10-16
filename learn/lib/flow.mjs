@@ -718,6 +718,12 @@ export function reduce(prev, ev) {
     case 'check':
       onCheck(s, ev, effects, rRuns);
       break;
+    case 'running':
+      // The check child starts its nth item of m. Only the run the card says
+      // "Checking" for counts: this beat's check, asked by the latest r, or
+      // by the beat opening when no r is out.
+      if (s.beat?.status === 'opening' && (ev.asked ?? 0) === (s.beat.asked || 0) && watching(s)?.check?.lesson === ev.lesson) s.beat.running = { n: ev.n, m: ev.m };
+      break;
     case 'check-error':
       s.checks[ev.lesson] = { ...(s.checks[ev.lesson] ?? {}), error: ev.message };
       if (!rRuns && s.view === 'step' && s.beat && beatOf(s).verify.kind === 'check' && !['done', 'already'].includes(s.beat.status)) {
@@ -1046,7 +1052,7 @@ const VIEWS = {
       // goes out on the effect and comes back on the result. `before` keeps
       // the status "Checking" covers, for the hints and the key bar.
       s.asks += 1;
-      Object.assign(st, { status: 'opening', slowWait: false, asked: s.asks, before: st.status === 'opening' ? st.before : st.status });
+      Object.assign(st, { status: 'opening', slowWait: false, asked: s.asks, running: null, before: st.status === 'opening' ? st.before : st.status });
       if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks });
       if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks });
       if (w.git) effects.push({ type: 'git', asked: s.asks });

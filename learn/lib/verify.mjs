@@ -23,15 +23,16 @@ export function childEnv(env = process.env) {
 
 // Runs `items` of a lesson's check (all when null). Slow items are left out
 // unless `slow` is set, and come back marked `slow` so the screen can say
-// "press r".
-export function runCheck(dir, lesson, items, { slow = false } = {}) {
+// "press r". As the child starts each item, onRunning(n, m) hears that it
+// is on the nth of the m items it runs.
+export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {} } = {}) {
   const all = lessons[lesson].items.map((_, i) => i);
   const skipped = slow ? [] : (SLOW[lesson] ?? []).filter((i) => (items ?? all).includes(i));
   const wanted = (items ?? all).filter((i) => !skipped.includes(i));
   const placeholders = skipped.map((index) => ({ index, text: lessons[lesson].items[index].text, pass: false, slow: true, hint: '' }));
   if (!wanted.length) return Promise.resolve({ items: placeholders });
   return new Promise((resolve) => {
-    track(execFile(process.execPath, [RUN_CHECK, lesson, dir, ...wanted.map(String)], { env: childEnv(), timeout: 150_000, windowsHide: true, maxBuffer: 4 << 20 }, (error, stdout) => {
+    const child = track(execFile(process.execPath, [RUN_CHECK, lesson, dir, ...wanted.map(String)], { env: childEnv(), timeout: 150_000, windowsHide: true, maxBuffer: 4 << 20 }, (error, stdout) => {
       try {
         const out = JSON.parse(stdout.trim().split('\n').pop());
         if (out.error) return resolve({ error: out.error });
@@ -40,6 +41,19 @@ export function runCheck(dir, lesson, items, { slow = false } = {}) {
         resolve({ error: error ? (error.killed ? 'it took too long' : error.message.split('\n')[0]) : 'it printed something unexpected' });
       }
     }));
+    // The child's reports, a line each; anything else on stderr is skipped.
+    let rest = '';
+    child.stderr.on('data', (chunk) => {
+      const lines = (rest + chunk).split('\n');
+      rest = lines.pop();
+      for (const line of lines) {
+        let n;
+        try {
+          n = JSON.parse(line).running;
+        } catch {}
+        if (Number.isInteger(n)) onRunning(n, wanted.length);
+      }
+    });
   });
 }
 
