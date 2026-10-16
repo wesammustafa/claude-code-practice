@@ -11,11 +11,13 @@ badge: Beginner
 
 ## intro
 - minutes: "30 to 60 minutes"
+- why: "This task puts the whole Beginner level together."
 - can: "fix a reported bug, from plan to commit"
 - can: "tell which model and account a session uses"
 - can: "switch permission modes"
 - can: "read the whole diff before committing"
 - can: "keep a session on track"
+- payoff: "fix a reported bug, from plan to commit"
 
 ## warm-up
 
