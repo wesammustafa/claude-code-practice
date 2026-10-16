@@ -221,19 +221,21 @@ export function parseLesson(text, file = 'lesson') {
       last.win = v.text;
     } else if (key === 'code') {
       if (beat.lines.some((l) => l.key === 'code')) fail(i, 'a second code block on one beat');
+      if (['predict', 'type'].includes(beat.kind)) fail(i, `a code block on a ${beat.kind} beat: only a do, ask or self beat shows one`);
       const open = lines[i + 1]?.match(FENCE);
       if (!open) fail(i, 'a code line with no fenced block under it');
       const end = lines.findIndex((l, k) => k > i + 1 && closes(open[1], l));
       if (end < 0) fail(i, 'a code block with no closing fence');
       const block = lines.slice(i + 2, end);
       if (!block.some((l) => l.trim())) fail(i, 'an empty code block');
+      if (block.some((l) => /<your (practice copy|repo)>/.test(l))) fail(i, 'a code block that names <your practice copy> or <your repo>: a run line fills in the folder, a block does not');
       const shows = raw.match(/^(?:lines (\d+)-(\d+) )?point (\d+)$/);
       if (!shows) fail(i, 'a code line is [lines <first>-<last>] point <line>, the lines this beat shows and the one it explains');
       const [from, to, point] = [Number(shows[1] ?? 1), Number(shows[2] ?? block.length), Number(shows[3])];
       if (from < 1 || to > block.length || from > to) fail(i, `lines ${from}-${to}: the block has ${block.length} lines`);
       if (to - from + 1 > CODE_LINES) fail(i, `this beat shows ${to - from + 1} lines of code; a beat shows at most ${CODE_LINES}: name the lines it shows, as lines ${from}-${from + CODE_LINES - 1}`);
       if (point < from || point > to) fail(i, `point ${point} is not a line this beat shows (${from} to ${to})`);
-      beat.lines.push({ key: 'code', text: block.join('\n'), quoted: true, info: open[2].trim(), lines: block, from, to, point });
+      beat.lines.push({ key: 'code', text: block.join('\n'), quoted: true, lines: block, from, to, point });
       i = end;
     } else if (key === 'tick') {
       const last = beat.lines.at(-1);
@@ -344,9 +346,12 @@ const workPath = (path) => !path.includes('\\') && !path.startsWith('/') && !pat
 //   ```
 //
 // The fence opens on the line under the `code` line, at its first column,
-// with the page's info string, and its lines are the page block's lines exactly, less the indent the
-// page's fence has (three spaces inside a numbered step), blank lines
-// included: the guide's quote check compares them with the page's blocks.
+// with the page's info string, and its lines are the page block's lines
+// exactly, less the indent the page's fence has (three spaces inside a
+// numbered step), blank lines included: the guide's quote check compares
+// them with the page's blocks. A block shows on a do, ask or self beat,
+// and names no <your practice copy> or <your repo>, which only a run line
+// fills in.
 // The `code` line is the app's own words: `point <n>` is the line the beat
 // explains, counted from the block's first line, and the card marks it.
 // A beat shows at most CODE_LINES lines, so a longer block names the lines

@@ -22,6 +22,8 @@ const UNICODE_GLYPHS = {
   // A trail stop's pops: a ring as a card enters, a spark as its step passes.
   // A new "Not yet" mark pops from hollow.
   ring: '◉', spark: '✦', warnPop: '△',
+  // A code line's next rows, where it is wider than the card.
+  wrap: '↳',
   // The spinner's frames (spec 3.5). It turns only with motion, so ASCII
   // has none.
   spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
@@ -30,7 +32,7 @@ const ASCII_GLYPHS = {
   rule: '-', bold: '=', rail: '|', bar: '|', tl: '+', tr: '+', bl: '+', br: '+',
   check: '[x]', warnMark: '!', pointer: '>', arrow: '->', right: '>', star: '*', starOff: '.',
   dot: '#', dotOff: 'o', diamond: '+', diamondOff: '+', ellipsis: '...', bullet: '|', up: 'up/down', sides: '<- ->',
-  ring: '@', spark: '*', warnPop: '!',
+  ring: '@', spark: '*', warnPop: '!', wrap: '+',
 };
 
 // Pip's small face on a card's top border, by mood: its eyes and mouth, and

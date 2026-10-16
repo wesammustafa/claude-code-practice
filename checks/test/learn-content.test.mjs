@@ -696,7 +696,6 @@ const codeOf = (lines) => parseLesson(withCode(lines), 'b-2.md').steps[0].beats[
 test('a beat holds one fenced block from the page, its lines kept as they are', () => {
   const code = codeOf(['- code: point 3', ...fenced(SKELETON)]);
   assert.deepEqual(code.lines, SKELETON);
-  assert.equal(code.info, 'bash');
   // The lines after the block are the beat's again.
   const l = parseLesson(withCode(['- code: point 1', ...fenced(['ls']), '- note: "The page says so."']), 'b-2.md');
   assert.deepEqual(l.steps[0].beats[0].lines.map((x) => x.key), ['code', 'note']);
@@ -737,4 +736,20 @@ test('a beat shows at most 8 lines of code, with a pointer on the line it explai
     [['- code: the loop', ...fenced(['ls'])], /a code line is \[lines <first>-<last>\] point <line>/],
   ];
   for (const [lines, error] of bad) assert.throws(() => codeOf(lines), error, lines[0]);
+});
+
+test('a code block shows on a do, ask or self beat, and names no folder a run line would fill in', () => {
+  const asKind = (kind, lines) => withCode(lines).replace('- where: shell\n- beat: do\n', `- where: shell\n- beat: ${kind}\n`);
+  for (const kind of ['predict', 'type']) {
+    assert.throws(() => parseLesson(asKind(kind, ['- code: point 1', ...fenced(['ls'])]), 'b-2.md'), new RegExp(`b-2\\.md:\\d+: a code block on a ${kind} beat`), kind);
+  }
+  for (const line of ['cd <your practice copy>', 'git -C <your repo> status']) {
+    assert.throws(() => codeOf(['- code: point 1', ...fenced(['ls', line])]), /a code block that names <your practice copy> or <your repo>/, line);
+  }
+});
+
+// Until ticket 91 teaches the guide's quote check the block format, no
+// shipped lesson uses one: 91 removes this test.
+test('no lesson file holds a code block before the guide checks them', () => {
+  for (const f of files) assert.doesNotMatch(readFileSync(join(dir, f), 'utf8'), /^- code: /m, f);
 });
