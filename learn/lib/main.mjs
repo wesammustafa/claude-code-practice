@@ -8,9 +8,9 @@ import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, initialState, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
-import { nextChange, REST, TIMING } from './motion.mjs';
+import { BOOT_FROM, bootChange, nextChange, REST, TIMING } from './motion.mjs';
 import { plainProgress } from './plain.mjs';
-import { lessonLabel, render } from './render.mjs';
+import { bootFrame, lessonLabel, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
@@ -22,8 +22,11 @@ const POLL_CHECK_MS = 2_000;
 const POLL_GIT_MS = 2_000;
 const FLAGS = ['--calm', '--plain'];
 const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
+// What git says first: whether this folder is a repository, and a name to
+// greet.
+const ASK_GIT = (root) => Promise.all([gitReady(root), gitFirstName(root)]);
 
-export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, exit = (code) => process.exit(code) } = {}) {
   if (argv.some((a) => !FLAGS.includes(a))) {
     stderr.write(`${C.usage}\n`);
     return 2;
@@ -39,14 +42,16 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
 
   const caps = capabilities(stdout, env, platform, argv);
   const t = theme(caps);
-  const [gitError, name] = await Promise.all([gitReady(root), gitFirstName(root)]);
-  const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 };
-  let state = initialState({ course, saved, facts, now: now() });
+  // No state until git answers. The screen opens then, or as the boot frame
+  // goes up if git takes over 150 ms (162).
+  let state = null;
+  let screen = null;
   // When the write budget stops motion, the rest frame goes up on time.
-  const screen = openScreen(stdout, { clock: perf, motion: caps.motion, onMotionOff: () => requestDraw() });
+  const openIt = () => { screen ??= openScreen(stdout, { clock: perf, motion: caps.motion, onMotionOff: () => requestDraw() }); };
   let closed = false;
   let lastSave = 0;
   const intervals = [];
+  let watcher = null;
 
   // Drawing. Every dispatch asks for a frame, and one goes out per turn of the
   // event loop, so the events of one turn (a watcher's burst, keys in one
@@ -73,10 +78,28 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     frameTimer = null;
     if (floor() > 0) return drawIn(floor());
     const at = now();
-    screen.draw(render(state, { cols: stdout.columns || 80, rows: stdout.rows || 24 }, t, screen.motion ? { at } : REST));
-    const wait = nextChange(state, at, { motion: screen.motion });
+    const size = { cols: stdout.columns || 80, rows: stdout.rows || 24 };
+    const clock = screen.motion ? { at } : REST;
+    screen.draw(state ? render(state, size, t, clock) : bootFrame(askedAt, size, t, clock));
+    const wait = state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion });
     if (wait !== null) drawIn(Math.max(wait, floor()));
   }
+
+  // Git's first answers. If they take over 150 ms, the boot frame goes up on
+  // the spinner's first tick and runs until they land.
+  if (stdin === process.stdin) onSignals();
+  const askedAt = now();
+  const boot = timers.setTimeout(() => {
+    if (closed) return;
+    openIt();
+    draw();
+  }, BOOT_FROM);
+  const [gitError, name] = await askGit(root);
+  timers.clearTimeout(boot);
+  if (closed) return 0;
+  const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 };
+  state = initialState({ course, saved, facts, now: now() });
+  openIt();
 
   // When a check or git child really starts. Like every dispatch an effect
   // causes, it waits for the dispatch that asked for the run to finish.
@@ -164,7 +187,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (w?.git) git();
   }
 
-  const watcher = watch(root, () => {
+  watcher = watch(root, () => {
     if (closed || now() - lastSave < 400) return;
     const practiceDir = existsSync(join(root, '.practice'));
     if (practiceDir !== state.facts.practiceDir) dispatch({ type: 'facts', facts: { practiceDir } });
@@ -178,16 +201,17 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     for (const id of intervals) timers.clearInterval(id);
     timers.clearTimeout(frameTimer);
     stopChildren();
-    watcher.close();
+    watcher?.close();
     stdin.removeListener('data', onData);
     if (stdin.isTTY) stdin.setRawMode(false);
     stdin.pause();
-    screen.leave();
+    screen?.leave();
     stdout.write(`${goodbye()}\n`);
     exit(code);
   }
 
   function goodbye() {
+    if (!state) return '';
     const content = contentOf(state);
     const p = state.progress[state.lesson];
     if (!content || !p.step) return '';
@@ -211,11 +235,13 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     screen.clear();
     requestDraw();
   });
-  if (stdin === process.stdin) {
+  // Set before git is asked: the boot frame opens the screen, and a signal
+  // then must close it.
+  function onSignals() {
     for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => quit(0));
-    process.once('exit', () => screen.leave());
+    process.once('exit', () => screen?.leave());
     process.once('uncaughtException', (error) => {
-      screen.leave();
+      screen?.leave();
       console.error(error);
       exit(1);
     });

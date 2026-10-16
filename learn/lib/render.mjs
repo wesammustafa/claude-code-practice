@@ -3,7 +3,7 @@
 // going at the bottom of the card), and the key bar pinned to the bottom.
 import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './art.mjs';
 import { C } from './copy.mjs';
-import { NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
+import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
   answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
@@ -83,7 +83,28 @@ export function render(s, size, t, clock = REST) {
   const out = [...top, ...view.head, ...lines];
   while (out.length < rows - 2 - gap.length - toast.length) out.push('');
   out.push(...toast, ...gap, pulseLine(ctx), keybar(t, keys, W, s.held?.name));
-  return out.map((l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : ascii(l)), cols - 1, t.unicode ? '…' : '.') : ''));
+  return out.map(placed(t, M, cols));
+}
+
+// A frame's line in the window: the margin, ASCII where there is no
+// Unicode, and cut to `cols - 1`.
+const placed = (t, M, cols) => (l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : ascii(l)), cols - 1, t.unicode ? '…' : '.') : '');
+
+// The boot frame (162): before any state, while git answers the first
+// questions at start, asked at `since`, if that takes over 150 ms. Pip sits
+// where the welcome has it, at every size, beside the app's line. No key works yet, so the
+// key bar is blank.
+export function bootFrame(since, size, t, clock = REST) {
+  const { cols, rows } = size;
+  if (cols < MIN.cols || rows < MIN.rows) return small(cols, rows);
+  const W = Math.min(cols - 4, 80);
+  const M = Math.floor((cols - W) / 2);
+  const ctx = { t, W, ph: bootPhases(since, clock.at, t.caps) };
+  const out = [...(rows >= 28 ? [''] : []), `${t.pill('LEARN', 'accentBg')}  ${t.bold(t.fg('white', C.appName))}`, '', rule(t, W), '',
+    ...withPip(ctx, pip(t, 'happy', ctx.ph.eyes), [() => spinning(ctx, [t.fg('text', C.askingGit)])]).rows];
+  while (out.length < rows - 2) out.push('');
+  out.push(pulseLine(ctx), '');
+  return out.map(placed(t, M, cols));
 }
 
 // The body in `room` rows. What gives way, in order: below 24 rows repeats
