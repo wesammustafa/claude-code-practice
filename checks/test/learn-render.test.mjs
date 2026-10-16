@@ -812,7 +812,7 @@ test('every intro opens with its Why line, in the page\'s words, at 60x20 and 80
         const lines = render(state, { cols, rows }, t).map(strip);
         const where = `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
         // The header's three rows, its blank, then the Why line.
-        assert.match(lines[4], /^\s*Why: "/, where);
+        assert.ok(lines[4].trimStart().startsWith(`${C.whyLead} "`), where);
         assert.ok(flatText(lines.slice(4, 6).join('')).startsWith(flatText(`Why ${why}`)), where);
         // At 80x24 the staircase keeps its rows; at 60x20 it is one row.
         const tiers = stairs(render(state, { cols: 120, rows: 40 }, t).map(strip)).length;
@@ -898,8 +898,12 @@ test('the payoff draws with 🏁 ([win] in ASCII) in place of the intro\'s ○ a
         const before = render(noPayoff(state), { cols, rows }, t).map(strip);
         const where = `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
         const changed = lines.flatMap((l, i) => (l !== before[i] ? [i] : []));
-        assert.equal(changed.length, 1, where);
-        const [i] = changed;
+        const [i, ...wraps] = changed;
+        assert.ok(i !== undefined, where);
+        // In ASCII the wider [win] also moves its line's wrapped rows, the
+        // same words, to stay under its first word; in Unicode one row changes.
+        assert.ok(!(t.unicode && wraps.length), where);
+        wraps.forEach((j, k) => assert.ok(j === i + k + 1 && lines[j].trim() === before[j].trim(), where));
         assert.ok(payoff.startsWith(before[i].trim().replace(`${plain} `, '')), where);
         assert.equal(lines[i].trim(), before[i].trim().replace(plain, flag), where);
         // In Unicode the line's words start where the other lines' do.
@@ -981,6 +985,69 @@ test('🏁 has one job: it marks the payoff on the intro and complete screens, o
       }
     }
   }
+});
+
+test('a wrapped can line goes on under its own first word, flagged or not, in Unicode and ASCII', () => {
+  let wrapped = 0;
+  for (const [label, state] of endScreens().filter(([l]) => !l.endsWith('next'))) {
+    const { can } = lessonById(state.lesson).content.intro;
+    for (const [capName, caps] of Object.entries(CAPS)) {
+      const t = theme(caps);
+      const marks = [t.unicode ? '🏁' : '[win]', state.view === 'intro' ? t.glyph.dotOff : t.glyph.check].map((m) => `${m} `);
+      for (const [cols, rows] of SHORT) {
+        const lines = render(state, { cols, rows }, t).map(strip);
+        const where = `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
+        const markOf = (l) => marks.find((m) => l.trimStart().startsWith(m));
+        const words = (l, m) => (m ? l.trimStart().slice(m.length) : l).trim();
+        let i = lines.findIndex((l) => markOf(l) && can[0].startsWith(words(l, markOf(l))));
+        assert.ok(i > 0, where);
+        let col = null;
+        let seen = '';
+        for (; seen.length < flatText(can.join('')).length; i++) {
+          const l = lines[i];
+          const m = markOf(l);
+          if (m) col = width(l.slice(0, l.indexOf(m) + m.length));
+          else {
+            assert.equal(width(l) - width(l.trimStart()), col, where);
+            wrapped++;
+          }
+          seen += flatText(words(l, m));
+        }
+        assert.equal(seen, flatText(can.join('')), where);
+      }
+    }
+  }
+  // b-1's payoff wraps at 60 columns on both screens, so the rule was seen.
+  assert.ok(wrapped > 0);
+});
+
+test('the Why line is an optional row: below 24 rows it drops whole, after the staircase compacts and before a can line is cut', () => {
+  const intro = endScreens().find(([l]) => l === 'b-4 intro')[1];
+  // The b-4 intro with `n` more can lines, so its body outgrows 60x20.
+  const longer = (n) => {
+    const extra = Array.from({ length: n }, (_, k) => `practise skill ${k + 1}`);
+    return { state: { ...intro, course: intro.course.map((l) => (l.id === 'b-4' ? { ...l, content: { ...l.content, intro: { ...l.content.intro, can: [...l.content.intro.can, ...extra] } } } : l)) }, extra };
+  };
+  const t = theme(CAPS.full);
+  const { why } = lessonById('b-4').content.intro;
+  let dropped = null;
+  for (let n = 0; n <= 6 && dropped === null; n++) {
+    const { state, extra } = longer(n);
+    const lines = render(state, { cols: 60, rows: 20 }, t).map(strip);
+    const where = `b-4 intro with ${n} more can lines\n${lines.join('\n')}`;
+    const whyRows = lines.filter((l) => l.trimStart().startsWith(`${C.whyLead} "`) || flatText(why).endsWith(flatText(l)) && flatText(l).length > 8);
+    // The staircase is the one-row mix bar whenever the Why line shows.
+    assert.ok(!Object.values(C.tierHelp).some((x) => lines.some((l) => l.includes(x))), where);
+    // Both of the Why line's rows, or neither.
+    assert.ok([0, 2].includes(whyRows.length), where);
+    // Every can line is whole: no teaching row was cut first.
+    for (const c of extra) assert.ok(lines.some((l) => l.trim() === `○ ${c}`), where);
+    if (!whyRows.length) dropped = { n, lines, where };
+  }
+  assert.ok(dropped, 'six more can lines never pushed the Why line out');
+  assert.ok(dropped.n > 0, dropped.where);
+  // Its blank went with it: the goal line follows the header's blank.
+  assert.ok(dropped.lines[4].includes(C.youllBeAble), dropped.where);
 });
 
 // A line `cut` shortened: it fills the row to the last column and ends in an

@@ -24,7 +24,8 @@ const SPACER = spacer();
 // bottom borders, the welcome's git error and the resume screen's restart
 // question.
 const kept = (rows) => rows.map((text) => ({ keep: true, text }));
-// Optional rows: teaching the learner can also reach another way, such as
+// Optional rows: the level's first warm-up explainer, the intro's Why line
+// with its blank, teaching the learner can also reach another way, such as
 // behind a key, repeats with no compact form, and a done beat's satisfied
 // "Done when" line. The rows of one call are one sentence: they drop whole.
 const optional = (rows) => {
@@ -308,13 +309,16 @@ function card(ctx, { tint, where, done, rows }) {
 
 const lead = (t, name, s) => `${t.lead(name)}${s}`;
 // A `can` line's mark, three columns in; on the payoff's line 🏁 takes its
-// place, ending where the mark ends.
+// place, ending where the mark ends (an ASCII `[win]` wider than the mark
+// starts at the margin and ends past it).
 const canMark = (t, payoff, mark) => {
   const m = payoff ? t.emoji('payoff') : mark;
   return `${' '.repeat(Math.max(0, 3 + width(mark) - width(m)))}${m}`;
 };
 // Lines after a prefix, the rest indented under the first.
 const hang = (prefix, rows) => rows.map((x, i) => `${i ? ' '.repeat(width(prefix)) : prefix}${x}`);
+// A `can` line wrapped to `w` after its mark, the rest under its first word.
+const canLine = (t, text, payoff, mark, w) => hang(`${canMark(t, payoff, mark)} `, para(t, text, w));
 // Text after a lead, wrapped to the room the lead leaves and indented under it.
 const led = (t, name, text, w, color, opts) => hang(t.lead(name), para(t, text, w - width(t.lead(name)), color, opts));
 // One sentence written as rows: those rows where each fits in `w`, or else
@@ -396,7 +400,7 @@ const VIEWS = {
       body: [
         ...(content.intro.why ? optional([...hang(t.fg('muted', why), para(t, content.intro.why, W - width(why), 'text', { quote: true })), '']) : []),
         lead(t, 'goal', t.bold(t.fg('white', C.youllBeAble))),
-        ...content.intro.can.flatMap((c) => para(t, c, W - 6).map((l, i) => `${i ? '    ' : canMark(t, c === content.intro.payoff, t.fg('faint', t.glyph.dotOff))} ${l}`)),
+        ...content.intro.can.flatMap((c) => canLine(t, c, c === content.intro.payoff, t.fg('faint', t.glyph.dotOff), W - 6)),
         SPACER,
         t.bold(t.fg('white', C.helpShrinks)),
         SPACER,
@@ -462,7 +466,7 @@ const VIEWS = {
           : [` ${art[0]}`, ` ${art[1]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[2]}`, ` ${art[3]}`], [` ${t.bold(t.fg('ok', C.complete))}`]),
         SPACER,
         lead(t, 'party', t.bold(t.fg('white', C.lessonDone(label)))),
-        ...content.intro.can.flatMap((c) => para(t, c, W - 8).map((l, i) => `${i ? '     ' : `${canMark(t, c === content.intro.payoff, t.fg('ok', t.glyph.check))} `}${l}`)),
+        ...content.intro.can.flatMap((c) => canLine(t, c, c === content.intro.payoff, t.fg('ok', t.glyph.check), W - 8)),
         ...(content.badge ? [SPACER, lead(t, 'badge', t.bold(t.fg('gold', C.badge(content.badge))))] : []),
       ],
       keys: [mainKey('enter', C.k.whatsNext), key('q', C.k.quit)],

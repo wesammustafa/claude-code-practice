@@ -419,6 +419,10 @@ test('the grammar: an intro holds one quoted why and one quoted payoff', () => {
   assert.throws(() => parseLesson(intro('- payoff: do it'), 'demo'), /demo:\d+: payoff must be a quote of the lesson/);
   assert.throws(() => parseLesson(intro('- why: "It matters."\n- why: "So does this."'), 'demo'), /demo:\d+: a second why line in the intro/);
   assert.throws(() => parseLesson(intro('- payoff: "do it"\n- payoff: "do it"'), 'demo'), /demo:\d+: a second payoff line in the intro/);
+  // The payoff is one of the can lines, or the screen would flag nothing.
+  const typo = intro('- payoff: "do it now"');
+  const at = typo.split('\n').indexOf('- payoff: "do it now"') + 1;
+  assert.throws(() => parseLesson(typo, 'demo'), new RegExp(`^Error: demo:${at}: the payoff "do it now" is not one of the intro's can lines$`));
 });
 
 test('warm-ups: two open the lesson, a missed skill first, always CHALLENGE, and no part of the climb', () => {

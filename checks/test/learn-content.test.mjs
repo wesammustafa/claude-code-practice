@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GUIDE, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
-import { inline, wrapRuns } from '../../learn/lib/text.mjs';
+import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { levelOf } from '../../learn/lib/flow.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
@@ -62,9 +62,11 @@ test('intro: every lesson says why it matters, and its payoff is one of its can 
 });
 
 test('intro: each why wraps to at most 2 lines at the 60-column content width', () => {
-  // A 60-column window gives the intro 56 columns; "Why: " takes 5 of them.
+  // The intro's text width is the window less 4 columns (render's W); the
+  // Why lead and its space come off that.
+  const room = 60 - 4 - width(`${C.whyLead} `);
   for (const [id, l] of Object.entries(parsed)) {
-    const lines = wrapRuns(inline(`"${l.intro.why}"`), 56 - 'Why: '.length);
+    const lines = wrapRuns(inline(`"${l.intro.why}"`), room);
     assert.ok(lines.length <= 2, `${id}: the why wraps to ${lines.length} lines`);
   }
 });
