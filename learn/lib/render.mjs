@@ -1,9 +1,9 @@
 // Draws a state as exactly `rows` lines, none wider than `cols - 1`. Four
 // regions: the header (where am I), the body (what to do now, with how it's
 // going at the bottom of the card), and the key bar pinned to the bottom.
-import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './art.mjs';
+import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipRaster } from './art.mjs';
 import { C } from './copy.mjs';
-import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
+import { bootPhases, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
   answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
@@ -76,13 +76,21 @@ function placeOf(s, t, beat = null, n = 24) {
 // The lesson page a quote's relative links point into: set for each frame.
 let pageUrl = '';
 
-// `clock.at` is the time the frame shows; the rest frame by default.
-export function render(s, size, t, clock = REST) {
-  const { cols, rows } = size;
+// `clock.at` is the time the frame shows; the rest frame by default. `pip`
+// is the detailed Pip from main: its `size`, pipSlot's for this screen, and
+// its `pose` from main's controller. Without it, the 9x4 Pip.
+export function render(s, size, t, clock = REST, pip = null) {
   const step = s.view === 'step' && s.beat ? stepOf(s) : null;
   pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
-  if (cols < MIN.cols || rows < MIN.rows) return small(cols, rows);
-  const f = frameCtx(s, size, t, clock);
+  return screenOf(s, size, t, clock, pip).out;
+}
+
+// The screen's lines, and its spare rows: the blank rows it pads with, or
+// less than 0 when its body is taller than its room and something gives way.
+function screenOf(s, size, t, clock, raster) {
+  const { cols, rows } = size;
+  if (cols < MIN.cols || rows < MIN.rows) return { out: small(cols, rows), spare: -1 };
+  const f = frameCtx(s, size, t, clock, raster);
   const { ctx, W, M, top } = f;
   const view = VIEWS[s.view](ctx);
   const room = () => ctx.roomUnder(view.head.length);
@@ -91,6 +99,7 @@ export function render(s, size, t, clock = REST) {
   const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
   const body = overlay?.body ?? view.body;
   const keys = overlay?.keys ?? view.keys;
+  const spare = room() - 1 - body.reduce((n, r) => n + (r?.block ? r.rows.length : 1), 0);
   // The blank under the header is the body's first spacer, so it goes last.
   const more = t.fg('muted', t.glyph.ellipsis);
   let lines = fit([SPACER, ...body], room(), rows < 24, more);
@@ -110,19 +119,70 @@ export function render(s, size, t, clock = REST) {
   const out = [...top, ...view.head, ...lines];
   while (out.length < rows - 2 - f.gap.length - f.toast.length) out.push('');
   out.push(...f.toast, ...f.gap, pulseLine(ctx), keybar(t, keys, W, s.held?.name));
-  return out.map(placed(t, M, cols));
+  return { out: out.map(placed(t, M, cols)), spare };
+}
+
+// The big Pip's screens, each with the mood its 9x4 Pip rests in.
+const BIG_PIP = { welcome: 'happy', resume: 'happy', levelup: 'focus', complete: 'party' };
+// The detailed Pip's sizes, biggest first. Hero (48x24) is not used.
+const RASTERS = ['standard', 'small'];
+
+// The detailed Pip's state for what the screen shows the app saw, from its
+// 9x4 Pip's mood: the welcome's and resume's happy and the level-up's focus
+// are ready, the complete screen's party success. At boot, git still
+// answering is working. (Nothing in the app thinks, and nothing waits on
+// the learner that these don't say: never thinking or waiting.)
+const PIP_STATE = { happy: 'ready', focus: 'ready', party: 'success' };
+// The screens whose arrival is a new event, with their one-shot.
+const ARRIVAL = { levelup: 'levelUp', complete: 'complete' };
+
+// What main's controller is set to for this screen at `at`: its `state`,
+// timed from the screen's arrival (`since`, its fx stamp). A new level-up
+// or complete screen is a new reaction, its `eventId` that arrival; one
+// whose moment is over when Pip is first drawn on it is `immediate`, so it
+// never plays late or again.
+export function pipTarget(s, at) {
+  if (!s) return { state: 'working' };
+  const target = { state: PIP_STATE[BIG_PIP[s.view]], since: s.fx.view };
+  const shot = ARRIVAL[s.view];
+  if (!shot) return target;
+  return { ...target, eventId: `${s.view}:${s.fx.view}`, immediate: oneShot(s, at, s.fx.view, TIMING[shot]) >= 1 };
+}
+
+// A toast that can come up on any screen, to measure a screen with one.
+const STRAY = { kind: 'stray', until: Infinity };
+
+// Where the detailed Pip goes on this screen (`s`, or null for the boot
+// frame): the biggest raster whose extra rows fit in the rows the screen
+// pads with, so no row it shows gives way, or null for the 9x4 Pip. Only on
+// the big Pip's screens, with no overlay, with Unicode and 256 colors or
+// more. Pip keeps its size while the screen is up: the room is measured
+// with a toast (its own, and a stray key's) and, on resume, the y/n to
+// start over, whether they are up or not. The boot frame's Pip is no bigger
+// than the one on `ahead`, where given: the screen it hands over to, so Pip
+// does not shrink as git answers. main draws with what this gives, and asks
+// for Pip's frames only where it gives a raster.
+export function pipSlot(s, size, t, ahead = null) {
+  if (!t.unicode || t.depth < 8 || size.cols < MIN.cols || size.rows < MIN.rows) return null;
+  if (!s) {
+    const most = ahead ? pipSlot(ahead, size, t) : RASTERS[0];
+    return most && (RASTERS.slice(RASTERS.indexOf(most)).find((slot) => bootOf(0, size, t, REST, { size: slot }).spare >= 0) ?? null);
+  }
+  if (s.overlay || !BIG_PIP[s.view]) return null;
+  const busiest = [STRAY, s.toast].filter(Boolean).map((toast) => ({ ...s, toast, confirmRestart: s.confirmRestart || s.view === 'resume' }));
+  return RASTERS.find((slot) => busiest.every((x) => screenOf(x, size, t, REST, { size: slot }).spare >= 0)) ?? null;
 }
 
 // A frame's width, margin and top, its toast and the blank above the pulse
 // line, and the context its views draw with. `roomUnder(head)` is the rows
 // a view's body has under `head` header rows, the blank under them
 // included: it reads the toast and the blank as render leaves them.
-function frameCtx(s, size, t, clock) {
+function frameCtx(s, size, t, clock, raster = null) {
   const { cols, rows } = size;
   const { W, M, top } = frameOf(size);
   const f = { W, M, top, gap: [''], toast: s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast, s, t)}`, W, TOASTS[s.toast.kind].color) : [] };
   const roomUnder = (head) => rows - top.length - head - 2 - f.gap.length - f.toast.length;
-  f.ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps), roomUnder };
+  f.ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps), roomUnder, raster };
   return f;
 }
 
@@ -150,17 +210,23 @@ const placed = (t, M, cols) => (l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : 
 // The boot frame (162): before any state, while git answers the first
 // questions at start, asked at `since`, if that takes over 150 ms. Pip sits
 // where the welcome has it (its three head rows, then the blank), at every
-// size, beside the app's line. No key works yet, so the key bar is blank.
-export function bootFrame(since, size, t, clock = REST) {
+// size, beside the app's line: the 9x4 Pip, or with `pip` (as render takes
+// it) the detailed one, no bigger than the next screen's (pipSlot). No key
+// works yet, so the key bar is blank.
+export function bootFrame(since, size, t, clock = REST, pip = null) {
+  return bootOf(since, size, t, clock, pip).out;
+}
+function bootOf(since, size, t, clock, raster) {
   const { cols, rows } = size;
-  if (cols < MIN.cols || rows < MIN.rows) return small(cols, rows);
+  if (cols < MIN.cols || rows < MIN.rows) return { out: small(cols, rows), spare: -1 };
   const { W, M, top } = frameOf(size);
-  const ctx = { t, W, ph: bootPhases(since, clock.at, t.caps) };
+  const ctx = { t, W, ph: bootPhases(since, clock.at, t.caps), raster };
   const out = [...top, appTitle(t), '', rule(t, W), '',
-    ...withPip(ctx, pip(t, 'happy', ctx.ph.eyes), [() => spinning(ctx, [t.fg('text', C.askingGit)])]).rows];
+    ...withPip(ctx, bigPip(ctx, BIG_PIP.welcome, ctx.ph.eyes), [() => spinning(ctx, [t.fg('text', C.askingGit)])]).rows];
+  const spare = rows - 2 - out.length;
   while (out.length < rows - 2) out.push('');
   out.push(pulseLine(ctx), '');
-  return out.map(placed(t, M, cols));
+  return { out: out.map(placed(t, M, cols)), spare };
 }
 
 // The body in `room` rows. What gives way, in order: below 24 rows repeats
@@ -489,16 +555,16 @@ function lessonHead(ctx, right, rightText) {
 // cells after it, and leaves at least one rule cell before it.
 const PIP_ROOM = PIP_FACE + 3;
 
-// Pip's face in this frame, over the `mood` it rests in: arms up for a hop
+// Pip's face in this frame, over the `mood` it rests in: sparks for a hop
 // or a cheer; away while the card enters, then landing with its eyes shut;
 // on a new "Not yet", a nod; on a file change, a glance; and its blink.
 function pipNow(ctx, shown) {
-  // Checking, with motion: Pip looks up once a child has run 150 ms, and
-  // holds still.
+  // Checking, with motion: Pip wears its checking face once a child has
+  // run 150 ms, and holds still.
   const mood = shown === 'checking' && !ctx.ph.checking ? 'rest' : shown;
   const e = into(ctx, 'entrance');
   const n = into(ctx, 'notYet');
-  if (into(ctx, 'hop') < Infinity || into(ctx, 'cheer') < Infinity) return { mood, frame: 'up' };
+  if (into(ctx, 'hop') < Infinity || into(ctx, 'cheer') < Infinity) return { mood, frame: 'sparks' };
   if (n < Infinity) return { mood: n >= SHOTS.notYet.nod ? 'rest' : mood };
   if (e < SHOTS.entrance.land) return null;
   if (e < Infinity) return { mood, frame: 'shut' };
@@ -651,7 +717,7 @@ const VIEWS = {
     const hint = lessHelpOn(s, lessons) ? t.fg('muted', `   ${C.pathHint}`) : '';
     const eyes = e < at.waking || ctx.ph.blink ? 'shut' : e < at.awake ? 'waking' : undefined;
     const body = [
-      withPip(ctx, pip(t, 'happy', eyes), [
+      withPip(ctx, bigPip(ctx, BIG_PIP.welcome, eyes), [
         (w) => led(t, 'wave', C.hi(s.facts.name), w, 'white').map((x) => t.bold(x)),
         (w) => sentence(t, [C.pip1, C.pip2], w, 'text'),
       ]),
@@ -686,7 +752,7 @@ const VIEWS = {
     return {
       head: lessonHead(ctx, '', C.stepOf(index + 1, steps.length)),
       body: [
-        withPip(ctx, pip(t, 'happy'), [
+        withPip(ctx, bigPip(ctx, BIG_PIP.resume), [
           () => [lead(t, 'wave', t.bold(t.fg('white', C.welcomeBack)))],
           (w) => para(t, C.youreOn(lessonLabel(s.lesson), index + 1, steps.length, steps[index].title), w, 'text'),
         ]),
@@ -756,14 +822,12 @@ const VIEWS = {
     // the new star lands.
     const e = into(ctx, 'levelUp');
     const at = SHOTS.levelUp;
-    const art = pip(t, 'focus', e < at.open ? 'shut' : e < at.whole ? 'awake' : undefined);
+    const art = bigPip(ctx, BIG_PIP.levelup, e < at.open ? 'shut' : e < at.whole ? 'awake' : undefined);
     const word = banner(t, C.levelUp, e < at.whole ? { cells: Math.round((bannerWidth(C.levelUp) * e) / at.whole) } : {});
-    const fits = t.unicode && W >= 14 + bannerWidth(C.levelUp);
     const plain = t.bold(t.fg('accent', C.levelUp));
-    // Pip and the banner: decoration, leaving the word.
-    const top = decor(fits
-      ? [` ${art[0]}`, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
-      : [` ${art[0]}`, ` ${art[1]}    ${plain}`, ` ${art[2]}`, ` ${art[3]}`], [` ${plain}`]);
+    // Pip and the banner, or the word beside Pip's face: decoration,
+    // leaving the word.
+    const top = decor(bannered(ctx, art, C.levelUp, word, plain), [` ${plain}`]);
     const lines = toChallenge ? C.toChallenge : C.toHinted;
     const tint = TIER_STYLE[s.levelTo].tint;
     // The arrow's 8 cells fill a third at a time, rounded up.
@@ -795,9 +859,8 @@ const VIEWS = {
     const e = into(ctx, 'complete');
     const at = SHOTS.complete;
     const cheer = e < at.whole;
-    const art = pip(t, 'party', cheer ? 'cheer' : undefined);
+    const art = bigPip(ctx, BIG_PIP.complete, cheer ? 'cheer' : undefined);
     const word = banner(t, C.complete, cheer ? { letters: Math.floor((C.complete.length * e) / at.whole) } : {});
-    const fits = t.unicode && W >= 14 + bannerWidth(C.complete);
     const label = s.lesson.endsWith('capstone') ? 'Capstone' : `Lesson ${lessonNumber(s)}`;
     // The confetti falls into its row: from 24 rows across it and the blank
     // under it, turn about; below 24 rows, where that blank can give way,
@@ -810,8 +873,6 @@ const VIEWS = {
       confettiRows = [confetti(t, W, { turn: k, row: 0 })];
       under = spacer(confetti(t, W, { turn: k, row: 1 }));
     }
-    // Arms up: past the first row's sides, where its margin was.
-    const top = `${cheer ? '' : ' '}${art[0]}`;
     // The ticks appear in turn from blank, the payoff's mark last.
     const order = [...content.intro.can.filter((c) => c !== content.intro.payoff), ...content.intro.can.filter((c) => c === content.intro.payoff)];
     // Each lands on the 40 ms grid, where a frame is drawn.
@@ -821,9 +882,7 @@ const VIEWS = {
       body: [
         decor(confettiRows),
         under,
-        decor(fits
-          ? [top, ` ${art[1]}    ${word[0]}`, ` ${art[2]}    ${word[1]}`, ` ${art[3]}    ${word[2]}`]
-          : [top, ` ${art[1]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[2]}`, ` ${art[3]}`], [` ${t.bold(t.fg('ok', C.complete))}`]),
+        decor(bannered(ctx, art, C.complete, word, t.bold(t.fg('ok', C.complete))), [` ${t.bold(t.fg('ok', C.complete))}`]),
         SPACER,
         lead(t, 'party', t.bold(t.fg('white', C.lessonDone(label)))),
         ...content.intro.can.flatMap((c) => canLine(t, c, c === content.intro.payoff, t.fg('ok', t.glyph.check), W - 8, e < lands(c))),
@@ -1032,18 +1091,39 @@ function windows(ctx) {
   return left.map((l, i) => `${l}${i === 2 ? arrow : ' '.repeat(width(arrow))}${right[i]}`);
 }
 
-// Pip with text beside it, from Pip's second row, or from its first when the
-// text needs all four. Decoration: below 24 rows Pip can give way, leaving
-// the text. Each part wraps to the width it is given.
+// The big Pip: the detailed raster where the screen has room for it
+// (ctx.raster, from pipSlot), else the 9x4 Pip in `mood` and `frame`. Its
+// rows, how wide they are, and the row its face is on.
+function bigPip(ctx, mood, frame) {
+  const { t, raster } = ctx;
+  if (!raster) return { rows: pip(t, mood, frame), width: 9, face: 2 };
+  return { rows: pipRaster(t, raster.pose, raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
+}
+
+// Pip with text beside it, from Pip's face row (on the 9x4 Pip its third,
+// under the antenna and the head's top), or as low as Pip's rows still hold
+// the text, or from its first when the text needs them all. Decoration:
+// below 24 rows Pip can give way, leaving the text. Each part wraps to the
+// width it is given.
 function withPip(ctx, art, parts) {
   const text = (w) => parts.flatMap((part) => part(w));
-  const beside = text(ctx.W - 13);
-  const from = beside.length > 3 ? 0 : 1;
-  const rows = Array.from({ length: Math.max(art.length, from + beside.length) }, (_, i) => {
+  const beside = text(ctx.W - art.width - 4);
+  const from = Math.max(0, Math.min(art.face, art.rows.length - beside.length));
+  const rows = Array.from({ length: Math.max(art.rows.length, from + beside.length) }, (_, i) => {
     const x = beside[i - from];
-    return x === undefined ? ` ${art[i] ?? ''}` : ` ${art[i] ?? ' '.repeat(9)}   ${x}`;
+    return x === undefined ? ` ${art.rows[i] ?? ''}` : ` ${art.rows[i] ?? ' '.repeat(art.width)}   ${x}`;
   });
   return decor(rows, text(ctx.W - 1).map((x) => ` ${x}`));
+}
+
+// The level-up's and the complete screen's Pip: `name`'s banner, its
+// three rows as `word` draws them now, beside it around its face row where
+// the whole banner fits, else the plain word on its face row.
+function bannered(ctx, art, name, word, plain) {
+  const fits = ctx.t.unicode && ctx.W >= art.width + 5 + bannerWidth(name);
+  const lines = fits ? word : [plain];
+  const from = fits ? art.face - 1 : art.face;
+  return art.rows.map((r, i) => (lines[i - from] === undefined ? ` ${r}` : ` ${r}    ${lines[i - from]}`));
 }
 
 // One row per tier, climbing. A repeat: below 24 rows it compacts to one
