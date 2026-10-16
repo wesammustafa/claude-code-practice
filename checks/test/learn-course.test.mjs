@@ -418,6 +418,45 @@ test('r on the check-only card says its run is going until its own result lands:
   }
 });
 
+test('r on a check-only card with no slow item changes no row: its run takes a moment, and only its result shows', () => {
+  const ids = course.filter((l) => !l.newCopy && !SLOW[l.id]).map((l) => l.id);
+  assert.ok(ids.length >= 10, ids.join(' '));
+  for (const id of ids) {
+    for (const size of SIZES) {
+      const d = checkOnly(id);
+      d.send(result(id, () => true));
+      const before = lines(d.state, size);
+      assert.deepEqual(d.key('r').find((e) => e.type === 'check'), { type: 'check', lesson: id, items: null, slow: true }, id);
+      assert.equal(d.state.checkOnlyRun, null, id);
+      assert.deepEqual(lines(d.state, size), before, `${id} at ${size.join('x')}`);
+    }
+  }
+});
+
+test('r\'s run on the check-only card goes on through a trip to the map and back, and is not another lesson\'s', () => {
+  const d = checkOnly('a-7');
+  d.send(result('a-7'));
+  const asked = d.key('r').find((e) => e.type === 'check').asked;
+  d.send({ type: 'run-start', wait: 7 });
+  d.key('m');
+  mapTo(d, 'a-7');
+  d.key('enter');
+  d.send({ type: 'running', lesson: 'a-7', items: null, n: 2, m: lessons['a-7'].items.length, asked, wait: 5 });
+  const back = lines(d.state, [80, 24]);
+  assert.ok(back.some((l) => l.endsWith(C.checkingItem(2, lessons['a-7'].items.length))), back.join('\n'));
+  assert.ok(!cardText(back).includes(flat(C.slowWait).slice(0, 30)), 'no "press r" while r\'s run goes');
+  // Another lesson's card, and back: r's run is not theirs.
+  d.key('m');
+  mapTo(d, 'i-5');
+  d.key('enter');
+  assert.ok(!lines(d.state, [80, 24]).some((l) => l.includes('Checking')), 'i-5');
+  d.key('m');
+  mapTo(d, 'a-7');
+  d.key('enter');
+  assert.equal(d.state.checkOnlyRun, null);
+  assert.ok(!lines(d.state, [80, 24]).some((l) => l.includes('Checking')), 'a-7 again');
+});
+
 test('on a step card, r\'s run of a slow item spins as any check does: the seconds from 3 s, slower after 10 s', () => {
   const ids = slowHere.filter((id) => course.find((l) => l.id === id).content);
   assert.deepEqual(ids, ['b-3', 'b-capstone']);

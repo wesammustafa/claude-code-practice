@@ -5,8 +5,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { STUB_RUNS } from '../../checks/lessons/a-4.mjs';
+import { NPM_TEST_LIMIT } from '../../checks/lessons/b-3.mjs';
 import { lessons } from '../../checks/lessons/index.mjs';
 import { statusPaths } from '../../checks/paths.mjs';
+import { TIME_LIMIT } from '../../checks/stub-claude.mjs';
 import { SLOW } from './content.mjs';
 
 const RUN_CHECK = join(dirname(fileURLToPath(import.meta.url)), '..', 'run-check.mjs');
@@ -18,17 +21,21 @@ export function childEnv(env = process.env) {
   return { ...rest, GIT_OPTIONAL_LOCKS: '0', NO_COLOR: '1' };
 }
 
-// How long the check child may run each item, from that item's start: more
-// than the slowest items' own limits (npm test's 120 s; a-4's five stub runs
-// of 20 s each), so the slow items of one run add up without ending it, and
-// items that share what a run found (a-7's) stay in one child.
-export const ITEM_LIMIT = 150_000;
+// How long the check child may run each item, from that item's start: the
+// slowest items' own limits (b-3's npm test; a-4's script, run once in each
+// of its scenarios), with room for the git and node around them. So the slow
+// items of one run add up without ending it, items that share what a run
+// found (a-7's) stay in one child, and a run of m items ends within m + 1
+// times this, its start counting as one. i-capstone's hook item has no
+// limit of its own: it runs each hook script it finds twice (hooks.mjs
+// runCommitted), so enough scripts that hang still end the run.
+export const ITEM_LIMIT = Math.max(NPM_TEST_LIMIT, STUB_RUNS * TIME_LIMIT) + 30_000;
 
 // Runs `items` of a lesson's check (all when null). Slow items are left out
 // unless `slow` is set, and come back marked `slow` so the screen can say
 // "press r". As the child starts each item, onRunning(n, m) hears that it
 // is on the nth of the m items it runs. An item still running `limit` ms
-// after it started stops the child.
+// after it started stops the child; only tests pass a shorter one.
 export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {}, limit = ITEM_LIMIT } = {}) {
   const all = lessons[lesson].items.map((_, i) => i);
   const skipped = slow ? [] : (SLOW[lesson] ?? []).filter((i) => (items ?? all).includes(i));
@@ -162,4 +169,25 @@ export function singleFlight(fn) {
     return running;
   };
   return go;
+}
+
+// A run asked for during another waits in line, and a later ask takes its
+// place (singleFlight). What r asked for stays owed until a run starts:
+// its slow items, and `asked`, the latest r's number, which goes back on
+// the result so the card knows that r's run ended. Only while the ask that
+// takes its place is for the same lesson (the first argument): another
+// lesson's run is not r's, and r's run will not come.
+export function owing(fn) {
+  const none = { slow: false, asked: 0, lesson: undefined };
+  let owed = none;
+  const go = singleFlight((...args) => {
+    const flags = owed;
+    owed = none;
+    return fn(flags, ...args);
+  });
+  return ({ slow, asked } = {}, ...args) => {
+    const was = owed.lesson === args[0] ? owed : none;
+    owed = { slow: was.slow || Boolean(slow), asked: Math.max(was.asked, asked ?? 0), lesson: args[0] };
+    return go(...args);
+  };
 }

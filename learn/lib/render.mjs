@@ -837,11 +837,11 @@ const VIEWS = {
     // What the runs said beyond the marks: kept, like a step's status line.
     // A slow item stays unchecked until r runs it; once r has, a poll keeps
     // its result (flow), so the line goes for good.
-    // While r's run goes, the card says so in their place.
+    // While r's run of the slow items goes, the card says so in their place.
     const unchecked = !l.newCopy && l.slow.some((i) => !results?.items?.some((x) => x.index === i && !x.slow));
-    const going = s.onlyRun?.lesson === l.id ? s.onlyRun : null;
+    const going = s.checkOnlyRun?.lesson === l.id ? s.checkOnlyRun : null;
     const notes = [];
-    if (going) notes.push(SPACER, ...kept(spinning(ctx, para(t, going.running?.m > 1 ? C.checkingItem(going.running.n, going.running.m) : C.checking(), inner, 'key'))));
+    if (going) notes.push(SPACER, ...kept(spinning(ctx, para(t, checkingLabel(going.running), inner, 'key'))));
     else {
       if (unchecked) notes.push(SPACER, ...kept(para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted')));
       if (results?.error) notes.push(SPACER, ...kept(para(t, `${t.lead('broken')}${C.broken(results.error)}`, inner, 'bad')));
@@ -1116,6 +1116,10 @@ function options(ctx, beat) {
   }).flat();
 }
 
+// A run's checking label: how far the child has got where it runs several
+// items, or what it checks.
+const checkingLabel = (running, what) => (running?.m > 1 ? C.checkingItem(running.n, running.m) : C.checking(what));
+
 // The checking label, with the spinner in the cell after it once a child has
 // run 150 ms, and from 3 s the seconds it has run (every label leaves room
 // for both).
@@ -1148,7 +1152,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
 
   // What the beat watches, as its waiting line names it, or how far a run
   // of several items has got.
-  if (st.status === 'opening') rows.push(...spinning(ctx, para(t, st.running?.m > 1 ? C.checkingItem(st.running.n, st.running.m) : C.checking(beat.watching ?? beat.evidence), inner, 'key')));
+  if (st.status === 'opening') rows.push(...spinning(ctx, para(t, checkingLabel(st.running, beat.watching ?? beat.evidence), inner, 'key')));
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));

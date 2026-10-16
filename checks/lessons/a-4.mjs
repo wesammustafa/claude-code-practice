@@ -45,6 +45,10 @@ const SCENARIOS = {
   nothingStaged: { stage: false, args: (out) => [join(out, OUT)], reply: (m) => ({ subtype: 'success', is_error: false, result: m.review, num_turns: 1 }) },
 };
 
+// The most stand-in runs one script gets in one check: one a scenario, kept
+// for the items that share it (scenario).
+export const STUB_RUNS = Object.keys(SCENARIOS).length;
+
 const README = '# Scratch repository for the practice check\n';
 const SOURCE = 'export const answer = 42;\n';
 

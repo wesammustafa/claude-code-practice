@@ -17,10 +17,13 @@ import { SHOTS } from '../../learn/lib/motion.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
-import { childEnv, ITEM_LIMIT, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
+import { childEnv, ITEM_LIMIT, owing, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
+import { STUB_RUNS } from '../lessons/a-4.mjs';
+import { NPM_TEST_LIMIT } from '../lessons/b-3.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { statusPaths } from '../paths.mjs';
+import { TIME_LIMIT } from '../stub-claude.mjs';
 import { check, exportHead, repo, withRepo, write } from './helpers.mjs';
 import { root } from './learn-drive.mjs';
 import { fakeClock, fakeOut, screenModel, turn } from './learn-term.mjs';
@@ -126,39 +129,43 @@ test('runCheck passes on each report as item n of the m items the child runs, be
 });
 
 test('the check child\'s time limit runs from the start of each item, so slow items add up in one run without ending it', async () => {
-  // b-capstone's two slow items, each about 2.5 s here: the tool, then npm test.
+  // b-capstone's two slow items, each 2 s here, the tool then npm test, and
+  // together past the limit: each well under it.
   const nap = (ms) => `setTimeout(() => process.exit(2), ${ms});\n`;
-  const dir = repo({ 'src/cli.js': nap(2_500), 'package.json': JSON.stringify({ scripts: { test: 'node -e "setTimeout(() => {}, 2500)"' } }) });
+  const dir = repo({ 'src/cli.js': nap(2_000), 'package.json': JSON.stringify({ scripts: { test: 'node -e "setTimeout(() => {}, 2000)"' } }) });
   try {
     const r = await runCheck(dir, 'b-capstone', [3, 4], { slow: true, limit: 4_000 });
     assert.deepEqual(r.items?.map((i) => [i.index, i.pass]), [[3, true], [4, true]], JSON.stringify(r));
     // One item that runs past it still ends the run.
     write(dir, { 'src/cli.js': nap(6_000) });
     assert.deepEqual(await runCheck(dir, 'b-capstone', [3], { slow: true, limit: 2_000 }), { error: 'it took too long' });
-    // a-capstone's slow items: five stub runs of up to 20 s in all, and npm
-    // test's up to 120 s. Each is under the limit, whatever runs before it.
-    assert.ok(ITEM_LIMIT > 5 * 20_000 && ITEM_LIMIT > 120_000, String(ITEM_LIMIT));
+    // The slowest items' own limits: npm test's, and a-4's script run in
+    // each of its scenarios. Each fits, whatever runs before it.
+    assert.ok(ITEM_LIMIT > NPM_TEST_LIMIT && ITEM_LIMIT > STUB_RUNS * TIME_LIMIT, String(ITEM_LIMIT));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-// What in checks/ starts a process other than git: a function or constant
-// declared at the top of a file whose own source starts one, or calls one
-// that does, by name. A top-level declaration runs to the next one.
+// What starts a process other than git, in `files` ([path, source] pairs):
+// a function or constant declared at the top of a file whose own source
+// starts one, or calls one that does, by name. A top-level declaration runs
+// to the next one. Names are not told apart by file: a name one file
+// declares to start a process counts in every file, which can only find too
+// much, and the test below then fails. A function handed to another as an
+// argument is beyond a scan like this.
 const STARTS = /(?<![.\w$])(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\(\s*(?!['"]git['"])/;
 const CALLS = /(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g;
-function processStarters() {
-  const dirs = [join(root, 'checks'), join(root, 'checks', 'lessons')];
-  const decls = dirs.flatMap((dir) => readdirSync(dir).filter((f) => f.endsWith('.mjs')).flatMap((f) => {
+function processStarters(files) {
+  const decls = files.flatMap(([, text]) => {
     const out = [];
-    for (const line of readFileSync(join(dir, f), 'utf8').split('\n')) {
+    for (const line of text.split('\n')) {
       const m = line.match(/^(?:export )?(?:async )?(?:function\*?\s+([\w$]+)|(?:const|let)\s+([\w$]+)\s*=)/);
       if (m) out.push({ name: m[1] ?? m[2], src: '' });
       if (out.length) out.at(-1).src += `${line}\n`;
     }
     return out;
-  }));
+  });
   const starters = new Set();
   const starts = (src) => STARTS.test(src) || [...src.matchAll(CALLS)].some(([, name]) => starters.has(name));
   for (let grew = true; grew;) {
@@ -170,16 +177,73 @@ function processStarters() {
       }
     }
   }
-  return starts;
+  return { starts, starters };
 }
+
+// Every module under checks/ that a check can load: all but the tests.
+function checkSources(dir = join(root, 'checks')) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const path = join(dir, e.name);
+    if (e.isDirectory()) return e.name === 'test' ? [] : checkSources(path);
+    return e.name.endsWith('.mjs') ? [[path, readFileSync(path, 'utf8')]] : [];
+  });
+}
+
+test('the scan for items that start a process follows helpers that call helpers, and leaves git out', () => {
+  const { starts, starters } = processStarters([
+    ['one.mjs', "import { spawnSync } from 'node:child_process';\nexport function runIt(dir) {\n  return spawnSync('bash', ['x'], { cwd: dir });\n}\nconst status = (dir) => execFileSync('git', ['status'], { cwd: dir });\n"],
+    ['two.mjs', "import { runIt } from './one.mjs';\nexport const twice = (dir) => [runIt(dir), runIt(dir)];\n"],
+    ['three.mjs', "import { twice } from './two.mjs';\nconst cache = new Map();\nexport function scenario(repo) {\n  return cache.get(repo) ?? twice(repo.dir);\n}\n"],
+  ]);
+  assert.deepEqual([...starters].sort(), ['runIt', 'scenario', 'twice']);
+  assert.equal(starts('check(repo) { return scenario(repo).ok; }'), true, 'two helpers away');
+  assert.equal(starts('check(repo) { return status(repo.dir) === ""; }'), false, 'git only');
+  assert.equal(starts('check(repo) { return repo.scenario(); }'), false, 'a method of the same name is not the helper');
+});
 
 test('SLOW holds exactly the items that start a process, through a helper in checks/ too', () => {
   // Read from the code, so it holds where the reference solutions are absent.
-  const starts = processStarters();
+  const files = checkSources();
+  // The scan sees only calls by name: child_process comes in by named
+  // imports alone, never a namespace, an alias or require.
+  for (const [path, text] of files) {
+    for (const m of text.matchAll(/import\s+([^;]*?)\s+from\s+['"](?:node:)?child_process['"]/g)) assert.match(m[1], /^\{\s*\w+(?:\s*,\s*\w+)*\s*,?\s*\}$/, path);
+    assert.doesNotMatch(text, /\brequire\s*\(|\bimport\s*\(/, path);
+  }
+  const { starts, starters } = processStarters(files);
+  // What a check is handed, a repository, starts only git: a call through
+  // its methods would not show here.
+  assert.ok(!starters.has('openRepo'), 'openRepo starts a process other than git');
   const found = Object.fromEntries(EVERY.map((id) => [id, lessons[id].items.flatMap((it, i) => (starts(it.check.toString()) ? [i] : []))]).filter(([, is]) => is.length));
   // runCommitted runs i-5's hook, runStubbed a-4's script, and testsPass is b-3's npm test.
   assert.deepEqual([found['i-5'], found['a-4'], found['b-3']], [[2], [1, 2, 3], [1]]);
   assert.deepEqual(found, SLOW);
+});
+
+test('what r asked for goes with the next run of its lesson, and not with another lesson\'s', async () => {
+  const runs = [];
+  let release;
+  const ask = owing(async (flags, lesson) => {
+    runs.push([lesson, flags.slow, flags.asked]);
+    await new Promise((r) => { release = r; });
+  });
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  // A poll runs; r waits behind it, and a later poll of its lesson takes
+  // its place: r's slow items and number stay.
+  ask({}, 'i-5', null);
+  ask({ slow: true, asked: 3 }, 'i-5', null);
+  ask({}, 'i-5', null);
+  release();
+  await settle();
+  // r waits again, and another lesson's run takes its place: that run is
+  // not r's.
+  ask({ slow: true, asked: 4 }, 'i-5', null);
+  ask({}, 'b-3', [0]);
+  release();
+  await settle();
+  release();
+  await settle();
+  assert.deepEqual(runs, [['i-5', false, 0], ['i-5', true, 3], ['b-3', false, 0]]);
 });
 
 test('children never take git\'s index lock or print color, and run one at a time', async () => {

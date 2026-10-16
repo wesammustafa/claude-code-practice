@@ -172,9 +172,9 @@ export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer
 // once it has run 150 ms, then one every 80 ms.
 const CHILD = ['check', 'git-clean'];
 const FIRST_TICK = Math.ceil(TIMING.spinnerFrom / TIMING.grid) * TIMING.grid;
-const running = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
-  || (s.view === 'checkonly' && s.onlyRun?.lesson === s.lesson);
-const childSince = (s) => (running(s) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
+const checkingChild = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
+  || (s.view === 'checkonly' && s.checkOnlyRun?.lesson === s.lesson);
+const childSince = (s) => (checkingChild(s) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
 
 // When the latest sweep started: the watcher saw a file change, or a look's
 // result differed from the last. Only while the screen watches something,
