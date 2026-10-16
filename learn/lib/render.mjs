@@ -9,7 +9,7 @@ import {
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
-import { mix, PLANNED, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
+import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
 import { COMMANDS_URL, OWN_PARTS } from './content.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
@@ -728,8 +728,9 @@ const VIEWS = {
     if (nextLesson) {
       const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
       const mixed = `   ${mixBar(ctx, nextLesson, 12)}  `;
-      body.push(SPACER, ...hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x))),
-        ...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
+      body.push(SPACER, ...hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x))));
+      // Its climb, where it has a lesson file to climb.
+      if (nextLesson.content) body.push(...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
     }
     body.push(SPACER, ...para(t, C.savedBreak, W, 'muted'));
     return {
@@ -752,18 +753,21 @@ const VIEWS = {
       `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)];
     const next = s.course.find((l) => !s.progress[l.id].complete);
     // The legend's items run on under "Help:" when one row can't hold them.
+    // It and the footer explain the tier bars: a page with none has neither.
+    const bars = lessons.some((l) => l.content);
     const legend = [];
     for (const item of TIERS.map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.tierHelp[k])}`)) {
       const last = legend.at(-1);
       if (last !== undefined && width(`${last}   ${item}`) <= W - 7) legend[legend.length - 1] = `${last}   ${item}`;
       else legend.push(item);
     }
-    // The titles give way to the marks, which are wider in ASCII.
-    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
+    // The titles give way to the marks, which are wider in ASCII, and to the
+    // bars' 12 cells and their gap, on a page that has them.
+    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 + (bars ? 0 : 14) - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
     // Where the level's rows don't fit even closed up, with the footer gone,
     // the list scrolls: the rows that fit, the cursor's as near their middle
     // as the ends allow.
-    const fits = Math.max(1, ctx.roomUnder(head.length) - legend.length);
+    const fits = Math.max(1, ctx.roomUnder(head.length) - (bars ? legend.length : 0));
     const at = lessons.indexOf(cursor);
     const from = lessons.length <= fits ? 0 : Math.max(0, Math.min(lessons.length - fits, at - Math.floor(fits / 2)));
     const rows = lessons.slice(from, from + fits).flatMap((l, i) => {
@@ -775,13 +779,13 @@ const VIEWS = {
       const state = p.complete ? t.fg('ok', C.mapDone) : l === next ? t.fg('accent', t.bold(C.mapNext)) : '';
       const medal = l.id.endsWith('capstone') ? t.emoji('cup') : p.complete && l.content?.badge ? t.emoji('badge') : '';
       const fitTitle = pad(cut(name, titleW + 1, t.unicode ? '…' : '.'), titleW + 1);
-      const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${mixBar(ctx, l, 12)}  ${pad(state, 5)}${medal ? ` ${medal}` : ''}`;
+      const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${bars ? `${mixBar(ctx, l, 12)}  ` : ''}${pad(state, 5)}${medal ? ` ${medal}` : ''}`;
       return i ? [spacer('', 'lessons'), line] : [line];
     });
     return {
       head,
       // The footer says what the welcome's hint says: it gives way before a row.
-      body: [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, SPACER, ...optional(para(t, C.mapFooter, W, 'muted'))],
+      body: bars ? [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, SPACER, ...optional(para(t, C.mapFooter, W, 'muted'))] : rows,
       // Where the bar is short, as in ASCII at 60x20, "choose" gives way so
       // the arrows that switch level stay: the pointer shows what up and
       // down do.
@@ -789,28 +793,55 @@ const VIEWS = {
     };
   },
 
+  // The lesson's check, item by item. Where the items don't all fit, the
+  // page's address gives way (p shows it) and the items scroll: whole items
+  // from s.itemsAt down, one a press of the arrows, with a line that says
+  // which are shown. An item too tall for that room takes the card's other
+  // rows; the items never drop, a toast does.
   checkonly(ctx) {
-    const { s, t, W } = ctx;
+    const { s, t, inner } = ctx;
     const l = lessonOf(s);
     const results = s.checks[l.id];
-    const items = l.items.map((text, index) => {
+    const head = lessonHead(ctx, '', l.minutes);
+    // A slow item a run left out shows as not checked yet. The mark of an
+    // item that starts passing pops: hollow, a ring, then the check mark.
+    const popping = into(ctx, 'itemPass');
+    const passMark = (index) => (!s.fx.itemsPassed?.includes(index) || popping === Infinity ? t.glyph.check
+      : popping < SHOTS.itemPass.pop ? t.glyph.dotOff : t.glyph.ring);
+    const blocks = l.items.map((text, index) => {
       const r = results?.items?.find((x) => x.index === index);
-      const mark = !r ? t.fg('faint', t.glyph.dotOff) : r.pass ? t.fg('ok', t.glyph.check) : t.fg('warn', t.glyph.warnMark);
-      const lines = para(t, text, ctx.inner - 4);
-      return lines.map((x, i) => `${i ? ' ' : mark} ${x}`);
-    }).flat();
-    const rows = [
-      ...sentence(t, C.checkOnly, ctx.inner, 'text'),
-      SPACER,
-      ...para(t, l.url, ctx.inner, 'key').map((x) => t.link(x, l.url)),
-      SPACER,
-      ...items,
-    ];
-    if (results?.error) rows.push(SPACER, lead(t, 'broken', t.fg('bad', C.broken(results.error))));
+      const mark = !r || r.slow ? t.fg('faint', t.glyph.dotOff) : r.pass ? t.fg('ok', passMark(index)) : t.fg('warn', t.glyph.warnMark);
+      return kept(para(t, text, inner - 4).map((x, i) => `${i ? ' ' : mark} ${x}`));
+    });
+    const intro = [...sentence(t, l.newCopy ? C.newCopy : C.checkOnly, inner, 'text'), SPACER];
+    const url = [...para(t, l.url, inner, 'key').map((x) => t.link(x, l.url)), SPACER];
+    // What the last run said beyond its marks: kept, like a step's status line.
+    const notes = [];
+    if (results?.items?.some((x) => x.slow)) notes.push(SPACER, ...kept(para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted')));
+    if (results?.error) notes.push(SPACER, ...kept(para(t, `${t.lead('broken')}${C.broken(results.error)}`, inner, 'bad')));
+    // The card's text rows: the body's room less the blank above the card,
+    // its two borders and its first blank.
+    const room = ctx.roomUnder(head.length) - 4;
+    const rows = blocks.flat().length;
+    let shown = blocks;
+    let above = intro.length + url.length + rows + notes.length <= room ? [...intro, ...url] : intro;
+    let more = [];
+    if (above.length + rows + notes.length > room) {
+      const from = Math.min(s.itemsAt, blocks.length - 1);
+      const avail = room - intro.length - notes.length - 1;
+      let k = from + 1;
+      while (k < blocks.length && blocks.slice(from, k + 1).flat().length <= avail) k++;
+      shown = blocks.slice(from, k);
+      more = [t.fg('muted', k - from === 1 ? C.itemOf(from + 1, blocks.length) : C.itemsShown(from + 1, k, blocks.length))];
+      // One item taller than that room: the line, then the sentence, give way.
+      const tall = shown[0].length;
+      if (tall > avail) more = [];
+      if (tall > avail + 1) above = [];
+    }
     return {
-      head: lessonHead(ctx, '', l.minutes),
-      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}`, rows, mood: checkOnlyMood(results) }),
-      keys: [key('r', C.k.checkNow), key('p', C.k.page), key('m', C.k.map), key('q', C.k.quit)],
+      head,
+      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: checkOnlyMood(results) }),
+      keys: [shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, l.newCopy ? null : key('r', C.k.checkNow), key('p', C.k.page), key('m', C.k.map), key('q', C.k.quit)],
     };
   },
 };
@@ -869,11 +900,13 @@ function staircase(ctx, m, done) {
 // A mix as one row of tier marks, in the tiers' tints or, once done, green.
 const bar = (t, m, done) => TIERS.map((k, i) => t.fg(done ? 'ok' : TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on].repeat(m[i]))).join('');
 
+// A lesson's climb as `cells` tier marks, from its content: a lesson with
+// no lesson file has none, so it draws blank cells.
 function mixBar(ctx, lesson, cells) {
   const { s, t } = ctx;
+  if (!lesson.content) return ' '.repeat(cells);
   const idx = s.course.findIndex((l) => l.id === lesson.id);
-  const real = lesson.content ? mix(ruleTiers(s.course.map((l) => l.content), idx)) : null;
-  return bar(t, scaleMix(real ?? PLANNED[lesson.id] ?? [0, 0, 1], cells));
+  return bar(t, scaleMix(mix(ruleTiers(s.course.map((l) => l.content), idx)), cells));
 }
 
 // ---- the step card -----------------------------------------------------------

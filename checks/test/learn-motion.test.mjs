@@ -429,12 +429,12 @@ test('stamps are never saved: learn.json after a run with stamps keeps its keys 
 test('the timing table is design 4.3\'s, and no one-shot lasts over 1.2 s', () => {
   const ms = {
     grid: 40, tick: 80, slowTick: 240, slowAfter: 10_000,
-    entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480,
+    entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160,
     spinnerFrom: 150, elapsedFrom: 3_000, sweep: 400, glance: 1_200, blink: 160, blinkEvery: 6_000,
     perWord: 400, graceMin: 3_000, graceMax: 20_000, keyQuiet: 4_000,
   };
   assert.deepEqual(TIMING, ms);
-  for (const k of ['entrance', 'notYet', 'hop', 'cheer', 'stepDone', 'levelUp', 'complete', 'welcome', 'sweep', 'glance']) assert.ok(TIMING[k] <= 1_200, k);
+  for (const k of ['entrance', 'notYet', 'hop', 'cheer', 'stepDone', 'levelUp', 'complete', 'welcome', 'itemPass', 'sweep', 'glance']) assert.ok(TIMING[k] <= 1_200, k);
 });
 
 test('a one-shot runs 0 to 1 over its time, and a later key ends it, but not the key that started it', () => {
@@ -564,7 +564,7 @@ test('screens with no ambient part never allow one, and ask for no frame once th
 
 const ON = { motion: true };
 const OFF = { motion: false, calm: true };
-const RESTING = { entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false };
+const RESTING = { entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false };
 
 test('phases: the rest phases with motion off, at rest and under an overlay', () => {
   const { d, t } = opened('W3');

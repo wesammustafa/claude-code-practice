@@ -29,10 +29,10 @@ const appWords = (step) => step.beats.flatMap((b) => [
   ...b.lines.filter((l) => !l.quoted).map((l) => l.text), b.ask, b.doneLabel, ...b.options.filter((o) => !o.quoted && o.kind !== 'decoy').map((o) => o.text),
 ].filter(Boolean));
 
-test('every lesson file belongs to a Beginner lesson, in its file, and parses', () => {
+test('every lesson file belongs to a lesson on PATH, in its file, and parses', () => {
   assert.ok(files.length > 0);
   for (const [id, l] of Object.entries(parsed)) {
-    assert.ok(PATH.some((p) => p.id === id), `${id} is not on the Beginner path`);
+    assert.ok(PATH.some((p) => p.id === id), `${id} is not on PATH`);
     assert.equal(l.lesson, id);
     assert.ok(l.steps.length > 0);
   }

@@ -35,7 +35,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   const saved = loadState(root);
   if (!stdin.isTTY || !stdout.isTTY) {
     const results = {};
-    for (const l of course) results[l.id] = await checkChild(root, l.id, null);
+    for (const l of course) if (!l.newCopy) results[l.id] = await checkChild(root, l.id, null);
     stdout.write(plainProgress(course, results, saved));
     return 0;
   }

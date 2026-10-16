@@ -13,7 +13,7 @@ export const REST = { at: Infinity };
 export const TIMING = {
   grid: 40, tick: 80, slowTick: 240, slowAfter: 10_000,
   // One-shots: none lasts over 1.2 s.
-  entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480,
+  entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160,
   // A check or git child: the spinner from 150 ms, its seconds from 3 s.
   spinnerFrom: 150, elapsedFrom: 3_000,
   // A file change: the sweep and Pip's glance. Pip's blink, every 6 s.
@@ -60,6 +60,9 @@ export const SHOTS = {
   // reaches the cup at `cup`; from `pulse` one pulse crosses the arrow, a
   // cell every `cell`.
   welcome: { every: 80, waking: 80, awake: 160, fuse: 80, cup: 320, pulse: 320, cell: 80 },
+  // On the check-only card, the mark of an item that starts passing is
+  // hollow until `pop`, then a ring, then the check mark.
+  itemPass: { every: 80, pop: 80 },
   // One segment crosses the pulse line, a fifth of the way each frame.
   sweep: { every: 80 },
   // Pip looks toward the other window, then back: one change each way.
@@ -93,7 +96,7 @@ function newestWords(s) {
   if (s.view === 'welcome') {
     return words([C.hi(s.facts.name), C.pip1, C.pip2, C.twoWindows, C.thisWindow, ...C.thisWindowLines, C.otherWindow, ...C.otherWindowLines, C.openSecond, C.comeBack].join(' '));
   }
-  if (s.view === 'checkonly') return words([...C.checkOnly, ...lessonOf(s).items].join(' '));
+  if (s.view === 'checkonly') return words([...(lessonOf(s).newCopy ? C.newCopy : C.checkOnly), ...lessonOf(s).items].join(' '));
   const st = s.beat;
   if (s.view !== 'step' || !st) return 0;
   const fx = s.fx;
@@ -160,7 +163,7 @@ const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 // (`look`, its notch) and no blink. `checking`: Pip wears its checking face
 // whenever the card says "Checking"; with motion, only once the spinner
 // turns.
-export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
+export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
 
 // Since when a check or git child has run for the beat on screen while it is
 // `opening`: a child that started before the status became `opening` is not
@@ -199,6 +202,7 @@ export function shotStarts(s) {
     levelUp: on(['levelup'], fx.view),
     complete: on(['complete'], fx.view),
     welcome: on(['welcome'], fx.view),
+    itemPass: on(['checkonly'], fx.itemPass),
     sweep: sweepFrom(s),
     // A file change: Pip glances toward the other window, until a newer
     // "Not yet", hop or cheer turns Pip back to the card.
