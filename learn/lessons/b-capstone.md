@@ -58,7 +58,7 @@ badge: Beginner
 - beat: do
 - verify: git-clean
 - watching: git status
-- say: Before you start, make sure your copy has nothing uncommitted.
+- say: Before you start, make sure your practice copy has nothing uncommitted.
 - hint: "If `git status --porcelain` lists files, commit them or set them aside with `git stash push --include-untracked`."
 - hint: "Don't put a `linkcheck.json` in your copy, because the check counts it as a change."
 - why: "`.practice/capstone-before.txt`, saved while the plan was on screen, lists no changed files."

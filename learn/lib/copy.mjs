@@ -3,12 +3,20 @@
 // model names and any claim the app can't back out of this file.
 // A celebration praises the work, not how it was done: a string a
 // celebration shows goes on CELEBRATIONS in checks/test/learn-content.test.mjs.
+
+// One name for each thing the app's words talk about. The copy test rejects
+// an older name, or a second way to describe the tiers.
+export const TERMS = {
+  practiceCopy: 'practice copy',
+  tierHelp: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
+};
+
 export const C = {
   appName: 'Claude Code practice',
   pathLabel: (done, total) => `Beginner path · ${done} of ${total} done`,
   pathHint: 'each stop a little harder',
   hi: (name) => `Hi ${name || 'there'}! Let's learn Claude Code by using it.`,
-  pip1: "I'm Pip. I watch your practice folder and light up",
+  pip1: `I'm Pip. I watch your ${TERMS.practiceCopy} and light up`,
   pip2: 'the moment a step works.',
   twoWindows: 'You use two windows, side by side:',
   thisWindow: 'this window',
@@ -21,7 +29,7 @@ export const C = {
 
   youllBeAble: "You'll be able to",
   helpShrinks: 'The help shrinks each time a skill comes back:',
-  stair: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
+  tierHelp: TERMS.tierHelp,
   startLesson: (n) => `Start lesson ${n}`,
   startCapstone: 'Start the capstone',
   lessHelp: "I've used Claude Code before: give me less help",
@@ -30,6 +38,7 @@ export const C = {
 
   where: { terminal: 'in your other terminal', claude: 'in Claude Code', shell: 'in a third terminal', editor: 'in your editor', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
   warmup: (n) => `Warm-up from lesson ${n}`,
+  warmupWhy: "A warm-up brings back an earlier lesson from memory. A wrong answer is fine: you see the lesson's words at once.",
   warmups: (n) => `${n} warm-up${n === 1 ? '' : 's'} first`,
   done: 'DONE',
   doneWhen: 'Done when ',
@@ -55,7 +64,7 @@ export const C = {
   gitFailAfter: 'Press r to look again.',
   stepDone: (n) => `Step ${n} done!`,
   holds: (path) => [path, ' holds '],
-  cleanCopy: 'Your copy is clean: nothing to commit.',
+  cleanCopy: `Your ${TERMS.practiceCopy} is clean: nothing to commit.`,
   session: (n) => `${n} step${n === 1 ? '' : 's'} this session`,
   beatDone: 'Done.',
   already: 'Already done: the check already passes, so this step counts.',
@@ -108,7 +117,6 @@ export const C = {
   savedBreak: 'Your progress is saved, so a break is fine. Come back with npm run learn.',
 
   map: 'MAP',
-  mapLegend: { guided: 'every command shown', hinted: 'goal and hints', challenge: 'goal only' },
   help: 'Help:',
   mapFooter: 'Each lesson reuses what came before, so it starts with less help.',
   mapDone: 'done',
