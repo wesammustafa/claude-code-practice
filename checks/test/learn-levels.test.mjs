@@ -34,13 +34,18 @@ test('every lesson has a label unique in the course, and plain output shows each
   assert.deepEqual(labels, LABELS);
 });
 
-test('titles show no literal backticks: a-4\'s in the header and in plain output', () => {
+test('titles show no literal backticks: a-4\'s in the header, on the map and in plain output', () => {
   const course = threeLevels();
   const plain = plainProgress(course, {}, null).split('\n');
   assert.ok(plain.includes('A4   Script Claude Code with claude -p: 0 of 0 check items pass'), plain.join('\n'));
   // Every lesson before a-4 done: the map opens at a-4, and enter opens its check.
   const d = driver({ course, saved: { format: 1, welcomed: true, lessons: doneBefore(course, 'a-4') } });
   assert.equal(d.state.view, 'map');
+  for (const t of [FULL, ASCII]) {
+    const row = screen(d.state, [80, 24], t).find((l) => / A4 /.test(l));
+    assert.match(row ?? '', /A4 {1,3}Script Claude Code with claude -p/, screen(d.state, [80, 24], t).join('\n'));
+    assert.ok(!row.includes('`'), row);
+  }
   d.key('enter');
   assert.equal(d.state.view, 'checkonly');
   for (const t of [FULL, ASCII]) {
@@ -130,8 +135,10 @@ test('left and right switch level, to its next lesson; up and down stay in the l
 test('the map\'s key bar offers the arrows that switch level, and ? lists them, only with more than one level', () => {
   const three = mapAt('i-1');
   for (const size of [[60, 20], [80, 24]]) assert.match(screen(three.state, size).at(-1), /←→ level/, size.join('x'));
-  // Where the bar is short, as in ASCII at 60x20, it gives way first: enter and m stay.
-  assert.equal(screen(three.state, [60, 20], ASCII).at(-1), '  up/down choose    enter open    m back    q quit');
+  // Where the bar is short, as in ASCII at 60x20, "choose" gives way: the level key, enter and m stay.
+  assert.equal(screen(three.state, [60, 20], ASCII).at(-1), '  up/down    <- -> level    enter open    m back    q quit');
+  assert.equal(screen(three.state, [80, 24], ASCII).at(-1), '  up/down choose    <- -> level    enter open    m back    q quit');
+  for (const t of Object.values(MODES)) for (const size of [[60, 20], [80, 24]]) assert.match(screen(three.state, size, t).at(-1), /(←→|<- ->) level/, size.join('x'));
   three.key('?');
   for (const size of [[60, 20], [80, 24]]) assert.ok(has(screen(three.state, size), C.levelKey[1]), screen(three.state, size).join('\n'));
   // Its words start where every key's do, in ASCII too.
@@ -139,6 +146,13 @@ test('the map\'s key bar offers the arrows that switch level, and ? lists them, 
     const lines = screen(three.state, [80, 24], t);
     const col = (text) => lines.find((l) => l.endsWith(text)).indexOf(text);
     assert.equal(col(C.levelKey[1]), col(C.keyHelp.find(([k]) => k === 'h')[1]), lines.join('\n'));
+  }
+  // c's row, where it shows, sits right under p's, after the level row too.
+  for (const rows of [24, 30]) {
+    const lines = screen(three.state, [80, rows]);
+    const at = (text) => lines.findIndex((l) => l.endsWith(text));
+    assert.ok(at(C.cardKey[1]) > 0, lines.join('\n'));
+    assert.equal(at(C.cardKey[1]), at(C.keyHelp.find(([k]) => k === 'p')[1]) + 1, lines.join('\n'));
   }
   const beginner = driver({ saved: { format: 1, welcomed: true, lessons: {} } });
   beginner.key('enter');
@@ -165,7 +179,9 @@ test('the welcome names the current level and draws only its path line, with one
   assert.match(screen(d.state, [80, 24], ASCII)[1], /^ {2}I1 -- I2 .* I8 -- \[cup\]$/);
 });
 
-test('the welcome\'s fuse runs along the current level\'s path line, link by link, and reaches its cup at +320 ms, as Beginner\'s does', () => {
+// Beginner's five links light one a frame; a longer level lights up to two a
+// frame, so every level's fuse reaches its cup when Beginner's does.
+test('the welcome\'s fuse runs along the current level\'s path line, at most two links a frame, and reaches its cup at +320 ms, as Beginner\'s does', () => {
   for (const [id, links] of [['b-1', 5], ['i-1', 8], ['a-1', 7]]) {
     const s = welcomeAt(id).state;
     const lit = (ms) => (render(s, { cols: 80, rows: 24 }, MOVING, { at: s.fx.view + ms }).map(strip)[1].match(/━━/g) ?? []).length;
@@ -219,7 +235,16 @@ test('with three levels the welcome and every map page fit at 60x20 and 80x24, i
             assert.ok(graphemes(strip(l)).filter(isEmoji).length <= 1, where);
           });
           assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where}: a row is dropped`);
-          assert.ok(lines[0].includes(`${level} path`), where);
+          assert.ok(!lines.some((l) => l.endsWith('…')), `${where}: a row is cut`);
+          if (name === 'welcome') {
+            // The level's count whole, at every width up to the app name's return.
+            const done = C.pathLabel(level, 0, labels.length);
+            assert.ok(lines[0].endsWith(t.unicode ? done : done.replace('·', '|')), where);
+            for (let w = cols + 1; cols === 60 && w <= 64; w++) {
+              const head = strip(render(state, { cols: w, rows }, t)[0]).trimEnd();
+              assert.ok(head.endsWith(t.unicode ? done : done.replace('·', '|')), `${where}\nat ${w} columns: ${head}`);
+            }
+          } else assert.ok(lines[0].includes(`${level} path`), where);
           if (name === 'map') {
             if (t.unicode) assert.deepEqual(pills(lines), labels, where);
             assert.ok(has(lines, C.ofDone(0, labels.length)), where);

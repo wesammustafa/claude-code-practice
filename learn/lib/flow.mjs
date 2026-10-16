@@ -1136,14 +1136,14 @@ const VIEWS = {
   // and right go to the level before or after, at its next lesson.
   map(s, { name }, effects) {
     const at = s.course[s.mapCursor];
-    const here = levelLessons(s, at.level);
+    const here = levelLessons(s, levelOf(s, at.id));
     const levels = levelsOf(s);
     const i = here.indexOf(at);
     const to = (l) => (s.mapCursor = s.course.indexOf(l));
     if (name === 'up') to(here[(i + here.length - 1) % here.length]);
     else if (name === 'down') to(here[(i + 1) % here.length]);
     else if (name === 'left' || name === 'right') {
-      const level = levels[levels.indexOf(at.level) + (name === 'left' ? -1 : 1)];
+      const level = levels[levels.indexOf(levelOf(s, at.id)) + (name === 'left' ? -1 : 1)];
       if (!level) return true;
       const lessons = levelLessons(s, level);
       to(lessons.find((l) => !s.progress[l.id].complete) ?? lessons[0]);

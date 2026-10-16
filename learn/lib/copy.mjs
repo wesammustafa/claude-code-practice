@@ -9,14 +9,15 @@
 export const TERMS = {
   practiceCopy: 'practice copy',
   tierHelp: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
+  // The guide's level names, by the folder of a lesson's page.
+  levels: { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' },
 };
 
 export const C = {
   appName: 'Claude Code practice',
-  // The guide's level names, by the folder of a lesson's page.
-  levels: { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' },
+  levels: TERMS.levels,
   levelPath: (level) => `${level} path`,
-  pathLabel: (level, done, total) => `${level} path · ${done} of ${total} done`,
+  pathLabel: (level, done, total) => `${C.levelPath(level)} · ${done} of ${total} done`,
   pathHint: 'each stop a little harder',
   hi: (name) => `Hi ${name || 'there'}! Let's learn Claude Code by using it.`,
   pip1: `I'm Pip. I watch your ${TERMS.practiceCopy} and light up`,

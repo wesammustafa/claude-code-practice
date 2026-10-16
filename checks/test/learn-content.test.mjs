@@ -313,6 +313,10 @@ const aliases = (copy) => {
 test('one name for each thing: the app\'s words use no alias of a TERMS name', () => {
   assert.equal(TERMS.practiceCopy, 'practice copy');
   assert.deepEqual(TERMS.tierHelp, { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' });
+  // The guide's level names, one each: the map, the welcome and a warm-up read them here.
+  assert.deepEqual(TERMS.levels, { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' });
+  assert.equal(C.levels, TERMS.levels);
+  assert.equal(C.pathLabel(TERMS.levels.intermediate, 2, 9), 'Intermediate path · 2 of 9 done');
   assert.deepEqual(aliases(C), []);
   // A lesson file's unquoted lines are the app's words too; its quotes are the guide's.
   for (const [id, l] of Object.entries(parsed)) {

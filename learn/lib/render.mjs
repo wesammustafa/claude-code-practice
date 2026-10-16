@@ -46,6 +46,8 @@ export const titleOf = (l) => plainText(l.title);
 
 // B1 to B5, then BC for the Beginner capstone; I1 and IC, A1 and AC alike.
 export const lessonLabel = (id) => id.replace(/^([a-z])-(\d+|capstone)$/, (_, l, n) => `${l.toUpperCase()}${n === 'capstone' ? 'C' : n}`);
+// A lesson's level by its guide name: 'Beginner' for b-2.
+const levelName = (s, id = s.lesson) => C.levels[levelOf(s, id)];
 
 // The lesson page a quote's relative links point into: set for each frame.
 let pageUrl = '';
@@ -59,12 +61,12 @@ export function render(s, size, t, clock = REST) {
   const { W, M, top } = frameOf(size);
   let toast = s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast)}`, W, TOASTS[s.toast.kind].color) : [];
   let gap = [''];
-  // The rows a view's body has under its three header rows, the blank under
+  // The rows a view's body has under `head` header rows, the blank under
   // them included.
-  const listRoom = rows - top.length - 3 - 2 - gap.length - toast.length;
-  const ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps), listRoom };
+  const roomUnder = (head) => rows - top.length - head - 2 - gap.length - toast.length;
+  const ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps), roomUnder };
   const view = VIEWS[s.view](ctx);
-  const room = () => rows - top.length - view.head.length - 2 - gap.length - toast.length;
+  const room = () => roomUnder(view.head.length);
   // The rows an overlay has under the view's header and its blank.
   ctx.room = room() - 1;
   const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
@@ -255,17 +257,17 @@ function absolute(url) {
   }
 }
 
-// The keys that fit in `w` columns: a low key (c card, ←→ level) gives way
-// first, then a main key's long label to its short one, then the optional
-// keys go from the right; q always stays.
+// The keys that fit in `w` columns: a low key (c card) gives way first, then
+// a key's long label to its short one (none, for the map's arrows), then the
+// optional keys go from the right; q always stays.
 // The `held` letter, waiting DEFER_MS to act, draws pressed: inverse.
 function keybar(t, keys, w = Infinity, held = null) {
   const draw = (list, short) => list.map((k) => {
-    const label = short && k.short ? k.short : k.label;
+    const label = short && k.short != null ? k.short : k.label;
     const pressed = k.key === held;
     if (k.main) return `${t.pill(k.key, k.bg ?? 'okBg', k.fg ?? 'white', { pressed })} ${t.bold(t.fg('white', label))}`;
     const letter = t.fg('key', t.bold(k.key));
-    return `${pressed ? t.inverse(letter) : letter} ${t.fg('muted', label)}`;
+    return `${pressed ? t.inverse(letter) : letter}${label ? ` ${t.fg('muted', label)}` : ''}`;
   }).join('    ');
   let list = keys.filter(Boolean);
   if (width(draw(list, false)) <= w) return draw(list, false);
@@ -506,8 +508,7 @@ const VIEWS = {
   welcome(ctx) {
     const { s, t, W } = ctx;
     // The current level's path: its lessons, then one cup for its capstone.
-    const level = levelOf(s);
-    const lessons = levelLessons(s, level);
+    const lessons = levelLessons(s, levelOf(s));
     const done = lessons.filter((l) => s.progress[l.id].complete).length;
     const heat = ['guided', 'guided', 'hinted', 'heat4', 'challenge'];
     const ids = lessons.filter((l) => !l.id.endsWith('capstone'));
@@ -537,8 +538,12 @@ const VIEWS = {
       t.fg('muted', C.comeBack),
     ];
     if (s.facts.gitError) body.push(SPACER, ...kept(led(t, 'broken', C.gitBroken(s.facts.gitError), W, 'bad')));
+    // The app's name gives way where it and the level's count don't both
+    // fit uncut, as with Intermediate's at 60 columns.
+    const count = t.fg('muted', C.pathLabel(levelName(s), done, lessons.length));
+    const title = width(appTitle(t)) + 1 + width(count) <= ctx.cols - 1 - frameOf(ctx).M ? appTitle(t) : t.pill('LEARN', 'accentBg');
     return {
-      head: [spread(appTitle(t), t.fg('muted', C.pathLabel(C.levels[level], done, lessons.length)), W),
+      head: [spread(title, count, W),
         // The hint is left off when it doesn't fit: the map's footer says the same.
         `${path}${width(path + hint) <= W ? hint : ''}`, rule(t, W)],
       body,
@@ -737,12 +742,14 @@ const VIEWS = {
   // One level a page: the level of the lesson under the cursor.
   map(ctx) {
     const { s, t, W } = ctx;
-    const level = s.course[s.mapCursor].level;
-    const lessons = levelLessons(s, level);
+    const cursor = s.course[s.mapCursor];
+    const lessons = levelLessons(s, levelOf(s, cursor.id));
     const done = lessons.filter((l) => s.progress[l.id].complete).length;
     const total = lessons.length;
     const pct = Math.round((done / total) * 100);
     const barW = W - 6;
+    const head = [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', C.levelPath(levelName(s, cursor.id))))}`, t.fg('muted', C.ofDone(done, total)), W),
+      `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)];
     const next = s.course.find((l) => !s.progress[l.id].complete);
     // The legend's items run on under "Help:" when one row can't hold them.
     const legend = [];
@@ -756,12 +763,12 @@ const VIEWS = {
     // Where the level's rows don't fit even closed up, with the footer gone,
     // the list scrolls: the rows that fit, the cursor's as near their middle
     // as the ends allow.
-    const fits = Math.max(1, ctx.listRoom - legend.length);
-    const at = lessons.indexOf(s.course[s.mapCursor]);
+    const fits = Math.max(1, ctx.roomUnder(head.length) - legend.length);
+    const at = lessons.indexOf(cursor);
     const from = lessons.length <= fits ? 0 : Math.max(0, Math.min(lessons.length - fits, at - Math.floor(fits / 2)));
     const rows = lessons.slice(from, from + fits).flatMap((l, i) => {
       const p = s.progress[l.id];
-      const sel = l === s.course[s.mapCursor];
+      const sel = l === cursor;
       const mark = `${sel ? t.fg('key', t.bold(t.glyph.pointer)) : ' '} ${p.complete ? t.fg('ok', t.glyph.check) : t.fg('faint', t.glyph.dotOff)}`;
       const pillBg = sel ? 'accentBg' : p.complete ? 'okBg' : 'dimBg';
       const name = sel ? t.bold(t.fg('key', titleOf(l))) : t.fg(p.complete ? 'text' : 'muted', titleOf(l));
@@ -772,11 +779,13 @@ const VIEWS = {
       return i ? [spacer('', 'lessons'), line] : [line];
     });
     return {
-      head: [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', C.levelPath(C.levels[level])))}`, t.fg('muted', C.ofDone(done, total)), W),
-        `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)],
+      head,
       // The footer says what the welcome's hint says: it gives way before a row.
       body: [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, SPACER, ...optional(para(t, C.mapFooter, W, 'muted'))],
-      keys: [key(t.glyph.up, C.k.choose), levelsOf(s).length > 1 ? { ...key(t.glyph.sides, C.k.level), low: true } : null, key('enter', C.k.open), key('m', C.k.back), key('q', C.k.quit)],
+      // Where the bar is short, as in ASCII at 60x20, "choose" gives way so
+      // the arrows that switch level stay: the pointer shows what up and
+      // down do.
+      keys: [{ ...key(t.glyph.up, C.k.choose), short: '' }, levelsOf(s).length > 1 ? key(t.glyph.sides, C.k.level) : null, key('enter', C.k.open), key('m', C.k.back), key('q', C.k.quit)],
     };
   },
 
@@ -890,8 +899,8 @@ function stepView(ctx) {
   const rows = [t.bold(t.fg('white', beat.kind === 'type' && step.part === 'Check' ? C.lastQuestion : step.title))];
   if (step.part === 'Warm-up') {
     // A warm-up from another level names that level.
-    const level = levelOf(s, step.from);
-    rows.push(t.fg('muted', C.warmup(lessonNumber(s, step.from), level === levelOf(s) ? null : C.levels[level])));
+    const other = levelOf(s, step.from) !== levelOf(s);
+    rows.push(t.fg('muted', C.warmup(lessonNumber(s, step.from), other ? levelName(s, step.from) : null)));
     if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
   }
   // At GUIDED the beat's reason, in the page's words, sits under the title;
@@ -1268,13 +1277,14 @@ const OVERLAYS = {
     // The calm line drops before any key or blank does: it shows only on
     // one row, from 24 rows, where the keys and their blanks leave room.
     const calm = rows >= 24 && width(C.calm) <= inner;
-    const keys = C.keyHelp.map(row);
+    const list = [...C.keyHelp];
     // ← → on the map, under the arrows' row, where the course has more than
     // one level.
-    if (levelsOf(ctx.s).length > 1) keys.splice(C.keyHelp.findIndex(([k]) => k.startsWith('↑')) + 1, 0, row(C.levelKey));
+    if (levelsOf(ctx.s).length > 1) list.splice(list.findIndex(([k]) => k.startsWith('↑')) + 1, 0, C.levelKey);
+    const keys = list.map(row);
     // c's row, under p's, shows only where every key, blank and the calm
     // line leave it room, so it never costs a blank: 60x20 gives it up.
-    if (room >= 3 + keys.length + (calm ? 2 : 0) && width(row(C.cardKey)) <= inner) keys.splice(C.keyHelp.findIndex(([k]) => k === 'p') + 1, 0, row(C.cardKey));
+    if (room >= 3 + keys.length + (calm ? 2 : 0) && width(row(C.cardKey)) <= inner) keys.splice(list.findIndex(([k]) => k === 'p') + 1, 0, row(C.cardKey));
     return {
       body: [t.bold(t.fg('white', C.keysTitle)), SPACER, ...keys, ...(calm ? optional(['', ...para(t, C.calm, inner, 'muted')]) : [])],
       keys: [key('?', C.k.close), key('q', C.k.close)],
