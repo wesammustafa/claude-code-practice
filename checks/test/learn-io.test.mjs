@@ -1079,15 +1079,17 @@ test('a save that fails shows a note and the app keeps going', async () => {
   }
 });
 
-test('read-only: the app starts only the check and git status, and writes only its own file', () => {
+test('read-only: the app starts only the check and git\'s read-only commands, and writes only its own file', () => {
   const files = readdirSync(join(root, 'learn'), { recursive: true }).filter((f) => f.endsWith('.mjs')).map((f) => f.split('\\').join('/'));
   for (const f of files) {
     const src = readFileSync(join(root, 'learn', f), 'utf8');
     assert.doesNotMatch(src, /from 'node:(http|https|net|tls|dgram)'|\bfetch\(/, `${f} uses the network`);
     assert.doesNotMatch(src, /\b(spawn|spawnSync|exec|execSync|execFileSync|fork)\(/, `${f} starts a process another way`);
+    // git only reads: status, whether a folder is a repository, a name, and
+    // whether a work folder's .practice/ is ignored (ticket 86).
     for (const m of src.matchAll(/execFile\(([^,]+),\s*(\[[^\]]*)/g)) {
       const [, cmd, args] = m;
-      const ok = (cmd.trim() === 'process.execPath' && args.includes('RUN_CHECK')) || (cmd.trim() === "'git'" && /^\['(status|rev-parse|config)'/.test(args.trim()));
+      const ok = (cmd.trim() === 'process.execPath' && args.includes('RUN_CHECK')) || (cmd.trim() === "'git'" && /^\['(status|rev-parse|config|check-ignore)'/.test(args.trim()));
       assert.ok(ok, `${f} runs ${cmd} ${args}`);
     }
     if (f !== 'lib/store.mjs') assert.doesNotMatch(src, /\b(writeFileSync|appendFileSync|renameSync|rmSync|unlinkSync|mkdirSync|writeFile|copyFileSync)\b/, `${f} writes a file`);

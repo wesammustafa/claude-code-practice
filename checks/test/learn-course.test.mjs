@@ -15,7 +15,7 @@ import { sanitize, snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { lessons } from '../lessons/index.mjs';
-import { course, driver, finishedBefore, lessonScreens, mapTo, playUntil, root } from './learn-drive.mjs';
+import { course, driver, FACTS, finishedBefore, lessonScreens, mapTo, playUntil, root } from './learn-drive.mjs';
 
 const FULL = theme({ tty: true, depth: 8, unicode: true, links: true, win32: false });
 const ASCII = theme({ tty: true, depth: 1, unicode: false, links: false, win32: true });
@@ -142,7 +142,7 @@ test('a check-only lesson is complete once a full check passes, slow items inclu
   d.send(result('i-5', all));
   assert.equal(d.state.progress['i-5'].complete, false, 'a poll without the slow item');
   const out = d.key('r');
-  assert.deepEqual(out.find((e) => e.type === 'check'), { type: 'check', lesson: 'i-5', items: null, slow: true, asked: 1 });
+  assert.deepEqual(out.find((e) => e.type === 'check'), { type: 'check', lesson: 'i-5', items: null, slow: true, asked: 1, dir: FACTS.root });
   // r's run with a failing item: still not complete.
   d.send(result('i-5', (i) => i !== 0, { slow: false }));
   assert.equal(d.state.progress['i-5'].complete, false, 'an item fails');
@@ -426,7 +426,7 @@ test('r on a check-only card with no slow item changes no row: its run takes a m
       const d = checkOnly(id);
       d.send(result(id, () => true));
       const before = lines(d.state, size);
-      assert.deepEqual(d.key('r').find((e) => e.type === 'check'), { type: 'check', lesson: id, items: null, slow: true }, id);
+      assert.deepEqual(d.key('r').find((e) => e.type === 'check'), { type: 'check', lesson: id, items: null, slow: true, dir: FACTS.root }, id);
       assert.equal(d.state.checkOnlyRun, null, id);
       assert.deepEqual(lines(d.state, size), before, `${id} at ${size.join('x')}`);
     }

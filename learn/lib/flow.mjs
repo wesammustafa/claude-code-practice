@@ -2,7 +2,9 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
+import { PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
+import { evidenceOf, judge } from './holds.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
 export const IDLE_MS = 120_000;
@@ -75,6 +77,16 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     checkOnlyRun: null,
     // The motion layer's stamps (stampFx): the first screen appears now.
     fx: { view: now },
+    // The work folders the learner chose, saved (folderOf reads them), and
+    // what the app found in each folder it looked at, in memory.
+    folders: { ...(saved?.folders ?? {}) },
+    probes: {},
+    // The path prompt while it is open: whose folder it asks for, what is
+    // typed, the folder it last found missing, and the number of the ask
+    // main is looking at, in memory.
+    folderAsk: null,
+    // The lesson whose intro took the answer, which then shows it, in memory.
+    folderAnswered: null,
   };
 }
 
@@ -89,12 +101,39 @@ export const levelsOf = (s) => [...new Set(s.course.map((l) => l.level))];
 // A lesson's number within its level, as its page says "Lesson 2 of 8".
 export const lessonNumber = (s, id = s.lesson) => levelLessons(s, levelOf(s, id)).findIndex((l) => l.id === id) + 1;
 export const contentOf = (s, id = s.lesson) => lessonOf(s, id)?.content;
+// Where a lesson pins its folder: 'copy', the practice copy whatever its
+// level's work folder is (i-capstone), or 'new copy', the new copy of the
+// template it asks for (a-5, a-capstone). Its lesson file's front matter
+// says so, or, while it has none, its PATH entry.
+export const pinOf = (l) => l.content?.folder ?? l.folder ?? (l.newCopy ? 'new copy' : null);
+// What a lesson's folder is saved under: its level, or the lesson itself for
+// one that runs in a new copy. Beginner, and a lesson pinned to the copy,
+// have none.
+export function folderKey(s, id = s.lesson) {
+  const l = lessonOf(s, id);
+  if (pinOf(l) === 'new copy') return l.id;
+  return pinOf(l) === 'copy' ? null : levelKey(s, id);
+}
+// A lesson's level where that level practises in a work folder: Intermediate
+// or Advanced. Null for Beginner.
+export const levelKey = (s, id = s.lesson) => (WORK_LEVELS.includes(levelOf(s, id)) ? levelOf(s, id) : null);
+// A later level's work folder: the one saved for it, the practice copy by default.
+export const levelFolder = (s, level) => s.folders[level] ?? s.facts.root;
+// The folder a lesson's check, git status and file reads run in: its work
+// folder, the practice copy by default. A lesson that runs in a new copy has
+// none (null) until the learner gives it, and no check runs for it before.
+export function folderOf(s, id = s.lesson) {
+  const l = lessonOf(s, id);
+  if (pinOf(l) === 'new copy') return s.folders[l.id] ?? null;
+  const k = folderKey(s, id);
+  return (k && s.folders[k]) || s.facts.root;
+}
 // A lesson the learner can still finish in this practice copy: not complete,
 // and not one that runs in a new copy of the template, whose check never
 // runs here. The next lesson the map marks and opens at is one of these.
-export const toFinish = (progress, l) => !progress[l.id].complete && !l.newCopy;
+export const toFinish = (progress, l) => !progress[l.id].complete && pinOf(l) !== 'new copy';
 // What the check-only card says above a lesson's items.
-export const checkOnlyWords = (l) => (l.newCopy ? C.newCopy : C.checkOnly);
+export const checkOnlyWords = (s, l) => (pinOf(l) !== 'new copy' ? C.checkOnly : folderOf(s, l.id) ? C.newCopyAt : C.newCopy);
 // The steps a learner meets, in order: the warm-up questions chosen when the
 // lesson started, then the lesson's own steps.
 const playOrder = (content, p) => [...p.warm.map((id) => content.warmup.find((w) => w.id === id)).filter(Boolean), ...content.steps];
@@ -200,16 +239,90 @@ export function authoredTier(s) {
 export const tierOf = (s) => tiersOf(s)[s.pos.step];
 
 // What the wiring should keep an eye on for the beat on screen.
+// `dir` is the folder it runs in.
 export function watching(s) {
-  // A lesson that runs in a new copy has no check to run here.
-  if (s.view === 'checkonly') return lessonOf(s).newCopy ? null : { check: { lesson: s.lesson, items: null } };
+  const dir = folderOf(s);
+  // A lesson that runs in a new copy has no check to run until it has one.
+  if (s.view === 'checkonly') return dir ? { check: { lesson: s.lesson, items: null }, dir } : null;
   if (s.view !== 'step' || !s.beat) return null;
   if (['done', 'already'].includes(s.beat.status)) return null;
   const v = beatOf(s).verify;
-  if (v.kind === 'check') return { check: { lesson: s.lesson, items: v.all ? null : v.items } };
-  if (v.kind === 'file') return { file: v.path };
-  if (v.kind === 'git-clean') return { git: true };
+  if (v.kind === 'check') return { check: { lesson: s.lesson, items: v.all ? null : v.items }, dir };
+  if (READS.has(v.kind)) return { file: v.path, dir };
+  if (v.kind === 'git-clean') return { git: true, dir };
   return null;
+}
+
+// The intro that holds the folder question: a lesson that runs in a new
+// copy; for a level, the first of its intros the learner opens while it has
+// no answer, its first lesson's, and the one the answer was given on, which
+// then shows the answer.
+export function asksHere(s) {
+  const key = folderKey(s);
+  if (!key) return false;
+  return key !== levelOf(s) || !(key in s.folders) || s.folderAnswered === s.lesson || levelLessons(s, key)[0].id === s.lesson;
+}
+// The intro asks where to practise until there is an answer. A folder given
+// with --dir, or on the map, is one.
+export const asksFolder = (s) => s.view === 'intro' && asksHere(s) && !(folderKey(s) in s.folders);
+// The answers it offers: this practice copy, or another folder; a lesson
+// that runs in a new copy offers only its folder.
+export const folderOptions = (s) => (folderKey(s) === levelOf(s) ? ['copy', 'other'] : ['other']);
+
+function askFolder(s, key) {
+  s.overlay = 'folder';
+  s.folderAsk = { key, typed: '', missing: null, isCopy: false, asked: 0 };
+}
+
+// The learner's answer: saved, and from now on where that key's lessons
+// run. What a check found in the folder before, and the states a fresh
+// check compares its file with, say nothing about another one.
+function setFolder(s, key, path, effects) {
+  const moved = s.course.filter((l) => folderKey(s, l.id) === key && folderOf(s, l.id) !== path).map((l) => l.id);
+  s.folders[key] = path;
+  for (const id of moved) {
+    delete s.checks[id];
+    s.progress[id].stamps = {};
+  }
+  if (s.checkOnlyRun && moved.includes(s.checkOnlyRun.lesson)) s.checkOnlyRun = null;
+  if (s.folderAsk?.key === key) {
+    s.folderAsk = null;
+    s.overlay = null;
+  }
+  // The intro's menu is the start options now: the cursor goes to the first.
+  if (s.view === 'intro') {
+    s.cursor = 0;
+    s.folderAnswered = s.lesson;
+  }
+  effects.push({ type: 'save' });
+  if (s.view === 'checkonly' && folderKey(s) === key) effects.push({ type: 'check', lesson: s.lesson, items: null, dir: path });
+}
+
+// The path prompt's keys: a pasted path arrives whole (onPaste), typed
+// keys one at a time. Enter sends the path to main to look at; an empty line
+// is the practice copy, where the copy is an answer. While main looks, only
+// Esc works.
+function folderKeyPress(s, { name, ch }, effects) {
+  const a = s.folderAsk;
+  if (name === 'escape') {
+    s.overlay = null;
+    s.folderAsk = null;
+    return;
+  }
+  if (a.asked) return;
+  if (name === 'enter') {
+    const text = a.typed.trim();
+    if (text) {
+      s.asks += 1;
+      Object.assign(a, { asked: s.asks, missing: null, isCopy: false });
+      effects.push({ type: 'folder', key: a.key, text, asked: s.asks });
+    } else if (WORK_LEVELS.includes(a.key)) setFolder(s, a.key, s.facts.root, effects);
+    return;
+  }
+  if (name === 'backspace') a.typed = a.typed.slice(0, -1);
+  else if (ch && ch >= ' ') a.typed = (a.typed + ch).slice(0, PATH_MAX);
+  else return;
+  Object.assign(a, { missing: null, isCopy: false });
 }
 
 // ---- hints -------------------------------------------------------------------
@@ -247,7 +360,7 @@ export function rungsOf(s) {
 // where nothing can fail, so h answers at once.
 export function tryFirst(s) {
   const beat = beatOf(s);
-  if (['check', 'file', 'git-clean'].includes(beat.verify.kind)) return 'r';
+  if (beat.verify.kind === 'check' || beat.verify.kind === 'git-clean' || READS.has(beat.verify.kind)) return 'r';
   const canMiss = beat.options.some((o) => o.kind === 'wrong' || o.kind === 'decoy');
   return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' && canMiss ? 'pick' : null;
 }
@@ -280,13 +393,13 @@ function openBeat(s, effects) {
     s.beat.codespace = true;
   } else if (beat.verify.kind === 'check') {
     s.beat.status = 'opening';
-    effects.push({ type: 'check', lesson: s.lesson, items: beat.verify.all ? null : beat.verify.items, evidence: beat.evidence ?? null });
-  } else if (beat.verify.kind === 'file') {
+    effects.push({ type: 'check', lesson: s.lesson, items: beat.verify.all ? null : beat.verify.items, evidence: beat.evidence ?? null, dir: folderOf(s) });
+  } else if (READS.has(beat.verify.kind)) {
     s.beat.status = 'opening';
-    effects.push({ type: 'file', path: beat.verify.path });
+    effects.push({ type: 'file', path: beat.verify.path, dir: folderOf(s) });
   } else if (beat.verify.kind === 'git-clean') {
     s.beat.status = 'opening';
-    effects.push({ type: 'git' });
+    effects.push({ type: 'git', dir: folderOf(s) });
   }
   effects.push({ type: 'save' });
 }
@@ -299,7 +412,7 @@ function stampFresh(s, effects) {
   for (const other of stepsOf(s)) {
     other.beats.forEach((b, i) => {
       const key = `${other.id}.${i}`;
-      if (b.verify.fresh && (b.verify.since ?? other.id) === step.id && !(key in stamps)) effects.push({ type: 'stamp', key, path: b.evidence });
+      if (b.verify.fresh && (b.verify.since ?? other.id) === step.id && !(key in stamps)) effects.push({ type: 'stamp', key, path: b.evidence, dir: folderOf(s) });
     });
   }
 }
@@ -409,7 +522,7 @@ export function startLesson(s, id, effects) {
     // r's run on this card goes on through a trip to the map; another
     // lesson's run is not this card's (verify.mjs owing drops what r asked for it).
     if (s.checkOnlyRun?.lesson !== id) s.checkOnlyRun = null;
-    if (!l.newCopy) effects.push({ type: 'check', lesson: id, items: null });
+    if (folderOf(s, id)) effects.push({ type: 'check', lesson: id, items: null, dir: folderOf(s, id) });
     return;
   }
   const p = s.progress[id];
@@ -599,8 +712,10 @@ function submitTyped(s, effects) {
 // ---- checks and git ----------------------------------------------------------
 const RESULTS = ['check', 'check-error', 'file', 'git', 'git-error'];
 
+// `read` is the bytes of the beat's evidence file, as main read it.
 function onCheck(s, ev, effects, rRuns) {
-  s.checks[ev.lesson] = { items: keptSlow(s, ev), evidence: ev.evidence ?? null, error: null };
+  ev = { ...ev, evidence: evidenceOf(ev.read) };
+  s.checks[ev.lesson] = { items: keptSlow(s, ev), evidence: ev.evidence, error: null };
   checkOnlyDone(s, ev, effects);
   if (rRuns || s.view !== 'step' || ev.lesson !== s.lesson || !s.beat) return;
   const beat = beatOf(s);
@@ -648,14 +763,14 @@ function checkOnlyDone(s, ev, effects) {
   effects.push({ type: 'save' });
 }
 
-// A file no check item covers: done once it holds a line.
+// A file the beat reads itself, by what it holds now (holds.mjs): `read`
+// is its bytes, null when it isn't there.
 function onFile(s, ev, effects, rRuns) {
   if (rRuns || s.view !== 'step' || !s.beat) return;
   const v = beatOf(s).verify;
-  if (v.kind !== 'file' || ev.path !== v.path || ['done', 'already'].includes(s.beat.status)) return;
-  // A list shows its first line and how many more, so a short list shows.
-  const more = (ev.lines ?? 1) - 1;
-  decide(s, { ...ev, evidence: ev.line && more > 0 ? C.andMore(ev.line, more) : ev.line }, effects, ev.line ? null : { hint: C.fileEmpty(ev.path) });
+  if (!READS.has(v.kind) || ev.path !== v.path || ['done', 'already'].includes(s.beat.status)) return;
+  const r = judge(v, ev.read);
+  decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
 }
 
 // Turns a result into the beat's status. `failing` is null when it passes.
@@ -762,6 +877,9 @@ export function reduce(prev, ev) {
   // One check child runs at a time, so its result means the run that
   // reported has ended: the count goes with it.
   if ((ev.type === 'check' || ev.type === 'check-error') && s.beat?.running) s.beat.running = null;
+  // A result about another folder than the one its lesson runs in now (a run
+  // asked for before the learner changed it) decides nothing.
+  if ((result || ev.type === 'stamp') && ev.dir !== undefined && ev.dir !== folderOf(s, ev.lesson ?? s.lesson)) ev = { ...ev, type: 'stale' };
   switch (ev.type) {
     case 'check':
       onCheck(s, ev, effects, rRuns);
@@ -827,8 +945,23 @@ export function reduce(prev, ev) {
       s.lastActivity = s.now;
       if (s.beat) s.beat.idle = false;
       break;
+    case 'probed': {
+      // What main found at a folder: kept for the notes, and, for the ask
+      // the prompt is waiting on, the answer.
+      s.probes[ev.path] = { missing: ev.missing, git: ev.git, gitBroken: ev.gitBroken ?? null, practice: ev.practice };
+      const a = s.folderAsk;
+      if (!ev.key || !a || a.key !== ev.key || a.asked !== ev.asked) break;
+      if (ev.missing) Object.assign(a, { asked: 0, missing: ev.path });
+      // A new copy is another folder than this practice copy.
+      else if (!WORK_LEVELS.includes(ev.key) && ev.path === s.facts.root) Object.assign(a, { asked: 0, isCopy: true });
+      else setFolder(s, ev.key, ev.path, effects);
+      break;
+    }
     case 'paste':
-      if (s.view === 'step' && s.beat && beatOf(s).kind === 'type' && s.beat.status !== 'done') {
+      // A path pasted into the prompt is kept whole, up to its first line.
+      if (s.overlay === 'folder') {
+        if (!s.folderAsk.asked) Object.assign(s.folderAsk, { typed: (s.folderAsk.typed + ev.text.replace(/[\r\n].*$/s, '')).slice(0, PATH_MAX), missing: null, isCopy: false });
+      } else if (s.view === 'step' && s.beat && beatOf(s).kind === 'type' && s.beat.status !== 'done') {
         s.beat.typed = (s.beat.typed + ev.text.replace(/[\r\n].*$/s, '')).slice(0, 40);
       } else onPaste(s);
       break;
@@ -881,7 +1014,7 @@ function stampFx(prev, s, ev) {
   const w = watching(prev);
   const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && w?.git);
   if (looked) {
-    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, ev.evidence ?? null] : ev.type === 'file' ? [ev.line, ev.lines] : ev.paths);
+    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read) : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;
     if (fx.changed) fx.changedAt = t;
     fx.seen = seen;
@@ -963,6 +1096,7 @@ function onKey(s, ev, effects) {
     else if (ch && ch >= ' ' && s.beat.typed.length < 40) s.beat.typed += ch;
     return;
   }
+  if (s.overlay === 'folder') return folderKeyPress(s, ev, effects);
   if (s.overlay) {
     // Enter never waits for the comparison: it goes on, as the next screen's.
     if (s.overlay === 'compare' && name === 'enter') {
@@ -1005,9 +1139,9 @@ function closeMap(s, effects) {
   if (s.view === 'step' && s.beat) {
     // Re-run what the beat waits on: files may have changed meanwhile.
     const w = watching(s);
-    if (w?.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beatOf(s).evidence ?? null });
-    if (w?.file) effects.push({ type: 'file', path: w.file });
-    if (w?.git) effects.push({ type: 'git' });
+    if (w?.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beatOf(s).evidence ?? null, dir: w.dir });
+    if (w?.file) effects.push({ type: 'file', path: w.file, dir: w.dir });
+    if (w?.git) effects.push({ type: 'git', dir: w.dir });
   }
 }
 
@@ -1039,7 +1173,18 @@ const VIEWS = {
     return false;
   },
   intro(s, { name, ch }, effects) {
-    if (name === 'up' || name === 'down') s.cursor = s.cursor ? 0 : 1;
+    // The folder question first, where the intro asks it.
+    if (asksFolder(s)) {
+      const options = folderOptions(s);
+      if (name === 'up' || name === 'down') s.cursor = (s.cursor + 1) % options.length;
+      else if (DIGIT.test(ch ?? '') && Number(ch) <= options.length) s.cursor = Number(ch) - 1;
+      else if (name === 'enter' && options[s.cursor] === 'copy') setFolder(s, folderKey(s), s.facts.root, effects);
+      else if (name === 'enter') askFolder(s, folderKey(s));
+      else return false;
+      return true;
+    }
+    if (name === 'f' && folderKey(s)) askFolder(s, folderKey(s));
+    else if (name === 'up' || name === 'down') s.cursor = s.cursor ? 0 : 1;
     else if (DIGIT.test(ch ?? '') && Number(ch) <= 2) s.cursor = Number(ch) - 1;
     else if (name === 'enter') {
       // A finished lesson played again keeps its badge and its ticks, but
@@ -1114,9 +1259,9 @@ const VIEWS = {
       // the status "Checking" covers, for the hints and the key bar.
       s.asks += 1;
       Object.assign(st, { status: 'opening', slowWait: false, asked: s.asks, running: null, before: st.status === 'opening' ? st.before : st.status });
-      if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks });
-      if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks });
-      if (w.git) effects.push({ type: 'git', asked: s.asks });
+      if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks, dir: w.dir });
+      if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks, dir: w.dir });
+      if (w.git) effects.push({ type: 'git', asked: s.asks, dir: w.dir });
       return true;
     }
     // At CHALLENGE, hints wait for a first try: name it instead of ignoring h.
@@ -1198,10 +1343,16 @@ const VIEWS = {
       const lessons = levelLessons(s, level);
       to(lessons.find((l) => toFinish(s.progress, l)) ?? lessons[0]);
     } else if (name === 'enter') startLesson(s, at.id, effects);
+    // f: the work folder of the level on screen (ticket 86).
+    else if (name === 'f' && levelKey(s, at.id)) askFolder(s, levelKey(s, at.id));
     else return false;
     return true;
   },
   checkonly(s, { name, itemsMax }, effects) {
+    if (name === 'f' && folderKey(s)) {
+      askFolder(s, folderKey(s));
+      return true;
+    }
     // The arrows: one item a press, no further than the card can scroll at
     // the window's size, which main sends with the key (render's itemsMax):
     // where every item fits, they move nothing.
@@ -1215,12 +1366,12 @@ const VIEWS = {
       // own result lands, as a step card does. Elsewhere the run takes a
       // moment, and the card stays as it is.
       if (!lessonOf(s).slow.length) {
-        effects.push({ type: 'check', lesson: s.lesson, items: null, slow: true });
+        effects.push({ type: 'check', lesson: s.lesson, items: null, slow: true, dir: folderOf(s) });
         return true;
       }
       s.asks += 1;
       s.checkOnlyRun = { lesson: s.lesson, asked: s.asks, running: null };
-      effects.push({ type: 'check', lesson: s.lesson, items: null, slow: true, asked: s.asks });
+      effects.push({ type: 'check', lesson: s.lesson, items: null, slow: true, asked: s.asks, dir: folderOf(s) });
       return true;
     }
     return false;

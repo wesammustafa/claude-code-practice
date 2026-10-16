@@ -307,7 +307,7 @@ test('stamps: new text on the same card, a pass and a step\'s last pass', () => 
   const rung = at(d, { type: 'flush', wait: DEFER_MS + 50 });
   assert.equal(d.state.beat.rung, 0);
   assert.equal(d.state.fx.text, rung.now, 'a rung, when the held h acts');
-  const done = at(d, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)' });
+  const done = at(d, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], read: Buffer.from('2.1.285 (Claude Code)\n') });
   assert.equal(d.state.beat.status, 'done');
   assert.equal(d.state.fx.pass, done.now);
   assert.equal(d.state.fx.passLast, done.now);
@@ -362,7 +362,7 @@ test('stamps: a look at what the screen watches, and whether it changed; activit
   const act = at(d, { type: 'activity' });
   assert.equal(d.state.fx.activity, act.now);
   // The look that passes ends the watch, and it differs from the last.
-  const pass = at(d, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)' });
+  const pass = at(d, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], read: Buffer.from('2.1.285 (Claude Code)\n') });
   assert.equal(d.state.beat.status, 'done');
   assert.equal(d.state.fx.look, pass.now);
   assert.equal(d.state.fx.changed, true, 'not yet, then done');
@@ -601,7 +601,7 @@ test('phases: "Not yet" over 360 ms; a pass that ends its step cheers, any other
   const rung = at(d, { type: 'flush', wait: DEFER_MS + 50 }).now;
   assert.equal(d.state.fx.text, rung);
   assert.equal(phases(d.state, rung + 180, ON).notYet, 1);
-  const pass = at(d, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)' });
+  const pass = at(d, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], read: Buffer.from('2.1.285 (Claude Code)\n') });
   const done = phases(d.state, pass.now + 180, ON);
   assert.equal(done.cheer, 0.5);
   assert.equal(done.stepDone, 180 / 560);
@@ -864,7 +864,7 @@ test('a step done: the stop pops and its link fills, the rule grows, Pip cheers,
   const d = driver();
   playUntil(d, (x) => x.view === 'step' && stepOf(x).id === 'W4');
   d.key('b');
-  d.send({ type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)', wait: 50 });
+  d.send({ type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], read: Buffer.from('2.1.285 (Claude Code)\n'), wait: 50 });
   const again = d.state;
   assert.equal(stepOf(again).id, 'W3');
   assert.ok(isDone(again.beat) && again.progress['b-1'].done.includes('W3'));
@@ -1303,7 +1303,7 @@ test('no glance once the watch ends: a file change, then a look that passes the 
   // W3's only beat: the step is done, Pip cheers, then wears its done face.
   const waiting = screen('W3 waiting');
   const edit = reduce(waiting, { type: 'activity', now: waiting.now + 5_000 }).state;
-  const passed = reduce(edit, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)', now: edit.now + 50 }).state;
+  const passed = reduce(edit, { type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], read: Buffer.from('2.1.285 (Claude Code)\n'), now: edit.now + 50 }).state;
   // The Check's first beat, a check before its typed answer: a hop.
   const c = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'C', beat: 0 } } } });
   c.key('enter');
@@ -1528,7 +1528,7 @@ function passW3(before = () => {}, saved = {}) {
   d.key('enter');
   d.send({ type: 'check', lesson: 'b-1', items: [b1Item(null)] });
   before(d);
-  d.send({ type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], evidence: '2.1.285 (Claude Code)' });
+  d.send({ type: 'check', lesson: 'b-1', items: [b1Item('2.1.285 (Claude Code)\n')], read: Buffer.from('2.1.285 (Claude Code)\n') });
   assert.equal(d.state.beat.status, 'done');
   return d.state;
 }
