@@ -1801,3 +1801,85 @@ test('r over a "Not yet" keeps its hints: the open rung, the ladder h climbs and
   assert.equal(d.state.beat.status, 'fail');
   assert.equal(d.state.beat.rung, ladder.length - 1, 'the same FAIL keeps the exact command open');
 });
+
+// Recall, then compare (152, design D8 (a)): the next screen asks for the
+// lesson's card entries from memory, and space shows them. Nothing is
+// judged or saved, and enter never waits for it.
+const onNext = (id) => {
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === id);
+  return d;
+};
+
+test('recall, then compare: space on the next screen shows the lesson\'s entries, and enter goes on with or without it', () => {
+  const d = onNext('b-4');
+  const before = snapshot(d.state);
+  assert.deepEqual(d.key('space').filter((e) => e.type === 'save'), [], 'space saves nothing');
+  assert.equal(d.state.overlay, 'compare');
+  assert.deepEqual(snapshot(d.state), before, 'nothing new is saved');
+  // Enter from the comparison goes on to the next lesson, as from the next screen.
+  d.key('enter');
+  assert.equal(d.state.overlay, null);
+  assert.equal(d.state.lesson, 'b-5');
+  assert.equal(d.state.view, 'intro');
+  // Enter never waits: with no space, it goes on at once.
+  const e = onNext('b-4');
+  e.key('enter');
+  assert.equal(e.state.lesson, 'b-5');
+  assert.equal(e.state.view, 'intro');
+  // Space again closes the comparison, back on the next screen.
+  const f = onNext('b-4');
+  f.key('space');
+  f.key('space');
+  assert.equal(f.state.overlay, null);
+  assert.equal(f.state.view, 'next');
+  assert.deepEqual(snapshot(f.state), before);
+});
+
+// A command typed fast, then enter, as a person types it into the wrong window.
+const typed = (d, text) => {
+  for (const c of text) d.send({ type: 'key', name: c, ch: c, wait: 60 });
+  d.send({ type: 'key', name: 'enter', wait: 60 });
+  d.send({ type: 'flush', wait: DEFER_MS + 50 });
+};
+
+test('recall, then compare: a command typed into this window does not act, on the next screen or with the comparison open', () => {
+  for (const text of ['/resume', '/init', '/help']) {
+    const bare = onNext('b-4');
+    typed(bare, text);
+    assert.equal(bare.state.view, 'next', text);
+    assert.equal(bare.state.lesson, 'b-4', text);
+    const open = onNext('b-4');
+    open.key('space');
+    typed(open, text);
+    assert.equal(open.state.lesson, 'b-4', `${text}: the comparison's enter went on`);
+    assert.equal(open.state.view, 'next', text);
+    assert.equal(open.state.toast?.kind, 'stray', text);
+    // Once the typing stops, enter goes on.
+    open.key('enter');
+    assert.equal(open.state.lesson, 'b-5', text);
+  }
+});
+
+test('recall, then compare: escape goes back, the capstone\'s enter opens the map, and a lesson with nothing on the card asks nothing', () => {
+  const d = onNext('b-4');
+  d.key('space');
+  d.key('escape');
+  assert.equal(d.state.overlay, null);
+  assert.equal(d.state.view, 'next');
+  assert.equal(d.state.lesson, 'b-4');
+  // After the last lesson, enter from the comparison opens the map, as from the next screen.
+  const cap = onNext('b-capstone');
+  cap.key('space');
+  assert.equal(cap.state.overlay, 'compare');
+  cap.key('enter');
+  assert.equal(cap.state.overlay, null);
+  assert.equal(cap.state.view, 'map');
+  // With no entry of this lesson's on the card, space does nothing.
+  const bare = course.map((l) => (l.id === 'b-4' ? { ...l, content: { ...l.content, card: [] } } : l));
+  const e = driver({ course: bare, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
+  playUntil(e, (s) => s.view === 'next' && s.lesson === 'b-4');
+  e.key('space');
+  assert.equal(e.state.overlay, null);
+  assert.equal(e.state.view, 'next');
+});

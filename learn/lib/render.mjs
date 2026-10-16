@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -26,10 +26,10 @@ const SPACER = spacer();
 // question.
 const kept = (rows) => rows.map((text) => ({ keep: true, text }));
 // Optional rows: the level's first warm-up explainer, the intro's Why line
-// and a GUIDED card's, the next screen's Go further line and the ? overlay's
-// calm line, each with its blank, teaching the learner can also reach
-// another way, such as behind a key, repeats with no compact form, and a
-// done beat's satisfied "Done when" line. The rows of one call are one
+// and a GUIDED card's, the next screen's recall and Go further lines and
+// the ? overlay's calm line, each with its blank, teaching the learner can
+// also reach another way, such as behind a key, repeats with no compact
+// form, and a done beat's satisfied "Done when" line. The rows of one call are one
 // sentence: they drop whole.
 const optional = (rows) => {
   const whole = {};
@@ -657,7 +657,7 @@ const VIEWS = {
     // Only the questions in steps this learner finished: the app saw those.
     const answered = stepsOf(s).filter((st) => s.progress[s.lesson].done.includes(st.id)).flatMap((st) => st.beats)
       .filter((b) => b.ask && b.kind !== 'predict').length;
-    const nextLesson = content.next ? lessonOf(s, content.next) : null;
+    const nextLesson = nextLessonOf(s);
     const body = [];
     if (results) body.push(lead(t, 'verified', t.fg('ok', C.checkedSummary(results.filter((r) => r.pass).length, results.length))));
     // The capstone's handover: plain text, shown only when no exact command
@@ -667,6 +667,11 @@ const VIEWS = {
     body.push(...optional([lead(t, 'claude', t.fg('text', C.answeredSummary(answered)))]), SPACER, t.bold(t.fg('white', C.yourClimb)), SPACER,
       // The climb as it was played: an eased step counts at its easier tier.
       ...staircase(ctx, mix(tiersOf(s).filter((_, i) => stepsOf(s)[i].part !== 'Warm-up')), true));
+    // Recall, then compare: the lesson's card entries from memory first. An
+    // optional sentence, so a long toast cuts no teaching line: where it
+    // drops, c still shows the same entries. Go further, under it, gives way
+    // first.
+    if (recallOf(s).length) body.push(...optional(['', ...para(t, C.recallAsk(lessonLabel(s.lesson)), W, 'text')]));
     // A source to read next, one optional sentence: p shows it too. A
     // capstone has none.
     if (content.intro.read) body.push(...optional(['', ...goFurther(t, content.intro.read, W)]));
@@ -680,7 +685,7 @@ const VIEWS = {
     return {
       head: lessonHead(ctx, t.pill(`${C.complete} ${t.glyph.check}`, 'okBg'), `${total} of ${total}`),
       body,
-      keys: [nextLesson ? mainKey('enter', C.k.startN(lessonLabel(nextLesson.id))) : mainKey('enter', C.k.map), key('p', C.k.page), key('m', C.k.map), cardKey(s), key('q', C.k.quit)],
+      keys: [nextKey(s), key('p', C.k.page), key('m', C.k.map), cardKey(s), key('q', C.k.quit)],
     };
   },
 
@@ -1157,12 +1162,39 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   const r = hintStatus(st) === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
   return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), card, key('q', C.k.quit)];
 }
+// The next screen's enter: the next lesson, or the map after the last.
+const nextKey = (s) => {
+  const next = nextLessonOf(s);
+  return next ? mainKey('enter', C.k.startN(lessonLabel(next.id))) : mainKey('enter', C.k.map);
+};
 // `c card`, once the card has an entry. It is low: a bar too narrow for it
 // gives it up before the main key's long label, and it sits before q, so
 // a short bar drops it first too.
 const cardKey = (s) => (cardOf(s).length ? { ...key('c', C.k.card), low: true } : null);
 
 // ---- overlays ----------------------------------------------------------------
+// The card's layout: a title, its intro and `units`, the entries' rows,
+// then the guide's Commands by level page. Where it is taller than its
+// room, it shows whole places from s.cardAt down, one a press of the
+// arrows: each entry is a place, and the link is the last, so the last
+// place always shows it, a toast or not. `scroll` is the arrows' key, or null.
+function cardPlaces(ctx, units, title, intro) {
+  const { s, t, inner, room } = ctx;
+  const head = [t.bold(t.fg('white', title)), ...para(t, intro, inner, 'muted'), ''];
+  // Under an entry, the link keeps a blank above it.
+  const places = [...units, [...(units.length ? [''] : []), t.fg('text', C.cardLink), ...para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL))]];
+  const avail = room - head.length;
+  const from = places.flat().length <= avail ? 0 : Math.min(s.cardAt, places.length - 1);
+  // The first place shown never opens on a blank: the link's goes there.
+  const shown = places[from][0] === '' ? places[from].slice(1) : [...places[from]];
+  let k = from + 1;
+  while (k < places.length && shown.length + places[k].length <= avail) shown.push(...places[k++]);
+  return { body: [...head, ...shown], scroll: from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null };
+}
+
+// The fewest columns the comparison gives what a command does beside it.
+const COMPARE_MIN = 24;
+
 const OVERLAYS = {
   why(ctx) {
     const { s, t, inner } = ctx;
@@ -1187,30 +1219,31 @@ const OVERLAYS = {
     };
   },
   // Your card: the entries from cardOf, each its lesson, the page's command
-  // and what it does, then the guide's Commands by level page. Where the
-  // card is taller than its room, it shows whole places from s.cardAt down,
-  // one a press of the arrows: each entry is a place, and the link is the
-  // last, so the last place always shows it, a toast or not.
+  // and what it does.
   card(ctx) {
-    const { s, t, inner, room } = ctx;
+    const { s, t, inner } = ctx;
     // What it does hangs under the command, past the lesson's pill.
     const units = cardOf(s).map((e) => {
       const label = `${t.pill(pad(lessonLabel(e.lesson), 3), 'dimBg', 'dimText')}  `;
       return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
     });
-    const head = [t.bold(t.fg('white', C.cardTitle)), ...para(t, units.length ? C.cardIntro : C.cardEmpty, inner, 'muted'), ''];
-    // Under an entry, the link keeps a blank above it.
-    units.push([...(units.length ? [''] : []), t.fg('text', C.cardLink), ...para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL))]);
-    const avail = room - head.length;
-    const from = units.flat().length <= avail ? 0 : Math.min(s.cardAt, units.length - 1);
-    // The first place shown never opens on a blank: the link's goes there.
-    const shown = units[from][0] === '' ? units[from].slice(1) : [...units[from]];
-    let k = from + 1;
-    while (k < units.length && shown.length + units[k].length <= avail) shown.push(...units[k++]);
-    return {
-      body: [...head, ...shown],
-      keys: [from > 0 || k < units.length ? key(t.glyph.up, C.k.scroll) : null, key('c', C.k.close), key('q', C.k.close)],
-    };
+    const { body, scroll } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty);
+    return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)] };
+  },
+  // Recall, then compare: the lesson's own entries, whole as soon as space
+  // asks. One lesson needs no pill, so what it does sits beside the command,
+  // or under it, as on the card, where a long command would leave it less
+  // than COMPARE_MIN columns. Enter goes on as from the next screen; space
+  // goes back to it.
+  compare(ctx) {
+    const { s, t, inner } = ctx;
+    const entries = recallOf(s);
+    const col = Math.max(0, ...entries.map((e) => width(e.show))) + 3;
+    const units = entries.map((e) => (inner - col >= COMPARE_MIN
+      ? hang(t.fg('code', pad(e.show, col)), para(t, e.does, inner - col, 'text', { quote: true }))
+      : [t.fg('code', e.show), ...hang('   ', para(t, e.does, inner - 3, 'text', { quote: true }))]));
+    const { body, scroll } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
+    return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)] };
   },
   page(ctx) {
     const { s, t, inner } = ctx;
