@@ -262,24 +262,33 @@ function planned(state) {
   return { steps: [...warm, ...content.steps], tiers: [...warm.map(() => 'challenge'), ...own] };
 }
 
+// The steps in `done`, and the step on screen once its last beat is done:
+// it is passed before enter adds it.
+function passed(s) {
+  const done = new Set(s.progress[s.lesson].done);
+  if (s.view === 'step' && s.beat && s.pos.beat === stepOf(s).beats.length - 1 && ['done', 'already'].includes(s.beat.status)) done.add(stepOf(s).id);
+  return done;
+}
+
 // One mark per step, joined within a tier and spaced between tiers. When the
 // row has no room for that, the marks close up.
 function trail(ctx, room) {
   const { s, t } = ctx;
   const { steps, tiers } = planned(s);
-  const done = new Set(s.progress[s.lesson].done);
+  const done = passed(s);
   const current = s.view === 'step' || s.view === 'levelup' ? s.pos.step : -1;
   const draw = (join, gap) => {
     let out = '';
     steps.forEach((step, i) => {
       const style = TIER_STYLE[tiers[i]];
-      const isDone = done.has(step.id) && i !== current;
+      // A passed step is drawn done before enter, and its link fills.
+      const isDone = done.has(step.id);
       if (isDone) out += t.fg('ok', t.glyph[style.on]);
       else if (i === current) out += t.bold(t.fg('accent', t.glyph[style.on]));
       else out += t.fg(style.tint, t.glyph[style.off]);
       if (i + 1 < steps.length) {
         if (tiers[i + 1] !== tiers[i]) out += gap;
-        else if (isDone && (done.has(steps[i + 1].id) || i + 1 === current)) out += t.fg('ok', t.glyph.bold.repeat(join));
+        else if (isDone && (i === current || done.has(steps[i + 1].id) || i + 1 === current)) out += t.fg('ok', t.glyph.bold.repeat(join));
         else out += t.fg('faint', t.glyph.rule.repeat(join));
       }
     });
@@ -287,6 +296,16 @@ function trail(ctx, room) {
   };
   const full = draw(2, '   ');
   return width(full) <= room ? full : draw(0, ' ');
+}
+
+// Row 3 on a lesson screen: the share of its steps passed, as a heavy rule
+// over the plain one.
+function progressRule(ctx) {
+  const { s, t, W } = ctx;
+  const { steps } = planned(s);
+  const done = passed(s);
+  const filled = Math.round((W * steps.filter((x) => done.has(x.id)).length) / steps.length);
+  return `${t.fg('ok', t.glyph.bold.repeat(filled))}${rule(t, W - filled)}`;
 }
 
 function lessonHead(ctx, right, rightText) {
@@ -299,7 +318,7 @@ function lessonHead(ctx, right, rightText) {
   return [
     spread(`${label}  ${t.bold(t.fg('white', title))}`, right, W),
     spread(l.content ? trail(ctx, W - width(rightText) - 1) : '', t.fg('muted', rightText), W),
-    rule(t, W),
+    l.content ? progressRule(ctx) : rule(t, W),
   ];
 }
 
