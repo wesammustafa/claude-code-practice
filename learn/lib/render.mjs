@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip } from './art.mjs';
 import { C } from './copy.mjs';
 import { REST } from './motion.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, hintStatus, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -192,16 +192,12 @@ function absolute(url) {
 
 // The keys that fit in `w` columns: a main key's long label gives way to its
 // short one first, then the optional keys go from the right; q always stays.
-// The `held` letter, waiting DEFER_MS to act, draws pressed: inverse, or,
-// for a pill that is inverse already (no color), plain.
+// The `held` letter, waiting DEFER_MS to act, draws pressed: inverse.
 function keybar(t, keys, w = Infinity, held = null) {
   const draw = (list, short) => list.map((k) => {
     const label = short && k.short ? k.short : k.label;
     const pressed = k.key === held;
-    if (k.main) {
-      const pill = pressed && t.depth <= 1 ? t.bold(` ${k.key} `) : t.pill(k.key, k.bg ?? 'okBg', k.fg ?? 'white');
-      return `${pressed && t.depth > 1 ? t.inverse(pill) : pill} ${t.bold(t.fg('white', label))}`;
-    }
+    if (k.main) return `${t.pill(k.key, k.bg ?? 'okBg', k.fg ?? 'white', { pressed })} ${t.bold(t.fg('white', label))}`;
     const letter = t.fg('key', t.bold(k.key));
     return `${pressed ? t.inverse(letter) : letter} ${t.fg('muted', label)}`;
   }).join('    ');
@@ -898,7 +894,7 @@ function footerRows(ctx, { beat, step, content, isLastBeat }) {
       const lines = box.map((x, i) => (i ? `${pad3}${x}` : `${t.lead('hint')}${' '.repeat(Math.max(0, 3 - width(t.lead('hint'))))}${x}`));
       if (more) lines.push(`   ${t.fg('muted', C.pressHAgain)}`);
       rows.push(...hintBox(t, lines));
-    } else if (st.status === 'fail' && hintAvailable(s)) rows.push(...para(t, C.pressH, inner - 2, 'muted').map((x) => `  ${x}`));
+    } else if (hintStatus(st) === 'fail' && hintAvailable(s)) rows.push(...para(t, C.pressH, inner - 2, 'muted').map((x) => `  ${x}`));
     else if (st.idle && hintAvailable(s)) rows.push(t.fg('warn', C.stuckOffer));
   }
   if (st.eased && !['done', 'already'].includes(st.status) && s.pos.beat === 0) rows.push(...para(t, C.eased, inner, 'muted'));
@@ -941,7 +937,7 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
     return [mainKey('enter', label, undefined, undefined, C.k.next), key('b', C.k.back), beat.why.length ? key('w', C.k.why) : null, key('m', C.k.map), key('q', C.k.quit)];
   }
   if (beat.kind === 'type') return [key('enter', C.k.answer), key('esc', C.k.clear), key('ctrl+c', C.k.quit)];
-  const hint = hintAvailable(s) ? key('h', st.rung >= 0 ? C.k.moreHelp : st.status === 'fail' ? C.k.help : C.k.hint) : null;
+  const hint = hintAvailable(s) ? key('h', st.rung >= 0 ? C.k.moreHelp : hintStatus(st) === 'fail' ? C.k.help : C.k.hint) : null;
   const why = beat.why.length ? key('w', C.k.why) : null;
   if (beat.ask && !st.answer) {
     return [key(t.glyph.up, C.k.choose), key('enter', C.k.answer), st.wrongs.length && beat.kind !== 'predict' ? key('s', C.k.showAnswer) : null, hint, why, key('q', C.k.quit)];
@@ -953,7 +949,7 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
     const r = !hint && tier === 'challenge' && tryFirst(s) === 'r' && !st.unlocked && rungsOf(s).length ? key('r', C.k.checkNow) : null;
     return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, key('m', C.k.map), key('q', C.k.quit)];
   }
-  const r = st.status === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
+  const r = hintStatus(st) === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
   return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), key('q', C.k.quit)];
 }
 

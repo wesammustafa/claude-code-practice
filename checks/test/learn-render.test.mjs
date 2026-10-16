@@ -559,7 +559,7 @@ test('the capstone handover line hides after a bottom rung anywhere in the capst
   const items = cap.items.map((text, index) => ({ index, text, pass: text !== 'the tests pass', hint: text === 'the tests pass' ? '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.' : '' }));
   c.send({ type: 'check', lesson: 'b-capstone', items });
   c.key('r');
-  c.send({ type: 'check', lesson: 'b-capstone', items, asked: true });
+  c.send({ type: 'check', lesson: 'b-capstone', items, asked: c.state.beat.asked });
   for (let i = 0; i < 8 && !c.state.beat.confirm; i++) c.key('h');
   c.key('y');
   assert.equal(c.state.progress['b-capstone'].bottomAt, 'C');
@@ -937,10 +937,10 @@ test('the 🏁 line is the same with or without hints, eases, the bottom rung or
   const helpAt = (d, toBottom) => {
     const beat = beatOf(d.state);
     const items = beat.verify.items.map((index) => ({ index, text: lessonOf(d.state).items[index], pass: false, hint: 'not there yet' }));
-    const check = (stamp, pass = false, asked = false) => d.send({ type: 'check', lesson: 'b-4', items: items.map((it) => ({ ...it, pass, hint: pass ? '' : it.hint })), path: beat.evidence, stamp, asked });
+    const check = (stamp, pass = false, asked = 0) => d.send({ type: 'check', lesson: 'b-4', items: items.map((it) => ({ ...it, pass, hint: pass ? '' : it.hint })), path: beat.evidence, stamp, asked });
     check('a');
     d.key('r');
-    check('b', false, true);
+    check('b', false, d.state.beat.asked);
     for (let i = 0; i < 6 && !d.state.beat.confirm; i++) {
       d.key('h');
       if (!toBottom) break;
@@ -1480,7 +1480,7 @@ test('a Windows note is never cut: on Windows at 60x20 and 80x24 the whole note 
   // Every state the walks reach: a check beat's every rung, and a self beat's
   // open card and any rung behind h.
   assert.deepEqual(Object.fromEntries(Object.entries(states).map(([at, names]) => [at, [...names]])), {
-    'b-1 C.0': ['open', 'waiting', 'checking', 'fail', 'hint 1', 'hint 2', 'hint 3', 'bottom', 'done'],
+    'b-1 C.0': ['open', 'waiting', 'checking', 'fail', 'hint 1', 'hint 2', 'hint 3', 'bottom', 'checking, hint open', 'done'],
     'b-2 W2.1': ['open'],
     'b-capstone T1.2': ['open', 'hint 1'],
   });
@@ -1666,9 +1666,9 @@ test('b-3 opened from the map with nothing done shows W1 (plan-mode) at GUIDED w
 // CUT_AT_60X20 does for cuts.
 const WHY_DROPS = {
   '60x20': ['W3 waiting', 'W3 not yet', 'W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 confirm', 'W3 bottom', 'W3 done', 'W5 wrong', 'W5 revealed',
-    'W3 broken', 'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom',
+    'W3 broken', 'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom', 'b-5 W4.0 checking, hint open',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
-    'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
+    'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)', 'b-5 W4.0 checking, hint open (skipped)',
     'W3 opening', 'b-3 W1.2 bottom (skipped)'],
   '80x24': ['W3 hint 2'],
 };
@@ -2004,6 +2004,28 @@ test('the checking label names what is checked: "Checking <watched path>…", an
     d.key('r');
     assert.equal(d.state.beat.status, 'opening', `${id} ${step}.${beat}`);
     for (const [cols, rows] of SHORT) assert.deepEqual(checkingRows(d, cols, rows).map((l) => l.replace(/^[\s│]+/, '').trimEnd()), [label], `${id} ${step}.${beat} at ${cols}x${rows}`);
+  }
+});
+
+test('r over a "Not yet" with a hint open: "Checking" takes the "Not yet" row, and the hint box and the key bar stay, at 60x20 and 80x24', () => {
+  const d = openAt('b-1', 'W3', 0);
+  failCheck(d);
+  d.key('h');
+  d.key('h');
+  assert.equal(d.state.beat.rung, 1);
+  const box = (lines) => lines.slice(lines.findIndex((l) => l.includes('💡')), lines.findIndex((l) => l.includes(C.pressHAgain)) + 1);
+  const failing = SHORT.map(([cols, rows]) => plainAt(d, cols, rows).split('\n'));
+  d.key('r');
+  assert.equal(d.state.beat.status, 'opening');
+  for (const [i, [cols, rows]] of SHORT.entries()) {
+    const before = failing[i];
+    const after = plainAt(d, cols, rows).split('\n');
+    assert.ok(before.some((l) => l.includes('Not yet')) && !after.some((l) => l.includes('Not yet')), `${cols}x${rows}`);
+    assert.equal(checkingRows(d, cols, rows).length, 1, `${cols}x${rows}`);
+    assert.ok(box(before).length > 1, `${cols}x${rows}: the second rung is open`);
+    assert.deepEqual(box(after), box(before), `${cols}x${rows}: the same hint box`);
+    assert.equal(after.at(-1), before.at(-1), `${cols}x${rows}: the same key bar`);
+    assert.match(after.at(-1), /h more help .*r check again/, `${cols}x${rows}`);
   }
 });
 

@@ -84,17 +84,17 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
 
   // A run asked for during another waits in line, and a later ask takes its
   // place (singleFlight). What r asked for stays owed until a run starts:
-  // its slow items, and `asked`, which goes back on the result so the card
-  // knows r's own run ended.
+  // its slow items, and `asked`, the latest r's number, which goes back on
+  // the result so the card knows that r's run ended.
   function owing(fn) {
-    let owed = { slow: false, asked: false };
+    let owed = { slow: false, asked: 0 };
     const go = singleFlight((...args) => {
       const flags = owed;
-      owed = { slow: false, asked: false };
+      owed = { slow: false, asked: 0 };
       return fn(flags, ...args);
     });
     return ({ slow, asked } = {}, ...args) => {
-      owed = { slow: owed.slow || Boolean(slow), asked: owed.asked || Boolean(asked) };
+      owed = { slow: owed.slow || Boolean(slow), asked: Math.max(owed.asked, asked ?? 0) };
       return go(...args);
     };
   }
@@ -120,7 +120,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   });
 
   // A file's first line and its state, read now: small, local and quick.
-  const file = (path, asked = false) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, line: evidence(root, path), lines: lineCount(root, path), stamp: stampOf(root, path), asked }));
+  const file = (path, asked = 0) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, line: evidence(root, path), lines: lineCount(root, path), stamp: stampOf(root, path), asked }));
 
   function run(effects) {
     for (const e of effects) {
