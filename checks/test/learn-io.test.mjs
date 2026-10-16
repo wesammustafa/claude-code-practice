@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { IDLE_MS } from '../../learn/lib/flow.mjs';
+import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
@@ -397,6 +397,33 @@ test('draws: a watcher burst and the dispatch it queues from a microtask make on
     assert.deepEqual(app.frameTimers(), [], 'and no second one waiting for the floor');
     assert.match(term.shows(), /mkdir -p \.practice +✔/, 'it shows the new folder');
     assert.ok(await app.settle(() => term.shows().includes('Step 3 done!')), term.shows());
+  } finally {
+    app.close();
+  }
+});
+
+test('r: the card says what it checks until r\'s own result lands, even when polls ask again while r\'s run waits', async () => {
+  let changed = null;
+  const watch = (_root, onChange) => {
+    changed = onChange;
+    return { close() {} };
+  };
+  const app = clockedRun(CALM_ENV, { watch });
+  const { term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await app.toWaiting();
+    await clock.advance(1_000);
+    await new Promise((r) => setTimeout(r, 500));
+    // A poll's run starts; r's run waits behind it, and a second poll asks
+    // again before r's run starts.
+    changed();
+    term.type('r');
+    await clock.advance(DEFER_MS + 30);
+    assert.match(term.shows(), /Checking \.practice\/version\.txt…/);
+    changed();
+    assert.ok(await app.settle(() => term.shows().includes('Not yet')), `r's result never ended the wait:\n${term.shows()}`);
+    assert.doesNotMatch(term.shows(), /Checking/);
   } finally {
     app.close();
   }

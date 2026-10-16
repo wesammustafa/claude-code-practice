@@ -80,7 +80,7 @@ export function render(s, size, t, clock = REST) {
   if (lines.length > room()) lines = [...lines.slice(0, room() - 1), more];
   const out = [...top, ...view.head, ...lines];
   while (out.length < rows - 2 - gap.length - toast.length) out.push('');
-  out.push(...toast, ...gap, t.fg('faint', t.glyph.rule.repeat(W)), keybar(t, keys, W));
+  out.push(...toast, ...gap, t.fg('faint', t.glyph.rule.repeat(W)), keybar(t, keys, W, s.held?.name));
   return out.map((l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : ascii(l)), cols - 1, t.unicode ? '…' : '.') : ''));
 }
 
@@ -192,11 +192,18 @@ function absolute(url) {
 
 // The keys that fit in `w` columns: a main key's long label gives way to its
 // short one first, then the optional keys go from the right; q always stays.
-function keybar(t, keys, w = Infinity) {
+// The `held` letter, waiting DEFER_MS to act, draws pressed: inverse, or,
+// for a pill that is inverse already (no color), plain.
+function keybar(t, keys, w = Infinity, held = null) {
   const draw = (list, short) => list.map((k) => {
     const label = short && k.short ? k.short : k.label;
-    if (k.main) return `${t.pill(k.key, k.bg ?? 'okBg', k.fg ?? 'white')} ${t.bold(t.fg('white', label))}`;
-    return `${t.fg('key', t.bold(k.key))} ${t.fg('muted', label)}`;
+    const pressed = k.key === held;
+    if (k.main) {
+      const pill = pressed && t.depth <= 1 ? t.bold(` ${k.key} `) : t.pill(k.key, k.bg ?? 'okBg', k.fg ?? 'white');
+      return `${pressed && t.depth > 1 ? t.inverse(pill) : pill} ${t.bold(t.fg('white', label))}`;
+    }
+    const letter = t.fg('key', t.bold(k.key));
+    return `${pressed ? t.inverse(letter) : letter} ${t.fg('muted', label)}`;
   }).join('    ');
   let list = keys.filter(Boolean);
   if (width(draw(list, false)) <= w) return draw(list, false);
@@ -799,7 +806,8 @@ function footerRows(ctx, { beat, step, content, isLastBeat }) {
     rows.push(...burst(t, [t.bold(t.fg('ok', C.stepDone(s.pos.step + 1))), ...lines, lead(t, 'fire', t.bold(t.fg('challenge', C.session(count))))]));
   };
 
-  if (st.status === 'opening') rows.push(t.fg('key', C.checking));
+  // What the beat watches, as its waiting line names it.
+  if (st.status === 'opening') rows.push(...para(t, C.checking(beat.watching ?? beat.evidence), inner, 'key'));
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));

@@ -544,6 +544,15 @@ function submitTyped(s, effects) {
 }
 
 // ---- checks and git ----------------------------------------------------------
+// While r's run goes, a poll's result that lands first decides nothing: only
+// r's own result (`ev.asked`) ends the "Checking" it put up.
+function waitsForR(st, ev) {
+  if (!st.asked) return false;
+  if (!ev.asked) return true;
+  st.asked = false;
+  return false;
+}
+
 function onCheck(s, ev, effects) {
   s.checks[ev.lesson] = { items: ev.items, evidence: ev.evidence ?? null, error: null };
   if (s.view !== 'step' || ev.lesson !== s.lesson || !s.beat) return;
@@ -554,7 +563,7 @@ function onCheck(s, ev, effects) {
   const indexes = beat.verify.all ? lessonOf(s).items.map((_, i) => i) : beat.verify.items;
   const wanted = indexes.map((i) => ev.items.find((it) => it.index === i));
   // A result that doesn't cover every item decides nothing.
-  if (wanted.some((it) => !it)) return;
+  if (wanted.some((it) => !it) || waitsForR(st, ev)) return;
   const failing = wanted.find((it) => !it.slow && !it.pass);
   // Everything else passes, and a slow item waits for r: say so, in place of
   // any message about the items that pass now. A FAIL about a slow item stays
@@ -576,7 +585,7 @@ function onCheck(s, ev, effects) {
 function onFile(s, ev, effects) {
   if (s.view !== 'step' || !s.beat) return;
   const v = beatOf(s).verify;
-  if (v.kind !== 'file' || ev.path !== v.path || ['done', 'already'].includes(s.beat.status)) return;
+  if (v.kind !== 'file' || ev.path !== v.path || ['done', 'already'].includes(s.beat.status) || waitsForR(s.beat, ev)) return;
   // A list shows its first line and how many more, so a short list shows.
   const more = (ev.lines ?? 1) - 1;
   decide(s, { ...ev, evidence: ev.line && more > 0 ? C.andMore(ev.line, more) : ev.line }, effects, ev.line ? null : { hint: C.fileEmpty(ev.path) });
@@ -647,7 +656,7 @@ function onGit(s, ev, effects) {
   if (s.view !== 'step' || !s.beat || beatOf(s).verify.kind !== 'git-clean') return;
   const beat = beatOf(s);
   const st = s.beat;
-  if (['done', 'already'].includes(st.status)) return;
+  if (['done', 'already'].includes(st.status) || waitsForR(st, ev)) return;
   const clean = ev.paths.length === 0;
   // With a done-label, the tree decides only after the learner says the
   // session has ended; before that it is shown live.
@@ -682,7 +691,7 @@ export function reduce(prev, ev) {
       break;
     case 'check-error':
       s.checks[ev.lesson] = { ...(s.checks[ev.lesson] ?? {}), error: ev.message };
-      if (s.view === 'step' && s.beat && beatOf(s).verify.kind === 'check' && !['done', 'already'].includes(s.beat.status)) {
+      if (s.view === 'step' && s.beat && beatOf(s).verify.kind === 'check' && !['done', 'already'].includes(s.beat.status) && !waitsForR(s.beat, ev)) {
         Object.assign(s.beat, { status: 'broken', error: ev.message, rung: -1, confirm: false });
       }
       break;
@@ -702,7 +711,7 @@ export function reduce(prev, ev) {
     }
     case 'git-error':
       s.git = { paths: [], error: ev.message };
-      if (s.view === 'step' && s.beat && beatOf(s).verify.kind === 'git-clean' && !['done', 'already'].includes(s.beat.status)) {
+      if (s.view === 'step' && s.beat && beatOf(s).verify.kind === 'git-clean' && !['done', 'already'].includes(s.beat.status) && !waitsForR(s.beat, ev)) {
         Object.assign(s.beat, { status: 'broken', error: ev.message, rung: -1, confirm: false });
       }
       break;
@@ -978,14 +987,13 @@ const VIEWS = {
       st.explicit = true;
       // Asking for a check is a try, whatever the check says.
       st.unlocked = true;
-      // A slow item takes a while: show that it runs.
-      if (st.slowWait) Object.assign(st, { status: 'opening', slowWait: false });
-      if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true });
-      if (w.file) effects.push({ type: 'file', path: w.file });
-      if (w.git) {
-        if (beat.doneLabel) st.ended = st.ended || st.status === 'fail';
-        effects.push({ type: 'git' });
-      }
+      if (w.git && beat.doneLabel) st.ended = st.ended || st.status === 'fail';
+      // Show that r's run is going, until its own result lands: `asked`
+      // goes out on the effect and comes back on the result.
+      Object.assign(st, { status: 'opening', slowWait: false, asked: true });
+      if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: true });
+      if (w.file) effects.push({ type: 'file', path: w.file, asked: true });
+      if (w.git) effects.push({ type: 'git', asked: true });
       return true;
     }
     // At CHALLENGE, hints wait for a first try: name it instead of ignoring h.
