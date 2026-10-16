@@ -65,6 +65,8 @@ test('lesson numbers count within a level: i-2 is lesson 2, and its warm-ups fro
   const d = driver({ course, saved: { format: 1, welcomed: true, lessons: doneBefore(course, 'i-2') } });
   assert.equal(d.state.view, 'intro');
   assert.equal(d.state.lesson, 'i-2');
+  // The level's first intro in the app asks where to practise (ticket 86): this practice copy.
+  d.key('enter');
   for (const size of [[60, 20], [80, 24]]) assert.ok(has(screen(d.state, size), 'Start lesson 2'), screen(d.state, size).join('\n'));
   d.key('enter');
   assert.equal(stepOf(d.state).part, 'Warm-up');
@@ -141,7 +143,8 @@ test('the map\'s key bar offers the arrows that switch level, and ? lists them, 
   for (const size of [[60, 20], [80, 24]]) assert.match(screen(three.state, size).at(-1), /←→ level/, size.join('x'));
   // Where the bar is short, as in ASCII at 60x20, "choose" gives way: the level key, enter and m stay.
   assert.equal(screen(three.state, [60, 20], ASCII).at(-1), '  up/down    <- -> level    enter open    m back    q quit');
-  assert.equal(screen(three.state, [80, 24], ASCII).at(-1), '  up/down choose    <- -> level    enter open    m back    q quit');
+  // f, the level's work folder (ticket 86), is a low key: it shows where the bar has room.
+  assert.equal(screen(three.state, [80, 24], ASCII).at(-1), '  up/down choose    <- -> level    enter open    f folder    m back    q quit');
   for (const t of Object.values(MODES)) for (const size of [[60, 20], [80, 24]]) assert.match(screen(three.state, size, t).at(-1), /(←→|<- ->) level/, size.join('x'));
   three.key('?');
   for (const size of [[60, 20], [80, 24]]) assert.ok(has(screen(three.state, size), C.levelKey[1]), screen(three.state, size).join('\n'));

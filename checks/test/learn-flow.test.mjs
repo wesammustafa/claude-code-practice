@@ -6,7 +6,7 @@ import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, p
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
-import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, finished, finishedBefore, mapTo, playUntil } from './learn-drive.mjs';
+import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, FACTS, finished, finishedBefore, mapTo, playUntil } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
@@ -22,7 +22,7 @@ const passed = b1Item('2.1.285 (Claude Code)\n');
 test('a check step waits, says "not yet" only when something changed, and turns done on a pass', () => {
   const d = at('W3');
   assert.equal(d.state.beat.status, 'opening');
-  assert.deepEqual(d.effects.at(-2), { type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt' });
+  assert.deepEqual(d.effects.at(-2), { type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt', dir: FACTS.root });
   d.send({ type: 'check', lesson: 'b-1', items: [missing] });
   assert.equal(d.state.beat.status, 'waiting');
   d.key('enter');
@@ -258,9 +258,9 @@ test('map and check-only mode: a lesson without a content file watches its check
   d.key('enter');
   assert.equal(d.state.view, 'checkonly');
   assert.equal(d.state.lesson, 'b-2');
-  assert.deepEqual(watching(d.state), { check: { lesson: 'b-2', items: null } });
+  assert.deepEqual(watching(d.state), { check: { lesson: 'b-2', items: null }, dir: FACTS.root });
   d.key('r');
-  assert.deepEqual(d.effects.at(-1), { type: 'check', lesson: 'b-2', items: null, slow: true });
+  assert.deepEqual(d.effects.at(-1), { type: 'check', lesson: 'b-2', items: null, slow: true, dir: FACTS.root });
 });
 
 test('review fixes: CHALLENGE hints open after the idle offer', () => {
@@ -540,7 +540,7 @@ test('a file check is done once its file holds a line, and a fresh one once it c
   assert.equal(d.state.beat.status, 'already');
   const out = d.key('enter');
   // Opening Y1 asks for its file's state now, before the learner touches it.
-  assert.deepEqual(out.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', path: '.practice/b-2-plan.txt' });
+  assert.deepEqual(out.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', path: '.practice/b-2-plan.txt', dir: FACTS.root });
   assert.equal(d.state.view, 'levelup');
   assert.ok(d.key('enter').some((e) => e.type === 'file' && e.path === '.practice/b-2-plan.txt'));
   d.send({ type: 'stamp', key: 'Y1.0', stamp: 'A' });
@@ -565,7 +565,7 @@ test('fresh since: the file is compared with how it was when an earlier step ope
   d.key('1');
   const out = d.key('enter');
   assert.equal(stepOf(d.state).id, 'W1');
-  assert.deepEqual(out.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', path: '.practice/b-2-before.txt' });
+  assert.deepEqual(out.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', path: '.practice/b-2-before.txt', dir: FACTS.root });
 });
 
 // A lesson whose help goes up and down: new skills are GUIDED, `status`
@@ -822,7 +822,7 @@ test('h at CHALLENGE: on a stale fresh beat, r is the try', () => {
   d.key('h');
   assert.equal(d.state.beat.rung, -1);
   d.key('r');
-  assert.deepEqual(d.effects.at(-1), { type: 'file', path, asked: d.state.asks });
+  assert.deepEqual(d.effects.at(-1), { type: 'file', path, asked: d.state.asks, dir: FACTS.root });
   d.send({ type: 'file', path, line: '// linkcheck source.', stamp: 'a', asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'waiting', 'an unchanged file is still not done');
   d.key('h');
@@ -1671,7 +1671,7 @@ test('r shows the checking state on every checked beat, and its check, file and 
   assert.equal(d.state.beat.status, 'waiting');
   const out = d.key('r');
   assert.equal(d.state.beat.status, 'opening', 'an ordinary check beat, with no slow item');
-  assert.deepEqual(ofType(out, 'check'), [{ type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt', slow: true, asked: d.state.asks }]);
+  assert.deepEqual(ofType(out, 'check'), [{ type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt', slow: true, asked: d.state.asks, dir: FACTS.root }]);
   d.send({ type: 'check', lesson: 'b-1', items: [missing], asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'fail');
   d.key('r');
@@ -1682,13 +1682,13 @@ test('r shows the checking state on every checked beat, and its check, file and 
   assert.notEqual(f.state.beat.status, 'opening');
   const fileOut = f.key('r');
   assert.equal(f.state.beat.status, 'opening', 'a file beat');
-  assert.deepEqual(ofType(fileOut, 'file'), [{ type: 'file', path: '.practice/b-2-plan.txt', asked: f.state.asks }]);
+  assert.deepEqual(ofType(fileOut, 'file'), [{ type: 'file', path: '.practice/b-2-plan.txt', asked: f.state.asks, dir: FACTS.root }]);
   const g = at('W7', { beat: 2 });
   g.send({ type: 'git', paths: ['notes.md'] });
   assert.equal(g.state.beat.status, 'fail');
   const gitOut = g.key('r');
   assert.equal(g.state.beat.status, 'opening', 'a git beat');
-  assert.deepEqual(ofType(gitOut, 'git'), [{ type: 'git', asked: g.state.asks }]);
+  assert.deepEqual(ofType(gitOut, 'git'), [{ type: 'git', asked: g.state.asks, dir: FACTS.root }]);
 });
 
 test('opening set by r ends only on r\'s own result: a poll result that lands first neither clears it nor says "press r"', () => {
@@ -1751,7 +1751,7 @@ test('r\'s own result that lands while the map is open still ends its wait: back
   const out = d.key('m');
   assert.equal(d.state.view, 'step');
   assert.equal(d.state.beat.status, 'opening', 'the map hid the result, so the card still waits for one');
-  assert.deepEqual(ofType(out, 'check'), [{ type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt' }]);
+  assert.deepEqual(ofType(out, 'check'), [{ type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt', dir: FACTS.root }]);
   d.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)' });
   assert.equal(d.state.beat.status, 'done', 'the check the map asked for decides');
 });

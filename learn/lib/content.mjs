@@ -40,7 +40,10 @@ const OPTION_KEYS = new Set(['right', 'wrong', 'option', 'stuck', 'other', 'deco
 // folder of its page (copy.mjs names it), and its minutes are the page's
 // header line's: the view of a lesson with no lesson file shows them.
 // `newCopy`: the page has the learner make a new copy of the template, so
-// the lesson's check never runs in this practice copy.
+// the lesson's check runs there, once the learner gives its folder, never in
+// this practice copy. `folder: 'copy'` pins a lesson to the practice copy
+// whatever its level's work folder is, until its lesson file's front matter
+// says so (ticket 86).
 export const PATH = [
   { id: 'b-1', level: 'beginner', page: 'docs/beginner/01-install-and-look-around.md', minutes: 'about 20 minutes' },
   { id: 'b-2', level: 'beginner', page: 'docs/beginner/02-permission-modes-and-plan-mode.md', minutes: 'about 20 minutes' },
@@ -56,7 +59,7 @@ export const PATH = [
   { id: 'i-6', level: 'intermediate', page: 'docs/intermediate/06-subagents.md', minutes: 'about 20 minutes' },
   { id: 'i-7', level: 'intermediate', page: 'docs/intermediate/07-mcp.md', minutes: 'about 20 minutes' },
   { id: 'i-8', level: 'intermediate', page: 'docs/intermediate/08-plugins.md', minutes: 'about 20 minutes' },
-  { id: 'i-capstone', level: 'intermediate', page: 'docs/intermediate/capstone.md', minutes: '30 to 60 minutes' },
+  { id: 'i-capstone', level: 'intermediate', page: 'docs/intermediate/capstone.md', minutes: '30 to 60 minutes', folder: 'copy' },
   { id: 'a-1', level: 'advanced', page: 'docs/advanced/01-parallel-sessions.md', minutes: 'about 20 minutes' },
   { id: 'a-2', level: 'advanced', page: 'docs/advanced/02-orchestration-patterns.md', minutes: 'about 20 minutes' },
   { id: 'a-3', level: 'advanced', page: 'docs/advanced/03-dynamic-workflows.md', minutes: 'about 20 minutes, plus run time' },
@@ -66,6 +69,14 @@ export const PATH = [
   { id: 'a-7', level: 'advanced', page: 'docs/advanced/07-bounded-runs.md', minutes: 'about 20 minutes, plus run time' },
   { id: 'a-capstone', level: 'advanced', page: 'docs/advanced/capstone.md', minutes: '30 to 60 minutes, plus run time', newCopy: true },
 ];
+// The levels whose lessons practise in a work folder the learner picks, the
+// practice copy by default (ticket 86): Beginner practises in the copy.
+export const WORK_LEVELS = ['intermediate', 'advanced'];
+// What the app saves of the work folders: one a level, and one for each
+// lesson that runs in a new copy.
+export const FOLDER_KEYS = [...WORK_LEVELS, ...PATH.filter((p) => p.newCopy).map((p) => p.id)];
+// The longest folder path the app takes, typed or pasted.
+export const PATH_MAX = 1024;
 // Items whose check starts another process: a test run, a hook, a stub
 // run. They run only when the learner presses r, never on every file change.
 export const SLOW = {
@@ -89,6 +100,10 @@ export function parseLesson(text, file = 'lesson') {
   if (!fm) throw new Error(`${file}: no front matter`);
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const start = lines.findIndex((l, i) => i > 0 && l.trim() === '---') + 1;
+  // `folder` pins the lesson's folder (ticket 86): `copy`, the practice copy
+  // whatever its level's work folder is, or `new copy`, the copy of the
+  // template the page has the learner make, which the app asks for.
+  if ('folder' in fm.fields && !['copy', 'new copy'].includes(fm.fields.folder)) throw new Error(`${file}: folder is copy or new copy, not ${fm.fields.folder}`);
   const lesson = { ...fm.fields, intro: { can: [] }, warmup: [], steps: [], ladder: [], card: [] };
   const cardLines = [];
   let section = null;

@@ -24,13 +24,21 @@ Run the learning app in one terminal, and use Claude Code in a second terminal b
 npm run learn
 ```
 
-It shows one step of a lesson at a time, watches your copy, and turns a step green as soon as your work is there. The help shrinks each time a skill comes back: every command at first, then hints, then only the goal. Every Beginner lesson and the capstone are in the app. From lesson 2 on, each opens with two warm-up questions from earlier lessons. Help fades within each level: each lesson after a level's first is planned to give less help than that first one. A lesson you skipped doesn't count toward that, so a skill from it can come back with more help. The Intermediate and Advanced lessons are on the map too, one level a page: while you follow a lesson's page, the app watches its check, and counts the lesson done once the whole check passes (press `r` for the slower parts). Lesson 5 and the capstone of Advanced run in a new copy of the template, so the app doesn't check them here.
+It shows one step of a lesson at a time, watches your copy, and turns a step green as soon as your work is there. The help shrinks each time a skill comes back: every command at first, then hints, then only the goal. Every Beginner lesson and the capstone are in the app. From lesson 2 on, each opens with two warm-up questions from earlier lessons. Help fades within each level: each lesson after a level's first is planned to give less help than that first one. A lesson you skipped doesn't count toward that, so a skill from it can come back with more help. The Intermediate and Advanced lessons are on the map too, one level a page: while you follow a lesson's page, the app watches its check, and counts the lesson done once the whole check passes (press `r` for the slower parts).
 
 - Keys: arrows or numbers to choose, `enter` to go on, `h` for a hint, `m` for the map of lessons, `q` to quit. Your place is saved in `.practice/learn.json`.
 - If PowerShell refuses to run `npm`, run `npm.cmd run learn`.
 - Odd symbols or colors? Set `LEARN_PLAIN=1` (in PowerShell, `$env:LEARN_PLAIN=1`) before `npm run learn`. The app also follows `NO_COLOR`.
 - Prefer a still screen? Start with `npm run learn -- --calm`, or set `LEARN_CALM=1` the same way as `LEARN_PLAIN`.
-- The app has no AI in it and changes none of your work: it reads your files, runs `git status` and the lesson's check, and writes only its own file.
+- The app has no AI in it and changes none of your work: it reads your files, runs the lesson's check and git's read-only commands (`git status`, and whether a work folder is a repository that ignores `.practice/`), and writes only its own file.
+
+From Intermediate on, the lessons ask you to practise in one of your own repositories. Each later level has its own work folder, this practice copy until you pick another:
+
+- Press `f` on a level's page of the map, or on a lesson's check, and type or paste the folder's path. The map shows each level's folder. The first lesson of a level that you open in the app asks too, until the level has a folder.
+- To pick it ahead of time, start with `npm run learn -- --dir <path>`, a path relative to this copy or in full. It sets the work folder of the level the app opens on.
+- The app then checks, watches and runs `git status` there, and says which folder each step happens in.
+- The Intermediate capstone always runs in this copy. Lesson 5 and the capstone of Advanced run in a new copy of the template: each asks for that copy's folder, which can't be this copy, and checks nothing until you give it.
+- Your progress stays in this copy, so run `npm run learn` from here. Only the folders you picked are saved with it.
 
 ## Check your work
 
