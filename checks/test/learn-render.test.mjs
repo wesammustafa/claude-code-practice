@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { C } from '../../learn/lib/copy.mjs';
-import { beatOf, hintAvailable, IDLE_MS, lessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
+import { beatOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -559,7 +559,7 @@ test('the capstone handover line hides after a bottom rung anywhere in the capst
   const items = cap.items.map((text, index) => ({ index, text, pass: text !== 'the tests pass', hint: text === 'the tests pass' ? '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.' : '' }));
   c.send({ type: 'check', lesson: 'b-capstone', items });
   c.key('r');
-  c.send({ type: 'check', lesson: 'b-capstone', items });
+  c.send({ type: 'check', lesson: 'b-capstone', items, asked: c.state.beat.asked });
   for (let i = 0; i < 8 && !c.state.beat.confirm; i++) c.key('h');
   c.key('y');
   assert.equal(c.state.progress['b-capstone'].bottomAt, 'C');
@@ -937,10 +937,10 @@ test('the 🏁 line is the same with or without hints, eases, the bottom rung or
   const helpAt = (d, toBottom) => {
     const beat = beatOf(d.state);
     const items = beat.verify.items.map((index) => ({ index, text: lessonOf(d.state).items[index], pass: false, hint: 'not there yet' }));
-    const check = (stamp, pass = false) => d.send({ type: 'check', lesson: 'b-4', items: items.map((it) => ({ ...it, pass, hint: pass ? '' : it.hint })), path: beat.evidence, stamp });
+    const check = (stamp, pass = false, asked = 0) => d.send({ type: 'check', lesson: 'b-4', items: items.map((it) => ({ ...it, pass, hint: pass ? '' : it.hint })), path: beat.evidence, stamp, asked });
     check('a');
     d.key('r');
-    check('b');
+    check('b', false, d.state.beat.asked);
     for (let i = 0; i < 6 && !d.state.beat.confirm; i++) {
       d.key('h');
       if (!toBottom) break;
@@ -1309,7 +1309,7 @@ test('no line is cut by width anywhere in a row at 60x20 or 80x24, apart from th
       const lines = render(state, { cols, rows }, t).map(strip);
       const head = state.view === 'map' ? -1 : (rows >= 28 ? 1 : 0);
       lines.forEach((l, i) => {
-        if (!l.includes('…') || i === head || l.trim() === '…' || /^\s*│  …$/.test(l) || l.includes(C.checking)) return;
+        if (!l.includes('…') || i === head || l.trim() === '…' || /^\s*│  …$/.test(l) || (state.beat?.status === 'opening' && /│  Checking\b.*…$/.test(l) && width(l) < cols - 1)) return;
         if (state.view === 'map' && /^\s*[❯ ] [✔○] /.test(l)) return;
         if (/ holds |^\s*│ .*\S…$/.test(l) && state.beat?.status === 'done') return;
         assert.fail(`${label} at ${cols}x${rows}, row ${i + 1}: ${l}\n${lines.join('\n')}`);
@@ -1480,7 +1480,7 @@ test('a Windows note is never cut: on Windows at 60x20 and 80x24 the whole note 
   // Every state the walks reach: a check beat's every rung, and a self beat's
   // open card and any rung behind h.
   assert.deepEqual(Object.fromEntries(Object.entries(states).map(([at, names]) => [at, [...names]])), {
-    'b-1 C.0': ['open', 'waiting', 'fail', 'hint 1', 'hint 2', 'hint 3', 'bottom', 'done'],
+    'b-1 C.0': ['open', 'waiting', 'checking', 'fail', 'hint 1', 'hint 2', 'hint 3', 'bottom', 'checking, hint open', 'done'],
     'b-2 W2.1': ['open'],
     'b-capstone T1.2': ['open', 'hint 1'],
   });
@@ -1666,9 +1666,9 @@ test('b-3 opened from the map with nothing done shows W1 (plan-mode) at GUIDED w
 // CUT_AT_60X20 does for cuts.
 const WHY_DROPS = {
   '60x20': ['W3 waiting', 'W3 not yet', 'W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 confirm', 'W3 bottom', 'W3 done', 'W5 wrong', 'W5 revealed',
-    'W3 broken', 'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom',
+    'W3 broken', 'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom', 'b-5 W4.0 checking, hint open',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
-    'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
+    'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)', 'b-5 W4.0 checking, hint open (skipped)',
     'W3 opening', 'b-3 W1.2 bottom (skipped)'],
   '80x24': ['W3 hint 2'],
 };
@@ -1984,5 +1984,101 @@ test('the ? overlay says how to start with a still screen at 80x24, under a blan
     assert.equal(lines[title + 1].trim(), '', `${at}: the blank under the title`);
     assert.equal(lines[title - 1].trim(), '', `${at}: the blank above it`);
     if (cols >= 76 && rows >= 24) assert.equal(calm.length, 1, `${at}: room for it`);
+  }
+});
+
+// Truthful waits: what the card says while r's run goes.
+const checkingRows = (d, cols, rows) => plainAt(d, cols, rows).split('\n').filter((l) => l.includes('Checking'));
+
+test('the checking label names what is checked: "Checking <watched path>…", and "Checking…" where the beat watches no path', () => {
+  const cases = [
+    // A check beat, a file beat with no watching line, a git beat, and the Check, which watches every item.
+    ['b-1', 'W3', 0, { type: 'check', lesson: 'b-1', items: [{ index: 0, text: 'x', pass: false, hint: 'no file' }] }, 'Checking .practice/version.txt…'],
+    ['b-2', 'W6', 2, { type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'a' }, 'Checking .practice/b-2-plan.txt…'],
+    ['b-1', 'W7', 2, { type: 'git', paths: ['notes.md'] }, 'Checking git status…'],
+    ['b-1', 'C', 0, { type: 'check', lesson: 'b-1', items: [{ index: 0, text: 'x', pass: false, hint: 'no file' }] }, 'Checking…'],
+  ];
+  for (const [id, step, beat, result, label] of cases) {
+    const d = openAt(id, step, beat);
+    d.send(result);
+    d.key('r');
+    assert.equal(d.state.beat.status, 'opening', `${id} ${step}.${beat}`);
+    for (const [cols, rows] of SHORT) assert.deepEqual(checkingRows(d, cols, rows).map((l) => l.replace(/^[\s│]+/, '').trimEnd()), [label], `${id} ${step}.${beat} at ${cols}x${rows}`);
+  }
+});
+
+test('r over a "Not yet" with a hint open: "Checking" takes the "Not yet" row, and the hint box and the key bar stay, at 60x20 and 80x24', () => {
+  const d = openAt('b-1', 'W3', 0);
+  failCheck(d);
+  d.key('h');
+  d.key('h');
+  assert.equal(d.state.beat.rung, 1);
+  const box = (lines) => lines.slice(lines.findIndex((l) => l.includes('💡')), lines.findIndex((l) => l.includes(C.pressHAgain)) + 1);
+  const failing = SHORT.map(([cols, rows]) => plainAt(d, cols, rows).split('\n'));
+  d.key('r');
+  assert.equal(d.state.beat.status, 'opening');
+  for (const [i, [cols, rows]] of SHORT.entries()) {
+    const before = failing[i];
+    const after = plainAt(d, cols, rows).split('\n');
+    assert.ok(before.some((l) => l.includes('Not yet')) && !after.some((l) => l.includes('Not yet')), `${cols}x${rows}`);
+    assert.equal(checkingRows(d, cols, rows).length, 1, `${cols}x${rows}`);
+    assert.ok(box(before).length > 1, `${cols}x${rows}: the second rung is open`);
+    assert.deepEqual(box(after), box(before), `${cols}x${rows}: the same hint box`);
+    assert.equal(after.at(-1), before.at(-1), `${cols}x${rows}: the same key bar`);
+    assert.match(after.at(-1), /h more help .*r check again/, `${cols}x${rows}`);
+  }
+});
+
+// A letter waits DEFER_MS before it acts: while it is held, the key bar shows it pressed.
+const SGR = '(?:\\x1b\\[[0-9;]*m)*';
+const inverseKey = (k) => new RegExp(`\\x1b\\[7m${SGR} ?${k} ?${SGR}\\x1b\\[27m`);
+const bar = (s, t) => render(s, { cols: 80, rows: 24 }, t).at(-1);
+const hold = (d, name) => d.send({ type: 'key', name, ch: name, wait: 100 });
+
+test('a held letter that the key bar shows draws inverse there, in every mode and inside the hint lock, with no countdown', () => {
+  const d = openAt('b-1', 'W3', 0);
+  failCheck(d);
+  d.key('h');
+  assert.equal(d.state.beat.rung, 0);
+  const before = d.state;
+  hold(d, 'h');
+  assert.ok(d.now < d.state.beat.lockUntil, 'inside the 2 s lock');
+  assert.equal(d.state.held?.name, 'h');
+  for (const [capName, caps] of Object.entries(CAPS)) {
+    const t = theme(caps);
+    assert.doesNotMatch(bar(before, t), /\x1b\[7m/, `${capName}: nothing pressed`);
+    assert.match(bar(d.state, t), inverseKey('h'), `${capName}: h pressed`);
+    assert.equal(strip(bar(d.state, t)), strip(bar(before, t)), `${capName}: the same words, no countdown`);
+  }
+  d.send({ type: 'flush', wait: DEFER_MS });
+  assert.equal(d.state.beat.rung, 0, 'inside the lock nothing opens');
+  assert.doesNotMatch(bar(d.state, theme(CAPS.full)), /\x1b\[7m/, 'and the key is up again');
+  // A key the bar does not show acts after the hold with no sign, as before.
+  const p = openAt('b-1', 'W3', 0);
+  p.send({ type: 'check', lesson: 'b-1', items: [{ index: 0, text: 'x', pass: false, hint: 'no file' }] });
+  const waiting = p.state;
+  hold(p, 'b');
+  assert.equal(p.state.held?.name, 'b');
+  assert.equal(bar(p.state, theme(CAPS.full)), bar(waiting, theme(CAPS.full)));
+});
+
+test('a held main letter: y on the y/n prompt draws its pill inverse in color, and in NO_COLOR, where the pill is inverse already, without it', () => {
+  const d = openAt('b-1', 'W3', 0);
+  failCheck(d);
+  for (let i = 0; i < 8 && !d.state.beat.confirm; i++) d.key('h');
+  assert.equal(d.state.beat.confirm, true);
+  const before = d.state;
+  hold(d, 'y');
+  for (const name of ['full', 'sixteen']) {
+    const t = theme(CAPS[name]);
+    assert.doesNotMatch(bar(before, t), /\x1b\[7m/, `${name}: a colored pill`);
+    assert.match(bar(d.state, t), inverseKey('y'), `${name}: y pressed`);
+  }
+  for (const name of ['noColor', 'ascii']) {
+    const t = theme(CAPS[name]);
+    assert.match(bar(before, t), inverseKey('y'), `${name}: the pill is inverse video`);
+    assert.doesNotMatch(bar(d.state, t), inverseKey('y'), `${name}: held, y draws without inverse`);
+    assert.match(strip(bar(d.state, t)), /^\s* y  /, `${name}: still a pill's width`);
+    assert.equal(strip(bar(d.state, t)), strip(bar(before, t)));
   }
 });

@@ -163,7 +163,8 @@ export function playUntil(d, stop) {
   if (!stop(d.state)) throw new Error(`playUntil: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);
 }
 
-// A check beat on screen FAILs, and FAILs again on r.
+// A check beat on screen FAILs, and FAILs again on r: the second result is
+// r's own run's.
 export function failCheck(d) {
   const v = beatOf(d.state).verify;
   if (v.kind !== 'check') return;
@@ -171,7 +172,7 @@ export function failCheck(d) {
   const items = (v.all ? l.items.map((_, k) => k) : v.items).map((index) => ({ index, text: l.items[index], pass: false, hint: `${l.items[index]} is not there yet.` }));
   d.send({ type: 'check', lesson: d.state.lesson, items });
   d.key('r');
-  d.send({ type: 'check', lesson: d.state.lesson, items });
+  d.send({ type: 'check', lesson: d.state.lesson, items, asked: d.state.beat.asked });
 }
 
 // Climbs the hints on the beat on screen to the exact command and says y.
@@ -288,7 +289,8 @@ export function lessonScreens(id, lessons = course, { skipped = false } = {}) {
       d.send({ type: 'check', lesson: id, items, path: beat.evidence ?? null, stamp: 'a' });
       out.push([`${at} waiting`, d.state]);
       d.key('r');
-      d.send({ type: 'check', lesson: id, items, path: beat.evidence ?? null, stamp: 'b' });
+      out.push([`${at} checking`, d.state]);
+      d.send({ type: 'check', lesson: id, items, path: beat.evidence ?? null, stamp: 'b', asked: d.state.beat.asked });
       out.push([`${at} fail`, d.state]);
       for (let i = 0; i < 6; i++) {
         d.send({ type: 'key', name: 'h', ch: 'h', wait: 3_000 });
@@ -299,6 +301,12 @@ export function lessonScreens(id, lessons = course, { skipped = false } = {}) {
           out.push([`${at} bottom`, d.state]);
           break;
         }
+      }
+      // r with the last hint open: "Checking" over the "Not yet" keeps it.
+      if (d.state.beat.rung >= 0) {
+        d.key('r');
+        out.push([`${at} checking, hint open`, d.state]);
+        d.send({ type: 'check', lesson: id, items, path: beat.evidence ?? null, stamp: 'b', asked: d.state.beat.asked });
       }
       d.send({ type: 'check', lesson: id, items: items.map((it) => ({ ...it, pass: true, hint: '' })), evidence: 'a line of evidence', path: beat.evidence ?? null, stamp: 'c' });
       out.push([`${at} done`, d.state]);

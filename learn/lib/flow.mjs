@@ -60,6 +60,9 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     overlay: null, lesson: next.id, pos: { step: 0, beat: 0 }, beat: null,
     checks: {}, git: null, session: 0, cursor: 0, mapCursor: course.indexOf(next), toast: null,
     held: null, swallowUntil: 0, confirmRestart: false, lastActivity: now,
+    // How many times r asked for a run, in memory: each r's number goes out
+    // on its effect and comes back on its result (`asked`).
+    asks: 0,
     // The motion layer's stamps (stampFx): the first screen appears now.
     fx: { view: now },
   };
@@ -168,6 +171,10 @@ export function watching(s) {
 }
 
 // ---- hints -------------------------------------------------------------------
+// The status the hints and the key bar answer to: while r's run goes, the one
+// r put "Checking" over, so an open hint, h and the keys stay as they were.
+export const hintStatus = (st) => (st.status === 'opening' && st.before) || st.status;
+
 // Point, then teach, then the exact command after a y/n: the check's own
 // question for its FAIL message first, the lesson's words next, the bottom
 // line last.
@@ -179,7 +186,7 @@ export function rungsOf(s) {
   let bottom = [];
   const hideRuns = tierOf(s) !== 'guided' && authoredTier(s) === 'guided';
   const runs = beat.lines.filter((l) => l.key === 'run').map((l) => ({ text: l.text, win: l.win }));
-  if (st.status === 'fail' && st.fail?.item) {
+  if (hintStatus(st) === 'fail' && st.fail?.item) {
     const ladder = lesson.ladder.find((l) => l.item === st.fail.item);
     const narrow = ladder?.narrow.find((n) => st.fail.hint.includes(n.part));
     if (narrow) rungs.push({ kind: 'ask', text: narrow.question });
@@ -544,9 +551,11 @@ function submitTyped(s, effects) {
 }
 
 // ---- checks and git ----------------------------------------------------------
-function onCheck(s, ev, effects) {
+const RESULTS = ['check', 'check-error', 'file', 'git', 'git-error'];
+
+function onCheck(s, ev, effects, rRuns) {
   s.checks[ev.lesson] = { items: ev.items, evidence: ev.evidence ?? null, error: null };
-  if (s.view !== 'step' || ev.lesson !== s.lesson || !s.beat) return;
+  if (rRuns || s.view !== 'step' || ev.lesson !== s.lesson || !s.beat) return;
   const beat = beatOf(s);
   if (beat.verify.kind !== 'check') return;
   const st = s.beat;
@@ -573,8 +582,8 @@ function onCheck(s, ev, effects) {
 }
 
 // A file no check item covers: done once it holds a line.
-function onFile(s, ev, effects) {
-  if (s.view !== 'step' || !s.beat) return;
+function onFile(s, ev, effects, rRuns) {
+  if (rRuns || s.view !== 'step' || !s.beat) return;
   const v = beatOf(s).verify;
   if (v.kind !== 'file' || ev.path !== v.path || ['done', 'already'].includes(s.beat.status)) return;
   // A list shows its first line and how many more, so a short list shows.
@@ -642,9 +651,9 @@ function decide(s, ev, effects, failing) {
   } else st.status = 'waiting';
 }
 
-function onGit(s, ev, effects) {
+function onGit(s, ev, effects, rRuns) {
   s.git = { paths: ev.paths, error: null };
-  if (s.view !== 'step' || !s.beat || beatOf(s).verify.kind !== 'git-clean') return;
+  if (rRuns || s.view !== 'step' || !s.beat || beatOf(s).verify.kind !== 'git-clean') return;
   const beat = beatOf(s);
   const st = s.beat;
   if (['done', 'already'].includes(st.status)) return;
@@ -676,21 +685,27 @@ export function reduce(prev, ev) {
   const effects = [];
   if (ev.now !== undefined) s.now = ev.now;
   if (s.toast && s.now >= s.toast.until) s.toast = null;
+  // r's run goes until its own result lands: the one that carries the latest
+  // r's number, wherever the learner is by then. A poll's result, or an
+  // earlier r's, that lands first decides nothing for the beat.
+  const result = RESULTS.includes(ev.type);
+  if (result && s.beat?.asked && ev.asked === s.beat.asked) s.beat.asked = 0;
+  const rRuns = result && Boolean(s.beat?.asked);
   switch (ev.type) {
     case 'check':
-      onCheck(s, ev, effects);
+      onCheck(s, ev, effects, rRuns);
       break;
     case 'check-error':
       s.checks[ev.lesson] = { ...(s.checks[ev.lesson] ?? {}), error: ev.message };
-      if (s.view === 'step' && s.beat && beatOf(s).verify.kind === 'check' && !['done', 'already'].includes(s.beat.status)) {
+      if (!rRuns && s.view === 'step' && s.beat && beatOf(s).verify.kind === 'check' && !['done', 'already'].includes(s.beat.status)) {
         Object.assign(s.beat, { status: 'broken', error: ev.message, rung: -1, confirm: false });
       }
       break;
     case 'git':
-      onGit(s, ev, effects);
+      onGit(s, ev, effects, rRuns);
       break;
     case 'file':
-      onFile(s, ev, effects);
+      onFile(s, ev, effects, rRuns);
       break;
     case 'stamp': {
       const stamps = s.progress[s.lesson]?.stamps;
@@ -702,7 +717,7 @@ export function reduce(prev, ev) {
     }
     case 'git-error':
       s.git = { paths: [], error: ev.message };
-      if (s.view === 'step' && s.beat && beatOf(s).verify.kind === 'git-clean' && !['done', 'already'].includes(s.beat.status)) {
+      if (!rRuns && s.view === 'step' && s.beat && beatOf(s).verify.kind === 'git-clean' && !['done', 'already'].includes(s.beat.status)) {
         Object.assign(s.beat, { status: 'broken', error: ev.message, rung: -1, confirm: false });
       }
       break;
@@ -978,14 +993,15 @@ const VIEWS = {
       st.explicit = true;
       // Asking for a check is a try, whatever the check says.
       st.unlocked = true;
-      // A slow item takes a while: show that it runs.
-      if (st.slowWait) Object.assign(st, { status: 'opening', slowWait: false });
-      if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true });
-      if (w.file) effects.push({ type: 'file', path: w.file });
-      if (w.git) {
-        if (beat.doneLabel) st.ended = st.ended || st.status === 'fail';
-        effects.push({ type: 'git' });
-      }
+      if (w.git && beat.doneLabel) st.ended = st.ended || st.status === 'fail';
+      // Show that r's run is going, until its own result lands: r's number
+      // goes out on the effect and comes back on the result. `before` keeps
+      // the status "Checking" covers, for the hints and the key bar.
+      s.asks += 1;
+      Object.assign(st, { status: 'opening', slowWait: false, asked: s.asks, before: st.status === 'opening' ? st.before : st.status });
+      if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks });
+      if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks });
+      if (w.git) effects.push({ type: 'git', asked: s.asks });
       return true;
     }
     // At CHALLENGE, hints wait for a first try: name it instead of ignoring h.

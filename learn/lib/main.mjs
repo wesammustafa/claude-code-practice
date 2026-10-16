@@ -82,7 +82,24 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // causes, it waits for the dispatch that asked for the run to finish.
   const runStart = () => queueMicrotask(() => !closed && dispatch({ type: 'run-start' }));
 
-  const check = singleFlight(async (lesson, items, ev, slow) => {
+  // A run asked for during another waits in line, and a later ask takes its
+  // place (singleFlight). What r asked for stays owed until a run starts:
+  // its slow items, and `asked`, the latest r's number, which goes back on
+  // the result so the card knows that r's run ended.
+  function owing(fn) {
+    let owed = { slow: false, asked: 0 };
+    const go = singleFlight((...args) => {
+      const flags = owed;
+      owed = { slow: false, asked: 0 };
+      return fn(flags, ...args);
+    });
+    return ({ slow, asked } = {}, ...args) => {
+      owed = { slow: owed.slow || Boolean(slow), asked: Math.max(owed.asked, asked ?? 0) };
+      return go(...args);
+    };
+  }
+
+  const check = owing(async ({ slow, asked }, lesson, items, ev) => {
     // The evidence file's state before and after the run: if it changed while
     // the check ran, the result may be about the old file, so ask again.
     const before = ev ? stampOf(root, ev) : null;
@@ -91,26 +108,26 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     runStart();
     const r = await runCheck(root, lesson, items, { slow });
     if (closed) return;
-    if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error });
-    if (ev && stampOf(root, ev) !== before) return queueMicrotask(() => !closed && check(lesson, items, ev, slow));
-    dispatch({ type: 'check', lesson, items: r.items, evidence: ev ? evidence(root, ev) : null, path: ev ?? null, stamp: before });
+    if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error, asked });
+    if (ev && stampOf(root, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev));
+    dispatch({ type: 'check', lesson, items: r.items, evidence: ev ? evidence(root, ev) : null, path: ev ?? null, stamp: before, asked });
   });
-  const git = singleFlight(async () => {
+  const git = owing(async ({ asked }) => {
     runStart();
     const r = await gitStatus(root);
     if (closed) return;
-    dispatch(r.error ? { type: 'git-error', message: r.error } : { type: 'git', paths: r.paths });
+    dispatch(r.error ? { type: 'git-error', message: r.error, asked } : { type: 'git', paths: r.paths, asked });
   });
 
   // A file's first line and its state, read now: small, local and quick.
-  const file = (path) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, line: evidence(root, path), lines: lineCount(root, path), stamp: stampOf(root, path) }));
+  const file = (path, asked = 0) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, line: evidence(root, path), lines: lineCount(root, path), stamp: stampOf(root, path), asked }));
 
   function run(effects) {
     for (const e of effects) {
-      if (e.type === 'check') check(e.lesson, e.items, e.evidence, e.slow);
-      else if (e.type === 'file') file(e.path);
+      if (e.type === 'check') check(e, e.lesson, e.items, e.evidence);
+      else if (e.type === 'file') file(e.path, e.asked);
       else if (e.type === 'stamp') queueMicrotask(() => !closed && dispatch({ type: 'stamp', key: e.key, stamp: stampOf(root, e.path) }));
-      else if (e.type === 'git') git();
+      else if (e.type === 'git') git(e);
       else if (e.type === 'save') save();
       else if (e.type === 'later') timers.setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
       else if (e.type === 'quit') quit(0);
@@ -142,7 +159,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // Ask again for whatever the screen waits on.
   function poke() {
     const w = watching(state);
-    if (w?.check) check(w.check.lesson, w.check.items, state.view === 'step' ? stepsOf(state)[state.pos.step].beats[state.pos.beat].evidence : null);
+    if (w?.check) check({}, w.check.lesson, w.check.items, state.view === 'step' ? stepsOf(state)[state.pos.step].beats[state.pos.beat].evidence : null);
     if (w?.file) file(w.file);
     if (w?.git) git();
   }
@@ -215,6 +232,6 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
 
   // The first look: the current lesson's check, for "welcome back" and the map.
   draw();
-  if (state.view === 'resume' || state.view === 'intro') check(state.lesson, null, null, false);
+  if (state.view === 'resume' || state.view === 'intro') check({}, state.lesson, null, null);
   return new Promise(() => {});
 }

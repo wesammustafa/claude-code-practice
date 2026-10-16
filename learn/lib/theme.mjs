@@ -47,10 +47,12 @@ export function theme(caps) {
   const bg = (token, s) => (depth > 1 && s ? `${sgr(color(token, true))}${s}${sgr(49)}` : s);
   const bold = (s) => (s ? `${sgr(1)}${s}${sgr(22)}` : s);
   const inverse = (s) => (s ? `${sgr(7)}${s}${sgr(27)}` : s);
-  // A label on a colored block. Without color it is inverse video.
-  const pill = (text, bgToken, fgToken = 'white') => {
-    if (depth <= 1) return inverse(bold(` ${text} `));
-    return `${sgr(`1;${color(fgToken)};${color(bgToken, true)}`)} ${text} ${sgr('22;39;49')}`;
+  // A label on a colored block. Without color it is inverse video. Pressed,
+  // it turns inverse: without color, where it is inverse already, plain.
+  const pill = (text, bgToken, fgToken = 'white', { pressed = false } = {}) => {
+    if (depth <= 1) return pressed ? bold(` ${text} `) : inverse(bold(` ${text} `));
+    const block = `${sgr(`1;${color(fgToken)};${color(bgToken, true)}`)} ${text} ${sgr('22;39;49')}`;
+    return pressed ? inverse(block) : block;
   };
   const glyph = unicode ? UNICODE_GLYPHS : ASCII_GLYPHS;
   const emoji = (name) => EMOJI[name][unicode ? 0 : 1];
