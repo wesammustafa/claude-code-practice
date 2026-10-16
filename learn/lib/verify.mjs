@@ -124,23 +124,13 @@ export function gitFirstName(dir) {
   });
 }
 
-// The first line of a file a check verified, to show what the learner made.
-export function evidence(dir, path) {
+// A file's bytes as they are now, for the reducer to read what it holds
+// (holds.mjs); null when it isn't there or can't be read just now.
+export function bytesOf(dir, path) {
   try {
-    const buf = readFileSync(join(dir, path));
-    const text = buf[0] === 0xff && buf[1] === 0xfe ? buf.subarray(2).toString('utf16le') : buf.toString('utf8').replace(/^﻿/, '');
-    return text.split(/\r?\n/).find((l) => l.trim())?.trim().slice(0, 60) ?? null;
+    return readFileSync(join(dir, path));
   } catch {
     return null;
-  }
-}
-
-// How many lines of a file hold something, such as the paths in a plan's list.
-export function lineCount(dir, path) {
-  try {
-    return readFileSync(join(dir, path), 'utf8').split(/\r?\n/).filter((l) => l.trim()).length;
-  } catch {
-    return 0;
   }
 }
 

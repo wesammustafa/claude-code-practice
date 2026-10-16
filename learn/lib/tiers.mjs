@@ -9,7 +9,10 @@ export const TIERS = ['guided', 'hinted', 'challenge'];
 const rank = (t) => TIERS.indexOf(t);
 const at = (i) => TIERS[Math.max(0, Math.min(2, i))];
 
-const verifiable = (step) => step.beats.some((b) => b.verify.kind === 'check' || b.verify.kind === 'git-clean');
+// A step the app checks: a check item, git, or what a file holds (ticket
+// 87). A `file` beat, done once its file holds any line, is not one.
+const CHECKED = new Set(['check', 'git-clean', 'json', 'match', 'no-match']);
+const verifiable = (step) => step.beats.some((b) => CHECKED.has(b.verify.kind));
 
 // The tier the course's rule gives each step of `lessonIndex`, from the
 // content of the lessons before it. `contents` is every lesson's parsed

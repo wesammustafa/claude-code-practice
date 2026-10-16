@@ -2,8 +2,9 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
-import { PATH_MAX, WORK_LEVELS } from './content.mjs';
+import { PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
+import { evidenceOf, judge } from './holds.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
 export const IDLE_MS = 120_000;
@@ -247,7 +248,7 @@ export function watching(s) {
   if (['done', 'already'].includes(s.beat.status)) return null;
   const v = beatOf(s).verify;
   if (v.kind === 'check') return { check: { lesson: s.lesson, items: v.all ? null : v.items }, dir };
-  if (v.kind === 'file') return { file: v.path, dir };
+  if (READS.has(v.kind)) return { file: v.path, dir };
   if (v.kind === 'git-clean') return { git: true, dir };
   return null;
 }
@@ -359,7 +360,7 @@ export function rungsOf(s) {
 // where nothing can fail, so h answers at once.
 export function tryFirst(s) {
   const beat = beatOf(s);
-  if (['check', 'file', 'git-clean'].includes(beat.verify.kind)) return 'r';
+  if (beat.verify.kind === 'check' || beat.verify.kind === 'git-clean' || READS.has(beat.verify.kind)) return 'r';
   const canMiss = beat.options.some((o) => o.kind === 'wrong' || o.kind === 'decoy');
   return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' && canMiss ? 'pick' : null;
 }
@@ -393,7 +394,7 @@ function openBeat(s, effects) {
   } else if (beat.verify.kind === 'check') {
     s.beat.status = 'opening';
     effects.push({ type: 'check', lesson: s.lesson, items: beat.verify.all ? null : beat.verify.items, evidence: beat.evidence ?? null, dir: folderOf(s) });
-  } else if (beat.verify.kind === 'file') {
+  } else if (READS.has(beat.verify.kind)) {
     s.beat.status = 'opening';
     effects.push({ type: 'file', path: beat.verify.path, dir: folderOf(s) });
   } else if (beat.verify.kind === 'git-clean') {
@@ -711,8 +712,10 @@ function submitTyped(s, effects) {
 // ---- checks and git ----------------------------------------------------------
 const RESULTS = ['check', 'check-error', 'file', 'git', 'git-error'];
 
+// `read` is the bytes of the beat's evidence file, as main read it.
 function onCheck(s, ev, effects, rRuns) {
-  s.checks[ev.lesson] = { items: keptSlow(s, ev), evidence: ev.evidence ?? null, error: null };
+  ev = { ...ev, evidence: evidenceOf(ev.read) };
+  s.checks[ev.lesson] = { items: keptSlow(s, ev), evidence: ev.evidence, error: null };
   checkOnlyDone(s, ev, effects);
   if (rRuns || s.view !== 'step' || ev.lesson !== s.lesson || !s.beat) return;
   const beat = beatOf(s);
@@ -760,14 +763,14 @@ function checkOnlyDone(s, ev, effects) {
   effects.push({ type: 'save' });
 }
 
-// A file no check item covers: done once it holds a line.
+// A file the beat reads itself, by what it holds now (holds.mjs): `read`
+// is its bytes, null when it isn't there.
 function onFile(s, ev, effects, rRuns) {
   if (rRuns || s.view !== 'step' || !s.beat) return;
   const v = beatOf(s).verify;
-  if (v.kind !== 'file' || ev.path !== v.path || ['done', 'already'].includes(s.beat.status)) return;
-  // A list shows its first line and how many more, so a short list shows.
-  const more = (ev.lines ?? 1) - 1;
-  decide(s, { ...ev, evidence: ev.line && more > 0 ? C.andMore(ev.line, more) : ev.line }, effects, ev.line ? null : { hint: C.fileEmpty(ev.path) });
+  if (!READS.has(v.kind) || ev.path !== v.path || ['done', 'already'].includes(s.beat.status)) return;
+  const r = judge(v, ev.read);
+  decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
 }
 
 // Turns a result into the beat's status. `failing` is null when it passes.
@@ -1011,7 +1014,7 @@ function stampFx(prev, s, ev) {
   const w = watching(prev);
   const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && w?.git);
   if (looked) {
-    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, ev.evidence ?? null] : ev.type === 'file' ? [ev.line, ev.lines] : ev.paths);
+    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read) : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;
     if (fx.changed) fx.changedAt = t;
     fx.seen = seen;

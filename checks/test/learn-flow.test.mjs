@@ -6,7 +6,7 @@ import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, p
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
-import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, FACTS, finished, finishedBefore, mapTo, playUntil } from './learn-drive.mjs';
+import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, FACTS, finished, finishedBefore, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
@@ -35,7 +35,7 @@ test('a check step waits, says "not yet" only when something changed, and turns 
   assert.equal(d.state.beat.status, 'fail', 'r asks, so the answer is shown');
   d.send({ type: 'check', lesson: 'b-1', items: [empty] });
   assert.equal(d.state.beat.fail.hint, empty.hint);
-  d.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)' });
+  d.send({ type: 'check', lesson: 'b-1', items: [passed], read: Buffer.from('2.1.285 (Claude Code)\n') });
   assert.equal(d.state.beat.status, 'done');
   assert.equal(d.state.beat.evidence, '2.1.285 (Claude Code)');
   assert.equal(watching(d.state), null, 'a done step watches nothing');
@@ -544,16 +544,16 @@ test('a file check is done once its file holds a line, and a fresh one once it c
   assert.equal(d.state.view, 'levelup');
   assert.ok(d.key('enter').some((e) => e.type === 'file' && e.path === '.practice/b-2-plan.txt'));
   d.send({ type: 'stamp', key: 'Y1.0', stamp: 'A' });
-  d.send({ type: 'file', path: '.practice/b-2-plan.txt', line: 'src/config.js', stamp: 'A' });
+  d.send({ type: 'file', path: '.practice/b-2-plan.txt', read: Buffer.from('src/config.js'), stamp: 'A' });
   assert.equal(d.state.beat.status, 'waiting', 'the file W1 left behind');
-  d.send({ type: 'file', path: '.practice/other.txt', line: 'x', stamp: 'B' });
+  d.send({ type: 'file', path: '.practice/other.txt', read: Buffer.from('x'), stamp: 'B' });
   assert.equal(d.state.beat.status, 'waiting', 'another file decides nothing');
-  d.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'B' });
+  d.send({ type: 'file', path: '.practice/b-2-plan.txt', read: null, stamp: 'B' });
   d.key('r');
-  d.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'B', asked: d.state.beat.asked });
+  d.send({ type: 'file', path: '.practice/b-2-plan.txt', read: null, stamp: 'B', asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'fail');
   assert.match(d.state.beat.fail.hint, /\.practice\/b-2-plan\.txt has no line/);
-  d.send({ type: 'file', path: '.practice/b-2-plan.txt', line: 'src/config.js', lines: 2, stamp: 'C' });
+  d.send({ type: 'file', path: '.practice/b-2-plan.txt', read: Buffer.from('src/config.js\nsrc/cli.js\n'), stamp: 'C' });
   assert.equal(d.state.beat.status, 'done');
   assert.equal(d.state.beat.evidence, 'src/config.js and 1 more line', 'a list shows how long it is');
 });
@@ -817,13 +817,13 @@ test('h at CHALLENGE: on a stale fresh beat, r is the try', () => {
   const path = '.practice/b-5-rule.txt';
   const d = open('b-5', 'Y2', { stamps: { 'Y2.0': 'a' } });
   assert.equal(tierOf(d.state), 'challenge');
-  d.send({ type: 'file', path, line: '// linkcheck source.', stamp: 'a' });
+  d.send({ type: 'file', path, read: Buffer.from('// linkcheck source.'), stamp: 'a' });
   assert.equal(d.state.beat.status, 'waiting');
   d.key('h');
   assert.equal(d.state.beat.rung, -1);
   d.key('r');
   assert.deepEqual(d.effects.at(-1), { type: 'file', path, asked: d.state.asks, dir: FACTS.root });
-  d.send({ type: 'file', path, line: '// linkcheck source.', stamp: 'a', asked: d.state.beat.asked });
+  d.send({ type: 'file', path, read: Buffer.from('// linkcheck source.'), stamp: 'a', asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'waiting', 'an unchanged file is still not done');
   d.key('h');
   assert.equal(d.state.beat.rung, 0);
@@ -1678,7 +1678,7 @@ test('r shows the checking state on every checked beat, and its check, file and 
   assert.equal(d.state.beat.status, 'opening', 'r on a "Not yet" shows the run too');
   const f = midway('b-2', 'W6', { beat: 2 });
   assert.equal(beatOf(f.state).verify.kind, 'file');
-  f.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'a' });
+  f.send({ type: 'file', path: '.practice/b-2-plan.txt', read: null, stamp: 'a' });
   assert.notEqual(f.state.beat.status, 'opening');
   const fileOut = f.key('r');
   assert.equal(f.state.beat.status, 'opening', 'a file beat');
@@ -1719,15 +1719,15 @@ test('opening set by r ends only on r\'s own result: a poll result that lands fi
   w.send({ type: 'check-error', lesson: 'b-1', message: 'it took too long', asked: w.state.beat.asked });
   assert.equal(w.state.beat.status, 'broken');
   // After r's result, a poll's result counts as before.
-  w.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)' });
+  w.send({ type: 'check', lesson: 'b-1', items: [passed], read: Buffer.from('2.1.285 (Claude Code)\n') });
   assert.equal(w.state.beat.status, 'done');
   // A file beat and a git beat.
   const f = midway('b-2', 'W6', { beat: 2 });
-  f.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'a' });
+  f.send({ type: 'file', path: '.practice/b-2-plan.txt', read: null, stamp: 'a' });
   f.key('r');
-  f.send({ type: 'file', path: '.practice/b-2-plan.txt', line: 'src/config.js', stamp: 'b' });
+  f.send({ type: 'file', path: '.practice/b-2-plan.txt', read: Buffer.from('src/config.js'), stamp: 'b' });
   assert.equal(f.state.beat.status, 'opening');
-  f.send({ type: 'file', path: '.practice/b-2-plan.txt', line: 'src/config.js', stamp: 'b', asked: f.state.beat.asked });
+  f.send({ type: 'file', path: '.practice/b-2-plan.txt', read: Buffer.from('src/config.js'), stamp: 'b', asked: f.state.beat.asked });
   assert.equal(f.state.beat.status, 'done');
   const g = at('W7', { beat: 2 });
   g.send({ type: 'git', paths: ['notes.md'] });
@@ -1752,7 +1752,7 @@ test('r\'s own result that lands while the map is open still ends its wait: back
   assert.equal(d.state.view, 'step');
   assert.equal(d.state.beat.status, 'opening', 'the map hid the result, so the card still waits for one');
   assert.deepEqual(ofType(out, 'check'), [{ type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt', dir: FACTS.root }]);
-  d.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)' });
+  d.send({ type: 'check', lesson: 'b-1', items: [passed], read: Buffer.from('2.1.285 (Claude Code)\n') });
   assert.equal(d.state.beat.status, 'done', 'the check the map asked for decides');
 });
 
@@ -1766,7 +1766,7 @@ test('r pressed twice: only the later r\'s result ends "Checking", not the earli
   assert.ok(second > first);
   d.send({ type: 'check', lesson: 'b-1', items: [missing], asked: first });
   assert.equal(d.state.beat.status, 'opening', 'the earlier run saw the files before the later r');
-  d.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)', asked: second });
+  d.send({ type: 'check', lesson: 'b-1', items: [passed], read: Buffer.from('2.1.285 (Claude Code)\n'), asked: second });
   assert.equal(d.state.beat.status, 'done');
 });
 
@@ -1880,4 +1880,147 @@ test('recall, then compare: escape goes back, the capstone\'s enter opens the ma
   e.key('space');
   assert.equal(e.state.overlay, null);
   assert.equal(e.state.view, 'next');
+});
+
+// ---- beats that read what a file holds (ticket 87) ---------------------------
+const parseError = (text) => {
+  try {
+    JSON.parse(text);
+  } catch (error) {
+    return error.message;
+  }
+};
+
+test('json: done once the file parses and holds the key; the not-yet line names the parse error or the missing key; the evidence is the key\'s value', () => {
+  const path = '.claude/settings.json';
+  const d = onReading(`json ${path} permissions.deny`);
+  assert.deepEqual(watching(d.state), { file: path, dir: FACTS.root });
+  assert.match(tryNow(d, path, null).fail.hint, /\.claude\/settings\.json is not there yet/);
+  const broken = '{"permissions": {"deny": [] ';
+  const st = tryNow(d, path, broken);
+  assert.equal(st.status, 'fail');
+  assert.ok(st.fail.hint.includes(parseError(broken)), st.fail.hint);
+  assert.match(tryNow(d, path, '{"permissions": {"allow": []}}').fail.hint, /\.claude\/settings\.json has no permissions\.deny yet/);
+  const done = tryNow(d, path, '{\n  "permissions": {\n    "deny": ["Read(./.env)"]\n  }\n}\n');
+  assert.equal(done.status, 'done');
+  assert.equal(done.evidence, '["Read(./.env)"]');
+});
+
+test('json with a value: done once the key equals it, as text or as JSON; the not-yet line names the key and what it holds', () => {
+  const path = '.practice/a-4-run.json';
+  const d = onReading(`json ${path} subtype=success`);
+  assert.equal(tryNow(d, path, '{"type": "result", "subtype": "error_max_turns"}').fail.hint, '.practice/a-4-run.json has subtype error_max_turns, not success, yet.');
+  const done = tryNow(d, path, '{"type": "result", "subtype": "success"}');
+  assert.equal(done.status, 'done');
+  assert.equal(done.evidence, 'success');
+  const flag = onReading(`json ${path} is_error=false`);
+  assert.equal(tryNow(flag, path, '{"is_error": true}').status, 'fail');
+  assert.equal(tryNow(flag, path, '{"is_error": false}').status, 'done');
+});
+
+test('json, match and no-match take fresh and fresh since: what an earlier step left passes only once the file changes', () => {
+  const path = '.claude/settings.json';
+  const text = '{"permissions": {"deny": ["Read(./.env)"]}}';
+  for (const verify of [`json ${path} permissions.deny fresh`, `match ${path} deny fresh since W1`, `no-match ${path} allow fresh since W1`]) {
+    const d = onReading(verify, { stamps: { 'Y1.0': 'a' } });
+    assert.equal(beatOf(d.state).verify.fresh, true, verify);
+    const st = tryNow(d, path, text, 'a');
+    assert.equal(st.status, 'waiting', `${verify}: the file as the step found it`);
+    assert.equal(st.stale, true, verify);
+    assert.equal(tryNow(d, path, text, 'b').status, 'done', `${verify}: once it changed`);
+  }
+  assert.equal(onReading(`match ${path} deny fresh since W1`).state.course.find((l) => l.id === 'b-2').content.steps.find((x) => x.id === 'Y1').beats[0].verify.since, 'W1');
+});
+
+test('match: done once a line matches, front matter included, and the evidence is that line', () => {
+  const path = '.claude/skills/tdd/SKILL.md';
+  const d = onReading(`match ${path} ^disable-model-invocation: true$`);
+  assert.deepEqual(watching(d.state), { file: path, dir: FACTS.root });
+  assert.equal(tryNow(d, path, null).fail.hint, '.claude/skills/tdd/SKILL.md is not there yet.');
+  assert.equal(tryNow(d, path, '---\nname: tdd\n---\n\nWrite the test first.\n').fail.hint, '.claude/skills/tdd/SKILL.md has no line like that yet.');
+  const done = tryNow(d, path, '---\nname: tdd\r\ndisable-model-invocation: true\r\n---\n\nWrite the test first.\n');
+  assert.equal(done.status, 'done');
+  assert.equal(done.evidence, 'disable-model-invocation: true');
+});
+
+test('no-match: done once the file is there and no line matches; the not-yet line names the line that does', () => {
+  const path = '.claude/skills/tdd/SKILL.md';
+  const d = onReading(`no-match ${path} \\bTODO\\b`);
+  assert.equal(tryNow(d, path, null).fail.hint, '.claude/skills/tdd/SKILL.md is not there yet.', 'a missing file is not done');
+  assert.equal(tryNow(d, path, '---\nname: tdd\n---\n\n  - TODO: write the steps\n').fail.hint, '.claude/skills/tdd/SKILL.md still has: - TODO: write the steps');
+  assert.equal(tryNow(d, path, '---\nname: tdd\n---\n\nTODOS are words, not a TODO-free line.\n').status, 'fail', 'TODO- still matches \\bTODO\\b');
+  assert.equal(tryNow(d, path, '---\nname: tdd\n---\n\nWrite the test first.\n').status, 'done');
+});
+
+test('evidence skips a leading front matter block and lines that are only ---, { or [, for a file beat, a check and json', () => {
+  const skill = '---\nname: tdd\ndescription: Test first.\n---\n\n# Test-driven development\n';
+  const file = onReading('file .claude/agents/reviewer.md');
+  tryNow(file, '.claude/agents/reviewer.md', null);
+  assert.equal(tryNow(file, '.claude/agents/reviewer.md', '---\nname: reviewer\n---\nReview the diff.\nThen say what is wrong.\n').evidence, 'Review the diff. and 1 more line');
+  // A check beat: the evidence is its evidence file's, as main read it.
+  const check = driver({ course: courseWith({ 'b-2': DEMO_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R2', 'R3'], done: ['R1', 'R2', 'R3'], step: 'W1', beat: 0 } } } });
+  check.key('enter');
+  assert.equal(stepOf(check.state).id, 'W1');
+  check.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: true, hint: '' }], read: Buffer.from(skill), path: '.practice/b-2-before.txt' });
+  assert.equal(check.state.beat.evidence, '# Test-driven development');
+  const json = onReading('json .mcp.json');
+  tryNow(json, '.mcp.json', null);
+  assert.equal(tryNow(json, '.mcp.json', '{\n  "mcpServers": {}\n}\n').evidence, '"mcpServers": {}');
+  const list = onReading('json .practice/list.json');
+  tryNow(list, '.practice/list.json', null);
+  assert.equal(tryNow(list, '.practice/list.json', '[\n  {\n    "id": 1\n  }\n]\n').evidence, '"id": 1');
+  // With no closing line it is no front matter: only the --- line goes.
+  const open = onReading('file notes.md');
+  tryNow(open, 'notes.md', null);
+  assert.equal(tryNow(open, 'notes.md', '---\nname: tdd\n').evidence, 'name: tdd');
+});
+
+// A PNG's first bytes: the signature, then its IHDR chunk, 800 by 600.
+const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000320000002580806000000', 'hex');
+test('a binary file\'s evidence is its kind and size, never its bytes: a PNG is an image and its size', () => {
+  const path = '.practice/i-7-page.png';
+  const d = onReading(`file ${path}`);
+  tryNow(d, path, null);
+  d.key('r');
+  d.send({ type: 'file', path, read: Buffer.concat([PNG, Buffer.alloc(3000, 7)]), stamp: 'b', asked: d.state.beat.asked });
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.beat.evidence, 'a PNG image, 800 x 600');
+  const other = onReading('file .practice/blob.bin');
+  tryNow(other, '.practice/blob.bin', null);
+  other.key('r');
+  other.send({ type: 'file', path: '.practice/blob.bin', read: Buffer.concat([Buffer.from('\x00\x01text'), Buffer.alloc(2042, 0)]), stamp: 'b', asked: other.state.beat.asked });
+  assert.equal(other.state.beat.evidence, 'binary data, 2 KB');
+  // A check's evidence file too.
+  const check = driver({ course: courseWith({ 'b-2': DEMO_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R2', 'R3'], done: ['R1', 'R2', 'R3'], step: 'W1', beat: 0 } } } });
+  check.key('enter');
+  check.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: true, hint: '' }], read: Buffer.from('\x00\x00\x00'), path: '.practice/b-2-before.txt' });
+  assert.equal(check.state.beat.evidence, 'binary data, 3 bytes');
+});
+
+test('a Your turn step that json, match or no-match verifies counts as checked: the last one gets a notch less help, as a check step does', () => {
+  assert.equal(tierOf(onReading('check 0').state), 'challenge');
+  for (const verify of ['json .mcp.json mcpServers', 'match CLAUDE.md ^@', 'no-match SKILL.md TODO']) {
+    assert.equal(tierOf(onReading(verify).state), 'challenge', verify);
+  }
+});
+
+test('h at CHALLENGE: on a json, match or no-match beat, r is the try', () => {
+  for (const verify of ['json .mcp.json mcpServers', 'match CLAUDE.md ^@', 'no-match SKILL.md TODO']) {
+    const path = verify.split(' ')[1];
+    const d = onReading(`${verify}\n- hint: "Open the file."`);
+    assert.equal(tierOf(d.state), 'challenge', verify);
+    d.key('h');
+    assert.deepEqual([d.state.toast?.kind, d.state.toast?.try], ['hintsLater', 'r'], verify);
+    assert.equal(d.state.beat.rung, -1, `${verify}: nothing opens before a try`);
+    tryNow(d, path, null);
+    d.key('h');
+    assert.equal(d.state.beat.rung, 0, verify);
+  }
+});
+
+test('a "Done when" in the app\'s words may stand on a json, match or no-match beat, as on a file beat', () => {
+  for (const verify of ['json .mcp.json mcpServers', 'match CLAUDE.md ^@', 'no-match SKILL.md TODO']) {
+    const d = onReading(`${verify}\n- say: Done when the file has it.`);
+    assert.deepEqual(beatOf(d.state).lines.filter((x) => x.doneWhen).map((x) => x.text), ['Done when the file has it.'], verify);
+  }
 });

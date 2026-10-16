@@ -11,7 +11,7 @@ import { render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, mapTo, playUntil, root } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -2148,7 +2148,7 @@ test('the checking label names what is checked: "Checking <watched path>…", an
   const cases = [
     // A check beat, a file beat with no watching line, a git beat, and the Check, which watches every item.
     ['b-1', 'W3', 0, { type: 'check', lesson: 'b-1', items: [{ index: 0, text: 'x', pass: false, hint: 'no file' }] }, 'Checking .practice/version.txt…'],
-    ['b-2', 'W6', 2, { type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'a' }, 'Checking .practice/b-2-plan.txt…'],
+    ['b-2', 'W6', 2, { type: 'file', path: '.practice/b-2-plan.txt', read: null, stamp: 'a' }, 'Checking .practice/b-2-plan.txt…'],
     ['b-1', 'W7', 2, { type: 'git', paths: ['notes.md'] }, 'Checking git status…'],
     ['b-1', 'C', 0, { type: 'check', lesson: 'b-1', items: [{ index: 0, text: 'x', pass: false, hint: 'no file' }] }, 'Checking…'],
   ];
@@ -2853,5 +2853,36 @@ test('a next screen whose lesson put nothing on the card asks for no recall', ()
   for (const [cols, rows] of SHORT) {
     const lines = cardText(d, cols, rows);
     assert.ok(!lines.includes(C.recallAsk('B4')), `${cols}x${rows}\n${lines.join('\n')}`);
+  }
+});
+
+// ---- beats that read what a file holds (ticket 87) ---------------------------
+// A screen's words as one line, borders out, for a sentence that wraps.
+const prose = (state, [cols, rows], t) => render(state, { cols, rows }, t).map((l) => strip(l).trim().replace(/^[│|]\s*/, '').replace(/\s*[│|]$/, '')).join(' ').replace(/\s+/g, ' ');
+
+test('a reading beat\'s not-yet line is shown whole, and its pass shows what the file holds, at 60x20 and 80x24', () => {
+  const path = '.claude/skills/tdd/SKILL.md';
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of [[60, 20], [80, 24]]) {
+      const where = `${size.join('x')} ${caps.unicode ? 'unicode' : 'ascii'}`;
+      const no = onReading(`no-match ${path} \\bTODO\\b`);
+      tryNow(no, path, '---\nname: tdd\n---\n\n- TODO: write the steps\n');
+      assert.ok(prose(no.state, size, t).includes(`Not yet: ${path} still has: - TODO: write the steps`), `${where}: ${prose(no.state, size, t)}`);
+      // A parse error's not-yet line is long, and the screen still fits.
+      const broken = onReading('json .claude/settings.json permissions.deny');
+      tryNow(broken, '.claude/settings.json', '{"permissions": {"deny": ["Read(./.env)"] }, "hooks": [}');
+      const lines = render(broken.state, { cols: size[0], rows: size[1] }, t);
+      assert.equal(lines.length, size[1], where);
+      for (const line of lines) assert.ok(width(line) <= size[0] - 1, `${where}: ${strip(line)}`);
+      assert.ok(prose(broken.state, size, t).includes('Not yet: .claude/settings.json does not parse as JSON yet ('), `${where}: ${prose(broken.state, size, t)}`);
+      const json = onReading('json .claude/settings.json permissions.deny');
+      tryNow(json, '.claude/settings.json', null);
+      tryNow(json, '.claude/settings.json', '{"permissions": {"deny": ["Read(./.env)"]}}');
+      assert.equal(json.state.beat.status, 'done');
+      // Beside the burst, on one line or, where that is too long, two.
+      const words = prose(json.state, size, t);
+      assert.ok(words.includes('.claude/settings.json holds ["Read(./.env)"]') || (words.includes('.claude/settings.json') && words.includes('holds ["Read(./.env)"]')), `${where}: ${words}`);
+    }
   }
 });
