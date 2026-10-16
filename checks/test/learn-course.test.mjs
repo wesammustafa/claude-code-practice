@@ -270,7 +270,7 @@ test('the check-only card has Pip on its top border, at rest, in every lesson, a
     const d = checkOnly(id);
     for (const size of SIZES) {
       const top = lines(d.state, size).find((l) => l.includes('╭'));
-      assert.match(top, /\(●‿●\) ──$/, `${id} at ${size.join('x')}: ${top}`);
+      assert.match(top, /\[●‿●\] ──$/, `${id} at ${size.join('x')}: ${top}`);
     }
     // Done: the pill takes border room. Pip steps off only where fewer than
     // its face's cells and a rule are left, which is ASCII at 60 columns.
@@ -280,8 +280,8 @@ test('the check-only card has Pip on its top border, at rest, in every lesson, a
         const top = lines(done.state, size, t).find((l) => /^\s*(╭|\+-)/.test(l));
         const where = `${id} done at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}: ${top}`;
         assert.match(top, /DONE/, where);
-        if (t.unicode) assert.match(top, /\(●‿●\) ──$/, where);
-        else if (size[0] === 80) assert.match(top, /\(o_o\) --$/, where);
+        if (t.unicode) assert.match(top, /\[●‿●\] ──$/, where);
+        else if (size[0] === 80) assert.match(top, /\[o_o\] --$/, where);
         else assert.match(top, /DONE {2}-+$/, where);
       }
     }
@@ -341,7 +341,7 @@ test('a poll changes no row of the check-only card: only marks move, and once r 
         assert.deepEqual(masked(polled, t), masked(opened, t), `${at}: the first poll moved more than marks\n${polled.join('\n')}`);
         assert.ok(!polled.some((l) => new RegExp(`^\\s*[│|] +${t.glyph.warnMark.replace(/[[\]]/g, '\\$&')} `).test(l)), at);
         // Pip worries only where the card shows a failing mark: none here.
-        if (t.unicode) assert.match(polled.find((l) => l.includes('╭')), /\(●‿●\) ──$/, `${at}: an unrun slow item is no failure`);
+        if (t.unicode) assert.match(polled.find((l) => l.includes('╭')), /\[●‿●\] ──$/, `${at}: an unrun slow item is no failure`);
         // r's run passes every item; then a poll leaves the slow ones out again.
         d.send(result(id, () => true, { slow: false }));
         const ran = lines(d.state, size, t);
@@ -394,7 +394,7 @@ test('r on the check-only card says its run is going until its own result lands:
     // The label is state, so calm shows it at once, with Pip's checking face.
     const calm = lines(d.state, [80, 24], CALM);
     assert.ok(calm.some((l) => l.endsWith(C.checking())), `${id}\n${calm.join('\n')}`);
-    assert.match(calm.find((l) => l.includes('╭')), /\(◓─◓\) ──$/, id);
+    assert.match(calm.find((l) => l.includes('╭')), /\[◒─◒\] ──$/, id);
     for (const size of SIZES) {
       const ascii = lines(d.state, size, ASCII);
       assert.equal(ascii.length, size[1], id);
