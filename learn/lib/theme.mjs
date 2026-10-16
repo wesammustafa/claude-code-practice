@@ -19,11 +19,15 @@ const UNICODE_GLYPHS = {
   rule: '─', bold: '━', rail: '│', bar: '▌', tl: '╭', tr: '╮', bl: '╰', br: '╯',
   check: '✔', warnMark: '▲', pointer: '❯', arrow: '➜', right: '▸', star: '★', starOff: '☆',
   dot: '●', dotOff: '○', diamond: '◆', diamondOff: '◇', ellipsis: '…', bullet: '·', up: '↑↓',
+  // A trail stop's pops: a ring as a card enters, a spark as its step passes.
+  // A new "Not yet" mark pops from hollow.
+  ring: '◉', spark: '✦', warnPop: '△',
 };
 const ASCII_GLYPHS = {
   rule: '-', bold: '=', rail: '|', bar: '|', tl: '+', tr: '+', bl: '+', br: '+',
   check: '[x]', warnMark: '!', pointer: '>', arrow: '->', right: '>', star: '*', starOff: '.',
   dot: '#', dotOff: 'o', diamond: '+', diamondOff: '+', ellipsis: '...', bullet: '|', up: 'up/down',
+  ring: '@', spark: '*', warnPop: '!',
 };
 
 // Pip's small face on a card's top border, by mood: its eyes and mouth, and
@@ -32,6 +36,10 @@ const UNICODE_PIP = {
   rest: { eye: '●', mouth: '‿' }, checking: { eye: '◓', mouth: '─' }, worried: { eye: '◒', mouth: '‿' },
   done: { eye: '★', mouth: '‿' }, broken: { eye: '◒', mouth: '─' },
 };
+// Pip's poses in a one-shot, over its mood's face: eyes shut with a smile,
+// whatever the mood's mouth (a shut eye over a flat mouth would read as one
+// rule), or arms up with an open mouth. ASCII Pip is still, so it has none.
+const UNICODE_POSES = { shut: { eye: '─', mouth: '‿' }, up: { mouth: '▽', arms: ['\\', '/'] } };
 // ASCII Pip has three faces: at rest, checking, and done with its arms up.
 const ASCII_PIP = {
   rest: { eye: 'o', mouth: '_' }, checking: { eye: 'o', mouth: '.' }, worried: { eye: 'o', mouth: '_' },
@@ -68,11 +76,12 @@ export function theme(caps) {
   };
   const glyph = unicode ? UNICODE_GLYPHS : ASCII_GLYPHS;
   const pipGlyphs = unicode ? UNICODE_PIP : ASCII_PIP;
+  const pipPoses = unicode ? UNICODE_POSES : {};
   const emoji = (name) => EMOJI[name][unicode ? 0 : 1];
   // An emoji and a space, or the ASCII word and a space, or nothing.
   const lead = (name) => (emoji(name) ? `${emoji(name)} ` : '');
   const link = (text, url) => (caps.links && url ? `\x1b]8;;${url}\x07${text}\x1b]8;;\x07` : text);
-  return { caps, fg, bg, bold, inverse, pill, glyph, pipGlyphs, emoji, lead, link, unicode, depth };
+  return { caps, fg, bg, bold, inverse, pill, glyph, pipGlyphs, pipPoses, emoji, lead, link, unicode, depth };
 }
 
 export const TIER_STYLE = {
@@ -81,10 +90,13 @@ export const TIER_STYLE = {
   challenge: { label: 'CHALLENGE', stars: [3, 3], bg: 'challengeBg', tint: 'challenge', fgOnBg: 'black', on: 'star', off: 'starOff' },
 };
 
-export function tierLabel(t, tier) {
+// A tier's label and stars. While a level-up lands, `landing` draws the stars
+// the tier adds over `landing.from` as `landing.glyph`.
+export function tierLabel(t, tier, landing) {
   const s = TIER_STYLE[tier];
-  const stars = t.glyph.star.repeat(s.stars[0]) + t.glyph.starOff.repeat(s.stars[1] - s.stars[0]);
+  const old = landing ? TIER_STYLE[landing.from].stars[0] : s.stars[0];
+  const stars = t.glyph.star.repeat(old) + (landing?.glyph ?? t.glyph.star).repeat(s.stars[0] - old) + t.glyph.starOff.repeat(s.stars[1] - s.stars[0]);
   return `${s.label} ${stars}`;
 }
 
-export const tierPill = (t, tier) => t.pill(tierLabel(t, tier), TIER_STYLE[tier].bg, TIER_STYLE[tier].fgOnBg);
+export const tierPill = (t, tier, landing) => t.pill(tierLabel(t, tier, landing), TIER_STYLE[tier].bg, TIER_STYLE[tier].fgOnBg);
