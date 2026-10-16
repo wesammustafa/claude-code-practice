@@ -56,9 +56,10 @@ export const SHOTS = {
   // light runs the whole trail by the last frame before the end.
   complete: { every: 40, fall: 400, first: 2, more: 3, whole: 480, ticks: 560, ticksBy: 800, light: 840 },
   // Pip's eyes open at `waking` and are awake at `awake`; the fuse lights
-  // one more link of the path every `fuse`; from `pulse` one pulse crosses
-  // the arrow, a cell every `cell`.
-  welcome: { every: 80, waking: 80, awake: 160, fuse: 80, pulse: 320, cell: 80 },
+  // more of the path every `fuse`, a link at a time on Beginner's five, and
+  // reaches the cup at `cup`; from `pulse` one pulse crosses the arrow, a
+  // cell every `cell`.
+  welcome: { every: 80, waking: 80, awake: 160, fuse: 80, cup: 320, pulse: 320, cell: 80 },
   // One segment crosses the pulse line, a fifth of the way each frame.
   sweep: { every: 80 },
   // Pip looks toward the other window, then back: one change each way.

@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, cardOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -40,7 +40,14 @@ const optional = (rows) => {
 const repeat = (rows, alt) => ({ block: 'repeat', rows, alt });
 const decor = (rows, alt = []) => ({ block: 'decor', rows, alt });
 
-export const lessonLabel = (id) => (id.endsWith('capstone') ? 'CAP' : id.replace(/^([a-z])-(\d+)$/, (_, l, n) => `${l.toUpperCase()}${n}`));
+// A lesson's title on one row, its code spans as plain text: a-4's is
+// "Script Claude Code with `claude -p`".
+export const titleOf = (l) => plainText(l.title);
+
+// B1 to B5, then BC for the Beginner capstone; I1 and IC, A1 and AC alike.
+export const lessonLabel = (id) => id.replace(/^([a-z])-(\d+|capstone)$/, (_, l, n) => `${l.toUpperCase()}${n === 'capstone' ? 'C' : n}`);
+// A lesson's level by its guide name: 'Beginner' for b-2.
+const levelName = (s, id = s.lesson) => C.levels[levelOf(s, id)];
 
 // The lesson page a quote's relative links point into: set for each frame.
 let pageUrl = '';
@@ -52,11 +59,14 @@ export function render(s, size, t, clock = REST) {
   pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
   if (cols < MIN.cols || rows < MIN.rows) return small(cols, rows);
   const { W, M, top } = frameOf(size);
-  const ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps) };
-  const view = VIEWS[s.view](ctx);
   let toast = s.toast ? para(t, `${t.lead(TOASTS[s.toast.kind].emoji)}${TOASTS[s.toast.kind].text(s.toast)}`, W, TOASTS[s.toast.kind].color) : [];
   let gap = [''];
-  const room = () => rows - top.length - view.head.length - 2 - gap.length - toast.length;
+  // The rows a view's body has under `head` header rows, the blank under
+  // them included.
+  const roomUnder = (head) => rows - top.length - head - 2 - gap.length - toast.length;
+  const ctx = { s, t, W, inner: W - 3, cols, rows, clock, ph: phases(s, clock.at, t.caps), roomUnder };
+  const view = VIEWS[s.view](ctx);
+  const room = () => roomUnder(view.head.length);
   // The rows an overlay has under the view's header and its blank.
   ctx.room = room() - 1;
   const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
@@ -179,7 +189,7 @@ const TOASTS = {
 
 // ASCII mode: the few symbols in the app's own words and in quotes, spelled
 // out; anything else outside ASCII becomes '?'.
-const ASCII = { '·': '|', '…': '...', '↑': '^', '↓': 'v', '←': '<-', '’': "'", '‘': "'", '“': '"', '”': '"', '–': '-', '›': '>' };
+const ASCII = { '·': '|', '…': '...', '↑': '^', '↓': 'v', '←': '<-', '→': '->', '’': "'", '‘': "'", '“': '"', '”': '"', '–': '-', '›': '>' };
 const ascii = (line) => line.replace(/[^\x00-\x7f]/g, (ch) => ASCII[ch] ?? '?');
 
 function small(cols, rows) {
@@ -248,16 +258,16 @@ function absolute(url) {
 }
 
 // The keys that fit in `w` columns: a low key (c card) gives way first, then
-// a main key's long label to its short one, then the optional keys go from
-// the right; q always stays.
+// a key's long label to its short one (none, for the map's arrows), then the
+// optional keys go from the right; q always stays.
 // The `held` letter, waiting DEFER_MS to act, draws pressed: inverse.
 function keybar(t, keys, w = Infinity, held = null) {
   const draw = (list, short) => list.map((k) => {
-    const label = short && k.short ? k.short : k.label;
+    const label = short && k.short != null ? k.short : k.label;
     const pressed = k.key === held;
     if (k.main) return `${t.pill(k.key, k.bg ?? 'okBg', k.fg ?? 'white', { pressed })} ${t.bold(t.fg('white', label))}`;
     const letter = t.fg('key', t.bold(k.key));
-    return `${pressed ? t.inverse(letter) : letter} ${t.fg('muted', label)}`;
+    return `${pressed ? t.inverse(letter) : letter}${label ? ` ${t.fg('muted', label)}` : ''}`;
   }).join('    ');
   let list = keys.filter(Boolean);
   if (width(draw(list, false)) <= w) return draw(list, false);
@@ -403,7 +413,7 @@ function lessonHead(ctx, right, rightText) {
   // The check's short title, as on the map, cut to the room the pill leaves;
   // the content file keeps the page's heading.
   const label = t.pill(lessonLabel(l.id), 'accentBg');
-  const title = cut(l.title, Math.max(8, W - width(label) - 2 - width(right) - 1), t.unicode ? '…' : '.');
+  const title = cut(titleOf(l), Math.max(8, W - width(label) - 2 - width(right) - 1), t.unicode ? '…' : '.');
   return [
     spread(`${label}  ${t.bold(t.fg('white', title))}`, right, W),
     spread(l.content ? trail(ctx, W - width(rightText) - 1) : '', t.fg('muted', rightText), W),
@@ -497,15 +507,21 @@ const hintBox = (t, lines) => lines.map((l) => `${t.fg('warn', t.glyph.bar)} ${l
 const VIEWS = {
   welcome(ctx) {
     const { s, t, W } = ctx;
-    const done = s.course.filter((l) => s.progress[l.id].complete).length;
+    // The current level's path: its lessons, then one cup for its capstone.
+    const lessons = levelLessons(s, levelOf(s));
+    const done = lessons.filter((l) => s.progress[l.id].complete).length;
     const heat = ['guided', 'guided', 'hinted', 'heat4', 'challenge'];
-    const ids = s.course.filter((l) => !l.id.endsWith('capstone'));
-    // Once on entry: Pip wakes, and a fuse lights the path's links in turn.
+    const ids = lessons.filter((l) => !l.id.endsWith('capstone'));
+    const cap = lessons.find((l) => l.id.endsWith('capstone'));
+    // Once on entry: Pip wakes, and a fuse lights the path's links in turn,
+    // reaching the cup at `cup` however many lessons the level has.
     const e = into(ctx, 'welcome');
     const at = SHOTS.welcome;
-    const lit = e === Infinity ? 0 : 1 + Math.floor(e / at.fuse);
+    const frames = at.cup / at.fuse;
+    const lit = e === Infinity ? 0 : 1 + Math.floor((Math.min(frames, Math.floor(e / at.fuse)) * (ids.length - 1)) / frames);
     const link = (i) => (i < lit ? ` ${t.bold(t.fg('gold', t.glyph.bold.repeat(2)))} ` : t.fg('faint', ` ${t.glyph.rule.repeat(2)} `));
-    const path = `${ids.map((l, i) => `${t.fg(heat[i % heat.length], t.bold(lessonLabel(l.id)))}${link(i)}`).join('')}${t.emoji('cup') || lessonLabel('b-capstone')}`;
+    // The heat runs cool to hot across the level, however long.
+    const path = `${ids.map((l, i) => `${t.fg(heat[Math.floor((i * heat.length) / ids.length)], t.bold(lessonLabel(l.id)))}${link(i)}`).join('')}${t.emoji('cup') || lessonLabel(cap.id)}`;
     const hint = t.fg('muted', `   ${C.pathHint}`);
     const eyes = e < at.waking || ctx.ph.blink ? 'shut' : e < at.awake ? 'waking' : undefined;
     const body = [
@@ -522,8 +538,12 @@ const VIEWS = {
       t.fg('muted', C.comeBack),
     ];
     if (s.facts.gitError) body.push(SPACER, ...kept(led(t, 'broken', C.gitBroken(s.facts.gitError), W, 'bad')));
+    // The app's name gives way where it and the level's count don't both
+    // fit uncut, as with Intermediate's at 60 columns.
+    const count = t.fg('muted', C.pathLabel(levelName(s), done, lessons.length));
+    const title = width(appTitle(t)) + 1 + width(count) <= ctx.cols - 1 - frameOf(ctx).M ? appTitle(t) : t.pill('LEARN', 'accentBg');
     return {
-      head: [spread(appTitle(t), t.fg('muted', C.pathLabel(done, s.course.length)), W),
+      head: [spread(title, count, W),
         // The hint is left off when it doesn't fit: the map's footer says the same.
         `${path}${width(path + hint) <= W ? hint : ''}`, rule(t, W)],
       body,
@@ -559,8 +579,7 @@ const VIEWS = {
     // The climb is the lesson's own steps: warm-ups are recall, not new help.
     const steps = stepsOf(s);
     const m = mix(tiersOf(asStarted(s)).filter((_, i) => steps[i].part !== 'Warm-up'));
-    const n = s.course.findIndex((l) => l.id === s.lesson) + 1;
-    const label = s.lesson.endsWith('capstone') ? C.startCapstone : C.startLesson(n);
+    const label = s.lesson.endsWith('capstone') ? C.startCapstone : C.startLesson(lessonNumber(s));
     const option = (i, text) => (s.cursor === i
       ? `${t.fg('key', t.bold(t.glyph.pointer))} ${t.inverse(t.fg('key', t.bold(` ${text} `)))}`
       : `  ${t.fg('text', ` ${text}`)}`);
@@ -639,8 +658,7 @@ const VIEWS = {
     const art = pip(t, 'party', cheer ? 'cheer' : undefined);
     const word = banner(t, C.complete, cheer ? { letters: Math.floor((C.complete.length * e) / at.whole) } : {});
     const fits = t.unicode && W >= 14 + bannerWidth(C.complete);
-    const n = s.course.findIndex((l) => l.id === s.lesson) + 1;
-    const label = s.lesson.endsWith('capstone') ? 'Capstone' : `Lesson ${n}`;
+    const label = s.lesson.endsWith('capstone') ? 'Capstone' : `Lesson ${lessonNumber(s)}`;
     // The confetti falls into its row: from 24 rows across it and the blank
     // under it, turn about; below 24 rows, where that blank can give way,
     // glyph by glyph.
@@ -721,13 +739,18 @@ const VIEWS = {
     };
   },
 
+  // One level a page: the level of the lesson under the cursor.
   map(ctx) {
     const { s, t, W } = ctx;
-    const done = s.course.filter((l) => s.progress[l.id].complete).length;
-    const total = s.course.length;
+    const cursor = s.course[s.mapCursor];
+    const lessons = levelLessons(s, levelOf(s, cursor.id));
+    const done = lessons.filter((l) => s.progress[l.id].complete).length;
+    const total = lessons.length;
     const pct = Math.round((done / total) * 100);
     const barW = W - 6;
-    const nextIdx = s.course.findIndex((l) => !s.progress[l.id].complete);
+    const head = [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', C.levelPath(levelName(s, cursor.id))))}`, t.fg('muted', C.ofDone(done, total)), W),
+      `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)];
+    const next = s.course.find((l) => !s.progress[l.id].complete);
     // The legend's items run on under "Help:" when one row can't hold them.
     const legend = [];
     for (const item of TIERS.map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.tierHelp[k])}`)) {
@@ -736,24 +759,33 @@ const VIEWS = {
       else legend.push(item);
     }
     // The titles give way to the marks, which are wider in ASCII.
-    const titleW = Math.min(Math.max(...s.course.map((l) => l.title.length)), W - 30 - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
-    const rows = s.course.flatMap((l, i) => {
+    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
+    // Where the level's rows don't fit even closed up, with the footer gone,
+    // the list scrolls: the rows that fit, the cursor's as near their middle
+    // as the ends allow.
+    const fits = Math.max(1, ctx.roomUnder(head.length) - legend.length);
+    const at = lessons.indexOf(cursor);
+    const from = lessons.length <= fits ? 0 : Math.max(0, Math.min(lessons.length - fits, at - Math.floor(fits / 2)));
+    const rows = lessons.slice(from, from + fits).flatMap((l, i) => {
       const p = s.progress[l.id];
-      const sel = i === s.mapCursor;
+      const sel = l === cursor;
       const mark = `${sel ? t.fg('key', t.bold(t.glyph.pointer)) : ' '} ${p.complete ? t.fg('ok', t.glyph.check) : t.fg('faint', t.glyph.dotOff)}`;
       const pillBg = sel ? 'accentBg' : p.complete ? 'okBg' : 'dimBg';
-      const name = sel ? t.bold(t.fg('key', l.title)) : t.fg(p.complete ? 'text' : 'muted', l.title);
-      const state = p.complete ? t.fg('ok', C.mapDone) : i === nextIdx ? t.fg('accent', t.bold(C.mapNext)) : '';
+      const name = sel ? t.bold(t.fg('key', titleOf(l))) : t.fg(p.complete ? 'text' : 'muted', titleOf(l));
+      const state = p.complete ? t.fg('ok', C.mapDone) : l === next ? t.fg('accent', t.bold(C.mapNext)) : '';
       const medal = l.id.endsWith('capstone') ? t.emoji('cup') : p.complete && l.content?.badge ? t.emoji('badge') : '';
       const fitTitle = pad(cut(name, titleW + 1, t.unicode ? '…' : '.'), titleW + 1);
       const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${mixBar(ctx, l, 12)}  ${pad(state, 5)}${medal ? ` ${medal}` : ''}`;
       return i ? [spacer('', 'lessons'), line] : [line];
     });
     return {
-      head: [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', 'Beginner path'))}`, t.fg('muted', C.ofDone(done, total)), W),
-        `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)],
-      body: [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, SPACER, ...para(t, C.mapFooter, W, 'muted')],
-      keys: [key(t.glyph.up, C.k.choose), key('enter', C.k.open), key('m', C.k.back), key('q', C.k.quit)],
+      head,
+      // The footer says what the welcome's hint says: it gives way before a row.
+      body: [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, SPACER, ...optional(para(t, C.mapFooter, W, 'muted'))],
+      // Where the bar is short, as in ASCII at 60x20, "choose" gives way so
+      // the arrows that switch level stay: the pointer shows what up and
+      // down do.
+      keys: [{ ...key(t.glyph.up, C.k.choose), short: '' }, levelsOf(s).length > 1 ? key(t.glyph.sides, C.k.level) : null, key('enter', C.k.open), key('m', C.k.back), key('q', C.k.quit)],
     };
   },
 
@@ -849,7 +881,7 @@ function mixBar(ctx, lesson, cells) {
 // in the first lesson of its level that has warm-ups. It comes from the
 // content and the step's place alone: nothing is saved.
 const firstWarmupOfLevel = (s) => s.pos.step === 0
-  && s.course.find((l) => levelOf(l.id) === levelOf(s.lesson) && l.content?.warmup.length)?.id === s.lesson;
+  && levelLessons(s, levelOf(s)).find((l) => l.content?.warmup.length)?.id === s.lesson;
 
 function stepView(ctx) {
   const { s, t, inner } = ctx;
@@ -866,7 +898,9 @@ function stepView(ctx) {
   const inlineBottom = tier === 'guided' && authored !== 'guided';
   const rows = [t.bold(t.fg('white', beat.kind === 'type' && step.part === 'Check' ? C.lastQuestion : step.title))];
   if (step.part === 'Warm-up') {
-    rows.push(t.fg('muted', C.warmup(s.course.findIndex((l) => l.id === step.from) + 1)));
+    // A warm-up from another level names that level.
+    const other = levelOf(s, step.from) !== levelOf(s);
+    rows.push(t.fg('muted', C.warmup(lessonNumber(s, step.from), other ? levelName(s, step.from) : null)));
     if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
   }
   // At GUIDED the beat's reason, in the page's words, sits under the title;
@@ -1238,14 +1272,19 @@ const OVERLAYS = {
   },
   help(ctx) {
     const { t, inner, rows, room } = ctx;
-    const row = ([k, label]) => `  ${t.fg('key', t.bold(pad(k, 10)))}${t.fg('text', label)}`;
+    // A key padded as drawn: ASCII spells some arrows wider.
+    const row = ([k, label]) => `  ${t.fg('key', t.bold(pad(t.unicode ? k : ascii(k), 10)))}${t.fg('text', label)}`;
     // The calm line drops before any key or blank does: it shows only on
     // one row, from 24 rows, where the keys and their blanks leave room.
     const calm = rows >= 24 && width(C.calm) <= inner;
-    const keys = C.keyHelp.map(row);
+    const list = [...C.keyHelp];
+    // ← → on the map, under the arrows' row, where the course has more than
+    // one level.
+    if (levelsOf(ctx.s).length > 1) list.splice(list.findIndex(([k]) => k.startsWith('↑')) + 1, 0, C.levelKey);
+    const keys = list.map(row);
     // c's row, under p's, shows only where every key, blank and the calm
     // line leave it room, so it never costs a blank: 60x20 gives it up.
-    if (room >= 3 + keys.length + (calm ? 2 : 0) && width(row(C.cardKey)) <= inner) keys.splice(C.keyHelp.findIndex(([k]) => k === 'p') + 1, 0, row(C.cardKey));
+    if (room >= 3 + keys.length + (calm ? 2 : 0) && width(row(C.cardKey)) <= inner) keys.splice(list.findIndex(([k]) => k === 'p') + 1, 0, row(C.cardKey));
     return {
       body: [t.bold(t.fg('white', C.keysTitle)), SPACER, ...keys, ...(calm ? optional(['', ...para(t, C.calm, inner, 'muted')]) : [])],
       keys: [key('?', C.k.close), key('q', C.k.close)],
