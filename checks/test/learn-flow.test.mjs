@@ -958,14 +958,33 @@ test('an ease lands only where it changes the help: playing a lesson again start
   assert.deepEqual(d.state.progress['b-5'].easedSteps, {});
 });
 
+// The capstone's warm-ups recall b-4 and b-5 skills its steps never use (D12).
 test('an ease lands only where it changes the help: one no later Beginner step uses stays saved (Q12)', () => {
-  const d = midway('b-4', 'Y4', { beat: 1 });
-  bottomRung(d);
-  assert.deepEqual(d.state.eased, ['rewind']);
+  const toWarmup = () => {
+    const d = midway('b-4', 'Y4', { beat: 1 });
+    bottomRung(d);
+    assert.deepEqual(d.state.eased, ['rewind']);
+    playUntil(d, (s) => s.lesson === 'b-capstone' && s.view === 'step' && stepOf(s).skill === 'rewind');
+    assert.equal(d.state.progress['b-5'].complete, true);
+    assert.equal(stepOf(d.state).part, 'Warm-up');
+    assert.deepEqual(d.state.eased, ['rewind']);
+    return d;
+  };
+  // Missed at the capstone's warm-up: no step there uses it, so it stays.
+  const d = toWarmup();
+  for (let i = 0; i < 2; i++) {
+    for (const c of '/resume') d.key(c, c);
+    d.key('enter');
+  }
+  assert.equal(d.state.beat.answer.kind, 'revealed');
   playUntil(d, (s) => s.lesson === 'b-capstone' && s.view === 'complete');
-  assert.equal(d.state.progress['b-5'].complete, true);
+  assert.deepEqual(d.state.progress['b-capstone'].easedSteps, {});
   assert.deepEqual(d.state.eased, ['rewind']);
   assert.deepEqual(snapshot(d.state).eased, ['rewind']);
+  // Recalled there at once: the waiting ease is cancelled.
+  const r = toWarmup();
+  playUntil(r, (s) => s.lesson === 'b-capstone' && s.view === 'complete');
+  assert.deepEqual(r.state.eased, []);
 });
 
 test('an ease lands only where it changes the help: in a lesson played again, every step is done, so it waits', () => {
@@ -1089,6 +1108,45 @@ test('warm-ups set the help: every kind of miss adds the ease, an empty answer t
   typeIn(twice, 'q');
   typeIn(twice, 'q');
   assert.deepEqual(twice.state.eased, ['status']);
+});
+
+// The warm-up closure test (MISSABLE in learn-content.test.mjs) counts the
+// questions in this test and the next as ones that can mark a skill missed.
+test('s on a question with no wrong option still marks its skill for a warm-up, and on a guess it does nothing', () => {
+  const d = at('W2');
+  assert.deepEqual(beatOf(d.state).options.map((o) => o.kind), ['right', 'stuck', 'other']);
+  d.key('s');
+  assert.equal(d.state.beat.answer.kind, 'revealed');
+  assert.deepEqual(d.state.missed, ['install']);
+  const guess = at('W4');
+  assert.equal(beatOf(guess.state).kind, 'predict');
+  guess.key('s');
+  assert.equal(guess.state.beat.answer, null);
+  assert.deepEqual(guess.state.missed, []);
+});
+
+test('a decoy pick on a question with no right option still marks its skill for a warm-up, and s there does nothing', () => {
+  // b-1 W6's answers question, its right option made a plain option.
+  const noRight = b1Only.map((l) => {
+    if (l.id !== 'b-1') return l;
+    const content = structuredClone(l.content);
+    content.steps.find((x) => x.id === 'W6').beats[1].options[0].kind = 'option';
+    return { ...l, content };
+  });
+  const open = () => {
+    const d = driver({ course: noRight, saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W6', beat: 1 } } } });
+    d.key('enter');
+    assert.deepEqual(beatOf(d.state).options.map((o) => o.kind), ['option', 'decoy', 'decoy', 'other']);
+    return d;
+  };
+  const shown = open();
+  shown.key('s');
+  assert.equal(shown.state.beat.answer, null);
+  assert.deepEqual(shown.state.missed, []);
+  const d = open();
+  d.key('2');
+  assert.equal(d.state.beat.feedback.kind, 'wrong');
+  assert.deepEqual(d.state.missed, ['ask']);
 });
 
 test('warm-ups set the help: misses inside a lesson only mark a warm-up, and a guess touches nothing', () => {
@@ -1365,12 +1423,13 @@ test('fading counts only what this learner did: a replay asks again the warm-up 
 });
 
 test('fading counts only what this learner did: two warm-ups ask two skills while the pool has two', () => {
-  // b-3's pool: R1 plan-mode, R2 status, R3 and R4 approve-edits.
+  // b-3's pool: R1 plan-mode, R2 status, R3 and R4 approve-edits, R5
+  // plan-ask, R6 plan-revise.
   const pool = lessonOfId('b-3').content.warmup;
-  assert.deepEqual(pool.map((w) => w.skill), ['plan-mode', 'status', 'approve-edits', 'approve-edits']);
-  // Plan-mode and status met, approve-edits not: one approve-edits question, then the file order.
+  assert.deepEqual(pool.map((w) => w.skill), ['plan-mode', 'status', 'approve-edits', 'approve-edits', 'plan-ask', 'plan-revise']);
+  // Plan-mode and status met, the rest not: one approve-edits question, then the next unmet skill.
   const d = fromMap('b-3', { 'b-1': finished(lessonOfId('b-1')), 'b-2': { complete: false, done: ['W2'] } });
-  assert.deepEqual(pickWarmups(d.state, 'b-3'), ['R3', 'R1']);
+  assert.deepEqual(pickWarmups(d.state, 'b-3'), ['R3', 'R5']);
   // A missed skill too.
   const m = fromMap('b-3', finishedBefore('b-3'), { missed: ['approve-edits'] });
   assert.deepEqual(pickWarmups(m.state, 'b-3'), ['R3', 'R1']);

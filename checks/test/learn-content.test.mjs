@@ -407,6 +407,9 @@ test('the Check\'s recall question files a miss under a skill the course has tau
 // steps, so R1 can't be one; each with its reason.
 const R1_NOT_REUSED = {
   'b-4': 'no skill in its pool comes back in b-4',
+  // R1 (project memory) still primes T1's CLAUDE.md commit, check item 5,
+  // whose step is tagged save-version.
+  'b-capstone': 'no capstone step is tagged with the b-4 and b-5 skills its pool recalls, so a missed one keeps its ease for Intermediate (D12)',
 };
 
 test('warm-ups: the first two mix a recent lesson and an older one, and R1 comes back in this lesson', () => {
@@ -425,6 +428,33 @@ test('warm-ups: the first two mix a recent lesson and an older one, and R1 comes
   }
   assert.deepEqual(off, []);
   for (const id of Object.keys(R1_NOT_REUSED)) assert.ok(parsed[id]?.warmup.length, `${id}: the exemption names no lesson with warm-ups`);
+});
+
+// A typed answer, a wrong or decoy pick, or s on any question but a guess
+// marks the skill missed, for a warm-up to ask it first later (flow.mjs:
+// submitTyped, pick and s).
+const MISSABLE = new Set(['right', 'wrong', 'decoy']);
+const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'predict' && b.options.some((o) => MISSABLE.has(o.kind)));
+// Skills a question can mark missed that no later lesson's pool recalls, each
+// with its reason.
+const LATER = 'returns in i-1 or i-2 (ticket 85)';
+const NO_LATER_WARMUP = {
+  compact: LATER,
+  resume: LATER,
+  commit: LATER,
+  clear: 'only b-5\'s pool asks it, so only the capstone\'s could recall it, and D12 gives the capstone two: memory and rewind',
+  'save-version': 'only the capstone asks it, and no Beginner lesson comes after the capstone',
+};
+
+test('warm-ups: a skill a question can mark missed comes back in a later lesson\'s pool', () => {
+  // The first lesson whose questions can mark each skill missed.
+  const first = new Map();
+  contents.forEach((c, i) => {
+    for (const s of c ? allSteps(c) : []) for (const b of s.beats) if (marksMissed(b) && !first.has(b.skill ?? s.skill)) first.set(b.skill ?? s.skill, i);
+  });
+  const gaps = [...first].filter(([skill, i]) => !contents.slice(i + 1).some((c) => c?.warmup.some((w) => w.skill === skill))).map(([skill]) => skill);
+  assert.deepEqual(gaps.filter((k) => !NO_LATER_WARMUP[k]), [], 'no later warm-up and no exemption');
+  assert.deepEqual(Object.keys(NO_LATER_WARMUP).filter((k) => !gaps.includes(k)), [], 'an exemption names a skill that is no gap now: a later warm-up asks it, or no question can mark it missed');
 });
 
 // Questions whose options keep a natural order, so their right answer's
