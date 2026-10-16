@@ -14,7 +14,7 @@ import { bootFrame, itemsMax, lessonLabel, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
-import { evidence, gitFirstName, gitReady, gitStatus, lineCount, runCheck, singleFlight, stampOf, stopChildren } from './verify.mjs';
+import { evidence, gitFirstName, gitReady, gitStatus, lineCount, owing, runCheck, stampOf, stopChildren } from './verify.mjs';
 import { watchDirs } from './watch.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -120,23 +120,6 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // When a check or git child really starts. Like every dispatch an effect
   // causes, it waits for the dispatch that asked for the run to finish.
   const runStart = () => queueMicrotask(() => !closed && dispatch({ type: 'run-start' }));
-
-  // A run asked for during another waits in line, and a later ask takes its
-  // place (singleFlight). What r asked for stays owed until a run starts:
-  // its slow items, and `asked`, the latest r's number, which goes back on
-  // the result so the card knows that r's run ended.
-  function owing(fn) {
-    let owed = { slow: false, asked: 0 };
-    const go = singleFlight((...args) => {
-      const flags = owed;
-      owed = { slow: false, asked: 0 };
-      return fn(flags, ...args);
-    });
-    return ({ slow, asked } = {}, ...args) => {
-      owed = { slow: owed.slow || Boolean(slow), asked: Math.max(owed.asked, asked ?? 0) };
-      return go(...args);
-    };
-  }
 
   const check = owing(async ({ slow, asked }, lesson, items, ev) => {
     // The evidence file's state before and after the run: if it changed while
