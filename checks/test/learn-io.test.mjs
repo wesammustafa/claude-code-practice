@@ -15,9 +15,9 @@ import { PATH, SLOW } from '../../learn/lib/content.mjs';
 import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
-import { REST, SHOTS } from '../../learn/lib/motion.mjs';
+import { REST, SHOTS, TIMING } from '../../learn/lib/motion.mjs';
 import { restPose } from '../../learn/lib/pip/pip.mjs';
-import { render } from '../../learn/lib/render.mjs';
+import { pipSlot, render } from '../../learn/lib/render.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
@@ -356,14 +356,15 @@ test('without a terminal it prints the path as plain text and exits 0', () => {
 const CALM_ENV = { ...process.env, CODESPACES: '', LEARN_CALM: '1', NO_COLOR: '', LEARN_PLAIN: '', TERM: 'xterm-256color' };
 
 // A terminal the test can type into and read from. Its stdout keeps every
-// write in `writes`, replays it into a 90x30 screen model, and can be made to
-// back up (fakeOut's `full` and `drain()`). It reports `depth` colors.
-function fakeTerminal({ depth = 8 } = {}) {
+// write in `writes`, replays it into a 90x30 screen model (or `cols` by
+// `rows`), and can be made to back up (fakeOut's `full` and `drain()`). It
+// reports `depth` colors.
+function fakeTerminal({ depth = 8, cols = 90, rows = 30 } = {}) {
   const stdin = new PassThrough();
   Object.assign(stdin, { isTTY: true, isRaw: false });
   stdin.setRawMode = (on) => Object.assign(stdin, { isRaw: on });
-  const model = screenModel(90, 30);
-  const stdout = fakeOut({ columns: 90, rows: 30 });
+  const model = screenModel(cols, rows);
+  const stdout = fakeOut({ columns: cols, rows });
   const write = stdout.write;
   stdout.write = (chunk) => {
     model.feed(String(chunk));
@@ -459,15 +460,15 @@ const MOTION_ENV = { ...CALM_ENV, LEARN_CALM: '' };
 // replaces git's first answers at start: [git's error or null, a first name].
 // `signals` stands in for the process's signals, and `runCheck` for the
 // check child. `saved` is the state file the app finds at start, and
-// `depth` the colors the terminal reports.
-function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth } = {}) {
+// `depth`, `cols` and `rows` the terminal's colors and size.
+function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols, rows } = {}) {
   const dir = exportHead(root);
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
   if (saved) {
     mkdirSync(join(dir, '.practice'));
     writeFileSync(storePath(dir), JSON.stringify(saved));
   }
-  const term = fakeTerminal({ depth });
+  const term = fakeTerminal({ depth, cols, rows });
   const clock = fakeClock();
   // `back`: how far the wall clock (now) has stepped back from the
   // monotonic one (perf), as a wall clock can.
@@ -1032,7 +1033,7 @@ const RESUME = { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y3', beat
 const RASTER = /[▀▄]/;
 const toResume = async (app) => assert.ok(await app.settle(() => app.term.shows().includes('Welcome back')), app.term.shows());
 
-test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s frames, an overlay and idle stop them, and a 16-color terminal\'s 9x4 Pip adds none', async () => {
+test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s frames while it turns, an overlay stops them, resume gives it no ambient life (its y/n neither), and a 16-color terminal\'s 9x4 Pip adds none', async () => {
   const app = clockedRun(MOTION_ENV, { saved: RESUME });
   const { term, clock } = app;
   try {
@@ -1042,15 +1043,24 @@ test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s fra
     const turning = app.frameTimers();
     assert.equal(turning.length, 1, 'one frame timer');
     assert.ok(turning[0].ms > 0 && turning[0].ms <= 40, String(turning[0].ms));
-    // The reading grace over: Pip's blinks and glances.
-    await clock.advance(5_000);
-    assert.equal(app.frameTimers().length, 1, 'Pip\'s next blink or glance');
+    // An overlay mid-turn: no Pip, no frames.
     term.type('?');
     await clock.advance(400);
     assert.match(term.shows(), /Keys/, 'the ? overlay');
     assert.doesNotMatch(term.shows(), RASTER, 'no Pip under an overlay');
     assert.deepEqual(app.frameTimers(), [], 'an overlay');
     await app.press('?', 'Welcome back');
+    // Resume has no ambient loop of the app's, so Pip has no blinks or
+    // glances there, its reading grace over or not.
+    await clock.advance(5_000);
+    assert.deepEqual(app.frameTimers(), [], 'resume, settled');
+    await app.press('x', 'Start this lesson over?');
+    assert.match(term.shows(), RASTER);
+    await clock.advance(10_000);
+    assert.deepEqual(app.frameTimers(), [], 'beside the y/n');
+    term.type('n');
+    await clock.advance(400);
+    assert.doesNotMatch(term.shows(), /Start this lesson over\?/);
     // Idle, and the app's 1 s tick has drawn the frame where it stops.
     await clock.advance(IDLE_MS + 1_000);
     assert.deepEqual(app.frameTimers(), [], 'idle');
@@ -1073,17 +1083,30 @@ test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s fra
   }
 });
 
-test('the detailed Pip breathes only on a local truecolor terminal: frames every 120 ms there; over SSH and in 256 colors it waits for its next blink or glance; q, Ctrl+C or SIGTERM leaves no timer', async () => {
-  const cases = [['truecolor', MOTION_ENV, 24, true, 'q'], ['truecolor over SSH', { ...MOTION_ENV, SSH_TTY: '/dev/pts/3' }, 24, false, '\x03'], ['256 colors', MOTION_ENV, 8, false, 'SIGTERM']];
+// The welcome is the one big-Pip screen with ambient life (the app's own
+// blink is there): at 120x40 it has room for the raster, and its reading
+// grace ends 20 s after it appears.
+const WELCOME = /Let's learn Claude Code/;
+const toWelcome = async (app) => assert.ok(await app.settle(() => WELCOME.test(app.term.shows())), app.term.shows());
+
+test('the detailed Pip breathes only on a local truecolor terminal: frames every 120 ms there; over SSH, in a Codespace and in 256 colors it waits for its next blink or glance; q, Ctrl+C or SIGTERM leaves no timer', async () => {
+  const cases = [['truecolor', MOTION_ENV, 24, true, 'q'], ['truecolor over SSH', { ...MOTION_ENV, SSH_TTY: '/dev/pts/3' }, 24, false, '\x03'], ['truecolor in a Codespace', { ...MOTION_ENV, CODESPACES: 'true' }, 24, false, 'q'], ['256 colors', MOTION_ENV, 8, false, 'SIGTERM']];
   for (const [why, env, depth, breathes, quit] of cases) {
     const signals = new EventEmitter();
-    const app = clockedRun(env, { saved: RESUME, depth, signals });
+    const app = clockedRun(env, { depth, signals, cols: 120, rows: 40 });
     try {
-      await toResume(app);
-      await app.clock.advance(5_000);
-      const [next, ...more] = app.frameTimers();
-      assert.equal(more.length, 0, why);
-      assert.ok(breathes ? next.ms <= 120 : next.ms > 1_000, `${why}: ${next.ms} ms`);
+      await toWelcome(app);
+      assert.match(app.term.shows(), RASTER, why);
+      await app.clock.advance(TIMING.graceMax + 500);
+      // Its next frame, sampled over two seconds of its lively 30 s.
+      const waits = [];
+      for (let k = 0; k < 8; k++) {
+        const [next, ...more] = app.frameTimers();
+        assert.equal(more.length, 0, why);
+        waits.push(next?.ms ?? Infinity);
+        await app.clock.advance(250);
+      }
+      assert.ok(breathes ? waits.every((ms) => ms <= 120) : waits.some((ms) => ms > 120), `${why}: ${waits.join(', ')} ms`);
       if (quit === 'SIGTERM') signals.emit(quit);
       else app.term.type(quit);
       await app.clock.advance(400);
@@ -1109,7 +1132,9 @@ test('calm: the detailed Pip is drawn at rest, in its ready pose, as render draw
     await clock.advance(5_000);
     assert.equal(term.writes.length, n, 'nothing written');
     const t = theme(capabilities(term.stdout, CALM_ENV, 'linux', []));
-    const rest = render(driver({ saved: RESUME }).state, { cols: 90, rows: 30 }, t, REST, restPose('ready')).map((l) => strip(l).trimEnd());
+    const resume = driver({ saved: RESUME }).state;
+    const size = { cols: 90, rows: 30 };
+    const rest = render(resume, size, t, REST, { size: pipSlot(resume, size, t), pose: restPose('ready') }).map((l) => strip(l).trimEnd());
     const pipRows = (lines) => lines.filter((l) => RASTER.test(l));
     assert.deepEqual(pipRows(term.model.lines()), pipRows(rest));
   } finally {
@@ -1117,25 +1142,29 @@ test('calm: the detailed Pip is drawn at rest, in its ready pose, as render draw
   }
 });
 
-test('boot, with room: the detailed Pip works beside "Asking git about this folder…" on the spinner\'s timer; calm, it is still', async () => {
-  for (const [env, moves] of [[MOTION_ENV, true], [CALM_ENV, false]]) {
+test('boot, with room: the detailed Pip works beside "Asking git about this folder…" on the spinner\'s timer, at the size the next screen has it; calm, it is still', async () => {
+  // Resume has room for standard Pip at 90x30, the welcome for small.
+  const cases = [[MOTION_ENV, true, RESUME, 32, 'Welcome back'], [CALM_ENV, false, RESUME, 32, 'Welcome back'], [MOTION_ENV, true, undefined, 20, 'Hi Sam!']];
+  for (const [env, moves, saved, wide, next] of cases) {
     const git = slowGit();
-    const app = clockedRun(env, { askGit: git.ask });
+    const app = clockedRun(env, { askGit: git.ask, saved });
     const { term, clock } = app;
+    // The margin and Pip's lead space, then its cells, then 3.
+    const beside = new RegExp(`^ {6}[ ▀▄]{${wide}} {3}\\S`);
     try {
       await clock.advance(400);
       const lines = term.model.lines();
       const at = lines.findIndex((l) => l.includes('Asking git about this folder…'));
-      // The margin and Pip's lead space, then its 32 cells, then 3.
-      assert.match(lines[at], /^ {6}[ ▀▄]{32} {3}Asking git about this folder…/, lines.join('\n'));
-      assert.ok(lines.slice(at - 9, at + 7).every((l) => RASTER.test(l) || l.trim() === ''), lines.join('\n'));
+      assert.match(lines[at], beside, lines.join('\n'));
+      assert.ok(lines.slice(at - (wide === 32 ? 9 : 5), at + (wide === 32 ? 7 : 5)).every((l) => RASTER.test(l) || l.trim() === ''), lines.join('\n'));
       const timers = app.frameTimers();
       if (moves) assert.ok(timers.length === 1 && timers[0].ms <= 80, JSON.stringify(timers));
       else assert.deepEqual(timers, []);
       git.answer([null, 'Sam']);
       await turn();
       await clock.advance(40);
-      assert.match(term.shows(), /Hi Sam! Let's learn Claude Code/);
+      const after = term.model.lines();
+      assert.match(after.find((l) => l.includes(next)) ?? '', beside, after.join('\n'));
     } finally {
       app.close();
     }
@@ -1162,21 +1191,58 @@ test('Pip\'s clock never runs back: a wall clock that steps back while git answe
   }
 });
 
-test('a resize mid-blink leaves no fragment of the raster: the screen is the new frame alone', async () => {
-  const app = clockedRun(MOTION_ENV, { saved: RESUME });
+// Pip's rows on the screen.
+const pipRows = (term) => term.model.lines().filter((l) => RASTER.test(l)).join('\n');
+// Moves the clock 40 ms at a time, for at most `ms`, until Pip's rows are
+// not `rows`.
+const untilPipMoves = async (app, rows, ms) => {
+  for (let waited = 0; waited < ms; waited += 40) {
+    if (pipRows(app.term) !== rows) return true;
+    await app.clock.advance(40);
+  }
+  return false;
+};
+
+test('a wall clock that steps back over two minutes while git answers: the welcome\'s Pip still comes alive after its reading grace, its gates on the app\'s clock and its own time going on', async () => {
+  const git = slowGit();
+  const app = clockedRun(MOTION_ENV, { askGit: git.ask, cols: 120, rows: 40 });
   const { term, clock } = app;
   try {
-    await toResume(app);
-    // Pip's first blink, at 4.2 s, its lids closing.
-    await clock.advance(4_240);
-    for (const [cols, rows] of [[70, 22], [60, 20], [120, 30]]) {
+    await clock.advance(400);
+    assert.match(term.shows(), RASTER, 'the boot frame\'s Pip, working');
+    app.back = IDLE_MS + 10_000;
+    git.answer([null, 'Sam']);
+    await turn();
+    await toWelcome(app);
+    // Turned to ready, and still while the learner reads.
+    await clock.advance(5_000);
+    const still = pipRows(term);
+    await clock.advance(TIMING.graceMax - 5_000 + 200);
+    assert.ok(await untilPipMoves(app, still, 8_000), 'Pip blinks or glances');
+  } finally {
+    app.close();
+  }
+});
+
+test('a resize while Pip blinks or glances leaves no fragment of the raster: the screen is the new frame alone', async () => {
+  const app = clockedRun(MOTION_ENV, { cols: 140, rows: 45 });
+  const { term, clock } = app;
+  try {
+    await toWelcome(app);
+    // At rest while the learner reads; then, its reading grace over, caught
+    // mid-move.
+    await clock.advance(5_000);
+    const still = pipRows(term);
+    await clock.advance(TIMING.graceMax - 5_000 + 200);
+    assert.ok(await untilPipMoves(app, still, 8_000), 'Pip blinks or glances');
+    for (const [cols, rows] of [[130, 42], [120, 40], [140, 45]]) {
       const n = term.writes.length;
       Object.assign(term.stdout, { columns: cols, rows });
       term.stdout.emit('resize');
       await clock.advance(40);
       const from = term.writes.findIndex((w, k) => k >= n && w.includes('\x1b[2J'));
       assert.ok(from >= n, `${cols}x${rows}: the screen is cleared`);
-      const alone = screenModel(90, 30);
+      const alone = screenModel(140, 45);
       for (const w of term.writes.slice(from)) alone.feed(w);
       assert.deepEqual(term.model.lines(), alone.lines(), `${cols}x${rows}`);
       assert.match(term.shows(), RASTER, `${cols}x${rows}: Pip, whole`);

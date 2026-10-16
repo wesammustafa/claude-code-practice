@@ -1,7 +1,7 @@
 // Pip the mascot, block-letter banners, the check burst and confetti. Each
 // has a plain ASCII form. Nothing here is random: the same screen draws the
 // same art every time.
-import { PALETTE, rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
+import { rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
 import { width } from './text.mjs';
 
 // Pip is the pip-terminal package's (pip/pip.mjs, as it ships): its glyph
@@ -74,27 +74,34 @@ function xterm(c) {
   });
   return 16 + best;
 }
-const BACKDROP = [1, 3, 5].map((i) => parseInt(PALETTE.background.slice(i, i + 2), 16));
 
 // `pose` from the package's controller, as `rows` lines of `cols` cells.
-// The package paints its own dark backdrop; here a pixel of that backdrop
-// is the terminal's own background instead, so no rectangle shows on
-// another. A cell with both halves backdrop is a space, one ink half is `▀`
-// or `▄` over the default background, two are `▀` in both colors. 256
-// colors, or 24-bit where the terminal reports it. Without a pose, blank
-// rows of the same size (to measure a screen with it).
+// The package paints its own backdrop and softens each edge toward it; here
+// the backdrop is the terminal's own background, whatever it is, so neither
+// a rectangle nor a dark rim shows on another. The pose is rasterized over
+// black and over white: where the two differ the backdrop shows through, by
+// as much as they differ. A pixel at least half Pip is Pip's own color,
+// unmixed; one less is background. A cell with both halves background is a
+// space, one ink half is `▀` or `▄` over the default background, two are
+// `▀` in both colors. 256 colors, or 24-bit where the terminal reports it.
+// Without a pose, blank rows of the same size (to measure a screen with it).
 export function pipRaster(t, pose, size) {
   const { cols, rows } = PIP_RASTER[size];
   if (!pose) return Array.from({ length: rows }, () => ' '.repeat(cols));
-  const { pixels } = rasterizePip(pose, { columns: cols, rows });
+  const dark = rasterizePip(pose, { columns: cols, rows, palette: { background: '#000000' } }).pixels;
+  const light = rasterizePip(pose, { columns: cols, rows, palette: { background: '#FFFFFF' } }).pixels;
+  // How much of the pixel at `at` is Pip, 0 to 1: over black it is that
+  // much of Pip's color, so its color is that divided by it.
+  const cover = (at) => 1 - (light[at] - dark[at] + light[at + 1] - dark[at + 1] + light[at + 2] - dark[at + 2]) / 765;
+  const inked = (at) => cover(at) >= 0.5;
   const codes = new Map();
   const code = (at, bg) => {
-    const c = pixels.subarray(at, at + 3);
+    const a = cover(at);
+    const c = [0, 1, 2].map((k) => Math.min(255, Math.round(dark[at + k] / a)));
     const key = `${bg}:${c.join(',')}`;
     if (!codes.has(key)) codes.set(key, t.depth >= 24 ? `${bg ? 48 : 38};2;${c.join(';')}` : `${bg ? 48 : 38};5;${xterm(c)}`);
     return codes.get(key);
   };
-  const backdrop = (at) => pixels[at] === BACKDROP[0] && pixels[at + 1] === BACKDROP[1] && pixels[at + 2] === BACKDROP[2];
   return Array.from({ length: rows }, (_, row) => {
     let line = '';
     let fg = null;
@@ -102,7 +109,7 @@ export function pipRaster(t, pose, size) {
     for (let col = 0; col < cols; col++) {
       const over = (row * 2 * cols + col) * 3;
       const under = over + cols * 3;
-      const ink = [!backdrop(over), !backdrop(under)];
+      const ink = [inked(over), inked(under)];
       // A space shows only its background, so it keeps the foreground.
       const [ch, f, b] = !ink[0] && !ink[1] ? [' ', fg, null]
         : !ink[1] ? ['▀', code(over, false), null]

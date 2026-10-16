@@ -53,19 +53,18 @@ const levelName = (s, id = s.lesson) => C.levels[levelOf(s, id)];
 let pageUrl = '';
 
 // `clock.at` is the time the frame shows; the rest frame by default. `pip`
-// is the detailed Pip's pose from main's controller: drawn where pipSlot
-// gives this screen a raster, else the 9x4 Pip as without it.
+// is the detailed Pip from main: its `size`, pipSlot's for this screen, and
+// its `pose` from main's controller. Without it, the 9x4 Pip.
 export function render(s, size, t, clock = REST, pip = null) {
-  const slot = pip && pipSlot(s, size, t);
-  return screenOf(s, size, t, clock, slot ? { size: slot, pose: pip } : null).out;
+  const step = s.view === 'step' && s.beat ? stepOf(s) : null;
+  pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
+  return screenOf(s, size, t, clock, pip).out;
 }
 
 // The screen's lines, and its spare rows: the blank rows it pads with, or
 // less than 0 when its body is taller than its room and something gives way.
 function screenOf(s, size, t, clock, raster) {
   const { cols, rows } = size;
-  const step = s.view === 'step' && s.beat ? stepOf(s) : null;
-  pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
   if (cols < MIN.cols || rows < MIN.rows) return { out: small(cols, rows), spare: -1 };
   const f = frameCtx(s, size, t, clock, raster);
   const { ctx, W, M, top } = f;
@@ -126,17 +125,28 @@ export function pipTarget(s, at) {
   return { ...target, eventId: `${s.view}:${s.fx.view}`, immediate: oneShot(s, at, s.fx.view, TIMING[shot]) >= 1 };
 }
 
+// A toast that can come up on any screen, to measure a screen with one.
+const STRAY = { kind: 'stray', until: Infinity };
+
 // Where the detailed Pip goes on this screen (`s`, or null for the boot
 // frame): the biggest raster whose extra rows fit in the rows the screen
 // pads with, so no row it shows gives way, or null for the 9x4 Pip. Only on
 // the big Pip's screens, with no overlay, with Unicode and 256 colors or
-// more. main asks it too, so Pip's frames are asked for only where it is
-// drawn.
-export function pipSlot(s, size, t) {
+// more. Pip keeps its size while the screen is up: the room is measured
+// with a toast (its own, and a stray key's) and, on resume, the y/n to
+// start over, whether they are up or not. The boot frame's Pip is no bigger
+// than the one on `ahead`, where given: the screen it hands over to, so Pip
+// does not shrink as git answers. main draws with what this gives, and asks
+// for Pip's frames only where it gives a raster.
+export function pipSlot(s, size, t, ahead = null) {
   if (!t.unicode || t.depth < 8 || size.cols < MIN.cols || size.rows < MIN.rows) return null;
-  if (s && (s.overlay || !BIG_PIP[s.view])) return null;
-  const spare = (slot) => (s ? screenOf(s, size, t, REST, { size: slot }) : bootOf(0, size, t, REST, { size: slot })).spare;
-  return RASTERS.find((slot) => spare(slot) >= 0) ?? null;
+  if (!s) {
+    const most = ahead ? pipSlot(ahead, size, t) : RASTERS[0];
+    return most && (RASTERS.slice(RASTERS.indexOf(most)).find((slot) => bootOf(0, size, t, REST, { size: slot }).spare >= 0) ?? null);
+  }
+  if (s.overlay || !BIG_PIP[s.view]) return null;
+  const busiest = [STRAY, s.toast].filter(Boolean).map((toast) => ({ ...s, toast, confirmRestart: s.confirmRestart || s.view === 'resume' }));
+  return RASTERS.find((slot) => busiest.every((x) => screenOf(x, size, t, REST, { size: slot }).spare >= 0)) ?? null;
 }
 
 // A frame's width, margin and top, its toast and the blank above the pulse
@@ -176,10 +186,11 @@ const placed = (t, M, cols) => (l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : 
 // The boot frame (162): before any state, while git answers the first
 // questions at start, asked at `since`, if that takes over 150 ms. Pip sits
 // where the welcome has it (its three head rows, then the blank), at every
-// size, beside the app's line. No key works yet, so the key bar is blank.
+// size, beside the app's line: the 9x4 Pip, or with `pip` (as render takes
+// it) the detailed one, no bigger than the next screen's (pipSlot). No key
+// works yet, so the key bar is blank.
 export function bootFrame(since, size, t, clock = REST, pip = null) {
-  const slot = pip && pipSlot(null, size, t);
-  return bootOf(since, size, t, clock, slot ? { size: slot, pose: pip } : null).out;
+  return bootOf(since, size, t, clock, pip).out;
 }
 function bootOf(since, size, t, clock, raster) {
   const { cols, rows } = size;

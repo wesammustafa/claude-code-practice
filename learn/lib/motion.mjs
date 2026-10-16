@@ -112,20 +112,26 @@ function newestWords(s) {
 // answer, the y/n before the exact command, or the hint box.
 const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat) && (Boolean(beatOf(s).ask) || s.beat.rung >= 0 || s.beat.confirm);
 
-// Whether ambient loops (look marker, blink) may draw: on a screen that has
-// one, when the learner is settled. The spinner and bounce never ask it:
-// they follow the running child, and stop for an overlay.
+// Whether ambient loops (look marker, blink) may draw: not during the reading
+// grace (400 ms a word of the newest text, 3 s to 20 s, ended by an activity
+// stamp), not within 4 s of a key, not at idle, not with an overlay, not
+// beside a question, options, a typed answer or the hint box. The spinner and
+// bounce never ask it: they follow the running child, and stop for an overlay.
 export function ambientAllowed(s, at) {
-  return AMBIENT.includes(s.view) && settled(s, at);
+  if (!AMBIENT.includes(s.view) || frozen(s, at)) return false;
+  return at >= quietFrom(s) && !answering(s);
 }
 
-// Not during the reading grace (400 ms a word of the newest text, 3 s to
-// 20 s, ended by an activity stamp), not within 4 s of a key, not at idle,
-// not with an overlay, not beside a question, options, a typed answer or the
-// hint box. The detailed Pip's ambient life asks this alone, on every screen
-// it is drawn on.
-export function settled(s, at) {
-  return !frozen(s, at) && at >= quietFrom(s) && !answering(s);
+// The detailed Pip's three gates for its controller at `at` (s null on the
+// boot frame), the same for its pose and its next frame in one draw. No
+// motion with the screen's motion off (calm, NO_COLOR, plain, TERM=dumb, a
+// tripped write budget), with an overlay or at idle; its ambient life
+// (blinks, glances, twitches) only where ambientAllowed says; breathing, a
+// redraw every 120 ms, only on a local truecolor terminal.
+export function pipGates(s, at, { motion, truecolor, remote }) {
+  const moving = motion && !(s && frozen(s, at));
+  const ambient = moving && Boolean(s) && ambientAllowed(s, at);
+  return { motion: moving, ambient, breathing: ambient && truecolor && !remote };
 }
 
 // Where the look marker stands: from the left, one notch on for each look

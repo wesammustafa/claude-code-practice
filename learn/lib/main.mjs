@@ -8,7 +8,7 @@ import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, initialState, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
-import { BOOT_FROM, bootChange, frozen, nextChange, REST, settled, TIMING } from './motion.mjs';
+import { BOOT_FROM, bootChange, nextChange, pipGates, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
 import { bootFrame, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
@@ -85,36 +85,30 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // The detailed Pip, where the screen has room for it: its pose, and
     // when it next moves, one more deadline for the one timer. Both with
     // the same gates, even if this frame's write turns motion off.
-    const slot = pipSlot(state, size, t);
-    const gates = slot && pipGates(at);
-    const pose = slot ? pipPose(gates) : null;
-    screen.draw(state ? render(state, size, t, clock, pose) : bootFrame(askedAt, size, t, clock, pose));
+    const slot = pipSlot(state, size, t, ahead);
+    const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.depth >= 24, remote: caps.remote });
+    const raster = slot ? { size: slot, pose: pipPose(at, gates) } : null;
+    screen.draw(state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster));
     const waits = [state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion }),
       slot ? pip.nextFrameIn(pipAt, { ...gates, size: slot }) : null].filter((w) => w !== null);
     if (waits.length) drawIn(Math.max(Math.min(...waits), floor()));
   }
 
-  // The detailed Pip's one controller, on the app's clock. Its time never
-  // goes back, even when the wall clock does: `pipAt` is the latest it was
-  // given, and a change is set no earlier than the last (`pipChanged`).
+  // The detailed Pip's one controller. Its gates read the app's stamps on
+  // the app's clock (`at`); its own time (`pipAt`) runs with that clock but
+  // never back: when the wall clock steps back, `skew` takes up the step, so
+  // Pip goes on from where it was. A change is set no earlier than the last
+  // (`pipChanged`), and no later than now.
   let pip = null;
   let pipAt = -Infinity;
   let pipChanged = -Infinity;
-  // Its three layers' gates at `at`, Pip's time from then. No motion with
-  // motion off (calm, NO_COLOR, plain, TERM=dumb, a tripped write budget),
-  // with an overlay, or at idle; no ambient life while the learner reads,
-  // types or answers; breathing, a raster redraw every 120 ms, only on a
-  // local truecolor terminal.
-  function pipGates(at) {
-    pipAt = Math.max(pipAt, at);
-    const motion = screen.motion && !(state && frozen(state, pipAt));
-    const ambient = motion && Boolean(state) && settled(state, pipAt);
-    return { motion, ambient, breathing: ambient && t.depth >= 24 && !caps.remote };
-  }
-  // Pip set to what this screen shows, then its pose now.
-  function pipPose(gates) {
-    const { state: next, since, ...event } = pipTarget(state, pipAt);
-    const from = Math.max(since ?? pipAt, pipChanged);
+  let skew = 0;
+  // Pip set to what this screen shows, then its pose at `at`.
+  function pipPose(at, gates) {
+    if (at + skew < pipAt) skew = pipAt - at;
+    pipAt = at + skew;
+    const { state: next, since, ...event } = pipTarget(state, at);
+    const from = Math.min(pipAt, Math.max(since === undefined ? pipAt : since + skew, pipChanged));
     if (pip.setState(next, { at: from, ...event })) pipChanged = from;
     return pip.pose(pipAt, gates);
   }
@@ -138,8 +132,11 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     requestDraw();
   });
   const askedAt = now();
-  // Pip starts working, as git is asked.
+  // Pip starts working, as git is asked. The screen git's answers will open,
+  // as far as the app knows before them: the boot frame's Pip is no bigger
+  // than its own.
   pip = createPip({ state: 'working', at: askedAt });
+  const ahead = initialState({ course, saved, facts: { root, name: '', gitError: null, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 }, now: askedAt });
   pipAt = askedAt;
   pipChanged = askedAt;
   const boot = timers.setTimeout(() => {
