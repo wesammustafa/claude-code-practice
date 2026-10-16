@@ -19,11 +19,15 @@ const UNICODE_GLYPHS = {
   rule: '─', bold: '━', rail: '│', bar: '▌', tl: '╭', tr: '╮', bl: '╰', br: '╯',
   check: '✔', warnMark: '▲', pointer: '❯', arrow: '➜', right: '▸', star: '★', starOff: '☆',
   dot: '●', dotOff: '○', diamond: '◆', diamondOff: '◇', ellipsis: '…', bullet: '·', up: '↑↓',
+  // A trail stop's pops: a ring as a card enters, a spark as its step passes.
+  // A new "Not yet" mark pops from hollow.
+  ring: '◉', spark: '✦', warnPop: '△',
 };
 const ASCII_GLYPHS = {
   rule: '-', bold: '=', rail: '|', bar: '|', tl: '+', tr: '+', bl: '+', br: '+',
   check: '[x]', warnMark: '!', pointer: '>', arrow: '->', right: '>', star: '*', starOff: '.',
   dot: '#', dotOff: 'o', diamond: '+', diamondOff: '+', ellipsis: '...', bullet: '|', up: 'up/down',
+  ring: '@', spark: '*', warnPop: '!',
 };
 
 // Pip's small face on a card's top border, by mood: its eyes and mouth, and
@@ -32,6 +36,9 @@ const UNICODE_PIP = {
   rest: { eye: '●', mouth: '‿' }, checking: { eye: '◓', mouth: '─' }, worried: { eye: '◒', mouth: '‿' },
   done: { eye: '★', mouth: '‿' }, broken: { eye: '◒', mouth: '─' },
 };
+// Pip's poses in a one-shot, over its mood's face: eyes shut, or arms up
+// with an open mouth. ASCII Pip is still, so it has none.
+const UNICODE_POSES = { shut: { eye: '─' }, up: { mouth: '▽', arms: ['\\', '/'] } };
 // ASCII Pip has three faces: at rest, checking, and done with its arms up.
 const ASCII_PIP = {
   rest: { eye: 'o', mouth: '_' }, checking: { eye: 'o', mouth: '.' }, worried: { eye: 'o', mouth: '_' },
@@ -68,11 +75,12 @@ export function theme(caps) {
   };
   const glyph = unicode ? UNICODE_GLYPHS : ASCII_GLYPHS;
   const pipGlyphs = unicode ? UNICODE_PIP : ASCII_PIP;
+  const pipPoses = unicode ? UNICODE_POSES : {};
   const emoji = (name) => EMOJI[name][unicode ? 0 : 1];
   // An emoji and a space, or the ASCII word and a space, or nothing.
   const lead = (name) => (emoji(name) ? `${emoji(name)} ` : '');
   const link = (text, url) => (caps.links && url ? `\x1b]8;;${url}\x07${text}\x1b]8;;\x07` : text);
-  return { caps, fg, bg, bold, inverse, pill, glyph, pipGlyphs, emoji, lead, link, unicode, depth };
+  return { caps, fg, bg, bold, inverse, pill, glyph, pipGlyphs, pipPoses, emoji, lead, link, unicode, depth };
 }
 
 export const TIER_STYLE = {

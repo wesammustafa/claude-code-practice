@@ -22,6 +22,39 @@ export const TIMING = {
   perWord: 400, graceMin: 3_000, graceMax: 20_000, keyQuiet: 4_000,
 };
 
+// Inside each one-shot (design 2.3 and 4.3): `every`, how often its frame may
+// change, and the moments it changes at, in ms from its start. Each rests at
+// its TIMING entry.
+export const SHOTS = {
+  // The top rule grows from the pill, a third a frame, until Pip lands at
+  // `land`; the trail's new stop is hollow until then, then a ring.
+  entrance: { every: 40, land: 80 },
+  // The line's mark is hollow until `pop`; Pip looks at the learner from
+  // `nod` to the end, then back down.
+  notYet: { every: 80, pop: 80, nod: 160 },
+  hop: { every: 240 },
+  cheer: { every: 360 },
+  // The stop is a spark until `pop`, when its link half fills; by `fill`
+  // the link and the progress rule are whole. Each command without a tick
+  // gets one, a `tick` apart. From `strokes` the check mark draws a stroke
+  // every `stroke`, then the sparks.
+  stepDone: { every: 40, pop: 120, fill: 240, tick: 120, strokes: 320, stroke: 80 },
+  // Pip's eyes are shut until `open`, and the banner wipes in until `whole`,
+  // when Pip wears its focus face. Then the arrow fills a third every `fill`
+  // and its head and the new star land at `head`.
+  levelUp: { every: 40, open: 240, whole: 480, fill: 80, head: 720 },
+  // The confetti changes every `fall`: from 24 rows it falls across its row
+  // and the blank under it, below 24 it appears `first` glyphs, then `more`
+  // at a time. Pip's arms are up, and COMPLETE stamps in, until `whole`.
+  // The ticks appear in turn from `ticks` to `ticksBy`. From `light` one
+  // light runs the trail, a stop every `stop`.
+  complete: { every: 40, fall: 400, first: 2, more: 3, whole: 480, ticks: 560, ticksBy: 800, light: 840, stop: 40 },
+  // Pip's eyes open at `waking` and are awake at `awake`; the fuse lights
+  // one more link of the path every `fuse`; from `pulse` one pulse crosses
+  // the arrow, a cell a frame.
+  welcome: { every: 80, waking: 80, awake: 160, fuse: 80, pulse: 320 },
+};
+
 // One-shot progress 0..1; 1 once a later key arrived.
 export function oneShot(s, at, start, ms) {
   if (start === undefined || s.fx?.key > start) return 1;
@@ -91,7 +124,7 @@ const childSince = (s) => (s.beat?.status === 'opening' && s.fx.run >= s.fx.chec
 
 // When each one-shot on this screen started, or undefined where it does not
 // play. Each lasts its own TIMING entry.
-function shotStarts(s) {
+export function shotStarts(s) {
   const fx = s.fx;
   const on = (views, start) => (views.includes(s.view) ? start : undefined);
   const entered = Math.max(fx.view ?? NEVER, fx.open ?? NEVER);
