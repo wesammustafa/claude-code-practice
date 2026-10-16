@@ -294,6 +294,11 @@ export function lessonScreens(id, lessons = course, { skipped = false } = {}) {
       out.push([`${at} waiting`, d.state]);
       d.key('r');
       out.push([`${at} checking`, d.state]);
+      // r's run of several items reports its last one.
+      if (items.length > 1) {
+        d.send({ type: 'running', lesson: id, items: v.all ? null : v.items, n: items.length, m: items.length, asked: d.state.beat.asked, wait: 40 });
+        out.push([`${at} checking item ${items.length} of ${items.length}`, d.state]);
+      }
       d.send({ type: 'check', lesson: id, items, path: beat.evidence ?? null, stamp: 'b', asked: d.state.beat.asked });
       out.push([`${at} fail`, d.state]);
       for (let i = 0; i < 6; i++) {

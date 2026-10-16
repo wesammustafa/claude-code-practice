@@ -2151,6 +2151,65 @@ test('the checking label names what is checked: "Checking <watched path>…", an
   }
 });
 
+// Check item progress (163): the check child reports each item as it starts it.
+test('a run of several items says how far it has got, "Checking item n of m…", once a report for the current ask arrives', () => {
+  const labels = (d) => SHORT.map(([cols, rows]) => checkingRows(d, cols, rows).map((l) => l.replace(/^[\s│]+/, '').trimEnd()));
+  const both = (...label) => SHORT.map(() => label);
+  const report = (d, lesson, items, n, m, asked = 0) => d.send({ type: 'running', lesson, items, n, m, asked, wait: 40 });
+  // b-2's Check: its opening run checks both items, neither slow.
+  const d = openAt('b-2', 'C', 0);
+  assert.deepEqual(labels(d), both('Checking…'), 'no report yet');
+  const saved = snapshot(d.state);
+  report(d, 'b-2', null, 1, 2);
+  assert.deepEqual(labels(d), both('Checking item 1 of 2…'), 'the opening run reports its first item');
+  assert.deepEqual(snapshot(d.state), saved, 'a report saves nothing');
+  report(d, 'b-1', null, 2, 2);
+  report(d, 'b-2', [1], 2, 2);
+  assert.deepEqual(labels(d), both('Checking item 1 of 2…'), 'another lesson\'s run, or a run of other items, is not this one');
+  const missing = [0, 1].map((index) => ({ index, text: 'x', pass: false, hint: 'not yet' }));
+  d.send({ type: 'check', lesson: 'b-2', items: missing });
+  assert.deepEqual(labels(d), both(), 'the result ends it');
+  d.key('r');
+  assert.deepEqual(labels(d), both('Checking…'), 'r asks again: no report for its run yet');
+  report(d, 'b-2', null, 2, 2);
+  assert.deepEqual(labels(d), both('Checking…'), 'a poll\'s run, still going ahead of r\'s, reports nothing on the card');
+  report(d, 'b-2', null, 2, 2, d.state.beat.asked);
+  assert.deepEqual(labels(d), both('Checking item 2 of 2…'), 'r\'s own run');
+  // Back a beat while the Check's run goes: that run's reports are not about
+  // the beat before, which checks item 1 alone.
+  const back = openAt('b-2', 'C', 0);
+  back.key('b');
+  assert.deepEqual(beatOf(back.state).verify.items, [1]);
+  assert.equal(back.state.beat.status, 'opening');
+  report(back, 'b-2', null, 2, 2);
+  assert.deepEqual(labels(back), both('Checking .practice/b-2-after.txt…'));
+  // The capstone's test run, two slow items, which only r runs.
+  const t = openAt('b-capstone', 'T4', 2);
+  const placeholders = [3, 4].map((index) => ({ index, text: 'x', pass: false, slow: true, hint: '' }));
+  t.send({ type: 'check', lesson: 'b-capstone', items: placeholders });
+  t.key('r');
+  assert.deepEqual(labels(t), both('Checking npm test…'));
+  report(t, 'b-capstone', [3, 4], 1, 2, t.state.beat.asked);
+  assert.deepEqual(labels(t), both('Checking item 1 of 2…'));
+  // r's result lands on the map: back on the card, the map's re-run has
+  // reported nothing yet, so the count from r's run is gone.
+  t.key('m');
+  t.send({ type: 'check', lesson: 'b-capstone', items: placeholders.map((i) => ({ ...i, slow: false, hint: 'npm test failed.' })), asked: t.state.beat.asked });
+  t.key('m');
+  assert.deepEqual(labels(t), both('Checking npm test…'), 'a map round trip shows no count from a run that has ended');
+  // So does a run that breaks.
+  t.key('r');
+  report(t, 'b-capstone', [3, 4], 2, 2, t.state.beat.asked);
+  t.key('m');
+  t.send({ type: 'check-error', lesson: 'b-capstone', message: 'it took too long', asked: t.state.beat.asked });
+  t.key('m');
+  assert.deepEqual(labels(t), both('Checking npm test…'));
+  // A run of one item has nothing to count: the label keeps what it checks.
+  const w = openAt('b-1', 'W3', 0);
+  report(w, 'b-1', [0], 1, 1);
+  assert.deepEqual(labels(w), both('Checking .practice/version.txt…'));
+});
+
 test('r over a "Not yet" with a hint open: "Checking" takes the "Not yet" row, and the hint box and the key bar stay, at 60x20 and 80x24', () => {
   const d = openAt('b-1', 'W3', 0);
   failCheck(d);

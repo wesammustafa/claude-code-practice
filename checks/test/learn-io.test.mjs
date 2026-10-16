@@ -90,6 +90,39 @@ test('for every Beginner lesson the child and npm run check agree, item by item'
   }
 });
 
+test('the check child writes {"running": n} to stderr before each item it runs, and stdout stays one line of JSON', () => {
+  withRepo(() => repo(), (dir) => {
+    const { NODE_TEST_CONTEXT, ...env } = process.env;
+    const run = (args) => spawnSync(process.execPath, [RUN_CHECK, ...args], { encoding: 'utf8', env });
+    const two = run(['b-3', dir, '0', '2']);
+    assert.equal(two.status, 0);
+    assert.equal(two.stderr, '{"running":1}\n{"running":2}\n', 'the first and the second of the items asked for');
+    assert.equal(two.stdout.split('\n').filter(Boolean).length, 1);
+    assert.deepEqual(JSON.parse(two.stdout).items.map((i) => i.index), [0, 2]);
+    assert.equal(run(['b-1', dir]).stderr, '{"running":1}\n', 'every item when none is named');
+    const bad = run(['b-9', dir]);
+    assert.equal(bad.status, 2);
+    assert.equal(bad.stderr, '', 'no item runs, so none is reported');
+    assert.equal(bad.stdout.split('\n').filter(Boolean).length, 1);
+  });
+});
+
+test('runCheck passes on each report as item n of the m items the child runs, before its result', async () => {
+  const dir = repo();
+  try {
+    const seen = [];
+    const r = await runCheck(dir, 'b-3', [0, 2], { onRunning: (n, m) => seen.push([n, m]) });
+    assert.deepEqual(seen, [[1, 2], [2, 2]]);
+    assert.deepEqual(r.items.map((i) => i.index), [0, 2]);
+    // The slow item is left out, so the child runs two of the three.
+    seen.length = 0;
+    await runCheck(dir, 'b-3', null, { onRunning: (n, m) => seen.push([n, m]) });
+    assert.deepEqual(seen, [[1, 2], [2, 2]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('slow items are exactly the Beginner items that start a process', () => {
   for (const id of BEGINNER) {
     const spawning = lessons[id].items.map((it, i) => [i, it.check.toString()]).filter(([, src]) => /spawnSync|execFileSync\('npm'|spawn\(/.test(src)).map(([i]) => i);
@@ -272,8 +305,9 @@ const MOTION_ENV = { ...CALM_ENV, LEARN_CALM: '' };
 // the watcher unless `watch` replaces it. Each write's time is in `times`;
 // with `writeMs` set, every write takes that long on the clock. `askGit`
 // replaces git's first answers at start: [git's error or null, a first name].
-// `signals` stands in for the process's signals.
-function clockedRun(env, { watch, askGit, signals } = {}) {
+// `signals` stands in for the process's signals, and `runCheck` for the
+// check child.
+function clockedRun(env, { watch, askGit, signals, runCheck } = {}) {
   const dir = exportHead(root);
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
   const term = fakeTerminal();
@@ -287,7 +321,7 @@ function clockedRun(env, { watch, askGit, signals } = {}) {
   };
   // When each frame from write `from` on went out.
   app.frameTimes = (from = 0) => app.times.slice(from).filter((_, i) => term.writes[from + i].startsWith('\x1b[?2026h'));
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, now: clock.now, perf: clock.now, timers: clock, watch, askGit, signals, exit: (code) => { app.exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, now: clock.now, perf: clock.now, timers: clock, watch, askGit, signals, runCheck, exit: (code) => { app.exited = code; } });
   // Until fn() holds, moving the clock 40 ms at a time while the children run.
   app.settle = async (fn, ms = 8_000) => {
     const end = Date.now() + ms;
@@ -611,6 +645,77 @@ test('r: the card says what it checks until r\'s own result lands, even when pol
     changed();
     assert.ok(await app.settle(() => term.shows().includes('Not yet')), `r's result never ended the wait:\n${term.shows()}`);
     assert.doesNotMatch(term.shows(), /Checking/);
+  } finally {
+    app.close();
+  }
+});
+
+// A check child the test answers: it holds a run while `held` is set, so the
+// test can send the run's reports, then its result.
+const heldCheck = () => {
+  const fake = { held: false, runs: [] };
+  const missing = (lesson, items) => ({ items: (items ?? lessons[lesson].items.map((_, i) => i)).map((index) => ({ index, text: lessons[lesson].items[index].text, pass: false, hint: 'not there yet' })) });
+  fake.run = (_root, lesson, items, opts) => {
+    if (!fake.held) return Promise.resolve(missing(lesson, items));
+    return new Promise((resolve) => fake.runs.push({ lesson, ...opts, end: () => resolve(missing(lesson, items)) }));
+  };
+  return fake;
+};
+const FRAMES = (writes) => writes.filter((w) => w.startsWith('\x1b[?2026h'));
+
+// Plain mode draws ASCII, so its ellipsis is three dots.
+for (const [mode, env, dots] of [['calm', CALM_ENV, '…'], ['plain', { ...CALM_ENV, LEARN_CALM: '', LEARN_PLAIN: '1' }, '...']]) {
+  test(`check item progress, ${mode}: each report from r's run rewrites the checking row once, as "Checking item n of m…"`, async () => {
+    const fake = heldCheck();
+    const app = clockedRun(env, { runCheck: fake.run });
+    const { term, clock } = app;
+    try {
+      assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+      await app.toWaiting();
+      fake.held = true;
+      await app.press('r', 'Checking .practice/version.txt');
+      const [run] = fake.runs;
+      assert.equal(run.slow, true, 'r\'s own run');
+      for (const n of [1, 2]) {
+        const from = term.writes.length;
+        run.onRunning(n, 2);
+        assert.ok(await app.settle(() => term.shows().includes(`Checking item ${n} of 2${dots}`)), term.shows());
+        await clock.advance(3_000);
+        await new Promise((r) => setTimeout(r, 20));
+        const frames = FRAMES(term.writes.slice(from));
+        assert.equal(frames.length, 1, `report ${n}: one frame, then nothing for 3 s`);
+        assert.ok(strip(frames[0]).includes(`Checking item ${n} of 2${dots}`), `report ${n}: that frame has the row`);
+        assert.deepEqual(app.frameTimers(), [], 'no frame timer');
+      }
+      run.end();
+      assert.ok(await app.settle(() => !term.shows().includes('Checking')), term.shows());
+    } finally {
+      app.close();
+    }
+  });
+}
+
+test('check item progress: a beat\'s opening run reports through main() as well, as the run of the items it was asked for', async () => {
+  const fake = heldCheck();
+  const app = clockedRun(CALM_ENV, { runCheck: fake.run });
+  const { term } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await app.press('\r', "You'll be able to");
+    await app.press('\r', 'step 1 of 12');
+    await app.press(' ', 'step 2 of 12');
+    await app.press('1', 'step 2 of 12');
+    fake.held = true;
+    await app.press('\r', 'Checking .practice/version.txt');
+    assert.ok(await app.settle(() => fake.runs.length > 0));
+    const [run] = fake.runs;
+    assert.equal(run.slow, false, 'the opening run, not r\'s');
+    // Step 3 checks one item; this fake child says it runs two, so the
+    // count shows.
+    run.onRunning(1, 2);
+    assert.ok(await app.settle(() => term.shows().includes('Checking item 1 of 2…')), term.shows());
+    run.end();
+    assert.ok(await app.settle(() => term.shows().includes('Watching .practice/version.txt')), term.shows());
   } finally {
     app.close();
   }

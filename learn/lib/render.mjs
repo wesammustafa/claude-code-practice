@@ -1043,8 +1043,9 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     rows.push(...burst(t, [t.bold(t.fg('ok', C.stepDone(s.pos.step + 1))), ...lines, lead(t, 'fire', t.bold(t.fg('challenge', C.session(count))))], frame));
   };
 
-  // What the beat watches, as its waiting line names it.
-  if (st.status === 'opening') rows.push(...spinning(ctx, para(t, C.checking(beat.watching ?? beat.evidence), inner, 'key')));
+  // What the beat watches, as its waiting line names it, or how far a run
+  // of several items has got.
+  if (st.status === 'opening') rows.push(...spinning(ctx, para(t, st.running?.m > 1 ? C.checkingItem(st.running.n, st.running.m) : C.checking(beat.watching ?? beat.evidence), inner, 'key')));
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));
