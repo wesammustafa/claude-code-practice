@@ -32,7 +32,7 @@ const EMOJI = {
   verified: ['✅', '[ok]'], guess: ['🤔', '?'], hint: ['💡', 'Hint:'], goal: ['🎯', 'Goal:'], safety: ['🔒', 'Safety:'],
   self: ['🙋', '[you]'], level: ['🚀', '>>'], fire: ['🔥', '**'], party: ['🎉', '***'], badge: ['🏅', '[badge]'],
   cup: ['🏆', '[cup]'], map: ['🧭', ''], broken: ['🚧', '[!!]'], editor: ['📝', '[EDITOR]'],
-  payoff: ['🏁', '[win]'],
+  payoff: ['🏁', '[win]'], read: ['📖', '[read]'],
 };
 
 export function theme(caps) {

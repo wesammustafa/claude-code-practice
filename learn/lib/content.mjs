@@ -24,8 +24,10 @@ export const BEAT_KEYS = {
   right: null, wrong: null, option: null, stuck: null,
 };
 // `why`: why the lesson matters; `payoff`: the one `can` line the intro and
-// complete screens flag as what the lesson builds to. At most one of each.
-export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true };
+// complete screens flag as what the lesson builds to; `read`: one line of
+// the page's Go further list, with its Markdown link, to read next. At most
+// one of each.
+export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, read: true };
 export const LADDER_KEYS = { hint: true, bottom: true, win: true };
 const OPTION_KEYS = new Set(['right', 'wrong', 'option', 'stuck', 'other', 'decoy']);
 

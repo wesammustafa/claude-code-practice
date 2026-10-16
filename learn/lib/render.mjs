@@ -25,10 +25,11 @@ const SPACER = spacer();
 // question.
 const kept = (rows) => rows.map((text) => ({ keep: true, text }));
 // Optional rows: the level's first warm-up explainer, the intro's Why line
-// and a GUIDED card's, each with its blank, teaching the learner can also
-// reach another way, such as behind a key, repeats with no compact form, and
-// a done beat's satisfied "Done when" line. The rows of one call are one
-// sentence: they drop whole.
+// and a GUIDED card's, each with its blank, the next screen's Go further
+// line with its blank, teaching the learner can also reach another way,
+// such as behind a key, repeats with no compact form, and a done beat's
+// satisfied "Done when" line. The rows of one call are one sentence: they
+// drop whole.
 const optional = (rows) => {
   const whole = {};
   return rows.map((text) => ({ optional: true, text, whole }));
@@ -164,11 +165,12 @@ function small(cols, rows) {
 const spread = (left, right, w) => left + ' '.repeat(Math.max(1, w - width(left) - width(right))) + right;
 const rule = (t, W) => t.fg('faint', t.glyph.rule.repeat(W));
 
-// Inline Markdown in the given color, wrapped to `w` columns.
-function para(t, text, w, color = 'text', { quote = false } = {}) {
-  const runs = inline(quote ? `"${text}"` : text);
+// Inline Markdown in the given color, wrapped to `w` columns, after a
+// `label` in its own color when there is one.
+function para(t, text, w, color = 'text', { quote = false, label } = {}) {
+  const runs = [...(label ? [{ text: `${label.text} `, color: label.color }] : []), ...inline(quote ? `"${text}"` : text)];
   return wrapRuns(runs, w).map((line) => line.map((r) => {
-    let s = t.fg(r.code ? 'code' : color, r.text);
+    let s = t.fg(r.code ? 'code' : r.color ?? color, r.text);
     if (r.bold) s = t.bold(s);
     if (r.url) s = t.link(s, absolute(r.url));
     return s;
@@ -332,6 +334,9 @@ const whyLine = (t, text, w, color) => {
   const why = `${C.whyLead} `;
   return optional([...hang(t.fg(color, why), para(t, text, w - width(why), 'text', { quote: true })), '']);
 };
+// The lesson's Go further line, after a blank row: 📖, its label, then the
+// quote, wrapped under the label.
+const goFurther = (t, read, w) => ['', ...hang(t.lead('read'), para(t, read, w - width(t.lead('read')), 'text', { quote: true, label: { text: C.goFurther, color: 'muted' } }))];
 // One sentence written as rows: those rows where each fits in `w`, or else
 // the sentence wrapped whole.
 const sentence = (t, parts, w, color) => (parts.every((x) => width(x) <= w) ? parts : [parts.join(' ')]).flatMap((x) => para(t, x, w, color));
@@ -501,6 +506,9 @@ const VIEWS = {
     body.push(...optional([lead(t, 'claude', t.fg('text', C.answeredSummary(answered)))]), SPACER, t.bold(t.fg('white', C.yourClimb)), SPACER,
       // The climb as it was played: an eased step counts at its easier tier.
       ...staircase(ctx, mix(tiersOf(s).filter((_, i) => stepsOf(s)[i].part !== 'Warm-up')), true));
+    // A source to read next, one optional sentence: p shows it too. A
+    // capstone has none.
+    if (content.intro.read) body.push(...optional(goFurther(t, content.intro.read, W)));
     if (nextLesson) {
       const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
       const mixed = `   ${mixBar(ctx, nextLesson, 12)}  `;
@@ -511,7 +519,7 @@ const VIEWS = {
     return {
       head: lessonHead(ctx, t.pill(`${C.complete} ${t.glyph.check}`, 'okBg'), `${total} of ${total}`),
       body,
-      keys: [nextLesson ? mainKey('enter', C.k.startN(lessonLabel(nextLesson.id))) : mainKey('enter', C.k.map), key('m', C.k.map), key('q', C.k.quit)],
+      keys: [nextLesson ? mainKey('enter', C.k.startN(lessonLabel(nextLesson.id))) : mainKey('enter', C.k.map), key('p', C.k.page), key('m', C.k.map), key('q', C.k.quit)],
     };
   },
 
@@ -958,9 +966,13 @@ const OVERLAYS = {
     const anchor = step && step.part !== 'Warm-up' ? `#${step.part.toLowerCase().replace(/ /g, '-')}` : '';
     const url = `${l.url}${anchor}`;
     const stuck = l.content?.stuck ?? l.stuck;
+    // Go further with its address spelled out, for a terminal with no links.
+    const read = l.content?.intro.read;
+    const readUrl = read && absolute(inline(read).find((r) => r.url).url);
     return {
       body: [t.bold(t.fg('white', C.pageTitle)), ...para(t, url, inner, 'key').map((x) => t.link(x, url)), SPACER,
-        t.fg('text', C.stuckLink), ...para(t, stuck, inner, 'key').map((x) => t.link(x, stuck))],
+        t.fg('text', C.stuckLink), ...para(t, stuck, inner, 'key').map((x) => t.link(x, stuck)),
+        ...(read ? [...goFurther(t, read, inner), ...hang(' '.repeat(width(t.lead('read'))), para(t, readUrl, inner - width(t.lead('read')), 'key').map((x) => t.link(x, readUrl)))] : [])],
       keys: [key('p', C.k.close), key('q', C.k.close)],
     };
   },
