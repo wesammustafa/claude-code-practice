@@ -566,10 +566,17 @@ test('a motion run on a fake terminal: step 3 done, a key gives the rest frame, 
     assert.ok(await app.settle(() => term.shows().includes('Step 3 done!')), term.shows());
     assert.match(term.shows(), /DONE/);
     assert.ok(term.writes.some((w) => /\x1b\[\d+;1H/.test(w)), 'some frames rewrote only their changed rows');
-    // A key while the step-done burst plays (158): the next frame is the rest frame.
+    // A key while the step-done burst plays (158): the next frame is the rest
+    // frame. The key comes a frame after the pass, as a person's would: a
+    // key in the same millisecond as the pass is taken for the one that
+    // started it.
+    await clock.advance(40);
+    const playing = term.shows();
+    assert.doesNotMatch(playing, /✦ {10}▄█▀/, 'the burst has not drawn its sparks yet');
     term.type('\x1b[A');
     await clock.advance(40);
     const next = term.shows();
+    assert.match(next, /✦ {10}▄█▀ {3}· {3}Step 3 done!/, 'the rest frame: the burst whole');
     await clock.advance(2_000);
     assert.equal(term.shows(), next, 'the frame after the key is the one the screen rests on');
     await afterQ(app);
