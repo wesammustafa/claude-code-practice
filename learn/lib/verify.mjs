@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { STUB_RUNS } from '../../checks/lessons/a-4.mjs';
 import { NPM_TEST_LIMIT } from '../../checks/lessons/b-3.mjs';
 import { lessons } from '../../checks/lessons/index.mjs';
-import { statusPaths } from '../../checks/paths.mjs';
 import { TIME_LIMIT } from '../../checks/stub-claude.mjs';
 import { SLOW } from './content.mjs';
+import { isStaged, porcelain } from './status.mjs';
 
 const RUN_CHECK = join(dirname(fileURLToPath(import.meta.url)), '..', 'run-check.mjs');
 
@@ -78,11 +78,17 @@ export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {
   });
 }
 
-export function gitStatus(dir) {
+// What git status lists in `dir`, and which of those paths are staged. With
+// `files`, each untracked file on its own line, where git status lists a new
+// folder whole.
+export function gitStatus(dir, { files = false } = {}) {
   return new Promise((resolve) => {
-    track(execFile('git', ['status', '--porcelain'], { cwd: dir, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error, stdout) => {
+    track(execFile('git', ['status', '--porcelain', ...(files ? ['--untracked-files=all'] : [])], { cwd: dir, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error, stdout) => {
       if (error) resolve({ error: error.message.split('\n')[0] });
-      else resolve({ paths: statusPaths(stdout) });
+      else {
+        const entries = porcelain(stdout);
+        resolve({ paths: entries.map((e) => e.path), staged: entries.filter(isStaged).map((e) => e.path) });
+      }
     }));
   });
 }

@@ -1,6 +1,7 @@
 // When the screen moves: one-shot progress, the gates for ambient loops, and
 // the time until the next frame. Pure: it reads no clock and picks nothing at
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
+import { GIT } from './content.mjs';
 import { C } from './copy.mjs';
 import { beatOf, checkOnlyWords, GRACE_MAX_MS, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
 
@@ -170,7 +171,7 @@ export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer
 // the status became `opening`, or before r, is not this run, and a file read
 // starts none. Its first tick is the first 40 ms boundary from its start
 // once it has run 150 ms, then one every 80 ms.
-const CHILD = ['check', 'git-clean'];
+const CHILD = ['check', ...GIT];
 const FIRST_TICK = Math.ceil(TIMING.spinnerFrom / TIMING.grid) * TIMING.grid;
 const checkingChild = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
   || (s.view === 'checkonly' && s.checkOnlyRun?.lesson === s.lesson);

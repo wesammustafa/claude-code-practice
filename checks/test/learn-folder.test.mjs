@@ -16,7 +16,7 @@ import { theme } from '../../learn/lib/theme.mjs';
 import { FORMAT, loadState, sanitize, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
 import { beatOf, lessonOf, stepOf, watching } from '../../learn/lib/flow.mjs';
 import { probeFolder } from '../../learn/lib/verify.mjs';
-import { exportHead, repo, withRepo } from './helpers.mjs';
+import { commit, exportHead, repo, withRepo, write } from './helpers.mjs';
 import { course, DEMO_I1, driver, FACTS, finished, finishedBefore, mapTo, playUntil, root, threeLevels } from './learn-drive.mjs';
 import { fakeOut } from './learn-term.mjs';
 
@@ -769,8 +769,10 @@ function inCopy({ folders, argv = [], env = {}, i1 = DEMO_I1, saved = {} } = {})
   const ran = [];
   const watched = [];
   const closedDirs = [];
-  // Each watched folder's change handler, as the real watcher calls it.
+  // Each watched folder's change handler, as the real watcher calls it, and
+  // how many times main armed its watcher again.
   const onChanges = {};
+  const arms = {};
   let exited = null;
   const stderr = { text: '', write(x) { this.text += x; } };
   const done = main({ argv, stdin, stdout, stderr, env: { ...CALM, ...env }, platform: 'linux', root: copy, exit: (code) => { exited = code; },
@@ -781,13 +783,13 @@ function inCopy({ folders, argv = [], env = {}, i1 = DEMO_I1, saved = {} } = {})
     watch: (dir, onChange) => {
       watched.push(dir);
       onChanges[dir] = onChange;
-      return { close() { closedDirs.push(dir); }, onChange };
+      return { close() { closedDirs.push(dir); }, arm() { arms[dir] = (arms[dir] ?? 0) + 1; }, onChange };
     } });
   const close = () => {
     if (exited === null) stdin.write('\x03');
     rmSync(copy, { recursive: true, force: true });
   };
-  return { copy, stdin, stdout, frame, ran, watched, closedDirs, onChanges, stderr, done, exited: () => exited, type: (x) => stdin.write(x), close };
+  return { copy, stdin, stdout, frame, ran, watched, closedDirs, onChanges, arms, stderr, done, exited: () => exited, type: (x) => stdin.write(x), close };
 }
 const until = async (fn, ms = 8_000) => {
   const end = Date.now() + ms;
@@ -843,6 +845,33 @@ test('main: a json beat reads its file in the work folder, with no process, and 
     }), app.frame());
     // The only check run is the lesson's whole check, which the resume screen asks for.
     assert.ok(app.ran.every((r) => r.items === null), `a check child ran for the beat: ${JSON.stringify(app.ran)}`);
+  } finally {
+    app.close();
+    rmSync(mine, { recursive: true, force: true });
+  }
+});
+
+test('main: a git-only beat asks git status in the work folder, which lists each untracked file, and the poll arms the watchers again', async () => {
+  const mine = repo({ 'README.md': 'r\n' });
+  commit(mine, 'start');
+  mkdirSync(join(mine, '.practice'));
+  const i1 = DEMO_I1.replace('- verify: check 0\n- watching: .claude/skills/tdd/SKILL.md\n', '- verify: git-only .claude/\n');
+  const app = inCopy({ folders: () => ({ intermediate: mine }), i1, saved: { 'i-1': { step: 'W1', beat: 0, warm: ['R1', 'R2'], done: ['R1', 'R2'] } } });
+  const words = () => app.frame().replace(/\s+/g, ' ');
+  try {
+    assert.ok(await until(() => words().includes('Welcome back')), app.frame());
+    app.type('\r');
+    assert.ok(await until(() => words().includes('Watching git status')), app.frame());
+    // While it watches, the poll arms both folders' watchers again.
+    assert.ok(await until(() => app.arms[mine] > 0 && app.arms[app.copy] > 0, 5_000), JSON.stringify(app.arms));
+    // A change in the copy says nothing about the work folder.
+    write(app.copy, { 'notes.md': 'n\n' });
+    write(mine, { '.claude/skills/tdd/SKILL.md': '---\nname: tdd\n---\n' });
+    // git status alone would list the new folder as .claude/.
+    assert.ok(await until(() => {
+      app.onChanges[mine]();
+      return words().includes('git status lists .claude/skills/tdd/SKILL.md');
+    }), app.frame());
   } finally {
     app.close();
     rmSync(mine, { recursive: true, force: true });

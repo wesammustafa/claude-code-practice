@@ -198,6 +198,11 @@ export function tryNow(d, path, text, stamp = 'x') {
   return d.state.beat;
 }
 
+// What git status lists, as main reads it for a beat on part of the tree
+// (ticket 88): every untracked file on its own line (`files`), and the paths
+// whose index column says staged.
+export const gitLists = (paths, staged = [], extra = {}) => ({ type: 'git', files: true, paths, staged, ...extra });
+
 // Lesson 1 alone by default; lessonScreens passes the whole course.
 export function driver({ saved = null, facts = {}, course: lessons = b1Only } = {}) {
   let now = 1_000;
@@ -234,7 +239,8 @@ export function mapTo(d, id) {
 
 // Plays on as a learner who needs no help, until `stop(state)` holds: the
 // right pick, the answer typed, every check failing once then passing, a
-// clean tree, enter past every level-up and lesson end.
+// clean tree or the change git status should list, enter past every
+// level-up and lesson end.
 export function playUntil(d, stop) {
   for (let i = 0; i < 2_000 && !stop(d.state); i++) {
     const s = d.state;
@@ -259,8 +265,10 @@ export function playUntil(d, stop) {
       d.send({ type: 'file', path: v.path, read: Buffer.from('src/config.js'), stamp: 'b' });
     } else if (v.kind === 'git-clean') {
       if (beat.doneLabel) d.key('space');
-      d.send({ type: 'git', paths: [] });
-    } else d.key('space');
+      d.send(v.paths ? gitLists([]) : { type: 'git', paths: [] });
+    } else if (v.kind === 'git-staged') d.send(gitLists(['a.txt'], ['a.txt']));
+    else if (['git-changed', 'git-only'].includes(v.kind)) d.send(gitLists([`${v.path.replace(/\/+$/, '')}/new.txt`]));
+    else d.key('space');
   }
   if (!stop(d.state)) throw new Error(`playUntil: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);
 }
@@ -428,11 +436,21 @@ export function lessonScreens(id, lessons = course, { skipped = false } = {}) {
       d.send({ type: 'file', path: v.path, read: Buffer.from('src/config.js'), stamp: 'x' });
       out.push([`${at} done`, d.state]);
     } else if (v.kind === 'git-clean') {
-      d.send({ type: 'git', paths: ['src/config.js', 'test/config.test.js'] });
+      const lists = (paths) => (v.paths ? gitLists(paths.map((p) => `${v.paths[0].replace(/\/+$/, '')}/${p}`)) : { type: 'git', paths });
+      d.send(lists(['src/config.js', 'test/config.test.js']));
       out.push([`${at} dirty`, d.state]);
       climb(d, at, out);
-      d.send({ type: 'git', paths: [] });
+      d.send(lists([]));
       out.push([`${at} clean`, d.state]);
+    } else if (v.kind.startsWith('git-')) {
+      d.send(gitLists(['README.md']));
+      out.push([`${at} waiting`, d.state]);
+      d.key('r');
+      d.send(gitLists(['README.md'], [], { asked: d.state.beat.asked }));
+      out.push([`${at} fail`, d.state]);
+      climb(d, at, out);
+      d.send(v.path ? gitLists([`${v.path.replace(/\/+$/, '')}/config.js`]) : gitLists(['src/config.js'], ['src/config.js']));
+      out.push([`${at} done`, d.state]);
     } else if (beat.ask && beat.kind !== 'type') {
       const wrong = beat.options.findIndex((o) => o.kind === 'wrong' || o.kind === 'decoy');
       if (wrong >= 0) {

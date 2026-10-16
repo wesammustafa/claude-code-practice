@@ -247,7 +247,7 @@ const CELEBRATION_BANNED = /\b(first try|no hints?|fast|quick(?:ly)?|streak)\b/i
 // The words a celebration shows: the done feedback and burst on a step, and
 // every word the levelup, complete and next screens read (a test below
 // keeps those screens' keys on this list). Keys under C.k are 'k.<name>'.
-const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'holds', 'already', 'alreadyCheck', 'checkPasses', 'runItToo',
+const CELEBRATIONS = ['stepDone', 'session', 'beatDone', 'cleanCopy', 'cleanUnder', 'gitShows', 'stagedShows', 'holds', 'already', 'alreadyCheck', 'checkPasses', 'runItToo',
   'guessRight', 'nowYouKnow', 'findOutAt', 'right', 'answered', 'otherFine', 'done',
   'stepOf', 'levelUp', 'toHinted', 'toChallenge', 'nextCounts', 'k.letsGo', 'k.bringIt', 'k.moreHelp',
   'complete', 'lessonDone', 'badge', 'k.whatsNext',

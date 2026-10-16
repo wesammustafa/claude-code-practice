@@ -1,4 +1,4 @@
-import { HOLDS } from './content.mjs';
+import { GIT, HOLDS } from './content.mjs';
 
 // How much help a step gets. GUIDED shows every command, HINTED shows the
 // goal with hints on request, CHALLENGE shows the goal only. A skill's help
@@ -11,9 +11,10 @@ export const TIERS = ['guided', 'hinted', 'challenge'];
 const rank = (t) => TIERS.indexOf(t);
 const at = (i) => TIERS[Math.max(0, Math.min(2, i))];
 
-// A step the app checks: a check item, git, or what a file holds (ticket
-// 87). A `file` beat, done once its file holds any line, is not one.
-const CHECKED = new Set(['check', 'git-clean', ...HOLDS]);
+// A step the app checks: a check item, git status (the whole tree or part
+// of it, ticket 88), or what a file holds (ticket 87). A `file` beat, done
+// once its file holds any line, is not one.
+const CHECKED = new Set(['check', ...GIT, ...HOLDS]);
 const verifiable = (step) => step.beats.some((b) => CHECKED.has(b.verify.kind));
 
 // The tier the course's rule gives each step of `lessonIndex`, from the

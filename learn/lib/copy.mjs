@@ -76,7 +76,9 @@ export const C = {
   doneBefore: { hinted: "You've done this before, so you get the goal: press h for hints.", challenge: "You've done this before, so you get just the goal." },
   watchingGit: 'Watching ',
   gitClean: 'no changes so far',
-  gitDirty: (n) => `git status lists ${n} change${n === 1 ? '' : 's'}:`,
+  // `under`: the paths a git-clean beat names, where it names some (ticket 88).
+  gitCleanUnder: (under) => `no changes under ${under} so far`,
+  gitDirty: (n, under) => `git status lists ${n} change${n === 1 ? '' : 's'}${under ? ` under ${under}` : ''}:`,
   checking: (what) => (what ? `Checking ${what}…` : 'Checking…'),
   // How far a run of several items has got, from the check child's reports.
   checkingItem: (n, m) => `Checking item ${n} of ${m}…`,
@@ -93,6 +95,14 @@ export const C = {
   stepDone: (n) => `Step ${n} done!`,
   holds: (path) => [path, ' holds '],
   cleanCopy: `Your ${TERMS.practiceCopy} is clean: nothing to commit.`,
+  cleanUnder: (under) => `git status lists nothing under ${under}.`,
+  // What git status lists, for a beat that needs it to list something.
+  gitShows: (shown, more) => `git status lists ${shown}${more ? ` and ${more} more` : ''}`,
+  noChangeUnder: (under) => `git status lists no change under ${under} yet.`,
+  noChange: 'git status lists no change yet.',
+  nothingStaged: 'git status lists nothing staged yet.',
+  stagedShows: (shown, more) => `Staged: ${shown}${more ? ` and ${more} more` : ''}`,
+  changesOutside: (n, under, shown) => `git status lists ${n} change${n === 1 ? '' : 's'} outside ${under}: ${shown}`,
   session: (n) => `${n} step${n === 1 ? '' : 's'} this session`,
   beatDone: 'Done.',
   already: 'Already done: the check already passes, so this step counts.',
