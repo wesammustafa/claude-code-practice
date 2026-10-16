@@ -172,8 +172,13 @@ export const C = {
   folderPromptNew: `The folder of your ${TERMS.newCopy} of the template`,
   folderHow: 'Type or paste its path, then press enter.',
   folderEmpty: `An empty line means this ${TERMS.practiceCopy}.`,
-  notGit: (name) => `git says ${name} is not a git repository. Press f to pick another folder.`,
-  noPractice: (name) => `${name} has no .practice/ folder that git ignores: set one up as Beginner lesson 1 shows.`,
+  // The notes name no folder: the header and the Work folder line do, so a
+  // long name costs no row.
+  notGit: `git says this ${TERMS.workFolder} is not a git repository. Press f to pick another folder.`,
+  noPractice: `This ${TERMS.workFolder} has no .practice/ folder that git ignores: set one up as Beginner lesson 1 shows.`,
+  folderGitBroken: (error) => `git couldn't look at this ${TERMS.workFolder}: ${error}.`,
+  // A new copy given as this practice copy, in the prompt or with --dir.
+  newCopyIsCopy: `That is this ${TERMS.practiceCopy}. Give the folder of your ${TERMS.newCopy} of the template.`,
   folderGone: (path) => `No folder at ${path} any more. Press f to pick another.`,
 
   welcomeBack: 'Welcome back!',
@@ -225,7 +230,7 @@ export const C = {
   plainIntro: 'npm run learn shows one step at a time in a terminal. Run it in a terminal window to use it.',
   usage: 'Usage: npm run learn -- [--calm] [--plain] [--dir <folder>]. --calm keeps the screen still; --plain draws plain symbols with no color; --dir sets the work folder of the level the app opens on.',
   noFolder: (path) => `No folder at ${path}.`,
-  dirBeginner: `Beginner practises in this ${TERMS.practiceCopy}, so --dir has no level to set yet. From Intermediate on, use it, or press f on the map.`,
+  dirBeginner: `This app checks Beginner in this ${TERMS.practiceCopy}, so --dir has no level to set yet. From Intermediate on, use it, or press f on the map.`,
   plainIn: (dir) => ` (checked in ${dir})`,
 
   k: {

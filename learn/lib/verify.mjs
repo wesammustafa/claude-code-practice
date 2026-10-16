@@ -87,28 +87,32 @@ export function gitStatus(dir) {
   });
 }
 
+const NOT_A_REPO = 'this folder is not a git repository';
 export function gitReady(dir) {
   return new Promise((resolve) => {
     execFile('git', ['rev-parse', '--is-inside-work-tree'], { cwd: dir, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error) => {
-      resolve(error ? (error.code === 'ENOENT' ? 'git is not installed' : 'this folder is not a git repository') : null);
+      resolve(error ? (error.code === 'ENOENT' ? 'git is not installed' : error.killed ? 'git did not answer in time' : NOT_A_REPO) : null);
     });
   });
 }
 
 // What a work folder is (ticket 86): whether it is a folder at all, whether
 // git says it is a repository, and whether it has the `.practice/` folder
-// the lessons save to, ignored by git. Read, never changed.
+// the lessons save to, ignored by git. Read, never changed. `gitBroken` is
+// why git could not say (not installed, no answer), null where it did.
 export async function probeFolder(path) {
   let folder = false;
   try {
     folder = statSync(path).isDirectory();
   } catch {}
-  if (!folder) return { path, missing: true, git: false, practice: false };
-  const git = (await gitReady(path)) === null;
+  if (!folder) return { path, missing: true, git: false, gitBroken: null, practice: false };
+  const said = await gitReady(path);
+  const git = said === null;
+  const gitBroken = said && said !== NOT_A_REPO ? said : null;
   const practice = git && existsSync(join(path, '.practice')) && (await new Promise((resolve) => {
     execFile('git', ['check-ignore', '-q', '.practice/'], { cwd: path, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error) => resolve(!error));
   }));
-  return { path, missing: false, git, practice };
+  return { path, missing: false, git, gitBroken, practice };
 }
 
 // The first word of git's user.name, to say hello. Read, never stored.

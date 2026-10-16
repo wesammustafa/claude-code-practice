@@ -1078,7 +1078,7 @@ test('a save that fails shows a note and the app keeps going', async () => {
   }
 });
 
-test('read-only: the app starts only the check and git status, and writes only its own file', () => {
+test('read-only: the app starts only the check and git\'s read-only commands, and writes only its own file', () => {
   const files = readdirSync(join(root, 'learn'), { recursive: true }).filter((f) => f.endsWith('.mjs')).map((f) => f.split('\\').join('/'));
   for (const f of files) {
     const src = readFileSync(join(root, 'learn', f), 'utf8');

@@ -5,12 +5,12 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { COMMANDS_URL, OWN_PARTS, WORK_LEVELS } from './content.mjs';
+import { COMMANDS_URL, OWN_PARTS } from './content.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
 // Each body row says how it gives way when the body is taller than its room
@@ -62,10 +62,10 @@ function placeOf(s, t, beat = null, n = 24) {
   const dir = folderOf(s);
   if (!dir) return null;
   const root = s.facts.root;
-  const level = WORK_LEVELS.includes(levelOf(s)) ? (s.folders[levelOf(s)] ?? root) : root;
+  const levelDir = levelKey(s) ? levelFolder(s, levelKey(s)) : root;
   const fromCopy = Boolean(beat) && [...beat.lines, ...beat.bottom].some((l) => l.text.includes('<your repo>'));
   if (dir !== root && !fromCopy) return C.inFolder(shortName(t, baseName(dir), n));
-  return dir !== root || level !== root ? C.inCopy : null;
+  return dir !== root || levelDir !== root ? C.inCopy : null;
 }
 
 // The lesson page a quote's relative links point into: set for each frame.
@@ -217,7 +217,12 @@ export function fit(body, room, short, more) {
 }
 
 const TOASTS = {
-  stray: { emoji: 'wave', color: 'accent', text: (x, s, t) => (placeOf(s, t) ? C.strayIn(placeOf(s, t)) : C.stray) },
+  // The beat on screen decides the place, as on its card: a command that
+  // names <your repo> runs from the copy.
+  stray: { emoji: 'wave', color: 'accent', text: (x, s, t) => {
+    const place = placeOf(s, t, s.view === 'step' && s.beat ? beatOf(s) : null);
+    return place ? C.strayIn(place) : C.stray;
+  } },
   hintsLater: { emoji: 'hint', color: 'accent', text: (x) => C.hintsLater(x.try) },
   pickFirst: { emoji: 'guess', color: 'accent', text: () => C.pickFirst },
   save: { emoji: 'broken', color: 'warn', text: (x) => C.saveFailed(x.message) },
@@ -580,7 +585,8 @@ function folderNotes(ctx, w = ctx.W) {
   const dir = folderOf(s);
   const found = dir && dir !== s.facts.root ? s.probes[dir] : null;
   if (!found) return [];
-  const text = found.missing ? C.folderGone(shortPath(t, dir, w - 30)) : !found.git ? C.notGit(baseName(dir)) : !found.practice ? C.noPractice(baseName(dir)) : null;
+  const text = found.missing ? C.folderGone(shortPath(t, dir, w - 30)) : found.gitBroken ? C.folderGitBroken(found.gitBroken)
+    : !found.git ? C.notGit : !found.practice ? C.noPractice : null;
   if (!text) return [];
   const mark = `${t.fg('warn', t.glyph.warnMark)} `;
   return kept(hang(mark, para(t, text, w - width(mark), 'warn')));
@@ -678,11 +684,10 @@ const VIEWS = {
     // an answer, in place of the start options; then the answer, on the
     // intro that asked. Both are kept rows, so the Why line gives way first.
     // Room for 89's needs line goes here too, as kept rows above the menu.
-    const asksHere = folderKey(s) && (folderKey(s) !== levelOf(s) || levelLessons(s, levelOf(s))[0].id === s.lesson);
     const menu = asking
       ? [...kept([t.bold(t.fg('white', folderKey(s) === levelOf(s) ? C.folderAsk(levelName(s)) : C.newCopyAsk))]),
         ...kept(folderOptions(s).map((o, i) => option(i, o === 'copy' ? C.folderCopy : folderKey(s) === levelOf(s) ? C.folderOther : C.folderNewCopy)))]
-      : [...(asksHere ? kept([folderLine(ctx)]) : []), ...folderNotes(ctx), ...kept([option(0, label), option(1, C.lessHelp)])];
+      : [...(asksHere(s) ? kept([folderLine(ctx)]) : []), ...folderNotes(ctx), ...kept([option(0, label), option(1, C.lessHelp)])];
     // Why the lesson matters, in the page's words, with its blank: an
     // optional row, so below 24 rows the staircase compacts first.
     return {
@@ -699,7 +704,7 @@ const VIEWS = {
         SPACER,
         ...menu,
       ],
-      keys: [key(t.glyph.up, C.k.choose), key('enter', asking ? C.k.choose : C.k.start), key('m', C.k.map), !asking && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
+      keys: [key(t.glyph.up, C.k.choose), key('enter', asking ? C.k.answer : C.k.start), key('m', C.k.map), !asking && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
     };
   },
 
@@ -859,8 +864,8 @@ const VIEWS = {
     const bars = lessons.some((l) => l.content);
     const footer = lessHelpOn(s, lessons);
     // A later level's work folder, and the key that changes it (ticket 86).
-    const level = levelOf(s, cursor.id);
-    const folder = WORK_LEVELS.includes(level) ? [folderLine(ctx, s.folders[level] ?? s.facts.root, `   ${t.fg('muted', C.folderChange)}`), SPACER] : [];
+    const level = levelKey(s, cursor.id);
+    const folder = level ? [folderLine(ctx, levelFolder(s, level), `   ${t.fg('muted', C.folderChange)}`), SPACER] : [];
     const legend = [];
     for (const item of TIERS.map((k) => `${t.fg(TIER_STYLE[k].tint, t.glyph[TIER_STYLE[k].on])} ${t.fg('text', C.tierHelp[k])}`)) {
       const last = legend.at(-1);
@@ -928,7 +933,8 @@ const VIEWS = {
     // A slow item stays unchecked until r runs it; once r has, a poll keeps
     // its result (flow), so the line goes for good.
     // While r's run of the slow items goes, the card says so in their place.
-    const unchecked = !l.newCopy && l.slow.some((i) => !results?.items?.some((x) => x.index === i && !x.slow));
+    // A lesson that runs in a new copy runs nothing until it has its folder.
+    const unchecked = Boolean(folderOf(s)) && l.slow.some((i) => !results?.items?.some((x) => x.index === i && !x.slow));
     const going = s.checkOnlyRun?.lesson === l.id ? s.checkOnlyRun : null;
     const notes = [];
     if (going) notes.push(SPACER, ...kept(spinning(ctx, para(t, checkingLabel(going.running), inner, 'key'))));
@@ -1456,7 +1462,7 @@ const OVERLAYS = {
     const { s, t, inner } = ctx;
     const a = s.folderAsk;
     // A level's folder, or a lesson's new copy.
-    const level = s.course.find((l) => l.level === a.key);
+    const level = C.levels[a.key];
     const room = inner - 4;
     const rows = [];
     let row = '';
@@ -1470,9 +1476,10 @@ const OVERLAYS = {
     rows.push(row);
     const shown = rows.slice(-3);
     const input = shown.map((r, i) => `  ${t.fg('muted', i ? ' ' : rows.length > shown.length ? t.glyph.ellipsis : '›')} ${t.fg('code', r)}${i === shown.length - 1 && !a.asked ? t.inverse(' ') : ''}`);
-    const note = a.asked ? para(t, C.checking(), inner, 'key') : a.missing ? para(t, `${t.glyph.warnMark} ${C.noFolder(shortPath(t, a.missing, inner - 16))}`, inner, 'warn') : [];
+    const note = a.asked ? para(t, C.checking(), inner, 'key') : a.missing ? para(t, `${t.glyph.warnMark} ${C.noFolder(shortPath(t, a.missing, inner - 16))}`, inner, 'warn')
+      : a.isCopy ? para(t, `${t.glyph.warnMark} ${C.newCopyIsCopy}`, inner, 'warn') : [];
     return {
-      body: [...kept([t.bold(t.fg('white', level ? C.folderPrompt(C.levels[level.level]) : C.folderPromptNew))]),
+      body: [...kept([t.bold(t.fg('white', level ? C.folderPrompt(level) : C.folderPromptNew))]),
         ...para(t, level ? `${C.folderHow} ${C.folderEmpty}` : C.folderHow, inner, 'muted'), SPACER, ...kept(input),
         ...(note.length ? [SPACER, ...kept(note)] : [])],
       keys: a.asked ? [key('esc', C.k.cancel)] : [key('enter', C.k.useIt), key('esc', C.k.cancel), key('ctrl+c', C.k.quit)],

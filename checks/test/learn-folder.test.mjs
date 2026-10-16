@@ -15,6 +15,7 @@ import { strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { FORMAT, loadState, sanitize, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
 import { beatOf, lessonOf, stepOf, watching } from '../../learn/lib/flow.mjs';
+import { probeFolder } from '../../learn/lib/verify.mjs';
 import { exportHead, repo, withRepo } from './helpers.mjs';
 import { course, DEMO_I1, driver, FACTS, finished, finishedBefore, mapTo, playUntil, root, threeLevels } from './learn-drive.mjs';
 import { fakeOut } from './learn-term.mjs';
@@ -140,6 +141,8 @@ test('Intermediate\'s first intro asks where to practise: this practice copy, or
     assert.ok(has(lines, C.folderCopy) && has(lines, C.folderOther), where);
     assert.ok(!has(lines, C.startLesson(1)), `the start options wait for the answer\n${where}`);
   }
+  // enter answers the question: the bar says so, not "choose" twice.
+  for (const size of SIZES) assert.match(screen(d.state, size).at(-1), /choose {4}enter answer {4}m map/);
   const b = driver({ course: withI1(), saved: { format: 1, welcomed: true, lessons: {} } });
   assert.deepEqual([b.state.view, b.state.lesson], ['intro', 'b-1']);
   assert.ok(!shows(b, C.folderCopy) && shows(b, C.startLesson(1)));
@@ -184,6 +187,32 @@ test('"another folder" opens the path prompt: a typed path goes to main to look 
   assert.equal(d.state.folders.intermediate, MINE);
   toW1(d);
   assert.equal(lastOf(d.effects, 'check').dir, MINE);
+});
+
+test('the level\'s first intro the learner opens asks, whichever lesson it is; the intro that took the answer shows it', () => {
+  const i3 = DEMO_I1.replace('lesson: i-1', 'lesson: i-3').replace('next: i-2', 'next: i-4');
+  const course = threeLevels({ 'i-1': DEMO_I1, 'i-3': i3 });
+  const d = atI1(null, course);
+  d.key('m');
+  mapTo(d, 'i-3');
+  d.key('enter');
+  assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'i-3']);
+  assert.ok(shows(d, C.folderAsk(C.levels.intermediate)), screen(d.state).join('\n'));
+  d.key('enter');
+  assert.equal(d.state.folders.intermediate, COPY);
+  assert.ok(shows(d, `${C.workFolder} ${C.thisCopy}`) && shows(d, C.startLesson(3)), screen(d.state).join('\n'));
+  fitsAll(d.state, 'i-3 answered');
+  // i-1, the level's first lesson, shows the answer; it no longer asks.
+  d.key('m');
+  mapTo(d, 'i-1');
+  d.key('enter');
+  assert.ok(shows(d, `${C.workFolder} ${C.thisCopy}`) && shows(d, C.startLesson(1)), screen(d.state).join('\n'));
+  // A later lesson's intro, once the level has its answer, neither asks nor shows it.
+  const later = atI1({ intermediate: COPY }, course);
+  later.key('m');
+  mapTo(later, 'i-3');
+  later.key('enter');
+  assert.ok(!shows(later, C.folderAsk(C.levels.intermediate)) && !shows(later, C.workFolder), screen(later.state).join('\n'));
 });
 
 test('the path prompt keeps a pasted path whole, up to 1024 characters, while a typed answer still takes 40', () => {
@@ -348,10 +377,14 @@ test('a run line\'s <your repo> shows the work folder, the way <your practice co
     assert.ok(!has(lines, '<your repo>'));
     fitsAll(d.state, dir);
   }
-  // That line is run from the copy: the card's place says so.
+  // That line is run from the copy: the card's place says so, and so does
+  // the note for a command typed here.
   const d = atI1({ intermediate: MINE }, course);
   playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'C');
   assert.ok(has(screen(d.state), `${C.where.terminal}, ${C.inCopy}`), screen(d.state).join('\n'));
+  d.send({ type: 'paste', text: 'npm run check -- i-1', wait: 40 });
+  assert.ok(flat(screen(d.state)).includes(C.strayIn(C.inCopy)), screen(d.state).join('\n'));
+  assert.ok(!flat(screen(d.state)).includes(C.strayIn(C.inFolder('my-app'))), screen(d.state).join('\n'));
 });
 
 // ---- the map ---------------------------------------------------------------------
@@ -453,7 +486,12 @@ test('the level\'s first intro fits its folder rows at 60x20 and 80x24 in every 
     const answered = atI1({ intermediate: long }, course);
     const noted = atI1({ intermediate: MINE }, course);
     noted.send({ type: 'probed', path: MINE, missing: false, git: true, practice: false });
-    return [['asking', asking.state, [C.folderAsk('Intermediate'), C.folderCopy, C.folderOther]], ['answered', answered.state, [C.workFolder, C.startLesson(1)]], ['noted', noted.state, [`${C.workFolder} ${MINE}`, C.noPractice('my-app'), C.startLesson(1)]]];
+    // A folder with a long name of its own: the note names none, so it costs no row.
+    const longName = `/home/sam/${'claude-code-practice-mine-'.repeat(3)}`;
+    const notedLong = atI1({ intermediate: longName }, course);
+    notedLong.send({ type: 'probed', path: longName, missing: false, git: false, practice: false });
+    return [['asking', asking.state, [C.folderAsk('Intermediate'), C.folderCopy, C.folderOther]], ['answered', answered.state, [C.workFolder, C.startLesson(1)]], ['noted', noted.state, [`${C.workFolder} ${MINE}`, C.noPractice, C.startLesson(1)]],
+      ['noted, a long name', notedLong.state, [C.workFolder, C.notGit, C.startLesson(1)]]];
   };
   const can = lessonOf(atI1(null, threeLevels({ 'i-1': fullI1() })).state).content.intro.can;
   const why = lessonOf(atI1(null, threeLevels({ 'i-1': fullI1() })).state).content.intro.why;
@@ -507,6 +545,19 @@ test('a-5\'s check-only view asks for its new copy and runs no check until it ha
   d.send({ type: 'key', name: 'enter', wait: 40 });
   assert.equal(d.state.overlay, 'folder');
   assert.equal(d.state.folders['a-5'], undefined);
+  // Nor is the copy given as a path, relative or in full: a new copy is another folder.
+  for (const text of ['.', COPY]) {
+    typeIn(d, text);
+    d.send({ type: 'key', name: 'enter', wait: 40 });
+    answer(d, { path: COPY });
+    assert.equal(d.state.overlay, 'folder', text);
+    assert.equal(d.state.folders['a-5'], undefined, text);
+    assert.equal(lastOf(d.effects, 'check'), undefined, text);
+    assert.ok(flat(screen(d.state)).includes(C.newCopyIsCopy), screen(d.state).join('\n'));
+    fitsAll(d.state, `a-5 given ${text}`);
+    for (let i = 0; i < text.length; i++) d.send({ type: 'key', name: 'backspace', wait: 40 });
+    assert.ok(!flat(screen(d.state)).includes(C.newCopyIsCopy), 'typing again clears the note');
+  }
   typeIn(d, ACTIONS);
   d.send({ type: 'key', name: 'enter', wait: 40 });
   answer(d, {});
@@ -526,7 +577,12 @@ test('a-5\'s check-only view asks for its new copy and runs no check until it ha
   mapTo(d, 'a-capstone');
   d.key('enter');
   assert.ok(flat(screen(d.state)).includes(flat(C.newCopy)));
+  assert.ok(!flat(screen(d.state)).includes(C.slowWait), 'nothing runs yet, so no item waits for r');
   assert.equal(watching(d.state), null);
+  // Given its new copy, the capstone's slow items wait for r there, as any lesson's do.
+  const cap = checkOnlyAt('a-capstone', { 'a-capstone': '/home/sam/ci-review' });
+  assert.ok(flat(screen(cap.state)).includes(C.slowWait), screen(cap.state).join('\n'));
+  fitsAll(cap.state, 'a-capstone with its new copy');
   d.key('m');
   mapTo(d, 'a-1');
   d.key('enter');
@@ -591,11 +647,50 @@ test('switching folders: what the old folder\'s check found goes, a run still ou
   assert.ok(has(headOf(screen(d.state)), C.inFolder('other-app')));
 });
 
+test('switching folders: a fresh step compares its file with how it is in the new folder, not the old one', () => {
+  const EVIDENCE = '.claude/skills/tdd/SKILL.md';
+  const course = threeLevels({ 'i-1': DEMO_I1.replace('- verify: check 0\n', `- verify: check 0 fresh\n- evidence: ${EVIDENCE}\n`) });
+  const OTHER = '/home/sam/code/other-app';
+  const d = atI1({ intermediate: MINE }, course);
+  toW1(d);
+  const items = [{ index: 0, text: 'x', pass: true, hint: '' }];
+  d.send({ type: 'check', lesson: 'i-1', items, path: EVIDENCE, stamp: 'mine-1', dir: MINE });
+  assert.equal(d.state.beat.status, 'waiting', 'the file in MINE has not changed yet');
+  d.key('m');
+  d.key('f');
+  typeIn(d, OTHER);
+  d.send({ type: 'key', name: 'enter', wait: 40 });
+  answer(d, { path: OTHER });
+  assert.deepEqual(d.state.progress['i-1'].stamps, {}, 'the old folder\'s file states go');
+  d.key('m');
+  assert.equal(lastOf(d.effects, 'check').dir, OTHER);
+  // OTHER's file as it is now is the start: unchanged, the step waits.
+  d.send({ type: 'check', lesson: 'i-1', items, path: EVIDENCE, stamp: 'other-1', dir: OTHER });
+  assert.deepEqual([stepOf(d.state).id, d.state.beat.status], ['W1', 'waiting']);
+  d.send({ type: 'check', lesson: 'i-1', items, path: EVIDENCE, stamp: 'other-1', dir: OTHER });
+  assert.equal(d.state.beat.status, 'waiting');
+  // Changed there: done.
+  d.send({ type: 'check', lesson: 'i-1', items, path: EVIDENCE, stamp: 'other-2', dir: OTHER });
+  assert.ok(['done', 'already'].includes(d.state.beat.status), d.state.beat.status);
+  // Picking the same folder again keeps what the app knows of it.
+  const same = atI1({ intermediate: MINE }, course);
+  toW1(same);
+  same.send({ type: 'check', lesson: 'i-1', items, path: EVIDENCE, stamp: 'mine-1', dir: MINE });
+  same.key('m');
+  same.key('f');
+  typeIn(same, MINE);
+  same.send({ type: 'key', name: 'enter', wait: 40 });
+  answer(same, { path: MINE });
+  assert.deepEqual(same.state.progress['i-1'].stamps, { 'W1.0': 'mine-1' });
+});
+
 // ---- notes before the first step -----------------------------------------------
 const PROBLEMS = [
-  ['not a git repository', { missing: false, git: false, practice: false }, () => C.notGit('my-app')],
-  ['no git-ignored .practice/', { missing: false, git: true, practice: false }, () => C.noPractice('my-app')],
+  ['not a git repository', { missing: false, git: false, practice: false }, () => C.notGit],
+  ['no git-ignored .practice/', { missing: false, git: true, practice: false }, () => C.noPractice],
   ['gone', { missing: true, git: false, practice: false }, () => C.folderGone(MINE)],
+  // git could not say: the note says why, not that the folder is no repository.
+  ['git not installed', { missing: false, git: false, gitBroken: 'git is not installed', practice: false }, () => C.folderGitBroken('git is not installed')],
 ];
 
 test('a work folder that isn\'t a git repository, has no git-ignored .practice/, or is gone gets a note before the first step', () => {
@@ -620,8 +715,16 @@ test('a work folder that isn\'t a git repository, has no git-ignored .practice/,
       fitsAll(d.state, `${label}, ${where}`);
     }
   }
-  // A folder that is all three, and the copy, get none.
+  assert.ok(!flat(screen((() => {
+    const d = atI1({ intermediate: MINE });
+    d.send({ type: 'probed', path: MINE, missing: false, git: false, gitBroken: 'git is not installed', practice: false });
+    return d.state;
+  })())).includes(C.notGit), 'git not installed is not "not a git repository"');
+  // A folder that is all three, and the copy, get none; a look that finds
+  // it set right takes the note away.
   const ok = atI1({ intermediate: MINE });
+  ok.send({ type: 'probed', path: MINE, missing: false, git: true, practice: false });
+  assert.ok(flat(screen(ok.state)).includes(C.noPractice));
   ok.send({ type: 'probed', path: MINE, missing: false, git: true, practice: true });
   const copy = atI1({ intermediate: COPY });
   for (const d of [ok, copy]) for (const [, , note] of PROBLEMS) assert.ok(!flat(screen(d.state)).includes(note()), screen(d.state).join('\n'));
@@ -647,6 +750,8 @@ function inCopy({ folders, argv = [], env = {} } = {}) {
   const ran = [];
   const watched = [];
   const closedDirs = [];
+  // Each watched folder's change handler, as the real watcher calls it.
+  const onChanges = {};
   let exited = null;
   const stderr = { text: '', write(x) { this.text += x; } };
   const done = main({ argv, stdin, stdout, stderr, env: { ...CALM, ...env }, platform: 'linux', root: copy, exit: (code) => { exited = code; },
@@ -656,13 +761,14 @@ function inCopy({ folders, argv = [], env = {} } = {}) {
     },
     watch: (dir, onChange) => {
       watched.push(dir);
+      onChanges[dir] = onChange;
       return { close() { closedDirs.push(dir); }, onChange };
     } });
   const close = () => {
     if (exited === null) stdin.write('\x03');
     rmSync(copy, { recursive: true, force: true });
   };
-  return { copy, stdin, stdout, frame, ran, watched, closedDirs, stderr, done, exited: () => exited, type: (x) => stdin.write(x), close };
+  return { copy, stdin, stdout, frame, ran, watched, closedDirs, onChanges, stderr, done, exited: () => exited, type: (x) => stdin.write(x), close };
 }
 const until = async (fn, ms = 8_000) => {
   const end = Date.now() + ms;
@@ -697,6 +803,43 @@ test('main: the check and the watcher run in the work folder, and learn.json sta
     app.close();
     rmSync(mine, { recursive: true, force: true });
   }
+});
+
+test('main: a note about the work folder goes once the learner sets the folder right', async () => {
+  // A repository whose .practice/ git would ignore, but that has none yet.
+  const mine = repo();
+  const app = inCopy({ folders: () => ({ intermediate: mine }) });
+  const noted = () => app.frame().replace(/\s+/g, ' ').includes('has no .practice/ folder');
+  try {
+    assert.ok(await until(noted), app.frame());
+    mkdirSync(join(mine, '.practice'));
+    assert.ok(await until(() => {
+      app.onChanges[mine]();
+      return !noted();
+    }), app.frame());
+    assert.ok(app.frame().includes(C.startLesson(1)), app.frame());
+  } finally {
+    app.close();
+    rmSync(mine, { recursive: true, force: true });
+  }
+});
+
+test('probeFolder says why git could not look, apart from a folder that is no repository', async () => {
+  const mine = repo();
+  const PATH = process.env.PATH;
+  try {
+    assert.deepEqual(await probeFolder(mine), { path: mine, missing: false, git: true, gitBroken: null, practice: false });
+    mkdirSync(join(mine, '.practice'));
+    assert.equal((await probeFolder(mine)).practice, true);
+    rmSync(join(mine, '.git'), { recursive: true, force: true });
+    assert.deepEqual(await probeFolder(mine), { path: mine, missing: false, git: false, gitBroken: null, practice: false });
+    process.env.PATH = join(mine, 'no-bin');
+    assert.deepEqual(await probeFolder(mine), { path: mine, missing: false, git: false, gitBroken: 'git is not installed', practice: false });
+  } finally {
+    process.env.PATH = PATH;
+    rmSync(mine, { recursive: true, force: true });
+  }
+  assert.equal((await probeFolder(join(mine, 'gone'))).missing, true);
 });
 
 // main() with no terminal: it prints every lesson's check as plain text.
@@ -768,6 +911,16 @@ test('--dir: saved folders are used without it; a missing folder, a missing valu
     const beginner = await plain(['--dir', mine], { beginnerDone: false });
     assert.equal(beginner.code, 2);
     assert.ok(beginner.err.includes(C.dirBeginner), beginner.err);
+    // Opening on a-5, with all else done: its new copy can't be this practice copy.
+    const newCopyLeft = (l) => !['a-5', 'a-capstone'].includes(l.id);
+    const copyAsNew = await plain(['--dir', '.'], { done: newCopyLeft });
+    assert.equal(copyAsNew.code, 2);
+    assert.ok(copyAsNew.err.includes(C.newCopyIsCopy), copyAsNew.err);
+    assert.equal(copyAsNew.ran.length, 0);
+    const a5 = await plain(['--dir', actions], { done: newCopyLeft });
+    assert.equal(a5.code, 0, a5.err);
+    assert.equal(dirOf(a5.ran, 'a-5'), actions);
+    assert.equal(dirOf(a5.ran, 'a-capstone'), undefined);
   } finally {
     for (const d of [mine, actions]) rmSync(d, { recursive: true, force: true });
   }

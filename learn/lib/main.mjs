@@ -5,9 +5,9 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { capabilities } from './caps.mjs';
-import { loadCourse, WORK_LEVELS } from './content.mjs';
+import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
-import { contentOf, folderKey, folderOf, initialState, levelOf, reduce, stepsOf, watching } from './flow.mjs';
+import { contentOf, folderKey, folderOf, initialState, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
 import { BOOT_FROM, bootChange, nextChange, REST, TIMING } from './motion.mjs';
 import { plainProgress } from './plain.mjs';
@@ -73,9 +73,14 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // The lesson's own key for one that runs in a new copy; else its level's,
     // i-capstone's too, though i-capstone itself stays in the copy.
     const opening = initialState({ course, saved, facts: { root } });
-    const key = folderKey(opening) ?? (WORK_LEVELS.includes(levelOf(opening)) ? levelOf(opening) : null);
+    const key = folderKey(opening) ?? levelKey(opening);
     if (!key) {
       stderr.write(`${C.dirBeginner}\n`);
+      return 2;
+    }
+    // A new copy is another folder than this practice copy.
+    if (key !== levelKey(opening) && ahead.path === root) {
+      stderr.write(`${C.newCopyIsCopy}\n`);
       return 2;
     }
     saved = { ...(saved ?? {}), folders: { ...(saved?.folders ?? {}), [key]: ahead.path } };
@@ -267,7 +272,24 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (practiceDir !== state.facts.practiceDir) dispatch({ type: 'facts', facts: { practiceDir } });
     dispatch({ type: 'activity' });
     poke();
+    reprobe();
   };
+  // A work folder whose look found something wrong is looked at again when
+  // something changes, and on the poll, so its note goes once the learner
+  // sets it right. One look at a time; a folder that was fine is left alone.
+  let probing = false;
+  let lastProbe = 0;
+  function reprobe() {
+    const dir = folderOf(state);
+    const found = dir && dir !== root ? state.probes[dir] : null;
+    if (closed || probing || !found || (!found.missing && found.git && found.practice)) return;
+    probing = true;
+    lastProbe = now();
+    probeFolder(dir).then((f) => {
+      probing = false;
+      if (!closed) dispatch({ type: 'probed', ...f });
+    });
+  }
   watcher = watch(root, changed);
   function watchWork() {
     const dir = folderOf(state) ?? root;
@@ -331,6 +353,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   intervals.push(timers.setInterval(() => dispatch({ type: 'tick' }), 1_000));
   let lastPoll = 0;
   intervals.push(timers.setInterval(() => {
+    if (now() - lastProbe >= POLL_CHECK_MS) reprobe();
     const w = watching(state);
     if (!w || now() - lastPoll < (w.git ? POLL_GIT_MS : POLL_CHECK_MS)) return;
     lastPoll = now();

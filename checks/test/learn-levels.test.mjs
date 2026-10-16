@@ -65,6 +65,8 @@ test('lesson numbers count within a level: i-2 is lesson 2, and its warm-ups fro
   const d = driver({ course, saved: { format: 1, welcomed: true, lessons: doneBefore(course, 'i-2') } });
   assert.equal(d.state.view, 'intro');
   assert.equal(d.state.lesson, 'i-2');
+  // The level's first intro in the app asks where to practise (ticket 86): this practice copy.
+  d.key('enter');
   for (const size of [[60, 20], [80, 24]]) assert.ok(has(screen(d.state, size), 'Start lesson 2'), screen(d.state, size).join('\n'));
   d.key('enter');
   assert.equal(stepOf(d.state).part, 'Warm-up');
