@@ -107,6 +107,72 @@ next: b-3
 - goal: "Run the check."
 `;
 
+// A made-up i-1, the first lesson of a new level, with its tiers as the
+// course rule gives them: warm-ups from Beginner (R1 a skill it reuses, R2 an
+// older lesson's), a new skill at GUIDED, and commit, which Beginner asked
+// three times, at CHALLENGE in a Worked example.
+export const DEMO_I1 = `---
+lesson: i-1
+title: "Demo"
+stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
+next: i-2
+---
+
+## intro
+- minutes: "about 20 minutes"
+- can: "do it"
+
+## warm-up
+
+### R1 | Warm-up | Commit
+- tier: challenge
+- skill: commit
+- from: b-5
+- beat: ask
+- ask: Which command records the change?
+- right: "\`git commit\`"
+- wrong: "\`git stash\`"
+- because: "Stash is something else."
+
+### R2 | Warm-up | Compact
+- tier: challenge
+- skill: compact
+- from: b-4
+- beat: ask
+- ask: Which command summarizes the conversation?
+- right: "\`/compact\`"
+- wrong: "\`/clear\`"
+- because: "Clear is something else."
+
+## steps
+
+### W1 | Worked example step 1 of 2 | Write the skill
+- tier: guided
+- skill: skill-file
+- where: editor
+- beat: do
+- verify: check 0
+- watching: .claude/skills/tdd/SKILL.md
+- do: "Write the skill."
+
+### W2 | Worked example step 2 of 2 | Commit it
+- tier: challenge
+- skill: commit
+- where: shell
+- beat: do
+- verify: check 2
+- watching: .practice/i-1-commit.txt
+- goal: "Commit it."
+
+### C | Check | Check
+- tier: challenge
+- skill: check
+- where: terminal
+- beat: do
+- verify: check all
+- goal: "Run the check."
+`;
+
 // A lesson finished on the path: complete, with every one of its own steps
 // done. Help fades only for what the learner did, so a seed without `done`
 // is a learner who skipped the lesson.
