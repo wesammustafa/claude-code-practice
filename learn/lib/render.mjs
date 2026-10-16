@@ -25,9 +25,9 @@ const SPACER = spacer();
 // question.
 const kept = (rows) => rows.map((text) => ({ keep: true, text }));
 // Optional rows: the level's first warm-up explainer, the intro's Why line
-// with its blank, teaching the learner can also reach another way, such as
-// behind a key, repeats with no compact form, and a done beat's satisfied
-// "Done when" line. The rows of one call are one sentence: they drop whole.
+// and a GUIDED card's, each with its blank, teaching the learner can also
+// reach another way, such as behind a key, repeats with no compact form, and
+// a done beat's satisfied "Done when" line. The rows of one call are one sentence: they drop whole.
 const optional = (rows) => {
   const whole = {};
   return rows.map((text) => ({ optional: true, text, whole }));
@@ -301,9 +301,13 @@ function card(ctx, { tint, where, done, rows }) {
   const left = `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(where, 'chipBg')}${done ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
   const top = left + t.fg(tint, t.glyph.rule.repeat(Math.max(0, W - width(left))));
   // Each row carries the rail, so a `…` cut inside the card keeps it.
-  const row = (r) => (r === '' || r?.spacer ? spacer(rail, r?.group) : typeof r === 'string' ? { text: `${rail}  ${r}`, rail } : { ...r, text: `${rail}  ${r.text}`, rail });
-  // A spacer next to another, where a line between them shows nothing, is one.
-  const body = [spacer(rail), ...rows.map(row)].filter((r, i, all) => !(r.spacer && all[i + 1]?.spacer));
+  // A blank row that is part of a sentence, such as the Why line's, is the
+  // rail alone too.
+  const row = (r) => (r === '' || r?.spacer ? spacer(rail, r?.group) : typeof r === 'string' ? { text: `${rail}  ${r}`, rail }
+    : r.text === '' ? { ...r, text: rail, blank: true } : { ...r, text: `${rail}  ${r.text}`, rail });
+  // A spacer next to another, where a line between them shows nothing, is
+  // one; a sentence's blank row above a spacer leaves the blank to it.
+  const body = [spacer(rail), ...rows.map(row)].filter((r, i, all) => !((r.spacer || r.blank) && all[i + 1]?.spacer));
   return [...kept([top]), ...body, ...kept([t.fg(tint, `${t.glyph.bl}${t.glyph.rule.repeat(W - 1)}`)])];
 }
 
@@ -647,6 +651,12 @@ function stepView(ctx) {
     rows.push(t.fg('muted', C.warmup(s.course.findIndex((l) => l.id === step.from) + 1)));
     if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
   }
+  // At GUIDED the beat's reason, in the page's words, sits under the title;
+  // a learner who knows the idea has it behind w.
+  if (tier === 'guided' && ['do', 'ask'].includes(beat.kind) && beat.why.length) {
+    const why = `${C.whyLead} `;
+    rows.push(...optional([...hang(t.fg('accent', why), para(t, beat.why[0], inner - width(why), 'text', { quote: true })), '']));
+  }
   const quoted = (text, color = 'muted') => para(t, text, inner, color, { quote: true });
   // A satisfied "Done when": hidden where the evidence line replaces it, and
   // otherwise optional, since the card already says the step is done.
@@ -673,7 +683,7 @@ function stepView(ctx) {
         rows.push(...(tier === 'challenge' ? led(t, 'goal', l.text, inner, 'white') : para(t, l.text, inner, 'white')));
       } else if (l.doneWhen) rows.push(...doneWhen(para(t, l.text, inner, 'text')));
       else if (l.key === 'say' || l.key === 'do') rows.push(...para(t, l.text, inner, 'text'));
-      else if (l.key === 'note') rows.push(...quoted(l.text));
+      else if (l.key === 'note') rows.push(...quoted(l.text, 'text'));
       else if (l.key === 'rule') rows.push(...led(t, 'safety', l.text, inner, 'text', { quote: true }));
       else if (l.key === 'after') {
         const aw = width(t.glyph.arrow) + 1;
