@@ -2273,3 +2273,60 @@ test('row 3 counts the steps passed on lesson screens, in ASCII too; the welcome
   assert.match(map[1], /^  ━*─+ \d+%$/);
   assert.equal(map[2], `  ${'─'.repeat(76)}`);
 });
+
+test('a stop is passed only once its step\'s last beat is done, by any route: a done earlier beat keeps the accent and row 3 still', () => {
+  const at = (label) => render(screens.find(([l]) => l === label)[1], { cols: 80, rows: 24 }, theme(CAPS.full));
+  // W4's predict beat is done, but it is beat 1 of 3: 3 of 12 passed.
+  const guessed = at('W4 guessed');
+  assert.equal(colored(guessed[1]).ok, '●━━●━━●━━');
+  assert.equal(colored(guessed[1]).accent, '●');
+  assert.equal(strip(guessed[2]).trimEnd(), `  ${'━'.repeat(19)}${'─'.repeat(57)}`);
+  // Y1 already done counts, as a done one does: 8 of 12.
+  const already = at('Y1 already');
+  assert.equal(colored(already[1]).ok, '●━━●━━●━━●━━●━━●━━●━━●');
+  assert.equal(colored(already[1]).accent, undefined);
+  assert.equal(strip(already[2]).trimEnd(), `  ${'━'.repeat(51)}${'─'.repeat(25)}`);
+});
+
+test('a step done before keeps the accent "current" glyph until it passes again: back with b, and on a replay', () => {
+  const t = theme(CAPS.full);
+  const row2 = (d) => render(d.state, { cols: 80, rows: 24 }, t)[1];
+  // Back from W4 to W3: W3 is the current stop and its link to W4 is faint.
+  const d = driver();
+  playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'W4');
+  d.key('b');
+  assert.equal(stepOf(d.state).id, 'W3');
+  assert.match(strip(row2(d)), /^  ●━━●━━●──○──○──○──○ /);
+  assert.equal(colored(row2(d)).ok, '●━━●━━');
+  assert.equal(colored(row2(d)).accent, '●');
+  // A replay of a finished lesson: every step is in done, and the one on
+  // screen is current until its last beat is done.
+  const r = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(lessonById('b-1')) } } });
+  if (r.state.view !== 'map') r.key('m');
+  while (r.state.mapCursor !== 0) r.key('up');
+  r.key('enter');
+  r.key('enter');
+  assert.equal(stepOf(r.state).id, 'W1');
+  assert.match(strip(row2(r)), /^  ●──●━━●━━/);
+  assert.equal(colored(row2(r)).accent, '●');
+  playUntil(r, (s) => s.view === 'step' && stepOf(s).id === 'W2' && s.beat.status === 'done');
+  assert.match(strip(row2(r)), /^  ●━━●━━●━━●━━●━━●━━●   ◆━━◆━━◆   ★━━★ /);
+  assert.equal(colored(row2(r)).accent, undefined);
+});
+
+test('row 3 counts the warm-ups on the plan as steps, with the trail closed up at 60x20', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-2') } });
+  if (d.state.view === 'map') d.key('enter');
+  const rows = () => render(d.state, { cols: 60, rows: 20 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
+  assert.equal(d.state.view, 'intro');
+  assert.match(rows()[1], /^  ☆☆ ◇ ○{7} ◇{4} ☆☆ +16 steps$/);
+  assert.equal(rows()[2], `  ${'─'.repeat(56)}`);
+  d.key('enter');
+  playUntil(d, (s) => s.view === 'step' && s.beat.status === 'done');
+  assert.equal(stepOf(d.state).id, 'R1');
+  // 1 of 16 over 56 cells.
+  assert.equal(rows()[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'R2');
+  assert.equal(rows()[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
+});

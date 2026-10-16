@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './
 import { C } from './copy.mjs';
 import { REST } from './motion.mjs';
 import {
-  answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, hintStatus, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
+  answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -166,6 +166,11 @@ function small(cols, rows) {
 // ---- pieces ------------------------------------------------------------------
 const spread = (left, right, w) => left + ' '.repeat(Math.max(1, w - width(left) - width(right))) + right;
 const rule = (t, W) => t.fg('faint', t.glyph.rule.repeat(W));
+// `n` of `total` as heavy green cells over the plain rule, `w` wide.
+const fill = (t, n, total, w) => {
+  const filled = Math.round((n / total) * w);
+  return `${t.fg('ok', t.glyph.bold.repeat(filled))}${rule(t, w - filled)}`;
+};
 
 // Inline Markdown in the given color, wrapped to `w` columns, after a
 // `label` in its own color when there is one.
@@ -262,11 +267,14 @@ function planned(state) {
   return { steps: [...warm, ...content.steps], tiers: [...warm.map(() => 'challenge'), ...own] };
 }
 
-// The steps in `done`, and the step on screen once its last beat is done:
-// it is passed before enter adds it.
+// The step on screen has its last beat done: it is passed before enter adds
+// it to `done`.
+const passedNow = (s) => s.view === 'step' && isDone(s.beat) && s.pos.beat === stepOf(s).beats.length - 1;
+
+// The steps in `done`, and the step on screen once it is passed.
 function passed(s) {
   const done = new Set(s.progress[s.lesson].done);
-  if (s.view === 'step' && s.beat && s.pos.beat === stepOf(s).beats.length - 1 && ['done', 'already'].includes(s.beat.status)) done.add(stepOf(s).id);
+  if (passedNow(s)) done.add(stepOf(s).id);
   return done;
 }
 
@@ -277,18 +285,20 @@ function trail(ctx, room) {
   const { steps, tiers } = planned(s);
   const done = passed(s);
   const current = s.view === 'step' || s.view === 'levelup' ? s.pos.step : -1;
+  const now = passedNow(s);
   const draw = (join, gap) => {
     let out = '';
     steps.forEach((step, i) => {
       const style = TIER_STYLE[tiers[i]];
-      // A passed step is drawn done before enter, and its link fills.
-      const isDone = done.has(step.id);
-      if (isDone) out += t.fg('ok', t.glyph[style.on]);
+      // The step on screen is drawn done, and its link fills, only once it
+      // is passed: on a revisit or a replay it keeps the "current" glyph.
+      const isPassed = i === current ? now : done.has(step.id);
+      if (isPassed) out += t.fg('ok', t.glyph[style.on]);
       else if (i === current) out += t.bold(t.fg('accent', t.glyph[style.on]));
       else out += t.fg(style.tint, t.glyph[style.off]);
       if (i + 1 < steps.length) {
         if (tiers[i + 1] !== tiers[i]) out += gap;
-        else if (isDone && (i === current || done.has(steps[i + 1].id) || i + 1 === current)) out += t.fg('ok', t.glyph.bold.repeat(join));
+        else if (isPassed && (i === current || done.has(steps[i + 1].id) || i + 1 === current)) out += t.fg('ok', t.glyph.bold.repeat(join));
         else out += t.fg('faint', t.glyph.rule.repeat(join));
       }
     });
@@ -304,8 +314,7 @@ function progressRule(ctx) {
   const { s, t, W } = ctx;
   const { steps } = planned(s);
   const done = passed(s);
-  const filled = Math.round((W * steps.filter((x) => done.has(x.id)).length) / steps.length);
-  return `${t.fg('ok', t.glyph.bold.repeat(filled))}${rule(t, W - filled)}`;
+  return fill(t, steps.filter((x) => done.has(x.id)).length, steps.length, W);
 }
 
 function lessonHead(ctx, right, rightText) {
@@ -565,7 +574,6 @@ const VIEWS = {
     const total = s.course.length;
     const pct = Math.round((done / total) * 100);
     const barW = W - 6;
-    const filled = Math.round((done / total) * barW);
     const nextIdx = s.course.findIndex((l) => !s.progress[l.id].complete);
     // The legend's items run on under "Help:" when one row can't hold them.
     const legend = [];
@@ -590,7 +598,7 @@ const VIEWS = {
     });
     return {
       head: [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', 'Beginner path'))}`, t.fg('muted', C.ofDone(done, total)), W),
-        `${t.fg('ok', t.glyph.bold.repeat(filled))}${t.fg('faint', t.glyph.rule.repeat(barW - filled))} ${t.fg('ok', `${pct}%`)}`, rule(t, W)],
+        `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)],
       body: [...legend.map((x, i) => `${i ? ' '.repeat(width(C.help) + 2) : `${t.fg('muted', C.help)}  `}${x}`), SPACER, ...rows, SPACER, ...para(t, C.mapFooter, W, 'muted')],
       keys: [key(t.glyph.up, C.k.choose), key('enter', C.k.open), key('m', C.k.back), key('q', C.k.quit)],
     };
