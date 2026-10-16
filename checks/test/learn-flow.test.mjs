@@ -409,6 +409,18 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', '- verify: none\n- say: Done when it runs.'), 'demo'), /a "Done when" say line needs a check or file beat/);
 });
 
+test('the grammar: an intro holds one quoted why and one quoted payoff', () => {
+  const intro = (lines) => DEMO_B2.replace('- can: "do it"', `- can: "do it"\n${lines}`);
+  const l = parseLesson(intro('- why: "It matters."\n- payoff: "do it"'), 'demo');
+  assert.equal(l.intro.why, 'It matters.');
+  assert.equal(l.intro.payoff, 'do it');
+  assert.deepEqual(l.intro.can, ['do it']);
+  assert.throws(() => parseLesson(intro('- why: It matters.'), 'demo'), /demo:\d+: why must be a quote of the lesson/);
+  assert.throws(() => parseLesson(intro('- payoff: do it'), 'demo'), /demo:\d+: payoff must be a quote of the lesson/);
+  assert.throws(() => parseLesson(intro('- why: "It matters."\n- why: "So does this."'), 'demo'), /demo:\d+: a second why line in the intro/);
+  assert.throws(() => parseLesson(intro('- payoff: "do it"\n- payoff: "do it"'), 'demo'), /demo:\d+: a second payoff line in the intro/);
+});
+
 test('warm-ups: two open the lesson, a missed skill first, always CHALLENGE, and no part of the climb', () => {
   const d = onB2({}, { missed: ['exit'] });
   assert.equal(d.state.view, 'intro');

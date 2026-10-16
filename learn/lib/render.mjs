@@ -307,6 +307,12 @@ function card(ctx, { tint, where, done, rows }) {
 }
 
 const lead = (t, name, s) => `${t.lead(name)}${s}`;
+// A `can` line's mark, three columns in; on the payoff's line 🏁 takes its
+// place, ending where the mark ends.
+const canMark = (t, payoff, mark) => {
+  const m = payoff ? t.emoji('payoff') : mark;
+  return `${' '.repeat(Math.max(0, 3 + width(mark) - width(m)))}${m}`;
+};
 // Lines after a prefix, the rest indented under the first.
 const hang = (prefix, rows) => rows.map((x, i) => `${i ? ' '.repeat(width(prefix)) : prefix}${x}`);
 // Text after a lead, wrapped to the room the lead leaves and indented under it.
@@ -382,11 +388,15 @@ const VIEWS = {
     const option = (i, text) => (s.cursor === i
       ? `${t.fg('key', t.bold(t.glyph.pointer))} ${t.inverse(t.fg('key', t.bold(` ${text} `)))}`
       : `  ${t.fg('text', ` ${text}`)}`);
+    // Why the lesson matters, in the page's words, with its blank: an
+    // optional row, so below 24 rows the staircase compacts first.
+    const why = `${C.whyLead} `;
     return {
       head: lessonHead(ctx, t.fg('muted', content.intro.minutes ?? ''), C.steps(content.steps.length + warmups)),
       body: [
+        ...(content.intro.why ? optional([...hang(t.fg('muted', why), para(t, content.intro.why, W - width(why), 'text', { quote: true })), '']) : []),
         lead(t, 'goal', t.bold(t.fg('white', C.youllBeAble))),
-        ...content.intro.can.flatMap((c) => para(t, c, W - 6).map((l, i) => `   ${i ? ' ' : t.fg('faint', t.glyph.dotOff)} ${l}`)),
+        ...content.intro.can.flatMap((c) => para(t, c, W - 6).map((l, i) => `${i ? '    ' : canMark(t, c === content.intro.payoff, t.fg('faint', t.glyph.dotOff))} ${l}`)),
         SPACER,
         t.bold(t.fg('white', C.helpShrinks)),
         SPACER,
@@ -452,7 +462,7 @@ const VIEWS = {
           : [` ${art[0]}`, ` ${art[1]}    ${t.bold(t.fg('ok', C.complete))}`, ` ${art[2]}`, ` ${art[3]}`], [` ${t.bold(t.fg('ok', C.complete))}`]),
         SPACER,
         lead(t, 'party', t.bold(t.fg('white', C.lessonDone(label)))),
-        ...content.intro.can.flatMap((c) => para(t, c, W - 8).map((l, i) => `   ${i ? '  ' : `${t.fg('ok', t.glyph.check)} `}${l}`)),
+        ...content.intro.can.flatMap((c) => para(t, c, W - 8).map((l, i) => `${i ? '     ' : `${canMark(t, c === content.intro.payoff, t.fg('ok', t.glyph.check))} `}${l}`)),
         ...(content.badge ? [SPACER, lead(t, 'badge', t.bold(t.fg('gold', C.badge(content.badge))))] : []),
       ],
       keys: [mainKey('enter', C.k.whatsNext), key('q', C.k.quit)],

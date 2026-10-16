@@ -23,7 +23,9 @@ export const BEAT_KEYS = {
   codespace: true, 'win-note': true, hint: true, bottom: true, because: true, point: true, reveal: true, self: true,
   right: null, wrong: null, option: null, stuck: null,
 };
-export const INTRO_KEYS = { minutes: true, can: true };
+// `why`: why the lesson matters; `payoff`: the `can` line whose evidence the
+// lesson's check reads. At most one of each.
+export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true };
 export const LADDER_KEYS = { hint: true, bottom: true, win: true };
 const OPTION_KEYS = new Set(['right', 'wrong', 'option', 'stuck', 'other', 'decoy']);
 
@@ -95,6 +97,7 @@ export function parseLesson(text, file = 'lesson') {
       if (!(key in INTRO_KEYS)) fail(i, `unknown intro key ${key}`);
       if (!v.quoted) fail(i, `${key} must be a quote of the lesson`);
       if (key === 'can') lesson.intro.can.push(v.text);
+      else if (key in lesson.intro) fail(i, `a second ${key} line in the intro`);
       else lesson.intro[key] = v.text;
       continue;
     }
