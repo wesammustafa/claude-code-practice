@@ -30,7 +30,8 @@ test('a check step waits, says "not yet" only when something changed, and turns 
   d.send({ type: 'check', lesson: 'b-1', items: [missing] });
   assert.equal(d.state.beat.status, 'waiting', 'the same FAIL as on opening is not "not yet"');
   d.key('r');
-  d.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  assert.equal(d.state.beat.status, 'opening', 'r shows its run');
+  d.send({ type: 'check', lesson: 'b-1', items: [missing], asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'fail', 'r asks, so the answer is shown');
   d.send({ type: 'check', lesson: 'b-1', items: [empty] });
   assert.equal(d.state.beat.fail.hint, empty.hint);
@@ -530,7 +531,7 @@ test('a file check is done once its file holds a line, and a fresh one once it c
   assert.equal(d.state.beat.status, 'waiting', 'another file decides nothing');
   d.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'B' });
   d.key('r');
-  d.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'B' });
+  d.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'B', asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'fail');
   assert.match(d.state.beat.fail.hint, /\.practice\/b-2-plan\.txt has no line/);
   d.send({ type: 'file', path: '.practice/b-2-plan.txt', line: 'src/config.js', lines: 2, stamp: 'C' });
@@ -616,7 +617,7 @@ test('review fixes: a slow item clears an old "not yet", and r shows the run', (
   const slowItem = { index: 0, text: 'x', pass: false, slow: true, hint: '' };
   d.send({ type: 'check', lesson: 'b-1', items: [empty] });
   d.key('r');
-  d.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  d.send({ type: 'check', lesson: 'b-1', items: [missing], asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'fail');
   d.send({ type: 'check', lesson: 'b-1', items: [slowItem] });
   assert.equal(d.state.beat.status, 'waiting');
@@ -624,7 +625,7 @@ test('review fixes: a slow item clears an old "not yet", and r shows the run', (
   assert.equal(d.state.beat.slowWait, true);
   d.key('r');
   assert.equal(d.state.beat.status, 'opening', 'r shows that the slow part runs');
-  d.send({ type: 'check-error', lesson: 'b-1', message: 'it took too long' });
+  d.send({ type: 'check-error', lesson: 'b-1', message: 'it took too long', asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'broken');
   d.send({ type: 'check', lesson: 'b-1', items: [slowItem] });
   assert.equal(d.state.beat.status, 'waiting');
@@ -686,7 +687,7 @@ test('review fixes: a FAIL about a slow item keeps its hints when a poll leaves 
   d.send({ type: 'check', lesson: 'b-1', items: [placeholder] });
   assert.equal(d.state.beat.slowWait, true);
   d.key('r');
-  d.send({ type: 'check', lesson: 'b-1', items: [slowFail] });
+  d.send({ type: 'check', lesson: 'b-1', items: [slowFail], asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'fail');
   d.key('h');
   assert.equal(d.state.beat.rung, 0);
@@ -696,7 +697,7 @@ test('review fixes: a FAIL about a slow item keeps its hints when a poll leaves 
   assert.ok(hintAvailable(d.state));
   d.key('r');
   assert.equal(d.state.beat.status, 'opening', 'r runs the slow item again');
-  d.send({ type: 'check', lesson: 'b-1', items: [passed] });
+  d.send({ type: 'check', lesson: 'b-1', items: [passed], asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'done');
 });
 
@@ -787,7 +788,7 @@ test('h at CHALLENGE: on a done-label git beat, r is the try', () => {
   assert.deepEqual([d.state.toast?.kind, d.state.toast?.try], ['hintsLater', 'r']);
   assert.equal(d.state.beat.rung, -1, 'nothing opens before a try');
   d.key('r');
-  d.send({ type: 'git', paths: ['notes.md'] });
+  d.send({ type: 'git', paths: ['notes.md'], asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'waiting', 'the tree still decides nothing until the session ends');
   d.key('h');
   assert.equal(d.state.beat.rung, 0);
@@ -802,8 +803,8 @@ test('h at CHALLENGE: on a stale fresh beat, r is the try', () => {
   d.key('h');
   assert.equal(d.state.beat.rung, -1);
   d.key('r');
-  assert.deepEqual(d.effects.at(-1), { type: 'file', path });
-  d.send({ type: 'file', path, line: '// linkcheck source.', stamp: 'a' });
+  assert.deepEqual(d.effects.at(-1), { type: 'file', path, asked: d.state.asks });
+  d.send({ type: 'file', path, line: '// linkcheck source.', stamp: 'a', asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'waiting', 'an unchanged file is still not done');
   d.key('h');
   assert.equal(d.state.beat.rung, 0);
@@ -961,7 +962,7 @@ test('an ease lands only where it changes the help: hints short of the exact com
   const items = [{ index: 0, text: l.items[0], pass: false, hint: `${l.items[0]} is not there yet.` }];
   d.send({ type: 'check', lesson: 'b-5', items });
   d.key('r');
-  d.send({ type: 'check', lesson: 'b-5', items });
+  d.send({ type: 'check', lesson: 'b-5', items, asked: d.state.beat.asked });
   d.key('h');
   d.key('h');
   assert.equal(d.state.beat.rung, 1);
@@ -1642,4 +1643,142 @@ test('g is one notch more help: playing the lesson again starts without it', () 
   // A step id the lesson no longer has is dropped as the app starts.
   const old = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y2', moreHelpAt: 'Y9' } } } });
   assert.equal(old.state.progress['b-1'].moreHelpAt, null);
+});
+
+// Truthful waits: r shows the run it asked for, and only that run's result ends it.
+const ofType = (effects, type) => effects.filter((e) => e.type === type);
+
+test('r shows the checking state on every checked beat, and its check, file and git effects carry its flag', () => {
+  const d = at('W3');
+  d.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  assert.equal(d.state.beat.status, 'waiting');
+  const out = d.key('r');
+  assert.equal(d.state.beat.status, 'opening', 'an ordinary check beat, with no slow item');
+  assert.deepEqual(ofType(out, 'check'), [{ type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt', slow: true, asked: d.state.asks }]);
+  d.send({ type: 'check', lesson: 'b-1', items: [missing], asked: d.state.beat.asked });
+  assert.equal(d.state.beat.status, 'fail');
+  d.key('r');
+  assert.equal(d.state.beat.status, 'opening', 'r on a "Not yet" shows the run too');
+  const f = midway('b-2', 'W6', { beat: 2 });
+  assert.equal(beatOf(f.state).verify.kind, 'file');
+  f.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'a' });
+  assert.notEqual(f.state.beat.status, 'opening');
+  const fileOut = f.key('r');
+  assert.equal(f.state.beat.status, 'opening', 'a file beat');
+  assert.deepEqual(ofType(fileOut, 'file'), [{ type: 'file', path: '.practice/b-2-plan.txt', asked: f.state.asks }]);
+  const g = at('W7', { beat: 2 });
+  g.send({ type: 'git', paths: ['notes.md'] });
+  assert.equal(g.state.beat.status, 'fail');
+  const gitOut = g.key('r');
+  assert.equal(g.state.beat.status, 'opening', 'a git beat');
+  assert.deepEqual(ofType(gitOut, 'git'), [{ type: 'git', asked: g.state.asks }]);
+});
+
+test('opening set by r ends only on r\'s own result: a poll result that lands first neither clears it nor says "press r"', () => {
+  // A slow beat: the poll's run comes back with the slow item skipped.
+  const d = at('C', { levels: ['hinted', 'challenge'] });
+  const placeholder = { index: 0, text: passed.text, pass: false, slow: true, hint: '' };
+  const slowFail = { ...passed, pass: false, hint: 'The tool exited with code 0, not 2.' };
+  d.send({ type: 'check', lesson: 'b-1', items: [placeholder] });
+  assert.equal(d.state.beat.slowWait, true);
+  d.key('r');
+  d.send({ type: 'check', lesson: 'b-1', items: [placeholder] });
+  assert.equal(d.state.beat.status, 'opening', 'the poll ran first, while r\'s run waited');
+  assert.equal(d.state.beat.slowWait, false, 'no "press r when you are ready" while r\'s run goes');
+  d.send({ type: 'check', lesson: 'b-1', items: [slowFail], asked: d.state.beat.asked });
+  assert.equal(d.state.beat.status, 'fail');
+  assert.equal(d.state.beat.fail.hint, slowFail.hint);
+  // An ordinary check beat.
+  const w = at('W3');
+  w.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  w.key('r');
+  w.send({ type: 'check', lesson: 'b-1', items: [empty] });
+  assert.equal(w.state.beat.status, 'opening');
+  w.send({ type: 'check-error', lesson: 'b-1', message: 'it took too long' });
+  assert.equal(w.state.beat.status, 'opening', 'a poll\'s error is not r\'s result either');
+  w.send({ type: 'check', lesson: 'b-1', items: [empty], asked: w.state.beat.asked });
+  assert.equal(w.state.beat.status, 'fail');
+  w.key('r');
+  w.send({ type: 'check-error', lesson: 'b-1', message: 'it took too long', asked: w.state.beat.asked });
+  assert.equal(w.state.beat.status, 'broken');
+  // After r's result, a poll's result counts as before.
+  w.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)' });
+  assert.equal(w.state.beat.status, 'done');
+  // A file beat and a git beat.
+  const f = midway('b-2', 'W6', { beat: 2 });
+  f.send({ type: 'file', path: '.practice/b-2-plan.txt', line: null, stamp: 'a' });
+  f.key('r');
+  f.send({ type: 'file', path: '.practice/b-2-plan.txt', line: 'src/config.js', stamp: 'b' });
+  assert.equal(f.state.beat.status, 'opening');
+  f.send({ type: 'file', path: '.practice/b-2-plan.txt', line: 'src/config.js', stamp: 'b', asked: f.state.beat.asked });
+  assert.equal(f.state.beat.status, 'done');
+  const g = at('W7', { beat: 2 });
+  g.send({ type: 'git', paths: ['notes.md'] });
+  g.key('r');
+  g.send({ type: 'git', paths: [] });
+  assert.equal(g.state.beat.status, 'opening');
+  g.send({ type: 'git-error', message: 'git is busy' });
+  assert.equal(g.state.beat.status, 'opening');
+  g.send({ type: 'git', paths: [], asked: g.state.beat.asked });
+  assert.equal(g.state.beat.status, 'done');
+});
+
+test('r\'s own result that lands while the map is open still ends its wait: back on the card, the next result decides', () => {
+  const d = at('W3');
+  d.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  d.key('r');
+  const asked = d.state.beat.asked;
+  d.key('m');
+  assert.equal(d.state.view, 'map');
+  d.send({ type: 'check', lesson: 'b-1', items: [missing], asked });
+  const out = d.key('m');
+  assert.equal(d.state.view, 'step');
+  assert.equal(d.state.beat.status, 'opening', 'the map hid the result, so the card still waits for one');
+  assert.deepEqual(ofType(out, 'check'), [{ type: 'check', lesson: 'b-1', items: [0], evidence: '.practice/version.txt' }]);
+  d.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)' });
+  assert.equal(d.state.beat.status, 'done', 'the check the map asked for decides');
+});
+
+test('r pressed twice: only the later r\'s result ends "Checking", not the earlier run\'s', () => {
+  const d = at('W3');
+  d.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  d.key('r');
+  const first = d.state.beat.asked;
+  d.key('r');
+  const second = d.state.beat.asked;
+  assert.ok(second > first);
+  d.send({ type: 'check', lesson: 'b-1', items: [missing], asked: first });
+  assert.equal(d.state.beat.status, 'opening', 'the earlier run saw the files before the later r');
+  d.send({ type: 'check', lesson: 'b-1', items: [passed], evidence: '2.1.285 (Claude Code)', asked: second });
+  assert.equal(d.state.beat.status, 'done');
+});
+
+test('r over a "Not yet" keeps its hints: the open rung, the ladder h climbs and the y/n stay as they were while r\'s run goes', () => {
+  const d = at('W3');
+  d.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  d.key('r');
+  d.send({ type: 'check', lesson: 'b-1', items: [missing], asked: d.state.beat.asked });
+  assert.equal(d.state.beat.status, 'fail');
+  const ladder = rungsOf(d.state);
+  assert.deepEqual(ladder.map((r) => r.kind), ['ask', 'check', 'quote', 'bottom']);
+  d.key('h');
+  assert.equal(d.state.beat.rung, 0);
+  d.key('r');
+  d.key('r');
+  assert.equal(d.state.beat.status, 'opening');
+  assert.deepEqual(rungsOf(d.state), ladder, 'the same ladder, after a second r too');
+  assert.equal(d.state.beat.rung, 0, 'the open rung stays');
+  assert.ok(hintAvailable(d.state));
+  d.key('h');
+  assert.equal(d.state.beat.rung, 1, 'h climbs the same ladder');
+  d.key('h');
+  d.key('h');
+  assert.equal(d.state.beat.confirm, true, 'the y/n comes where the ladder\'s exact command is');
+  assert.equal(d.state.beat.rung, ladder.length - 2);
+  d.key('y');
+  assert.equal(d.state.beat.rung, ladder.length - 1);
+  assert.equal(rungsOf(d.state)[d.state.beat.rung].kind, 'bottom');
+  d.send({ type: 'check', lesson: 'b-1', items: [missing], asked: d.state.beat.asked });
+  assert.equal(d.state.beat.status, 'fail');
+  assert.equal(d.state.beat.rung, ladder.length - 1, 'the same FAIL keeps the exact command open');
 });

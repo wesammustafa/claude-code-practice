@@ -54,7 +54,7 @@ export const C = {
   watchingGit: 'Watching ',
   gitClean: 'no changes so far',
   gitDirty: (n) => `git status lists ${n} change${n === 1 ? '' : 's'}:`,
-  checking: 'Checking…',
+  checking: (what) => (what ? `Checking ${what}…` : 'Checking…'),
   notYet: 'Not yet:',
   pressH: 'Press h for help.',
   pressHAgain: 'Press h again for more help.',
