@@ -3,14 +3,16 @@
 // the map one level at a time, and the welcome at the current level.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { PATH } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
-import { stepOf } from '../../learn/lib/flow.mjs';
+import { stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { plainProgress } from '../../learn/lib/plain.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
-import { DEMO_B2, driver, playUntil, threeLevels } from './learn-drive.mjs';
+import { DEMO_B2, DEMO_I1, driver, finishedBefore, playUntil, root, threeLevels } from './learn-drive.mjs';
 
 const FULL = theme({ tty: true, depth: 8, unicode: true, links: true, win32: false });
 const ASCII = theme({ tty: true, depth: 1, unicode: false, links: false, win32: true });
@@ -177,7 +179,7 @@ test('the welcome names the current level and draws only its path line, with one
   assert.equal(lines.join('\n').split('🏆').length, 2, 'one cup');
   const a = screen(welcomeAt('a-1').state);
   assert.match(a[0], /Advanced path · 0 of 8 done$/);
-  assert.equal(a[1], '  A1 ── A2 ── A3 ── A4 ── A5 ── A6 ── A7 ── 🏆   each stop a little harder');
+  assert.equal(a[1], '  A1 ── A2 ── A3 ── A4 ── A5 ── A6 ── A7 ── 🏆');
   assert.match(screen(d.state, [80, 24], ASCII)[1], /^ {2}I1 -- I2 .* I8 -- \[cup\]$/);
 });
 
@@ -261,4 +263,54 @@ test('with three levels the welcome and every map page fit at 60x20 and 80x24, i
       }
     }
   }
+});
+
+// The Beginner capstone, with i-1 as its next lesson.
+const CAPSTONE_TO_I1 = readFileSync(join(root, 'learn', 'lessons', 'b-capstone.md'), 'utf8').replace(/^---\n/, '---\nnext: i-1\n');
+
+// Help fades within a level (ticket 85): a level's first lesson may start
+// with more help than the capstone before it.
+test('the next screen from b-capstone to i-1 names i-1 and says nothing of a notch harder, though i-1 has a lesson file', () => {
+  const course = threeLevels({ 'b-capstone': CAPSTONE_TO_I1, 'i-1': DEMO_I1 });
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-capstone', course) } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-capstone');
+  for (const size of [[60, 20], [80, 24]]) {
+    const lines = screen(d.state, size);
+    const where = `${size.join('x')}\n${lines.join('\n')}`;
+    const up = lines.findIndex((l) => l.includes(C.nextUp));
+    assert.ok(up > 0 && lines[up].includes('I1'), where);
+    assert.ok(!has(lines, 'A notch harder'), where);
+  }
+  d.key('enter');
+  assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'i-1']);
+});
+
+test('the Intermediate map page with i-1\'s lesson file keeps its tier bars and legend, and leaves out the footer that each lesson starts with less help', () => {
+  const d = mapAt('i-1', threeLevels({ 'i-1': DEMO_I1 }));
+  for (const size of [[60, 20], [80, 24]]) {
+    const lines = screen(d.state, size);
+    const where = `${size.join('x')}\n${lines.join('\n')}`;
+    assert.match(lines.find((l) => / I1 /.test(l)) ?? '', /[●◆★]/, where);
+    assert.ok(has(lines, C.help), where);
+    assert.ok(!has(lines, 'so it starts with less help'), where);
+  }
+});
+
+test('the welcome\'s path hint shows on a level with a lesson file, and not on one where every lesson is check-only', () => {
+  const hint = 'each stop a little harder';
+  // Intermediate's path line leaves room for the hint from 100 columns.
+  const wide = [100, 24];
+  assert.equal(screen(welcomeAt('i-1', threeLevels({ 'i-1': DEMO_I1 })).state, wide)[1].trim(), `I1 ── I2 ── I3 ── I4 ── I5 ── I6 ── I7 ── I8 ── 🏆   ${hint}`);
+  for (const id of ['i-1', 'a-1']) assert.ok(!screen(welcomeAt(id).state, wide)[1].includes(hint), id);
+  assert.ok(screen(welcomeAt('b-1').state)[1].endsWith(`🏆   ${hint}`));
+});
+
+test('skill counts carry across levels: after Beginner, i-1 opens GUIDED on its new skill and commit comes back at CHALLENGE', () => {
+  const course = threeLevels({ 'i-1': DEMO_I1 });
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore('i-1', course) } });
+  assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'i-1']);
+  playUntil(d, (s) => s.view === 'step' && stepOf(s).part !== 'Warm-up');
+  assert.deepEqual([stepOf(d.state).id, tierOf(d.state)], ['W1', 'guided']);
+  playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'W2');
+  assert.equal(tierOf(d.state), 'challenge');
 });
