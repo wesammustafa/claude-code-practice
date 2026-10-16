@@ -524,6 +524,8 @@ const playedTo = (id, saved = finishedBefore(id)) => {
   playUntil(d, (s) => s.view === 'next' && s.lesson === id);
   return d;
 };
+// A capstone play resumed after its exact command showed at T2.
+const helpedCapstone = () => playedTo('b-capstone', { ...finishedBefore('b-capstone'), 'b-capstone': { step: 'T6', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5'], bottomAt: 'T2' } });
 
 test('the capstone\'s next screen says "You did every task without the exact command." under the check summary', () => {
   const d = playedTo('b-capstone');
@@ -568,7 +570,7 @@ test('the capstone handover line hides after a bottom rung anywhere in the capst
   playUntil(c, (s) => s.view === 'next' && s.lesson === 'b-capstone');
   for (const [cols, rows] of [[60, 20], [80, 24]]) assert.ok(!plainAt(c, cols, rows).includes(HANDOVER), `C at ${cols}x${rows}`);
   // A bottom rung saved before a break still counts for this play.
-  const resumed = playedTo('b-capstone', { ...before, 'b-capstone': { step: 'T6', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5'], bottomAt: 'T2' } });
+  const resumed = helpedCapstone();
   assert.ok(!plainAt(resumed, 80, 24).includes(HANDOVER));
   // The intro's enter starts a new play: a replay with no exact command shows it.
   const replay = playedTo('b-capstone', { ...before, 'b-capstone': { ...finished(cap), bottomAt: 'T2' } });
@@ -668,10 +670,16 @@ test('the capstone\'s next screen invites questions under the handover line, who
     assert.ok(at > 0, `${cols}x${rows}: no handover line`);
     assert.ok(inviteFrom(lines, at + 1), `${cols}x${rows}: no invitation under the handover line\n${lines.join('\n')}`);
   }
+  // Below 24 rows a body over its room compacts every repeat first (142), as
+  // on the capstone intro: at 60x20 the one-tier climb loses its tier words,
+  // which frees no row. 80x24 keeps them.
+  const climb = (cols, rows) => plainAt(d, cols, rows).split('\n').filter((l) => l.includes('CHALLENGE')).map((l) => l.trim());
+  assert.deepEqual(climb(60, 20), ['★★★★★★★    CHALLENGE ★★★']);
+  assert.deepEqual(climb(80, 24), ['★★★★★★★    CHALLENGE ★★★    just the goal']);
 });
 
 test('the invitation shows after an exact command too, under the check summary in the handover line\'s place', () => {
-  const d = playedTo('b-capstone', { ...finishedBefore('b-capstone'), 'b-capstone': { step: 'T6', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5'], bottomAt: 'T2' } });
+  const d = helpedCapstone();
   for (const [cols, rows] of [[60, 20], [80, 24]]) {
     const lines = plainAt(d, cols, rows).split('\n');
     assert.ok(!lines.some((l) => l.includes(HANDOVER)), `${cols}x${rows}`);
@@ -698,20 +706,29 @@ test('the invitation shows on the capstone\'s next screen only: no other screen 
 
 test('each level\'s capstone gets the invitation: an Intermediate capstone\'s next screen shows it, and its lessons\' do not', () => {
   // The Beginner plays, renamed into a later level: only Beginner exists today.
-  const as = (state, id) => ({
+  const as = (state, id, next) => ({
     ...state,
     lesson: id,
-    course: state.course.map((l) => (l.id === state.lesson ? { ...l, id } : l)),
+    course: state.course.map((l) => (l.id === state.lesson ? { ...l, id, content: { ...l.content, next } } : l)),
     progress: { ...state.progress, [id]: state.progress[state.lesson] },
     checks: { ...state.checks, [id]: state.checks[state.lesson] },
   });
   const cap = as(playedTo('b-capstone').state, 'i-capstone');
-  const lesson = as(playedTo('b-5').state, 'i-5');
+  // A capstone before the last level's has a lesson after it: its Next up
+  // rows take room too. b-1 stands in for the next level's first lesson.
+  const onward = as(playedTo('b-capstone').state, 'i-capstone', 'b-1');
+  const lesson = as(playedTo('b-5').state, 'i-5', 'b-capstone');
   for (const [cols, rows] of [[60, 20], [80, 24]]) {
-    const lines = render(cap, { cols, rows }, theme(CAPS.full)).map(strip);
-    const at = lines.findIndex((l) => l.trim() === HANDOVER);
-    assert.ok(at > 0, `${cols}x${rows}: no handover line\n${lines.join('\n')}`);
-    assert.ok(inviteFrom(lines, at + 1), `${cols}x${rows}: no invitation\n${lines.join('\n')}`);
+    for (const [label, state] of [['last', cap], ['with a next lesson', onward]]) {
+      const lines = render(state, { cols, rows }, theme(CAPS.full)).map(strip);
+      const where = `${label} at ${cols}x${rows}\n${lines.join('\n')}`;
+      assert.equal(lines.length, rows, where);
+      assert.equal(lines.some((l) => l.includes(C.nextUp)), label !== 'last', where);
+      const at = lines.findIndex((l) => l.trim() === HANDOVER);
+      assert.ok(at > 0, `no handover line: ${where}`);
+      assert.ok(inviteFrom(lines, at + 1), `no invitation: ${where}`);
+      assert.ok(!lines.some((l) => l.trim() === '…'), `a teaching line is cut: ${where}`);
+    }
     const other = render(lesson, { cols, rows }, theme(CAPS.full)).map(strip);
     assert.ok(!flatText(other.join('')).includes(flatText(INVITE).slice(0, 30)), `i-5 at ${cols}x${rows}\n${other.join('\n')}`);
   }
@@ -719,8 +736,9 @@ test('each level\'s capstone gets the invitation: an Intermediate capstone\'s ne
 
 test('the invitation gives way whole before any teaching line is cut, and never before the handover line', () => {
   const shown = playedTo('b-capstone').state;
-  const hidden = playedTo('b-capstone', { ...finishedBefore('b-capstone'), 'b-capstone': { step: 'T6', beat: 0, warm: [], done: ['T1', 'T2', 'T3', 'T4', 'T5'], bottomAt: 'T2' } }).state;
+  const hidden = helpedCapstone().state;
   let dropped = 0;
+  let renders = 0;
   for (const [capName, caps] of Object.entries(CAPS)) {
     const t = theme(caps);
     for (const [cols, rows] of SHORT) {
@@ -735,14 +753,23 @@ test('the invitation gives way whole before any teaching line is cut, and never 
           for (const word of [C.checkedSummary(7, 7), C.yourClimb, C.savedBreak]) assert.ok(text.includes(flatText(word)), `"${word}": ${where}`);
           if (label === 'handover') assert.ok(lines.some((l) => l.trim() === HANDOVER), `no handover line: ${where}`);
           const at = lines.findIndex((l) => l.trim().startsWith(INVITE.slice(0, 20)));
+          renders++;
+          // With room, it shows whole.
+          if (!toast) assert.ok(at >= 0, `no invitation with no toast: ${where}`);
           if (at < 0) dropped++;
           else assert.ok(inviteFrom(lines, at), `the invitation is cut: ${where}`);
+          // The order today: the recall prompt goes first, then the
+          // question count, then the invitation.
+          const count = lines.some((l) => / answered$/.test(l.trim()));
+          const recall = text.includes(flatText(C.recallAsk('CAP')));
+          if (count) assert.ok(at >= 0, `the invitation goes before the count: ${where}`);
+          if (recall) assert.ok(count, `the count goes before the recall prompt: ${where}`);
         }
       }
     }
   }
-  // A long enough toast takes it at 60x20.
-  assert.ok(dropped > 0);
+  // A long enough toast takes it at 60x20, and only then.
+  assert.ok(dropped > 0 && dropped < renders, `${dropped} of ${renders}`);
 });
 
 // The row budget (142): what gives way when a screen is taller than its window.
