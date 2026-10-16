@@ -1,33 +1,66 @@
 // Pip the mascot, block-letter banners, the check burst and confetti. Each
 // has a plain ASCII form. Nothing here is random: the same screen draws the
 // same art every time.
+import { renderPip, restPose } from './pip/pip.mjs';
 import { width } from './text.mjs';
 
-// A one-shot's `frame` changes only Pip's eyes: shut, waking, or awake (the
-// happy eyes, whatever the mood); or, to cheer, sparks with its arms up, out
-// past its first row's sides. ASCII Pip is still.
-export function pip(t, mood = 'happy', frame) {
-  if (!t.unicode) {
-    const eyes = { happy: 'o   o', focus: 'O   O', party: '*   *' }[mood];
-    const mouth = { happy: '\\_/', focus: '---', party: '\\_/' }[mood];
-    return ['+-------+', `| ${eyes} |`, `|  ${mouth}  |`, '+-------+'];
-  }
-  const f = (s) => t.fg('accent', s);
-  const pose = { shut: '─   ─', waking: '◡   ◡', awake: '●   ●' }[frame];
-  const eyes = frame === 'cheer' ? t.fg('gold', '✦   ✦') : pose ? t.fg('key', pose) : { happy: t.fg('key', '●   ●'), focus: t.fg('key', '◉   ◉'), party: t.fg('gold', '★   ★') }[mood];
-  const mouth = { happy: t.fg('challenge', '╰─╯'), focus: t.fg('challenge', '───'), party: t.fg('challenge', '╰─╯') }[mood];
-  return [f(frame === 'cheer' ? '\\╭───────╮/' : '╭───────╮'), `${f('│')} ${eyes} ${f('│')}`, `${f('│')}  ${mouth}  ${f('│')}`, f('╰───────╯')];
+// Pip is the pip-terminal package's (pip/pip.mjs, as it ships): its glyph
+// art, colored here by the theme. Each mood is one of the package's states
+// at rest, so Pip shows only what the app saw: the big Pip's happy, focus
+// and party, and the card's rest, checking, worried, done and broken.
+const STATE = { happy: 'ready', focus: 'working', party: 'success', rest: 'ready', checking: 'working', worried: 'retry', done: 'success', broken: 'error' };
+// Worried keeps the package's asymmetric retry: its right eye half shut.
+const MOOD = { worried: { right: 0.6 } };
+// A one-shot's `frame`, over the mood: eyes shut, waking or awake, with a
+// smile whatever the mood's mouth (a shut eye over a flat mouth would read
+// as one rule); a glance toward the other window; a cheer's happy eyes and
+// sparks; or a hop's sparks alone, its eyes the mood's.
+const OPEN = { left: 1, right: 1, happy: 0, smile: 1 };
+const FRAME = {
+  shut: { ...OPEN, left: 0, right: 0 }, waking: { ...OPEN, left: 0.45, right: 0.45 }, awake: OPEN,
+  glance: { ...OPEN, gazeX: 0.7 }, cheer: { happy: 1, smile: 1.2, spark: 1 }, sparks: { spark: 1 },
+};
+// ASCII Pip is still, with three faces: at rest, checking, and done.
+// Broken draws as rest, since the package's ASCII error face is checking's.
+const ASCII_STATE = { ...STATE, broken: STATE.rest };
+const poseOf = (t, mood, frame) => (t.unicode
+  ? { ...restPose(STATE[mood]), ...MOOD[mood], ...FRAME[frame] }
+  : restPose(ASCII_STATE[mood]));
+
+// Each cell's color, by its place: o the outline, e the eyes, antenna and
+// sparks, m the mouth. A run of one color takes one code; a blank, none.
+// The places mirror the package's glyph rows, which it does not export; a
+// newer pip.mjs fails the test that pins its hash, so they get rechecked.
+const INK = { o: 'pipOutline', e: 'pipEyes', m: 'pipMouth' };
+function ink(t, row, places) {
+  const cells = [...row];
+  const key = cells.map((ch, i) => (ch === ' ' ? ' ' : places[i])).join('');
+  let at = 0;
+  return key.match(/(.)\1*/g).map((run) => {
+    const s = cells.slice(at, (at += run.length)).join('');
+    return run[0] === ' ' ? s : t.fg(INK[run[0]], s);
+  }).join('');
 }
 
-// Pip's small face for a card's top border, 7 cells: ` (●‿●) `, or with
-// its arms up `\(^_^)/`. Its moods name what the card shows (rest, checking,
-// worried, done, broken), apart from the big Pip's happy, focus and party.
-// A one-shot's `frame` is a pose over that face: eyes shut, or arms up.
+// The big Pip, 4 rows of 9 cells: its antenna, its head (the antenna's foot
+// in `┴`), its face, its chin. A one-shot's `frame` sets its eyes and
+// smile: shut, waking or awake, or, to cheer, happy with sparks beside the
+// antenna. ASCII Pip is still.
+export function pip(t, mood = 'happy', frame) {
+  const places = ['eeeeeeeee', t.unicode ? 'ooooeoooo' : 'ooooooooo', 'o  eme  o', 'ooooooooo'];
+  return renderPip(poseOf(t, mood, frame), { size: 'glyph', depth: 1, unicode: t.unicode }).map((row, i) => ink(t, row, places[i]));
+}
+
+// Pip's small face for a card's top border, 7 cells: ` [●‿●] `. Its moods
+// name what the card shows (rest, checking, worried, done, broken), apart
+// from the big Pip's happy, focus and party. A one-shot's `frame` is a pose
+// over that face: eyes shut, a glance, or a hop's or cheer's sparks, which
+// one row has no antenna for, on its sides: `+[●‿●]+`.
 export const PIP_FACE = 7;
 export function pipFace(t, mood, frame) {
-  const { eye, mouth, arms = [' ', ' '] } = { ...t.pipGlyphs[mood], ...t.pipPoses[frame] };
-  const e = t.fg(mood === 'done' ? 'gold' : 'key', eye);
-  return `${t.fg('accent', `${arms[0]}(`)}${e}${t.fg('challenge', mouth)}${e}${t.fg('accent', `)${arms[1]}`)}`;
+  const pose = poseOf(t, mood, frame);
+  const [face] = renderPip(pose, { size: 'compact', depth: 1, unicode: t.unicode });
+  return ink(t, pose.spark > 0.5 ? `+${face.slice(1, -1)}+` : face, 'eoemeoe');
 }
 
 const FONT = {

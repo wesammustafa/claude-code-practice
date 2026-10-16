@@ -34,8 +34,8 @@ export const SHOTS = {
   // The top rule grows from the pill, a third a frame, until Pip lands at
   // `land`; the trail's new stop is hollow until then, then a ring.
   entrance: { every: 40, land: 80 },
-  // The line's mark is hollow until `pop`; Pip looks at the learner from
-  // `nod` to the end, then back down.
+  // The line's mark is hollow until `pop`; Pip opens both eyes at the
+  // learner from `nod` to the end, then wears its worried face again.
   notYet: { every: 80, pop: 80, nod: 160 },
   hop: { every: 240 },
   cheer: { every: 360 },
@@ -50,7 +50,7 @@ export const SHOTS = {
   levelUp: { every: 40, open: 240, whole: 480, fill: 80, head: 720 },
   // The confetti changes every `fall`: from 24 rows it falls across its row
   // and the blank under it, below 24 it appears `first` glyphs, then `more`
-  // at a time. Pip's arms are up, and COMPLETE stamps in, until `whole`.
+  // at a time. Pip cheers with sparks, and COMPLETE stamps in, until `whole`.
   // The ticks appear in turn from `ticks` to `ticksBy`, each on the 40 ms
   // grid, so with five the gaps are 80 and 40 ms in turn. From `light` one
   // light runs the whole trail by the last frame before the end.
@@ -136,8 +136,8 @@ function lookNotch(s) {
 }
 
 // Where Pip blinks: the welcome, and a step card that watches nothing and
-// is not its step's done (Pip wears its star there). ambientAllowed keeps it
-// from a card with something to answer.
+// is not its step's done (Pip wears its done face there). ambientAllowed
+// keeps it from a card with something to answer.
 function blinks(s) {
   if (s.view === 'welcome') return true;
   if (s.view !== 'step' || !s.beat || watching(s)) return false;
