@@ -27,6 +27,7 @@ export const C = {
   comeBack: 'Then come back here and press enter.',
   gitBroken: (error) => `git isn't working here: ${error}. This isn't your work: install git, then start this app again.`,
 
+  whyLead: 'Why:',
   youllBeAble: "You'll be able to",
   helpShrinks: 'The help shrinks each time a skill comes back:',
   tierHelp: TERMS.tierHelp,

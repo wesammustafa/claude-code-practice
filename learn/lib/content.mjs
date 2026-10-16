@@ -23,7 +23,9 @@ export const BEAT_KEYS = {
   codespace: true, 'win-note': true, hint: true, bottom: true, because: true, point: true, reveal: true, self: true,
   right: null, wrong: null, option: null, stuck: null,
 };
-export const INTRO_KEYS = { minutes: true, can: true };
+// `why`: why the lesson matters; `payoff`: the one `can` line the intro and
+// complete screens flag as what the lesson builds to. At most one of each.
+export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true };
 export const LADDER_KEYS = { hint: true, bottom: true, win: true };
 const OPTION_KEYS = new Set(['right', 'wrong', 'option', 'stuck', 'other', 'decoy']);
 
@@ -56,6 +58,7 @@ export function parseLesson(text, file = 'lesson') {
   let step = null;
   let beat = null;
   let rung = null;
+  let payoffLine = null;
   const fail = (n, msg) => {
     throw new Error(`${file}:${n + 1}: ${msg}`);
   };
@@ -95,7 +98,9 @@ export function parseLesson(text, file = 'lesson') {
       if (!(key in INTRO_KEYS)) fail(i, `unknown intro key ${key}`);
       if (!v.quoted) fail(i, `${key} must be a quote of the lesson`);
       if (key === 'can') lesson.intro.can.push(v.text);
+      else if (key in lesson.intro) fail(i, `a second ${key} line in the intro`);
       else lesson.intro[key] = v.text;
+      if (key === 'payoff') payoffLine = i;
       continue;
     }
     if (section === 'ladder') {
@@ -152,6 +157,8 @@ export function parseLesson(text, file = 'lesson') {
     }
     else beat[camel(key)] = v.text;
   }
+  // A payoff that is no `can` line would flag nothing on screen.
+  if (payoffLine !== null && !lesson.intro.can.includes(lesson.intro.payoff)) fail(payoffLine, `the payoff "${lesson.intro.payoff}" is not one of the intro's can lines`);
   for (const s of [...lesson.warmup, ...lesson.steps]) {
     if (!s.beats.length) throw new Error(`${file}:${s.line}: step ${s.id} has no beats`);
     for (const b of s.beats) {

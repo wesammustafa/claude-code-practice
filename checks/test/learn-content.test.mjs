@@ -8,6 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GUIDE, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
+import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { levelOf } from '../../learn/lib/flow.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
@@ -50,6 +51,23 @@ test('front matter: the page, its title and Stamp, the Stuck link and the next l
     assert.ok(l.title.toLowerCase().includes(lessons[id].title.toLowerCase()), `${id}: the title "${l.title}" doesn't hold its check's, "${lessons[id].title}"`);
     if (l.next) assert.ok(PATH.some((p) => p.id === l.next), `${id}: unknown next lesson ${l.next}`);
     assert.ok(l.intro.can.length > 0 && l.intro.minutes);
+  }
+});
+
+test('intro: every lesson says why it matters, and its payoff is one of its can lines', () => {
+  for (const [id, l] of Object.entries(parsed)) {
+    assert.ok(l.intro.why, `${id}: no why line`);
+    assert.ok(l.intro.can.includes(l.intro.payoff), `${id}: the payoff "${l.intro.payoff}" is not a can line`);
+  }
+});
+
+test('intro: each why wraps to at most 2 lines at the 60-column content width', () => {
+  // The intro's text width is the window less 4 columns (render's W); the
+  // Why lead and its space come off that.
+  const room = 60 - 4 - width(`${C.whyLead} `);
+  for (const [id, l] of Object.entries(parsed)) {
+    const lines = wrapRuns(inline(`"${l.intro.why}"`), room);
+    assert.ok(lines.length <= 2, `${id}: the why wraps to ${lines.length} lines`);
   }
 });
 
