@@ -55,6 +55,8 @@ export const C = {
   gitClean: 'no changes so far',
   gitDirty: (n) => `git status lists ${n} change${n === 1 ? '' : 's'}:`,
   checking: (what) => (what ? `Checking ${what}…` : 'Checking…'),
+  // How long a slow check's child has run, beside the spinner.
+  seconds: (n) => `${n} s`,
   notYet: 'Not yet:',
   pressH: 'Press h for help.',
   pressHAgain: 'Press h again for more help.',

@@ -3,7 +3,7 @@
 // going at the bottom of the card), and the key bar pinned to the bottom.
 import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, pipFace } from './art.mjs';
 import { C } from './copy.mjs';
-import { phases, REST, SHOTS, TIMING } from './motion.mjs';
+import { NOTCHES, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
   answerKey, asStarted, authoredTier, beatOf, contentOf, doneBefore, hintAvailable, hintStatus, isDone, lessonOf, levelOf, moreHelpGives, pickWarmups, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, tryFirst, WARMUPS,
 } from './flow.mjs';
@@ -80,7 +80,7 @@ export function render(s, size, t, clock = REST) {
   if (lines.length > room()) lines = [...lines.slice(0, room() - 1), more];
   const out = [...top, ...view.head, ...lines];
   while (out.length < rows - 2 - gap.length - toast.length) out.push('');
-  out.push(...toast, ...gap, t.fg('faint', t.glyph.rule.repeat(W)), keybar(t, keys, W, s.held?.name));
+  out.push(...toast, ...gap, pulseLine(ctx), keybar(t, keys, W, s.held?.name));
   return out.map((l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : ascii(l)), cols - 1, t.unicode ? '…' : '.') : ''));
 }
 
@@ -164,6 +164,27 @@ function small(cols, rows) {
 }
 
 // ---- pieces ------------------------------------------------------------------
+// The rule above the key bar, the pulse line. While a check or git child
+// runs, the bounce: a 10-cell segment 4 cells a tick, back and forth, on the
+// spinner's clock, turning where the next step would leave the rule. Else
+// a sweep when something changed, or the look marker, where ambient loops
+// may draw.
+function pulseLine(ctx) {
+  const { t, W, ph } = ctx;
+  const segment = (from, n) => `${rule(t, from)}${t.fg('key', t.glyph.bold.repeat(n))}${rule(t, W - from - n)}`;
+  if (ph.spinner !== null) {
+    const span = 4 * Math.floor((W - 10) / 4);
+    const x = (4 * ph.spinner) % (2 * span);
+    return segment(x <= span ? x : 2 * span - x, 10);
+  }
+  // A sweep: 8 cells across the rule, a fifth of the way a frame.
+  const e = into(ctx, 'sweep');
+  if (e < Infinity) return segment(Math.round(((W - 8) * Math.floor(e / SHOTS.sweep.every)) / 5), 8);
+  // The look marker: 3 cells, a notch on for each real look.
+  if (ph.look !== null) return segment(Math.round((ph.look * (W - 3)) / (NOTCHES - 1)), 3);
+  return rule(t, W);
+}
+
 // How far into a one-shot this frame is, in ms, or Infinity once it rests
 // (and in every frame without motion).
 const into = (ctx, part) => (ctx.ph[part] >= 1 ? Infinity : Math.round(ctx.ph[part] * TIMING[part]));
@@ -362,14 +383,20 @@ const PIP_ROOM = PIP_FACE + 3;
 
 // Pip's face in this frame, over the `mood` it rests in: arms up for a hop
 // or a cheer; away while the card enters, then landing with its eyes shut;
-// on a new "Not yet", a nod.
-function pipNow(ctx, mood) {
+// on a new "Not yet", a nod; on a file change, a glance; and its blink.
+function pipNow(ctx, shown) {
+  // Checking, with motion: Pip looks up once a child has run 150 ms, and
+  // holds still.
+  const mood = shown === 'checking' && !ctx.ph.checking ? 'rest' : shown;
   const e = into(ctx, 'entrance');
   const n = into(ctx, 'notYet');
   if (into(ctx, 'hop') < Infinity || into(ctx, 'cheer') < Infinity) return { mood, frame: 'up' };
   if (n < Infinity) return { mood: n >= SHOTS.notYet.nod ? 'rest' : mood };
   if (e < SHOTS.entrance.land) return null;
-  return { mood, frame: e < Infinity ? 'shut' : undefined };
+  if (e < Infinity) return { mood, frame: 'shut' };
+  // A file change: a glance toward the other window, unless a check runs.
+  if (into(ctx, 'glance') < Infinity && mood !== 'checking') return { mood, frame: 'glance' };
+  return { mood, frame: ctx.ph.blink ? 'shut' : undefined };
 }
 
 function card(ctx, { tint, where, done, rows, mood }) {
@@ -446,7 +473,7 @@ const VIEWS = {
     const link = (i) => (i < lit ? ` ${t.bold(t.fg('gold', t.glyph.bold.repeat(2)))} ` : t.fg('faint', ` ${t.glyph.rule.repeat(2)} `));
     const path = `${ids.map((l, i) => `${t.fg(heat[i % heat.length], t.bold(lessonLabel(l.id)))}${link(i)}`).join('')}${t.emoji('cup') || lessonLabel('b-capstone')}`;
     const hint = t.fg('muted', `   ${C.pathHint}`);
-    const eyes = e < at.waking ? 'shut' : e < at.awake ? 'waking' : undefined;
+    const eyes = e < at.waking || ctx.ph.blink ? 'shut' : e < at.awake ? 'waking' : undefined;
     const body = [
       withPip(ctx, pip(t, 'happy', eyes), [
         (w) => led(t, 'wave', C.hi(s.facts.name), w, 'white').map((x) => t.bold(x)),
@@ -941,6 +968,17 @@ function options(ctx, beat) {
   }).flat();
 }
 
+// The checking label, with the spinner in the cell after it once a child has
+// run 150 ms, and from 3 s the seconds it has run (every label leaves room
+// for both).
+function spinning(ctx, lines) {
+  const { t, ph } = ctx;
+  if (ph.spinner === null) return lines;
+  const spin = t.fg('key', t.glyph.spinner[ph.spinner % t.glyph.spinner.length]);
+  const secs = ph.elapsed === null ? '' : `  ${t.fg('muted', C.seconds(ph.elapsed))}`;
+  return [...lines.slice(0, -1), `${lines.at(-1)} ${spin}${secs}`];
+}
+
 function footerRows(ctx, { beat, content, isLastBeat }) {
   const { s, t, inner } = ctx;
   const st = s.beat;
@@ -961,7 +999,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   };
 
   // What the beat watches, as its waiting line names it.
-  if (st.status === 'opening') rows.push(...para(t, C.checking(beat.watching ?? beat.evidence), inner, 'key'));
+  if (st.status === 'opening') rows.push(...spinning(ctx, para(t, C.checking(beat.watching ?? beat.evidence), inner, 'key')));
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));

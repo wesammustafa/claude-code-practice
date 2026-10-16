@@ -6,6 +6,8 @@ import { C } from './copy.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
 export const IDLE_MS = 120_000;
+// The longest the reading grace holds ambient motion (motion.mjs).
+export const GRACE_MAX_MS = 20_000;
 export const HINT_LOCK_MS = 2_000;
 export const DEFER_MS = 300;
 const SWALLOW_MS = 800;
@@ -800,11 +802,21 @@ function stampFx(prev, s, ev) {
   if (looked) {
     const seen = JSON.stringify(ev.type === 'check' ? [ev.items, ev.evidence ?? null] : ev.type === 'file' ? [ev.line, ev.lines] : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;
+    if (fx.changed) fx.changedAt = t;
     fx.seen = seen;
     fx.look = t;
   }
   if (!sameJson(w, watching(s))) delete fx.seen;
   if (ev.type === 'activity' && w) fx.activity = t;
+  // The looks the look marker counts (motion.mjs): `from`, the newest stamp
+  // that can hold it back or start it again; how many came since; and the
+  // times of those in the 20 s after it, as long as that hold can last.
+  const from = Math.max(...['key', 'view', 'open', 'text', 'activity', 'changedAt'].map((k) => fx[k] ?? -Infinity));
+  if (fx.looks?.from !== from) fx.looks = { from, n: 0, early: [] };
+  if (looked) {
+    fx.looks.n += 1;
+    if (t - from <= GRACE_MAX_MS) fx.looks.early.push(t);
+  }
 }
 
 function onPaste(s) {

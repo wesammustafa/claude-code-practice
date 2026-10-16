@@ -2,7 +2,7 @@
 // the time until the next frame. Pure: it reads no clock and picks nothing at
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
 import { C } from './copy.mjs';
-import { beatOf, IDLE_MS, isDone, lessonOf, stepOf } from './flow.mjs';
+import { beatOf, GRACE_MAX_MS, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -20,8 +20,11 @@ export const TIMING = {
   sweep: 400, glance: 1_200, blink: 160, blinkEvery: 6_000,
   // The reading grace: 400 ms a word of the newest text, 3 s to 20 s; and
   // the quiet after a key.
-  perWord: 400, graceMin: 3_000, graceMax: 20_000, keyQuiet: 4_000,
+  perWord: 400, graceMin: 3_000, graceMax: GRACE_MAX_MS, keyQuiet: 4_000,
 };
+
+// The look marker's notches across the pulse line.
+export const NOTCHES = 12;
 
 // The moments inside each one-shot (design 2.3 and 4.3), under the same names
 // as its TIMING entry, which it rests at: `every`, how often its frame may
@@ -56,6 +59,10 @@ export const SHOTS = {
   // one more link of the path every `fuse`; from `pulse` one pulse crosses
   // the arrow, a cell every `cell`.
   welcome: { every: 80, waking: 80, awake: 160, fuse: 80, pulse: 320, cell: 80 },
+  // One segment crosses the pulse line, a fifth of the way each frame.
+  sweep: { every: 80 },
+  // Pip looks toward the other window, then back: one change each way.
+  glance: { every: 1_200 },
 };
 
 // One-shot progress 0..1; 1 once a later key arrived.
@@ -71,8 +78,11 @@ const words = (text) => (text.match(/\S+/g) ?? []).length;
 // with nothing to answer or watch, the look marker while a card watches.
 const AMBIENT = ['welcome', 'step', 'checkonly'];
 
-// An overlay, or idle: nothing moves, and no frame is asked for.
-const frozen = (s, at) => Boolean(s.overlay || s.beat?.idle || at - s.lastActivity >= IDLE_MS);
+// An overlay, or idle: no one-shot and no ambient loop moves. Only an
+// overlay stops the spinner, its seconds and the bounce: they show a child
+// that is still running (for at most 150 s).
+const idle = (s, at) => Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
+const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
 
 // The words of the newest text: on a step card a "Not yet" line or feedback
 // that came after the card opened, else the card itself; on the welcome and
@@ -108,6 +118,28 @@ export function ambientAllowed(s, at) {
   return at >= quietFrom(s) && !answering(s);
 }
 
+// Where the look marker stands: from the left, one notch on for each look
+// that landed once it may show, round again after the last; null before the
+// first. flow.mjs counts the looks since the newest stamp that holds it back
+// or starts it again (a sweep's among them), with the times of those the
+// gates can still hold back: a look before the gates opened moves nothing.
+function lookNotch(s) {
+  const looks = s.fx.looks;
+  if (!looks || !watching(s)) return null;
+  const from = quietFrom(s);
+  const n = looks.n - looks.early.filter((x) => x < from).length;
+  return n > 0 ? (n - 1) % NOTCHES : null;
+}
+
+// Where Pip blinks: the welcome, and a step card that watches nothing and
+// is not its step's done (Pip wears its star there). ambientAllowed keeps it
+// from a card with something to answer.
+function blinks(s) {
+  if (s.view === 'welcome') return true;
+  if (s.view !== 'step' || !s.beat || watching(s)) return false;
+  return !(isDone(s.beat) && s.pos.beat === stepOf(s).beats.length - 1);
+}
+
 // When the reading grace and the quiet after the last key are both over.
 function quietFrom(s) {
   const fx = s.fx;
@@ -117,13 +149,26 @@ function quietFrom(s) {
 }
 
 // What every moving part draws at rest, and while frozen: each one-shot at
-// its end (1), no spinner, no seconds, no ambient loop.
-export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, spinner: null, elapsed: null, ambient: false });
+// its end (1), no spinner, no seconds, no ambient loop: no look marker
+// (`look`, its notch) and no blink. `checking`: Pip wears its checking face
+// whenever the card says "Checking"; with motion, only once the spinner
+// turns.
+export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
 
 // Since when a check or git child has run for the beat on screen while it is
 // `opening`: a child that started before the status became `opening` is not
-// this beat's.
-const childSince = (s) => (s.beat?.status === 'opening' && s.fx.run >= s.fx.check ? s.fx.run : undefined);
+// this beat's, and a file read starts none.
+const CHILD = ['check', 'git-clean'];
+const childSince = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
+
+// When the latest sweep started: the watcher saw a file change, or a look's
+// result differed from the last. Only while the screen watches something,
+// and not beside the hint box.
+function sweepFrom(s) {
+  if (!watching(s) || answering(s)) return undefined;
+  const start = Math.max(s.fx.activity ?? NEVER, s.fx.changedAt ?? NEVER);
+  return start === NEVER ? undefined : start;
+}
 
 // When each one-shot on this screen started, or undefined where it does not
 // play. Each lasts its own TIMING entry.
@@ -145,33 +190,47 @@ export function shotStarts(s) {
     levelUp: on(['levelup'], fx.view),
     complete: on(['complete'], fx.view),
     welcome: on(['welcome'], fx.view),
+    sweep: sweepFrom(s),
+    // A file change: Pip glances toward the other window.
+    glance: watching(s) && !answering(s) ? fx.activity : undefined,
   };
 }
 
 // What each moving part draws at `at`; the rest phases when motion is off.
 export function phases(s, at, caps) {
-  if (!caps?.motion || at === Infinity || frozen(s, at)) return REST_PHASES;
+  if (!caps?.motion || at === Infinity || s.overlay) return REST_PHASES;
   const since = childSince(s);
   const ran = since === undefined ? NEVER : at - since;
   const spinner = ran < TIMING.spinnerFrom ? null
     : Math.floor((Math.min(ran, TIMING.slowAfter) - TIMING.spinnerFrom) / TIMING.tick) + Math.floor(Math.max(0, ran - TIMING.slowAfter) / TIMING.slowTick);
-  const shots = Object.fromEntries(Object.entries(shotStarts(s)).map(([part, start]) => [part, oneShot(s, at, start, TIMING[part])]));
+  const still = idle(s, at);
+  const shots = Object.fromEntries(Object.entries(shotStarts(s)).map(([part, start]) => [part, still ? 1 : oneShot(s, at, start, TIMING[part])]));
+  // While a child runs, its bounce holds the pulse line: no ambient loop.
+  const ambient = !still && spinner === null && ambientAllowed(s, at);
   return {
     ...shots,
     spinner,
     elapsed: spinner !== null && ran >= TIMING.elapsedFrom ? Math.floor(ran / 1_000) : null,
-    ambient: ambientAllowed(s, at),
+    checking: spinner !== null,
+    ambient,
+    look: ambient && shots.sweep === 1 ? lookNotch(s) : null,
+    // A blink as the gates open, then every 6 s.
+    blink: ambient && blinks(s) && (at - quietFrom(s)) % TIMING.blinkEvery < TIMING.blink,
   };
 }
 
 // Milliseconds until the screen next differs, or null. Null under calm,
-// with an overlay, at idle, and when nothing moves and no deadline waits.
+// with an overlay, at idle unless a child runs, and when nothing moves and
+// no deadline waits.
 export function nextChange(s, at, caps) {
-  if (!caps?.motion || frozen(s, at)) return null;
+  if (!caps?.motion || s.overlay) return null;
+  const still = idle(s, at);
   const times = [];
-  // A one-shot still playing: its next frame on the 40 ms grid from its start.
+  // A one-shot still playing: its next frame, every `every` from its start
+  // (on the 40 ms grid), or its end.
   for (const [part, start] of Object.entries(shotStarts(s))) {
-    if (oneShot(s, at, start, TIMING[part]) < 1) times.push(TIMING.grid - ((at - start) % TIMING.grid));
+    const { every } = SHOTS[part];
+    if (!still && oneShot(s, at, start, TIMING[part]) < 1) times.push(Math.min(every - ((at - start) % every), start + TIMING[part] - at));
   }
   const since = childSince(s);
   if (since !== undefined) {
@@ -183,8 +242,14 @@ export function nextChange(s, at, caps) {
     times.push(tick - ran, second - ran);
   }
   // The moment ambient loops may start, on a screen that has one: the grace
-  // and the key quiet both over.
+  // and the key quiet both over. Once they run, each blink's start and end,
+  // and the idle moment that stops the look marker.
   const quiet = quietFrom(s);
-  if (AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
+  if (!still && AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
+  if (!still && ambientAllowed(s, at)) {
+    const e = (at - quiet) % TIMING.blinkEvery;
+    if (blinks(s)) times.push(e < TIMING.blink ? TIMING.blink - e : TIMING.blinkEvery - e);
+    if (lookNotch(s) !== null) times.push(s.lastActivity + IDLE_MS - at);
+  }
   return times.length ? Math.min(...times) : null;
 }
