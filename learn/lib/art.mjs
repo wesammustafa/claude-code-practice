@@ -1,7 +1,7 @@
 // Pip the mascot, block-letter banners, the check burst and confetti. Each
 // has a plain ASCII form. Nothing here is random: the same screen draws the
 // same art every time.
-import { renderPip, restPose } from './pip/pip.mjs';
+import { rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
 import { width } from './text.mjs';
 
 // Pip is the pip-terminal package's (pip/pip.mjs, as it ships): its glyph
@@ -49,6 +49,80 @@ function ink(t, row, places) {
 export function pip(t, mood = 'happy', frame) {
   const places = ['eeeeeeeee', t.unicode ? 'ooooeoooo' : 'ooooooooo', 'o  eme  o', 'ooooooooo'];
   return renderPip(poseOf(t, mood, frame), { size: 'glyph', depth: 1, unicode: t.unicode }).map((row, i) => ink(t, row, places[i]));
+}
+
+// The detailed Pip, the package's half-cell raster at one of its sizes, for
+// a screen with rows to spare (render.mjs's pipSlot). Each cell is two of
+// its pixels, over and under. `face` is the row its eyes are on.
+export const PIP_RASTER = {
+  small: { cols: SIZES.small[0], rows: SIZES.small[1], face: 5 },
+  standard: { cols: SIZES.standard[0], rows: SIZES.standard[1], face: 9 },
+};
+// The package's 256-color picks: the xterm cube and grays (pip.mjs's own,
+// which it does not export).
+const XTERM = Array.from({ length: 240 }, (_, i) => {
+  if (i >= 216) return [8 + (i - 216) * 10, 8 + (i - 216) * 10, 8 + (i - 216) * 10];
+  const levels = [0, 95, 135, 175, 215, 255];
+  return [levels[Math.floor(i / 36)], levels[Math.floor(i / 6) % 6], levels[i % 6]];
+});
+function xterm(c) {
+  let best = 0;
+  let far = Infinity;
+  XTERM.forEach((p, i) => {
+    const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2;
+    if (d < far) [best, far] = [i, d];
+  });
+  return 16 + best;
+}
+
+// `pose` from the package's controller, as `rows` lines of `cols` cells.
+// The package paints its own backdrop (#1E1E1E) and softens each edge
+// toward it. Here the backdrop is the terminal's own background, so no
+// rectangle shows on another one: the pose is also rasterized over black
+// and over white, and where the two differ the backdrop shows through, by
+// as much as they differ. A pixel less than PIP_SEEN Pip is background; any
+// other is the package's own pixel, soft edge and all, so Pip looks as the
+// package draws it. A cell with both halves background is a space, one ink
+// half is `▀` or `▄` over the default background, two are `▀` in both
+// colors. 256 colors, or 24-bit where the terminal reports it. Without a
+// pose, blank rows of the same size (to measure a screen with it).
+export const PIP_SEEN = 0.08;
+export function pipRaster(t, pose, size) {
+  const { cols, rows } = PIP_RASTER[size];
+  if (!pose) return Array.from({ length: rows }, () => ' '.repeat(cols));
+  const own = rasterizePip(pose, { columns: cols, rows }).pixels;
+  const dark = rasterizePip(pose, { columns: cols, rows, palette: { background: '#000000' } }).pixels;
+  const light = rasterizePip(pose, { columns: cols, rows, palette: { background: '#FFFFFF' } }).pixels;
+  // How much of the pixel at `at` is Pip, 0 to 1.
+  const cover = (at) => 1 - (light[at] - dark[at] + light[at + 1] - dark[at + 1] + light[at + 2] - dark[at + 2]) / 765;
+  const inked = (at) => cover(at) >= PIP_SEEN;
+  const codes = new Map();
+  const code = (at, bg) => {
+    const c = [own[at], own[at + 1], own[at + 2]];
+    const key = `${bg}:${c.join(',')}`;
+    if (!codes.has(key)) codes.set(key, t.depth >= 24 ? `${bg ? 48 : 38};2;${c.join(';')}` : `${bg ? 48 : 38};5;${xterm(c)}`);
+    return codes.get(key);
+  };
+  return Array.from({ length: rows }, (_, row) => {
+    let line = '';
+    let fg = null;
+    let bg = null;
+    for (let col = 0; col < cols; col++) {
+      const over = (row * 2 * cols + col) * 3;
+      const under = over + cols * 3;
+      const ink = [inked(over), inked(under)];
+      // A space shows only its background, so it keeps the foreground.
+      const [ch, f, b] = !ink[0] && !ink[1] ? [' ', fg, null]
+        : !ink[1] ? ['▀', code(over, false), null]
+          : !ink[0] ? ['▄', code(under, false), null]
+            : ['▀', code(over, false), code(under, true)];
+      const set = [...(f !== fg ? [f ?? '39'] : []), ...(b !== bg ? [b ?? '49'] : [])];
+      if (set.length) line += `\x1b[${set.join(';')}m`;
+      [fg, bg] = [f, b];
+      line += ch;
+    }
+    return fg || bg ? `${line}\x1b[39;49m` : line;
+  });
 }
 
 // Pip's small face for a card's top border, 7 cells: ` [●‿●] `. Its moods

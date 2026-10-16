@@ -9,8 +9,9 @@ import { join } from 'node:path';
 import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, DEFER_MS, IDLE_MS, isDone, reduce, stepOf, tierOf, watching } from '../../learn/lib/flow.mjs';
-import { ambientAllowed, BOOT_FROM, bootChange, nextChange, oneShot, phases, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
-import { bootFrame, render } from '../../learn/lib/render.mjs';
+import { ambientAllowed, BOOT_FROM, bootChange, nextChange, oneShot, phases, pipGates, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
+import { createPip, restPose } from '../../learn/lib/pip/pip.mjs';
+import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
 import { openScreen } from '../../learn/lib/screen.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -109,6 +110,39 @@ test('rest equals calm: with motion caps, the rest frame is the motion-off frame
       }
     }
   }
+  // The detailed Pip (170): with motion off, main's controller gives the
+  // rest pose of the screen's state, even just as a level-up or complete
+  // screen arrives, when its reaction would play; that frame is the calm
+  // one, motion caps or calm, on every screen and boot frame with room.
+  let rasters = 0;
+  let reacting = 0;
+  for (const depth of [8, 24]) {
+    const moving = theme({ ...MOTION.full, depth, motion: true, calm: false });
+    const calm = theme({ ...MOTION.full, depth, motion: false, calm: true });
+    for (const [cols, rows] of [...SIZES, [120, 40]]) {
+      const size = { cols, rows };
+      for (const [label, state] of [['boot', null], ...screens]) {
+        const slot = pipSlot(state, size, moving);
+        if (!slot) continue;
+        rasters += 1;
+        // As main sets it: working from git's question, then this screen.
+        const target = pipTarget(state, state ? state.fx.view : 0);
+        const pip = createPip({ state: 'working', at: (state?.fx.view ?? 0) - 1_000 });
+        const { state: next, since, ...event } = target;
+        pip.setState(next, { at: since ?? 0, ...event });
+        const at = (state?.fx.view ?? 0) + 200;
+        const gates = (motion) => pipGates(state, at, { motion, truecolor: depth >= 24, remote: false });
+        const still = pip.pose(at, gates(false));
+        assert.deepEqual(still, restPose(next), `${label} at ${cols}x${rows}: the rest pose`);
+        if (JSON.stringify(pip.pose(at, gates(true))) !== JSON.stringify(still)) reacting += 1;
+        const draw = (t, pose) => (state ? render(state, size, t, REST, { size: slot, pose }) : bootFrame(0, size, t, REST, { size: slot, pose }));
+        assert.deepEqual(draw(moving, still), draw(calm, restPose(next)), `${label} at ${cols}x${rows}, depth ${depth}, with the raster`);
+      }
+    }
+  }
+  assert.ok(rasters > 0);
+  // With motion on, those same moments move: the check above is not idle.
+  assert.ok(reacting > 0);
 });
 
 test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), a frame at any time is the rest frame', () => {

@@ -9,9 +9,10 @@ import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, folderKey, folderOf, initialState, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
-import { BOOT_FROM, bootChange, nextChange, REST, TIMING } from './motion.mjs';
+import { BOOT_FROM, bootChange, nextChange, pipGates, REST, TIMING } from './motion.mjs';
+import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
-import { bootFrame, itemsMax, lessonLabel, render } from './render.mjs';
+import { bootFrame, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
@@ -140,9 +141,35 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const at = now();
     const size = sizeNow();
     const clock = screen.motion ? { at } : REST;
-    screen.draw(state ? render(state, size, t, clock) : bootFrame(askedAt, size, t, clock));
-    const wait = state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion });
-    if (wait !== null) drawIn(Math.max(wait, floor()));
+    // The detailed Pip, where the screen has room for it: its pose, and
+    // when it next moves, one more deadline for the one timer. Both with
+    // the same gates, even if this frame's write turns motion off.
+    const slot = pipSlot(state, size, t, nextScreen);
+    const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.depth >= 24, remote: caps.remote });
+    const raster = slot ? { size: slot, pose: pipPose(at, gates) } : null;
+    screen.draw(state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster));
+    const waits = [state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion }),
+      slot ? pip.nextFrameIn(pipAt, { ...gates, size: slot }) : null].filter((w) => w !== null);
+    if (waits.length) drawIn(Math.max(Math.min(...waits), floor()));
+  }
+
+  // The detailed Pip's one controller. Its gates read the app's stamps on
+  // the app's clock (`at`); its own time (`pipAt`) runs with that clock but
+  // never back: when the wall clock steps back, `skew` takes up the step, so
+  // Pip goes on from where it was. A change is set no earlier than the last
+  // (`pipChanged`), and no later than now.
+  let pip = null;
+  let pipAt = -Infinity;
+  let pipChanged = -Infinity;
+  let skew = 0;
+  // Pip set to what this screen shows, then its pose at `at`.
+  function pipPose(at, gates) {
+    if (at + skew < pipAt) skew = pipAt - at;
+    pipAt = at + skew;
+    const { state: next, since, ...event } = pipTarget(state, at);
+    const from = Math.min(pipAt, Math.max(since === undefined ? pipAt : since + skew, pipChanged));
+    if (pip.setState(next, { at: from, ...event })) pipChanged = from;
+    return pip.pose(pipAt, gates);
   }
 
   // Git's first answers. If they take over 150 ms, the boot frame goes up on
@@ -164,6 +191,13 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     requestDraw();
   });
   const askedAt = now();
+  // Pip starts working, as git is asked. The screen git's answers will open,
+  // as far as the app knows before them: the boot frame's Pip is no bigger
+  // than its own.
+  pip = createPip({ state: 'working', at: askedAt });
+  const nextScreen = initialState({ course, saved, facts: { root, name: '', gitError: null, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 }, now: askedAt });
+  pipAt = askedAt;
+  pipChanged = askedAt;
   const boot = timers.setTimeout(() => {
     if (closed) return;
     openIt();
