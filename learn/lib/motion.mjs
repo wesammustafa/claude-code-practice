@@ -86,7 +86,7 @@ const AMBIENT = ['welcome', 'step', 'checkonly'];
 // overlay stops the spinner, its seconds and the bounce: they show a child
 // that is still running (for at most 150 s an item).
 const idle = (s, at) => Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
-const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
+export const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
 
 // The words of the newest text: on a step card a "Not yet" line or feedback
 // that came after the card opened, else the card itself; on the welcome and
@@ -120,6 +120,18 @@ const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat)
 export function ambientAllowed(s, at) {
   if (!AMBIENT.includes(s.view) || frozen(s, at)) return false;
   return at >= quietFrom(s) && !answering(s);
+}
+
+// The detailed Pip's three gates for its controller at `at` (s null on the
+// boot frame), the same for its pose and its next frame in one draw. No
+// motion with the screen's motion off (calm, NO_COLOR, plain, TERM=dumb, a
+// tripped write budget), with an overlay or at idle; its ambient life
+// (blinks, glances, twitches) only where ambientAllowed says; breathing, a
+// redraw every 120 ms, only on a local truecolor terminal.
+export function pipGates(s, at, { motion, truecolor, remote }) {
+  const moving = motion && !(s && frozen(s, at));
+  const ambient = moving && Boolean(s) && ambientAllowed(s, at);
+  return { motion: moving, ambient, breathing: ambient && truecolor && !remote };
 }
 
 // Where the look marker stands: from the left, one notch on for each look
