@@ -1430,8 +1430,10 @@ function stepView(ctx) {
 
 // Chips in a beat share one width: room for the longest command, up to the
 // card's width. A live tick beside a chip shortens to a mark when it won't fit.
-const chipWidth = (ctx, beat) => {
-  const longest = Math.max(...beat.lines.filter((l) => l.key === 'run').map((l) => Math.max(width(withRoot(l.text, ctx.s.facts.root, ctx.t.caps.win32, folderOf(ctx.s))), width(l.win ?? ''))), ...beat.lines.filter((l) => l.key === 'code').map((l) => width(l.win ?? '')), ...beat.bottom.map((b) => Math.max(width(b.text), width(b.win ?? ''))), 10);
+// `shown` adds the commands a hint rung draws in place of the beat's own: a
+// ladder's bottom lines (ticket 184).
+const chipWidth = (ctx, beat, shown = []) => {
+  const longest = Math.max(...beat.lines.filter((l) => l.key === 'run').map((l) => Math.max(width(withRoot(l.text, ctx.s.facts.root, ctx.t.caps.win32, folderOf(ctx.s))), width(l.win ?? ''))), ...beat.lines.filter((l) => l.key === 'code').map((l) => width(l.win ?? '')), ...beat.bottom.map((b) => Math.max(width(b.text), width(b.win ?? ''))), ...shown.filter((b) => b.key !== 'code' && !b.text.includes('`')).map((b) => Math.max(width(withRoot(b.text, ctx.s.facts.root, ctx.t.caps.win32, folderOf(ctx.s))), width(b.win ?? ''))), 10);
   // Room for the tick a done command gets beside its chip.
   return Math.min(ctx.inner - 2 - width(ctx.t.glyph.check), Math.max(longest + 4, 30));
 };
@@ -1601,7 +1603,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
       else box.push(...r.lines.flatMap((b) => {
         if (b.key === 'code' && !(t.caps.win32 && b.win)) return codeRows(t, b, hw, words);
         const text = (t.caps.win32 && b.win) || withRoot(b.text, s.facts.root, t.caps.win32, folderOf(s));
-        return text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat), hw));
+        return text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat, r.lines), hw));
       }));
       const more = st.rung < rungs.length - 1;
       const pad3 = ' '.repeat(Math.max(3, width(t.lead('hint'))));
