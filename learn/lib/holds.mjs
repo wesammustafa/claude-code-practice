@@ -3,6 +3,7 @@
 // the file's bytes as they are now, in the lesson's work folder; these
 // decide what they mean. Pure: nothing here reads the disk or starts a
 // process.
+import { createHash } from 'node:crypto';
 import { C } from './copy.mjs';
 import { graphemes, isEmoji } from './text.mjs';
 
@@ -45,6 +46,35 @@ function firstOf(text) {
   return line === undefined ? null : oneRow(line);
 }
 
+// What a file is, to tell whether it changed (verify.mjs stampOf reads it):
+// its time, its size and the start of its SHA-1. A fresh beat keeps the
+// stamp its step opened with.
+const sha = (buf) => createHash('sha1').update(buf).digest('hex').slice(0, 12);
+export const stampFor = (mtimeMs, buf) => `${Math.trunc(mtimeMs)}:${buf.length}:${sha(buf)}`;
+
+// How many bytes the file stamped `stamp` held, when it only grew since:
+// what it held then is the start of `buf`. 0 when it was rewritten, or the
+// stamp holds nothing (no file then).
+export function grewFrom(stamp, buf) {
+  const m = (stamp ?? '').match(/^\d+:(\d+):([0-9a-f]{12})$/);
+  const size = m ? Number(m[1]) : 0;
+  return size && size <= buf.length && sha(buf.subarray(0, size)) === m[2] ? size : 0;
+}
+
+// The lines a match reads: all of them, or past the file's first `from`
+// bytes only the lines this attempt wrote or added to.
+function linesOf(buf, text, from) {
+  const lines = text.split(/\r?\n/);
+  if (!from) return lines;
+  const before = textOf(buf.subarray(0, from)).length;
+  let start = 0;
+  return lines.filter((line) => {
+    const added = start >= before || start + line.length > before;
+    start = text.indexOf('\n', start) + 1 || text.length;
+    return added;
+  });
+}
+
 // The line a done beat shows of its file, to show what the learner made.
 export function evidenceOf(buf) {
   if (!buf) return null;
@@ -65,8 +95,9 @@ function at(value, key) {
 const shown = (v) => oneRow(typeof v === 'string' ? v : JSON.stringify(v));
 
 // Whether `buf` (null: no file) passes a reading beat's verify, with the
-// evidence a pass shows or the not-yet line a miss gets.
-export function judge(verify, buf) {
+// evidence a pass shows or the not-yet line a miss gets. A fresh match reads
+// only what was added past `from` (grewFrom).
+export function judge(verify, buf, from = 0) {
   const { path } = verify;
   if (!buf) return { pass: false, hint: verify.kind === 'file' ? C.fileEmpty(path) : C.noFile(path) };
   const binary = binaryOf(buf);
@@ -82,9 +113,9 @@ export function judge(verify, buf) {
   }
   if (verify.kind === 'match' || verify.kind === 'no-match') {
     const re = new RegExp(verify.regex);
-    const hit = text.split(/\r?\n/).find((l) => re.test(l));
+    const hit = linesOf(buf, text, from).find((l) => re.test(l));
     const line = hit === undefined ? null : oneRow(hit);
-    if (verify.kind === 'match') return line === null ? { pass: false, hint: C.noLine(path) } : { pass: true, evidence: line };
+    if (verify.kind === 'match') return line === null ? { pass: false, hint: from ? C.noNewLine(path) : C.noLine(path) } : { pass: true, evidence: line };
     return line === null ? { pass: true, evidence: null } : { pass: false, hint: C.stillHas(path, line) };
   }
   let value;

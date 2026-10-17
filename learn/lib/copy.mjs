@@ -83,6 +83,8 @@ export const C = {
   notJson: (path, error) => `${path} does not parse as JSON yet (${error}).`,
   noKey: (path, key) => `${path} has no ${key} yet.`,
   noLine: (path) => `${path} has no line like that yet.`,
+  // A fresh match on a file that only grew reads only what was added.
+  noNewLine: (path) => `${path} has no new line like that yet.`,
   stillHas: (path, line) => `${path} still has: ${line}`,
   notValue: (path, key, found, value) => `${path} has ${key} ${found}, not ${value}, yet.`,
   // A binary file's evidence: its kind and size, never its bytes.

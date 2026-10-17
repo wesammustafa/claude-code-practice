@@ -6,6 +6,8 @@ import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, p
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
+import { stampOf } from '../../learn/lib/verify.mjs';
+import { repo, withRepo } from './helpers.mjs';
 import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
@@ -1966,6 +1968,85 @@ test('json, match and no-match take fresh and fresh since: what an earlier step 
     assert.equal(tryNow(d, path, text, 'b').status, 'done', `${verify}: once it changed`);
   }
   assert.equal(onReading(`match ${path} deny fresh since W1`).state.course.find((l) => l.id === 'b-2').content.steps.find((x) => x.id === 'Y1').beats[0].verify.since, 'W1');
+});
+
+// A file holding `text` as main reads it: its bytes and its stamp. The same
+// text is the same file, left as it was.
+const reads = new Map();
+const asRead = (text) => {
+  if (!reads.has(text)) reads.set(text, withRepo(() => repo({ 'f.txt': text }), (dir) => ({ read: Buffer.from(text), stamp: stampOf(dir, 'f.txt') })));
+  return reads.get(text);
+};
+const LOG = '.practice/i-2-loaded.txt';
+
+test('fresh match on a log that only grew: a line an earlier attempt left passes nothing until this attempt appends one, and the evidence is that line', () => {
+  const old = 'loaded: CLAUDE.md\n';
+  // Saved at the step's opening, so a restart mid-step judges the same way.
+  const d = onReading(`match ${LOG} ^loaded: fresh`, { stamps: { 'Y1.0': asRead(old).stamp } });
+  const look = (text) => {
+    d.send({ type: 'file', path: LOG, ...asRead(text) });
+    return d.state.beat;
+  };
+  assert.equal(look(old).status, 'waiting');
+  const started = `${old}session started\n`;
+  assert.notEqual(look(started).status, 'done', 'the new session wrote its first line');
+  const done = look(`${started}loaded: .claude/rules/style.md\n`);
+  assert.equal(done.status, 'done');
+  assert.equal(done.evidence, 'loaded: .claude/rules/style.md');
+});
+
+test('fresh match and no-match on a log that only grew: the not-yet line is about what was added', () => {
+  const old = 'loaded: CLAUDE.md\n';
+  const started = `${old}session started\n`;
+  const d = onReading(`match ${LOG} ^loaded: fresh`, { stamps: { 'Y1.0': asRead(old).stamp } });
+  assert.equal(tryNow(d, LOG, started, asRead(started).stamp).fail.hint, '.practice/i-2-loaded.txt has no new line like that yet.');
+  const no = onReading(`no-match ${LOG} ^loaded: fresh`, { stamps: { 'Y1.0': asRead(old).stamp } });
+  no.send({ type: 'file', path: LOG, ...asRead(old) });
+  assert.equal(no.state.beat.status, 'waiting', 'nothing added yet');
+  assert.equal(tryNow(no, LOG, started, asRead(started).stamp).status, 'done', 'the line from before is not read');
+  const again = onReading(`no-match ${LOG} ^loaded: fresh`, { stamps: { 'Y1.0': asRead(started).stamp } });
+  const loaded = `${started}loaded: .claude/rules/style.md\n`;
+  assert.equal(tryNow(again, LOG, loaded, asRead(loaded).stamp).fail.hint, '.practice/i-2-loaded.txt still has: loaded: .claude/rules/style.md');
+});
+
+test('fresh match on a log that was rewritten: the whole file is read', () => {
+  const old = 'loaded: CLAUDE.md\nsession ended\n';
+  // Longer than before but not starting with it, and shorter.
+  for (const [now, line] of [['loaded: AGENTS.md\nsession ended\nsession started\n', 'loaded: AGENTS.md'], ['loaded: CLAUDE.md\n', 'loaded: CLAUDE.md']]) {
+    const d = onReading(`match ${LOG} ^loaded: fresh`, { stamps: { 'Y1.0': asRead(old).stamp } });
+    d.send({ type: 'file', path: LOG, ...asRead(old) });
+    assert.equal(d.state.beat.status, 'waiting');
+    d.send({ type: 'file', path: LOG, ...asRead(now) });
+    assert.equal(d.state.beat.status, 'done', JSON.stringify(now));
+    assert.equal(d.state.beat.evidence, line);
+  }
+});
+
+test('fresh since a step on a log that only grew: what was added since that step opened is read', () => {
+  const old = 'loaded: CLAUDE.md\n';
+  const grown = `${old}loaded: .claude/rules/style.md\n`;
+  const onY1 = (fresh) => {
+    const text = DEMO_B2.replace('- verify: check 0\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', `- verify: file ${LOG}`)
+      .replace('- verify: check 0 fresh\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', `- verify: match ${LOG} ^loaded: ${fresh}`);
+    const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1'], step: 'R1', beat: 0 } } } });
+    d.key('enter');
+    d.key('1');
+    d.key('enter');
+    assert.equal(stepOf(d.state).id, 'W1');
+    // Each step's opening stamps the log as it is then: W1's holds the old line.
+    for (const e of d.effects.filter((x) => x.type === 'stamp')) d.send({ type: 'stamp', key: e.key, stamp: asRead(old).stamp });
+    // During W1 the log grows.
+    d.send({ type: 'file', path: LOG, ...asRead(grown) });
+    for (let i = 0; i < 3 && !(d.state.view === 'step' && stepOf(d.state).id === 'Y1'); i++) d.key('enter');
+    assert.equal(stepOf(d.state).id, 'Y1');
+    for (const e of d.effects.filter((x) => x.type === 'stamp' && !(x.key in d.state.progress['b-2'].stamps))) d.send({ type: 'stamp', key: e.key, stamp: asRead(grown).stamp });
+    d.send({ type: 'file', path: LOG, ...asRead(grown) });
+    return d.state.beat;
+  };
+  const since = onY1('fresh since W1');
+  assert.equal(since.status, 'already', 'the line came before Y1 opened');
+  assert.equal(since.evidence, 'loaded: .claude/rules/style.md');
+  assert.notEqual(onY1('fresh').status, 'done', 'Y1 opened on the grown log: nothing added since');
 });
 
 test('match: done once a line matches, front matter included, and the evidence is that line', () => {

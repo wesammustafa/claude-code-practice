@@ -4,7 +4,7 @@
 // events. Nothing here reads a file, a clock or the terminal.
 import { GIT, indexLevel, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
-import { evidenceOf, judge } from './holds.mjs';
+import { evidenceOf, grewFrom, judge } from './holds.mjs';
 import { cleanListed, eachFile, judgeGit, needsChange } from './status.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
@@ -878,12 +878,15 @@ function checkOnlyDone(s, ev, effects) {
 }
 
 // A file the beat reads itself, by what it holds now (holds.mjs): `read`
-// is its bytes, null when it isn't there.
+// is its bytes, null when it isn't there. A fresh match on a file that only
+// grew since its stamp (saved, so a restart reads it too) reads what was
+// added; a rewritten one is read whole.
 function onFile(s, ev, effects, rRuns) {
   if (rRuns || s.view !== 'step' || !s.beat) return;
   const v = beatOf(s).verify;
   if (!READS.has(v.kind) || ev.path !== v.path || ['done', 'already'].includes(s.beat.status)) return;
-  const r = judge(v, ev.read);
+  const grew = v.fresh && ev.read && (v.kind === 'match' || v.kind === 'no-match');
+  const r = judge(v, ev.read, grew ? grewFrom(s.progress[s.lesson].stamps[answerKey(s)], ev.read) : 0);
   decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
 }
 
