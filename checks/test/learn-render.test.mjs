@@ -3007,6 +3007,45 @@ test('a command too long to leave its quote room beside it puts the quote under 
   }
 });
 
+test('the comparison, as your card (173): it spells the Commands by level link out whole, breaking it only after a /, ? or &, and scrolls no further than the window that ends on it', () => {
+  let scrolled = 0;
+  for (const id of Object.keys(RECALL)) {
+    for (const caps of [CAPS.full, CAPS.ascii]) {
+      const t = theme(caps);
+      for (const size of SHORT) {
+        const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+        playUntil(d, (s) => s.view === 'next' && s.lesson === id);
+        d.key('space');
+        const at = `${id} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}`;
+        const shown = () => {
+          const frame = render(d.state, { cols: size[0], rows: size[1] }, t).map(strip);
+          assert.equal(frame.length, size[1], at);
+          for (const l of frame) assert.ok(width(l) <= size[0] - 1, `${at}: ${l}`);
+          return frame.map((l) => l.trim());
+        };
+        const linked = (lines) => lines.join('').includes(COMMANDS_BY_LEVEL);
+        const fitsWhole = linked(shown());
+        for (let i = 0; i < 40; i++) cardArrow(d, 'down', size, t);
+        const end = shown();
+        const where = `${at}\n${end.join('\n')}`;
+        assert.ok(linked(end), where);
+        const url = end.slice(end.indexOf(C.cardLink) + 1, end.findIndex((l, i) => i > end.indexOf(C.cardLink) && l.endsWith('commands.md')) + 1);
+        assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
+        for (const row of url.slice(0, -1)) assert.match(row, /[/?&]$/, where);
+        if (fitsWhole) {
+          assert.equal(d.state.cardAt, 0, `${at}: it fits, so the arrows move nothing`);
+          continue;
+        }
+        // One up from there leaves the link at once.
+        scrolled++;
+        cardArrow(d, 'up', size, t);
+        assert.ok(!linked(shown()), `${at}: up moved the comparison at once\n${shown().join('\n')}`);
+      }
+    }
+  }
+  assert.ok(scrolled > 0, 'no comparison scrolls at 60x20 or 80x24');
+});
+
 test('a next screen whose lesson put nothing on the card asks for no recall', () => {
   const lessons = allCourse.map((l) => (l.id === 'b-4' ? { ...l, content: { ...l.content, card: [] } } : l));
   const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4', lessons) } });

@@ -204,14 +204,14 @@ export function itemsMax(s, size, t) {
   return VIEWS.checkonly(frameCtx(s, size, t, REST).ctx).itemsMax;
 }
 
-// How far your card (the c overlay) can scroll in this window: the first
-// place of the window that ends on the Commands by level link, 0 where the
-// card fits, null where the card is not up. main sends it with each key, as
-// itemsMax.
+// How far your card (the c overlay), or the comparison (173), can scroll in
+// this window: the first place of the window that ends on the Commands by
+// level link, 0 where it fits, null where neither is up. main sends it with
+// each key, as itemsMax.
 export function cardMax(s, size, t) {
-  if (s.overlay !== 'card') return null;
+  if (s.overlay !== 'card' && s.overlay !== 'compare') return null;
   if (size.cols < MIN.cols || size.rows < MIN.rows) return 0;
-  return OVERLAYS.card(viewOf(s, size, t, REST).f.ctx).max;
+  return OVERLAYS[s.overlay](viewOf(s, size, t, REST).f.ctx).max;
 }
 
 // Every frame's card width, its left margin, and the blank above it on a
@@ -1685,8 +1685,9 @@ function placesTo(places, from, avail, first = places[from].length) {
 // room, it shows whole places from s.cardAt down, one a press of the
 // arrows: each entry is a place, and the link is the last, so the last
 // place always shows it, a toast or not. `scroll` is the arrows' key, or null.
-// `toLink` is your card's (167): its link breaks only after a /, ? or &,
-// and it scrolls no further than the window that ends on the link, `max`.
+// `toLink` is your card's (167) and the comparison's (173): its link breaks
+// only after a /, ? or &, and it scrolls no further than the window that
+// ends on the link, `max`.
 function cardPlaces(ctx, units, title, intro, { toLink = false } = {}) {
   const { s, t, inner, room } = ctx;
   const head = [t.bold(t.fg('white', title)), ...para(t, intro, inner, 'muted'), ''];
@@ -1807,8 +1808,8 @@ const OVERLAYS = {
     const units = entries.map((e) => (inner - col >= COMPARE_MIN
       ? hang(t.fg('code', pad(e.show, col)), para(t, e.does, inner - col, 'text', { quote: true }))
       : [t.fg('code', e.show), ...hang('   ', para(t, e.does, inner - 3, 'text', { quote: true }))]));
-    const { body, scroll } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
-    return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)] };
+    const { body, scroll, max } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro, { toLink: true });
+    return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)], max };
   },
   page(ctx) {
     const { s, t, W, inner } = ctx;
