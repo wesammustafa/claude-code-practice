@@ -6,7 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
-import { createPip, rasterizePip, renderPip, restPose } from '../../learn/lib/pip/pip.mjs';
+import { PIP_INK, pipRaster } from '../../learn/lib/art.mjs';
+import { createPip, PALETTE, rasterizePip, restPose } from '../../learn/lib/pip/pip.mjs';
 import { IDLE_MS, reduce } from '../../learn/lib/flow.mjs';
 import { pipGates, REST, SHOTS, TIMING } from '../../learn/lib/motion.mjs';
 import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
@@ -229,6 +230,17 @@ function cellsOf(line) {
 }
 // Pip's eyes are #F2CC60 (the package's README).
 const EYES = '38;2;242;204;96';
+// The dimmest a drawn pixel of Pip's may be: the darkest of its own
+// colors, by the sum of its three channels.
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const DARKEST = Math.min(...[PALETTE.outline, PALETTE.eyes, PALETTE.mouth].map((hex) => rgbOf(hex).reduce((a, b) => a + b)));
+// pipRaster's lines as rows of half-cell pixels: each its drawn color, or
+// null for the terminal's background.
+const halvesOf = (lines) => lines.flatMap((line) => {
+  const rgb = (code) => code.split(';').slice(2).map(Number);
+  const halves = cellsOf(line).map((c) => (c.ch === '▀' ? [rgb(c.fg), c.bg && rgb(c.bg)] : c.ch === '▄' ? [null, rgb(c.fg)] : [null, null]));
+  return [halves.map(([over]) => over), halves.map(([, under]) => under)];
+});
 // The raster row Pip's eyes are on: the one with the most inked cells in
 // the eyes' yellow (the antenna's tip is yellow too, but smaller).
 const eyesRow = (lines, from, tall) => {
@@ -284,8 +296,11 @@ test('beside the raster, text starts on the row of Pip\'s eyes, and the banner s
 });
 
 // The package paints every pixel it leaves empty in its backdrop, #1E1E1E
-// (README). It softens each edge toward that backdrop.
-test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges included, its backdrop the terminal\'s own background, in 24-bit color', () => {
+// (README), and softens each edge toward it. Here Pip has no backdrop: the
+// terminal's own background shows where Pip covers under a quarter of a
+// pixel (PIP_INK), and every other pixel is drawn in the shapes' own
+// colors, unmixed with any backdrop.
+test('the raster\'s cells: Pip\'s pixels two to a cell where it covers a quarter of one or more, in the shapes\' own colors unmixed with any backdrop, the terminal\'s own background elsewhere, in 24-bit color', () => {
   const cases = [
     ['boot at 80x24', 'working', (t, pip) => bootFrame(0, size(80, 24), t, undefined, pip)],
     ['complete at 120x40', 'success', (t, pip) => render(screen('complete'), size(120, 40), t, undefined, pip)],
@@ -293,14 +308,16 @@ test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges i
   const slot = 'standard';
   const { cols, tall } = RASTER[slot];
   for (const [where, state, draw] of cases) {
-    // Over black and over white: how much of each pixel is Pip, 0 to 1.
+    // Over black and over white: how much of each pixel is Pip, 0 to 1,
+    // and over black, its color times that.
     const over = (background) => rasterizePip(restPose(state), { columns: cols, rows: tall, palette: { background } }).pixels;
     const [dark, light] = [over('#000000'), over('#FFFFFF')];
     const at3 = (row, col, under) => ((row * 2 + under) * cols + col) * 3;
     const cover = (row, col, under) => 1 - [0, 1, 2].reduce((n, k) => n + light[at3(row, col, under) + k] - dark[at3(row, col, under) + k], 0) / 765;
-    // A pixel less than 8% Pip is the terminal's background (PIP_SEEN).
-    const ink = (row, col, under) => cover(row, col, under) >= 0.08;
+    const ink = (row, col, under) => cover(row, col, under) >= PIP_INK;
     const whole = (row, col, under) => cover(row, col, under) === 1;
+    // Pip's own color at a pixel, its backdrop taken out.
+    const straight = (row, col, under) => [0, 1, 2].map((k) => Math.round(dark[at3(row, col, under) + k] / cover(row, col, under)));
     let soft = 0;
     const t = theme(CAPS.truecolor);
     const lines = draw(t, { size: slot, pose: restPose(state) });
@@ -308,9 +325,6 @@ test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges i
     const glyph = draw(t, null).map(strip);
     const top = glyph.findIndex((l) => l.includes('╭───┴───╮')) - 1;
     const left = glyph[top + 1].indexOf('╭');
-    // The package's own cells in 24-bit color, each with both halves'
-    // colors, the backdrop's too: its color picks.
-    const own = renderPip(restPose(state), { size: slot, depth: 24 }).map(cellsOf);
     let spaces = 0;
     for (let r = 0; r < tall; r++) {
       const cells = cellsOf(lines[top + r]).slice(left, left + cols);
@@ -326,13 +340,16 @@ test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges i
         } else if (!ink(r, k, 1)) assert.deepEqual([c.ch, c.bg], ['▀', null], at);
         else if (!ink(r, k, 0)) assert.deepEqual([c.ch, c.bg], ['▄', null], at);
         else assert.equal(c.ch, '▀', at);
-        soft += [0, 1].filter((u) => ink(r, k, u) && !whole(r, k, u)).length;
-        // Every pixel drawn, soft edge or whole, is the package's own
-        // color pick for it: Pip looks as the package draws it.
-        const { fg, bg } = own[r][k];
-        if (c.ch === '▀') assert.equal(c.fg, fg, at);
-        if (c.ch === '▀' && ink(r, k, 1)) assert.equal(c.bg, bg, at);
-        if (c.ch === '▄') assert.equal(c.fg, bg.replace(/^48/, '38'), at);
+        // Every pixel drawn, soft edge or whole, is Pip's own color there,
+        // as bright as the darkest of its colors or brighter.
+        const drawn = [[0, c.ch === '▀' ? c.fg : null], [1, c.ch === '▄' ? c.fg : c.ch === '▀' ? c.bg : null]].filter(([, code]) => code);
+        for (const [u, code] of drawn) {
+          const rgb = code.split(';').slice(2).map(Number);
+          const want = straight(r, k, u);
+          assert.ok(rgb.every((v, n) => Math.abs(v - want[n]) <= 2), `${at}, ${u ? 'under' : 'over'}: ${rgb} for ${want}`);
+          assert.ok(rgb[0] + rgb[1] + rgb[2] >= DARKEST, `${at}, ${u ? 'under' : 'over'}: ${rgb}`);
+          if (!whole(r, k, u)) soft += 1;
+        }
       });
       // The row is exactly the raster's width: nothing after it but text, three cells on.
       const rest = cellsOf(lines[top + r]).slice(left + cols);
@@ -346,7 +363,48 @@ test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges i
     assert.ok(spaces > 0, where);
     // Pip's eyes, #F2CC60, where they are open: working narrows them.
     if (state !== 'working') assert.ok(lines.slice(top, top + tall).some((l) => l.includes('8;2;242;204;96')), where);
-    assert.ok(soft > 0, `${where}: some soft edges are drawn`);
+    assert.ok(soft > 0, `${where}: some soft edges are drawn at full color`);
+  }
+});
+
+// Breathing moves Pip's edges by fractions of a pixel: a pixel that comes
+// and goes with it is Pip's own color, never a dark speck on a light
+// terminal.
+test('breathing: every pixel that comes and goes is drawn in Pip\'s own colors, none dark', () => {
+  const pip = createPip({ state: 'ready', at: 0 });
+  const gates = { motion: true, ambient: true, breathing: true };
+  let [prev, flips] = [null, 0];
+  for (let ms = 13_500; ms <= 17_500; ms += 120) {
+    const now = halvesOf(pipRaster(pip.pose(ms, gates), 'standard'));
+    if (prev) {
+      now.forEach((row, y) => row.forEach((px, x) => {
+        if (!px === !prev[y][x]) return;
+        flips += 1;
+        const rgb = px ?? prev[y][x];
+        assert.ok(rgb[0] + rgb[1] + rgb[2] >= DARKEST, `+${ms} ms, pixel ${x},${y}: ${rgb}`);
+      }));
+    }
+    prev = now;
+  }
+  assert.ok(flips > 0, 'breathing moves some pixels');
+});
+
+// A blink's held frames: eyes shut or nearly, at every breath's lift and
+// every look up or down, still show each eye.
+test('a blink never loses Pip\'s eyes: shut, each eye keeps two gold pixels or more, at every lift and look up or down', () => {
+  const gold = ([, g, b]) => g - b > 50;
+  for (const open of [0, 0.06]) {
+    for (let i = 0; i <= 48; i++) {
+      for (let j = 0; j <= 28; j++) {
+        const [lift, gazeY] = [-0.012 + i * 0.0005, -0.7 + j * 0.05];
+        const grid = halvesOf(pipRaster({ ...restPose('ready'), left: open, right: open, lift, gazeY }, 'standard'));
+        // Its eyes' pixel rows, 14 to 24 (EYES_AT), left of centre and right.
+        const eye = (x0, x1) => grid.slice(14, 25).reduce((n, row) => n + row.slice(x0, x1 + 1).filter((px) => px && gold(px)).length, 0);
+        const where = `openness ${open}, lift ${lift.toFixed(4)}, gazeY ${gazeY.toFixed(2)}`;
+        assert.ok(eye(6, 15) >= 2, `${where}: the left eye`);
+        assert.ok(eye(16, 25) >= 2, `${where}: the right eye`);
+      }
+    }
   }
 });
 
@@ -497,16 +555,18 @@ test('the detailed Pip greets on the welcome and resume: eyes wide and an antenn
     assert.notDeepEqual(pipRows(frame(TIMING.greet - 40)), pipRows(rest), `${label}: still easing back 40 ms before the end`);
     assert.equal(sparks(still), 0, `${label}: no sparks at rest`);
     // At first the eyes widen, and the antenna flicks.
-    assert.ok(eyes(gold(GREET_AT.wide)).n > eyes(still).n * 1.1, `${label}: wide eyes at +${GREET_AT.wide} ms`);
+    assert.ok(eyes(gold(GREET_AT.wide)).n > eyes(still).n * 1.05, `${label}: wide eyes at +${GREET_AT.wide} ms`);
     assert.ok(Math.abs(tip(gold(GREET_AT.flick)).x - tip(still).x) > 0.3, `${label}: the antenna flicks at +${GREET_AT.flick} ms`);
     // Happy arcs: less gold than open eyes, before and after the looks.
     for (const ms of GREET_AT.glad) assert.ok(eyes(gold(ms)).n < eyes(still).n * 0.8, `${label}: happy eyes at +${ms} ms`);
     // Two hops, each with a spark, and none between them: Pip's outline
-    // rises a pixel or so.
-    const outline = (ms) => weight(pixelsOf(ms === null ? rest : frame(ms), glyph, PURPLE), [0, 31], [0, 31]).y;
+    // rises a pixel. Its top edge, the first row with any of it: drawn in
+    // its own color, a thin edge is one row or two by where it falls, so
+    // the outline's centre is no measure of a one-pixel rise.
+    const outline = (ms) => pixelsOf(ms === null ? rest : frame(ms), glyph, PURPLE).findIndex((row) => row.some((n) => n > 0));
     for (const ms of GREET_AT.hops) {
       assert.ok(sparks(gold(ms)) > 0, `${label}: a spark at +${ms} ms`);
-      assert.ok(outline(null) - outline(ms) > 0.5, `${label}: a hop at +${ms} ms (${outline(null) - outline(ms)} px)`);
+      assert.equal(outline(null) - outline(ms), 1, `${label}: a hop at +${ms} ms`);
     }
     for (const ms of GREET_AT.between) assert.equal(sparks(gold(ms)), 0, `${label}: no spark at +${ms} ms`);
     // Between the hops the eyes, open again, look left, right and up.

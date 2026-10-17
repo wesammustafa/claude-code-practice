@@ -383,9 +383,9 @@ function pulseLine(ctx) {
   return rule(t, W);
 }
 
-// How far into a one-shot this frame is, in ms, or Infinity once it rests
-// (and in every frame without motion).
-const into = (ctx, part) => (ctx.ph[part] >= 1 ? Infinity : Math.round(ctx.ph[part] * TIMING[part]));
+// How far into a one-shot this frame is, in ms, unrounded, or Infinity once
+// it rests (and in every frame without motion).
+const into = (ctx, part) => ctx.ph.ms[part] ?? Infinity;
 const spread = (left, right, w) => left + ' '.repeat(Math.max(1, w - width(left) - width(right))) + right;
 const rule = (t, W) => t.fg('faint', t.glyph.rule.repeat(W));
 // `n` of `total` as heavy green cells over the plain rule, `w` wide.

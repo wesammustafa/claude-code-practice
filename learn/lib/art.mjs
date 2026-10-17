@@ -2,7 +2,7 @@
 // has a plain ASCII form. Nothing here is random: the same screen draws the
 // same art every time.
 import { SHOTS, TIMING } from './motion.mjs';
-import { rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
+import { PALETTE, rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
 import { width } from './text.mjs';
 
 // Pip is the pip-terminal package's (pip/pip.mjs, as it ships): its glyph
@@ -100,27 +100,35 @@ export function pipGreeting(pose, ms) {
 // `pose` from the package's controller, as `rows` lines of `cols` cells.
 // The package paints its own backdrop (#1E1E1E) and softens each edge
 // toward it. Here the backdrop is the terminal's own background, so no
-// rectangle shows on another one: the pose is also rasterized over black
-// and over white, and where the two differ the backdrop shows through, by
-// as much as they differ. A pixel less than PIP_SEEN Pip is background; any
-// other is the package's own pixel, soft edge and all, so Pip looks as the
-// package draws it. A cell with both halves background is a space, one ink
-// half is `▀` or `▄` over the default background, two are `▀` in both
-// colors, in 24-bit color. Without a pose, blank rows of the same size (to
-// measure a screen with it).
-export const PIP_SEEN = 0.08;
+// rectangle shows on another one. The package blends linearly, so one pass
+// in a code palette gives each pixel's cover and its mix of Pip's colors:
+// red is how much of it is Pip, green how much is gold, blue how much is
+// mouth, the rest outline. The terminal's own background shows where Pip
+// covers under a quarter of a pixel (PIP_INK); any other pixel is drawn in
+// Pip's own colors, unmixed with a backdrop, so an edge that breathing
+// moves is never a dark speck on a light terminal, and a shut eye still
+// shows. A cell with both halves background is a space, one ink half is `▀`
+// or `▄` over the default background, two are `▀` in both colors, in
+// 24-bit color. Without a pose, blank rows of the same size (to measure a
+// screen with it).
+export const PIP_INK = 0.25;
+const CODES = { background: '#000000', outline: '#FF0000', eyes: '#FFFF00', mouth: '#FF00FF' };
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const [OUTLINE, GOLD, MOUTH] = [PALETTE.outline, PALETTE.eyes, PALETTE.mouth].map(rgb);
 export function pipRaster(pose, size) {
   const { cols, rows } = PIP_RASTER[size];
   if (!pose) return Array.from({ length: rows }, () => ' '.repeat(cols));
-  const own = rasterizePip(pose, { columns: cols, rows }).pixels;
-  const dark = rasterizePip(pose, { columns: cols, rows, palette: { background: '#000000' } }).pixels;
-  const light = rasterizePip(pose, { columns: cols, rows, palette: { background: '#FFFFFF' } }).pixels;
-  // How much of the pixel at `at` is Pip, 0 to 1.
-  const cover = (at) => 1 - (light[at] - dark[at] + light[at + 1] - dark[at + 1] + light[at + 2] - dark[at + 2]) / 765;
-  const inked = (at) => cover(at) >= PIP_SEEN;
+  const px = rasterizePip(pose, { columns: cols, rows, palette: CODES }).pixels;
+  const inked = (at) => px[at] / 255 >= PIP_INK;
   const codes = new Map();
   const code = (at, bg) => {
-    const c = [own[at], own[at + 1], own[at + 2]];
+    // Each color's share of the pixel, in 255ths: their sum is its cover,
+    // or a little over where the package's rounding leaves gold and mouth
+    // over it, so the color is a mix of Pip's own either way.
+    const [gold, mouth] = [px[at + 1], px[at + 2]];
+    const outline = Math.max(0, px[at] - gold - mouth);
+    const sum = outline + gold + mouth;
+    const c = [0, 1, 2].map((k) => Math.round((OUTLINE[k] * outline + GOLD[k] * gold + MOUTH[k] * mouth) / sum));
     const key = `${bg}:${c.join(',')}`;
     if (!codes.has(key)) codes.set(key, `${bg ? 48 : 38};2;${c.join(';')}`);
     return codes.get(key);

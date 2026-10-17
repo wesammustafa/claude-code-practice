@@ -204,10 +204,10 @@ const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 
 // What every moving part draws at rest, and while frozen: each one-shot at
 // its end (1), no spinner, no seconds, no ambient loop: no look marker
-// (`look`, its notch) and no blink. `checking`: Pip wears its checking face
-// whenever the card says "Checking"; with motion, only once the spinner
-// turns.
-export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
+// (`look`, its notch) and no blink, so nothing in `ms`. `checking`: Pip
+// wears its checking face whenever the card says "Checking"; with motion,
+// only once the spinner turns.
+export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false, ms: Object.freeze({}) });
 
 // Since when a check or git child has run for the beat on screen while it is
 // `opening`, or for r on the check-only card: a child that started before
@@ -306,14 +306,21 @@ export function bootChange(since, at, caps) {
 }
 
 // What each moving part draws at `at`; the rest phases when motion is off.
+// `ms`: how far into each one-shot still playing `at` is, and into a blink
+// while one is on, in the clock's own milliseconds, unrounded.
 export function phases(s, at, caps) {
   if (!caps?.motion || at === Infinity || s.overlay) return REST_PHASES;
   const since = childSince(s);
   const { spinner, elapsed } = spun(since === undefined ? NEVER : at - since);
   const still = idle(s, at);
-  const shots = Object.fromEntries(Object.entries(shotStarts(s)).map(([part, start]) => [part, still ? 1 : oneShot(s, at, start, TIMING[part])]));
+  const starts = Object.entries(shotStarts(s));
+  const shots = Object.fromEntries(starts.map(([part, start]) => [part, still ? 1 : oneShot(s, at, start, TIMING[part])]));
+  const ms = Object.fromEntries(starts.filter(([part]) => shots[part] < 1).map(([part, start]) => [part, Math.max(0, at - start)]));
   // While a child runs, its bounce holds the pulse line: no ambient loop.
   const ambient = !still && spinner === null && ambientAllowed(s, at);
+  // A blink as the gates open, then every 6 s.
+  const blink = ambient && blinks(s) && blinkInto(s, at) < TIMING.blink;
+  if (blink) ms.blink = blinkInto(s, at);
   return {
     ...shots,
     spinner,
@@ -321,8 +328,8 @@ export function phases(s, at, caps) {
     checking: spinner !== null,
     ambient,
     look: ambient && shots.sweep === 1 ? lookNotch(s) : null,
-    // A blink as the gates open, then every 6 s.
-    blink: ambient && blinks(s) && blinkInto(s, at) < TIMING.blink,
+    blink,
+    ms,
   };
 }
 

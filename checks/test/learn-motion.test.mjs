@@ -609,7 +609,7 @@ test('screens with no ambient part never allow one, and ask for no frame once th
 
 const ON = { motion: true };
 const OFF = { motion: false, calm: true };
-const RESTING = { entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false };
+const RESTING = { entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false, ms: {} };
 
 test('phases: the rest phases with motion off, at rest and under an overlay', () => {
   const { d, t } = opened('W3');
@@ -617,6 +617,24 @@ test('phases: the rest phases with motion off, at rest and under an overlay', ()
   assert.deepEqual(phases(d.state, Infinity, ON), RESTING, 'the rest frame');
   d.send({ type: 'key', name: '?', wait: 7 });
   assert.deepEqual(phases(d.state, d.now + 40, ON), RESTING, 'an overlay freezes everything');
+});
+
+// A one-shot's place in it is the clock's own difference, unrounded: the
+// fraction times the one-shot's length is not exact (1720 of 5000 ms gives
+// 1719.9999999999998).
+test('phases: each one-shot still playing has its ms since it started, exactly, and a blink its ms into the blink', () => {
+  const s = driver().state;
+  const start = shotStarts(s).greet;
+  for (const ms of [0, 40, 1_720, 1_720.25, TIMING.greet - 0.5]) assert.equal(phases(s, start + ms, ON).ms.greet, ms, `+${ms} ms`);
+  assert.equal(phases(s, start + TIMING.greet, ON).ms.greet, undefined, 'over');
+  const pressed = reduce(s, { type: 'key', name: 'up', now: start + 1_000 }).state;
+  assert.equal(phases(pressed, start + 1_720, ON).ms.greet, undefined, 'a key ended it');
+  assert.deepEqual(phases(s, start + 40, { motion: false }).ms, {}, 'motion off');
+  // The welcome's blink as its gates open: its ms into the blink while it
+  // is on, and none after.
+  const open = ambientOpened(s);
+  assert.equal(phases(s, open + 80.5, ON).ms.blink, 80.5);
+  assert.equal(phases(s, open + TIMING.blink, ON).ms.blink, undefined);
 });
 
 test('phases: a card enters over 160 ms, and a key after it ends the entrance', () => {
