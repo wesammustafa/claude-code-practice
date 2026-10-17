@@ -243,6 +243,8 @@ export const C = {
   buildsOnFile: (label, hint) => `This lesson builds on ${label}: ${hint}`,
   openFirst: (label) => `Open ${label} first`,
   // Commands no PATH folder holds, before the page's You need lines that name them.
+  // The lead of the page's line for the learner's repository (ticket 179).
+  youNeed: 'You need:',
   notOnPath: (...names) => `No ${names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0]} on your PATH. You need:`,
   // Where the intro has no room for all of that, one row hands it to n.
   notesShort: 'Read this before you start: press n',

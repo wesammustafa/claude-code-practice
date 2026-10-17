@@ -407,11 +407,22 @@ export function folderProblem(s) {
   if (!found) return null;
   return found.missing ? 'missing' : found.gitBroken ? 'gitBroken' : !found.git ? 'notGit' : !found.practice ? 'noPractice' : null;
 }
+// The page's You need line for the learner's own repository (ticket 179),
+// where the lesson runs in its level's work folder and that folder is set
+// and is not the practice copy: never in a lesson pinned to the copy, nor
+// in one that runs in a new copy of the template.
+export function repoNeed(s) {
+  const k = folderKey(s);
+  const dir = k && k === levelKey(s) ? s.folders[k] : null;
+  return dir && dir !== s.facts.root ? contentOf(s)?.intro['need-repo'] ?? null : null;
+}
 // What the intro has to say before the learner starts, a note each: the
-// work folder's problem, on native Windows the page's note, the commands
-// missing, and each prerequisite that failed. n shows them all.
+// work folder's problem, the page's line for the learner's repository, on
+// native Windows the page's note, the commands missing, and each
+// prerequisite that failed. n shows them all.
 export const introNotes = (s) => [
   ...(!asksFolder(s) && folderProblem(s) ? ['folder'] : []),
+  ...(repoNeed(s) ? ['repo'] : []),
   ...(s.facts.win32 && contentOf(s)?.intro['win-note'] ? ['win'] : []),
   ...(missingNeeds(s).length ? ['needs'] : []),
   ...unmet(s).map(() => 'prereq'),
