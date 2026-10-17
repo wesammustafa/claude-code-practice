@@ -3,7 +3,7 @@
 The practice repository for [Claude Code: Everything You Need to Know](https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know). The lessons live in the guide; this repository holds the small app you practice on and a check for every core lesson and capstone.
 
 <p align="center">
-  <!-- Captured from the learning app at template commit f136c1e on 2026-10-16. -->
+  <!-- Captured from the learning app at template commit bb07af7 on 2026-10-17. -->
   <img src=".github/readme/learn-lesson-complete.png" width="640" alt="Each finished lesson lists what you practised, with a flag on the skill the lesson builds to. After Beginner lesson 1: install Claude Code, sign in, start it in a repository, and tell which version, model and account a session is using, plus a new badge, Explorer." />
   <br />
   <sub>The learning app, <code>npm run learn</code>, at the end of Beginner lesson 1.</sub>
