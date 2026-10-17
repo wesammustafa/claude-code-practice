@@ -75,15 +75,20 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // i-capstone's too, though i-capstone itself stays in the copy. A saved
     // new copy makes its lesson the next one (172), but not the one --dir
     // answers for: that is the lesson the app opens on with none saved, so
-    // while other Advanced lessons are left --dir is still the level's.
+    // while other Advanced lessons are left --dir is still the level's. Nor
+    // does --dir replace a new copy already saved (173): opening on its
+    // lesson, it is the level's too.
     const opening = initialState({ course, saved: { ...saved, folders: {} }, facts: { root } });
-    const key = folderKey(opening) ?? levelKey(opening);
+    const level = levelKey(opening);
+    const own = folderKey(opening);
+    const savedCopy = Boolean(own && own !== level && saved?.folders?.[own]);
+    const key = savedCopy ? level : own ?? level;
     if (!key) {
       stderr.write(`${C.dirBeginner}\n`);
       return 2;
     }
     // A new copy is another folder than this practice copy.
-    if (key !== levelKey(opening) && ahead.path === root) {
+    if (key !== level && ahead.path === root) {
       stderr.write(`${C.newCopyIsCopy}\n`);
       return 2;
     }
