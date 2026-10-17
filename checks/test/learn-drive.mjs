@@ -177,6 +177,20 @@ next: i-2
 - goal: "Run the check."
 `;
 
+// DEMO_I1 with R2 from the Intermediate level index, as the guide's quote
+// check allows (ticket 178): a page with no lesson file and no PATH entry.
+export const DEMO_I1_INDEX = DEMO_I1.replace(/### R2 \| Warm-up \| Compact\n[^#]*/, `### R2 | Warm-up | When to use what
+- tier: challenge
+- skill: when-to-use
+- from: intermediate-index
+- beat: ask
+- ask: Which one runs on every matching event?
+- right: "A hook"
+- wrong: "A skill"
+- because: "A skill is [something else](01-first-skill.md)."
+
+`);
+
 // A lesson finished on the path: complete, with every one of its own steps
 // done. Help fades only for what the learner did, so a seed without `done`
 // is a learner who skipped the lesson.
