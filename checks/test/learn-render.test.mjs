@@ -5,13 +5,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { C } from '../../learn/lib/copy.mjs';
+import { parseLesson } from '../../learn/lib/content.mjs';
+import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { bootFrame, cardMax, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, DEMO_I1_INDEX, driver, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -1614,6 +1615,67 @@ test('each level has its own first warm-up: a later level\'s first lesson with w
   assert.equal(stepOf(second.state).part, 'Warm-up');
   assert.ok(!explains(second), plainAt(second, 80, 24));
 });
+
+// Ticket 178: a warm-up from a level index names the index, and so do the
+// app's words around its quotes; its relative links point into the index
+// page, and p gives the index's address. The Beginner index sits in another
+// folder than i-1's page, so a link resolved against i-1's page fails.
+const LESSON_WORDS = ['The lesson says', "lesson's words", 'lesson page', 'an earlier lesson'].map(flatText);
+test('a level index warm-up\'s words: each takes the place of the lesson words of its name, and names no lesson', () => {
+  for (const [k, v] of Object.entries(C.fromIndex)) {
+    assert.equal(typeof v, typeof C[k], k);
+    const said = typeof v === 'function' ? v('...') : v;
+    assert.ok(said.includes(TERMS.levelIndex) && !/lesson/.test(said), `${k}: ${said}`);
+  }
+});
+
+for (const [level, name] of [['intermediate', 'Intermediate'], ['beginner', 'Beginner']]) {
+  test(`a level index warm-up (${level}): the index's words, links and page, at 60x20 and 80x24`, () => {
+    const text = DEMO_I1_INDEX.replace('- from: intermediate-index', `- from: ${level}-index`)
+      .replace('- right: "A hook"', '- why: "A hook runs every time."\n- right: "A hook"');
+    const lessons = allCourse.map((l) => (l.id === 'i-1' ? { ...l, content: parseLesson(text, 'i-1.md') } : l));
+    // A missed skill comes first, so R2 is the level's first warm-up.
+    const d = firstWarmup('i-1', { missed: ['when-to-use'] }, lessons);
+    assert.equal(stepOf(d.state).id, 'R2');
+    const docs = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs';
+    const at = (cols, rows) => {
+      for (const caps of [CAPS.full, CAPS.ascii]) fits(d.state, [cols, rows], theme(caps), `${cols}x${rows} ${caps.unicode ? 'unicode' : 'ascii'}`);
+      const screen = plainAt(d, cols, rows);
+      assert.deepEqual(LESSON_WORDS.filter((w) => flatText(screen).includes(w)), [], screen);
+      return flatText(screen);
+    };
+    for (const [cols, rows] of SHORT) {
+      const screen = at(cols, rows);
+      assert.ok(screen.includes(flatText(`Warm-up from the ${name} level index`)), screen);
+      assert.ok(screen.includes(flatText(C.fromIndex.warmupWhy)), screen);
+    }
+    // w gives the beat's why in the index's words.
+    d.key('w');
+    assert.equal(d.state.overlay, 'why');
+    for (const [cols, rows] of SHORT) assert.ok(at(cols, rows).includes(flatText(C.fromIndex.why)), plainAt(d, cols, rows));
+    d.key('w');
+    // A wrong pick shows its because, whose link is relative to the index page.
+    d.key(String(beatOf(d.state).options.findIndex((o) => o.kind === 'wrong') + 1));
+    for (const [cols, rows] of SHORT) assert.ok(at(cols, rows).includes(flatText(C.fromIndex.trueOfElse)), plainAt(d, cols, rows));
+    const links = [...render(d.state, { cols: 80, rows: 24 }, theme(CAPS.full)).join('').matchAll(/\x1b\]8;;([^\x07]*)\x07/g)].map((m) => m[1]).filter(Boolean);
+    assert.ok(links.includes(`${docs}/${level}/01-first-skill.md`), links.join(' '));
+    d.key('p');
+    assert.equal(d.state.overlay, 'page');
+    for (const [cols, rows] of SHORT) {
+      const screen = plainAt(d, cols, rows).split('\n').map((x) => x.trim()).join('');
+      at(cols, rows);
+      assert.ok(screen.includes(C.fromIndex.pageTitle), screen);
+      assert.ok(screen.includes(`${docs}/${level}/README.md`), screen);
+      assert.ok(screen.includes('lesson-feedback.yml&lesson=i-1'), screen);
+    }
+    d.key('p');
+    // s shows the answer in the index's words.
+    d.key('s');
+    for (const [cols, rows] of SHORT) assert.ok(at(cols, rows).includes(flatText(C.fromIndex.theAnswer)), plainAt(d, cols, rows));
+    // The play goes on to i-1's own steps.
+    playUntil(d, (s) => stepOf(s)?.id === 'W1');
+  });
+}
 
 // A missed Windows note leaves a broken file (ticket 165), so on Windows the
 // note stays whole on every state of its step, at both short sizes, in ASCII
