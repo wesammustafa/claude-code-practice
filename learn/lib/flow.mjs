@@ -43,8 +43,9 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
   const open = course.find((l) => l.content && progress[l.id].step && !progress[l.id].complete)
     ?? course.find((l) => l.content && !progress[l.id].complete);
   // Every lesson in the app is done: open the map at the next lesson, or
-  // where only lessons that run in a new copy are left, at the first of them.
-  const next = open ?? course.find((l) => toFinish(progress, l)) ?? course.find((l) => !progress[l.id].complete) ?? course[0];
+  // where only lessons that run in a new copy with no folder saved are left,
+  // at the first of them.
+  const next = open ?? course.find((l) => toFinish({ progress, folders: saved?.folders ?? {} }, l)) ?? course.find((l) => !progress[l.id].complete) ?? course[0];
   const welcomed = Boolean(saved?.welcomed);
   const eased = saved?.eased ?? [];
   // A warm-up the learner quit on with its skill eased was most likely missed
@@ -136,10 +137,11 @@ export function folderOf(s, id = s.lesson) {
   const k = folderKey(s, id);
   return (k && s.folders[k]) || s.facts.root;
 }
-// A lesson the learner can still finish in this practice copy: not complete,
-// and not one that runs in a new copy of the template, whose check never
-// runs here. The next lesson the map marks and opens at is one of these.
-export const toFinish = (progress, l) => !progress[l.id].complete && pinOf(l) !== 'new copy';
+// A lesson the learner can still finish: not complete, and not one that
+// runs in a new copy of the template while that copy's folder is not saved,
+// as no check of it runs until then. The next lesson the map marks and
+// opens at is one of these.
+export const toFinish = ({ progress, folders }, l) => !progress[l.id].complete && (pinOf(l) !== 'new copy' || Boolean(folders[l.id]));
 // What the check-only card says above a lesson's items.
 export const checkOnlyWords = (s, l) => (pinOf(l) !== 'new copy' ? C.checkOnly : folderOf(s, l.id) ? C.newCopyAt : C.newCopy);
 // The steps a learner meets, in order: the warm-up questions chosen when the
@@ -1487,7 +1489,7 @@ const VIEWS = {
     else if (name === 'left' || name === 'right') {
       const level = levels[(levels.indexOf(levelOf(s, at.id)) + (name === 'left' ? levels.length - 1 : 1)) % levels.length];
       const lessons = levelLessons(s, level);
-      to(lessons.find((l) => toFinish(s.progress, l)) ?? lessons[0]);
+      to(lessons.find((l) => toFinish(s, l)) ?? lessons[0]);
     } else if (name === 'enter') startLesson(s, at.id, effects);
     // f: the work folder of the level on screen (ticket 86).
     else if (name === 'f' && levelKey(s, at.id)) askFolder(s, levelKey(s, at.id));

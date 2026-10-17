@@ -529,6 +529,38 @@ test('until a-5 and a-capstone can run in their own copy, the next lesson passes
   assert.ok(!lines(rest.state, [80, 24]).some((l) => / next/.test(l)), lines(rest.state, [80, 24]).join('\n'));
 });
 
+// Ticket 172: since 86 a-5 and a-capstone run their check in the new copy
+// the learner gives, so once its folder is saved each is a lesson to finish.
+test('once a-5 or a-capstone has its new copy saved, it is the next lesson where it is the first unfinished one: the map marks it, and left, right and a restart land there', () => {
+  const done = (ids) => Object.fromEntries(ids.map((id) => [id, { complete: true }]));
+  const before = { ...beginnerDone(), ...done(['i-1', 'i-2', 'i-3', 'i-4', 'i-5', 'i-6', 'i-7', 'i-8', 'i-capstone', 'a-1', 'a-2', 'a-3', 'a-4']) };
+  const cases = [
+    { id: 'a-5', label: 'A5', after: 'A6', lessons: before, folders: { 'a-5': '/home/sam/claude-actions-practice' } },
+    { id: 'a-capstone', label: 'AC', after: null, lessons: { ...before, ...done(['a-6', 'a-7']) }, folders: { 'a-capstone': '/home/sam/ci-review' } },
+  ];
+  for (const { id, label, after, lessons, folders } of cases) {
+    const d = driver({ course, saved: { format: 1, welcomed: true, lessons, folders } });
+    assert.deepEqual([d.state.view, d.state.course[d.state.mapCursor].id], ['map', id], `the app opens on the map at ${id}`);
+    for (const size of SIZES) {
+      const ls = lines(d.state, size);
+      assert.match(mapRow(ls, label), /next/, ls.join('\n'));
+      if (after) assert.doesNotMatch(mapRow(ls, after), /next/, ls.join('\n'));
+      for (const t of [FULL, ASCII]) {
+        const raw = render(d.state, { cols: size[0], rows: size[1] }, t);
+        const where = `${id} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${raw.map(strip).join('\n')}`;
+        assert.equal(raw.length, size[1], where);
+        for (const l of raw) {
+          assert.ok(width(l) <= size[0] - 1, where);
+          assert.ok(graphemes(strip(l)).filter(isEmoji).length <= 1, where);
+        }
+      }
+    }
+    d.key('right');
+    d.key('left');
+    assert.equal(d.state.course[d.state.mapCursor].id, id, `back on Advanced, at ${id}`);
+  }
+});
+
 // Ticket 168: a URL wrapped by the card's width broke inside a word, under
 // the card's rail, so a copy of it from a terminal with no links gave a
 // broken address. The card names the page instead, as a link where links
