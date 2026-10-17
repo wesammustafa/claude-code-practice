@@ -133,8 +133,6 @@ function viewOf(s, size, t, clock, raster) {
 
 // The big Pip's screens, each with the mood its 9x4 Pip rests in.
 const BIG_PIP = { welcome: 'happy', resume: 'happy', levelup: 'focus', complete: 'party' };
-// The detailed Pip's sizes, biggest first. Hero (48x24) is not used.
-const RASTERS = ['standard', 'small'];
 
 // The detailed Pip's state for what the screen shows the app saw, from its
 // 9x4 Pip's mood: the welcome's and resume's happy and the level-up's focus
@@ -162,24 +160,28 @@ export function pipTarget(s, at) {
 const STRAY = { kind: 'stray', until: Infinity };
 
 // Where the detailed Pip goes on this screen (`s`, or null for the boot
-// frame): the biggest raster whose extra rows fit in the rows the screen
-// pads with, so no row it shows gives way, or null for the 9x4 Pip. Only on
-// the big Pip's screens, with no overlay, with Unicode and 256 colors or
-// more. Pip keeps its size while the screen is up: the room is measured
-// with a toast (its own, and a stray key's) and, on resume, the y/n to
-// start over, whether they are up or not. The boot frame's Pip is no bigger
-// than the one on `ahead`, where given: the screen it hands over to, so Pip
-// does not shrink as git answers. main draws with what this gives, and asks
-// for Pip's frames only where it gives a raster.
+// frame): `standard` where its extra rows fit in the rows the screen pads
+// with, so no row it shows gives way, else null for the 9x4 Pip. Small
+// (its eyes turn to bars) and hero are not used (174). Only on the big
+// Pip's screens, with no overlay, with Unicode and truecolor: at 256 colors
+// the package's soft edges round to fringes. Pip keeps its size while the
+// screen is up: the room is measured with a toast (its own, and a stray
+// key's) and, on resume, the y/n to start over, whether they are up or
+// not. The boot frame has it only where `ahead` does, where given: the
+// screen it hands over to, so Pip does not change as git answers. main
+// draws with what this gives, and asks for Pip's frames only where it
+// gives a raster.
 export function pipSlot(s, size, t, ahead = null) {
-  if (!t.unicode || t.depth < 8 || size.cols < MIN.cols || size.rows < MIN.rows) return null;
+  if (!t.unicode || t.depth < 24 || size.cols < MIN.cols || size.rows < MIN.rows) return null;
+  // A raster with no pose: enough to measure the rows it takes.
+  const blank = { size: 'standard' };
   if (!s) {
-    const most = ahead ? pipSlot(ahead, size, t) : RASTERS[0];
-    return most && (RASTERS.slice(RASTERS.indexOf(most)).find((slot) => bootOf(0, size, t, REST, { size: slot }).spare >= 0) ?? null);
+    if (ahead && !pipSlot(ahead, size, t)) return null;
+    return bootOf(0, size, t, REST, blank).spare >= 0 ? 'standard' : null;
   }
   if (s.overlay || !BIG_PIP[s.view]) return null;
   const busiest = [STRAY, s.toast].filter(Boolean).map((toast) => ({ ...s, toast, confirmRestart: s.confirmRestart || s.view === 'resume' }));
-  return RASTERS.find((slot) => busiest.every((x) => screenOf(x, size, t, REST, { size: slot }).spare >= 0)) ?? null;
+  return busiest.every((x) => screenOf(x, size, t, REST, blank).spare >= 0) ? 'standard' : null;
 }
 
 // A frame's width, margin and top, its toast and the blank above the pulse
@@ -1200,7 +1202,7 @@ function windows(ctx) {
 function bigPip(ctx, mood, frame) {
   const { t, raster } = ctx;
   if (!raster) return { rows: pip(t, mood, frame), width: 9, face: 2 };
-  return { rows: pipRaster(t, raster.pose, raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
+  return { rows: pipRaster(raster.pose, raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
 }
 
 // Pip with text beside it, from Pip's face row (on the 9x4 Pip its third,
