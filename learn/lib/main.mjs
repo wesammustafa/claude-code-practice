@@ -72,8 +72,11 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       return 2;
     }
     // The lesson's own key for one that runs in a new copy; else its level's,
-    // i-capstone's too, though i-capstone itself stays in the copy.
-    const opening = initialState({ course, saved, facts: { root } });
+    // i-capstone's too, though i-capstone itself stays in the copy. A saved
+    // new copy makes its lesson the next one (172), but not the one --dir
+    // answers for: that is the lesson the app opens on with none saved, so
+    // while other Advanced lessons are left --dir is still the level's.
+    const opening = initialState({ course, saved: { ...saved, folders: {} }, facts: { root } });
     const key = folderKey(opening) ?? levelKey(opening);
     if (!key) {
       stderr.write(`${C.dirBeginner}\n`);
