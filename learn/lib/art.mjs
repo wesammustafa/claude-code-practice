@@ -51,29 +51,13 @@ export function pip(t, mood = 'happy', frame) {
   return renderPip(poseOf(t, mood, frame), { size: 'glyph', depth: 1, unicode: t.unicode }).map((row, i) => ink(t, row, places[i]));
 }
 
-// The detailed Pip, the package's half-cell raster at one of its sizes, for
-// a screen with rows to spare (render.mjs's pipSlot). Each cell is two of
-// its pixels, over and under. `face` is the row its eyes are on.
+// The detailed Pip, the package's half-cell raster at its standard size,
+// for a truecolor screen with rows to spare (render.mjs's pipSlot). Each
+// cell is two of its pixels, over and under. `face` is the row its eyes
+// are on.
 export const PIP_RASTER = {
-  small: { cols: SIZES.small[0], rows: SIZES.small[1], face: 5 },
   standard: { cols: SIZES.standard[0], rows: SIZES.standard[1], face: 9 },
 };
-// The package's 256-color picks: the xterm cube and grays (pip.mjs's own,
-// which it does not export).
-const XTERM = Array.from({ length: 240 }, (_, i) => {
-  if (i >= 216) return [8 + (i - 216) * 10, 8 + (i - 216) * 10, 8 + (i - 216) * 10];
-  const levels = [0, 95, 135, 175, 215, 255];
-  return [levels[Math.floor(i / 36)], levels[Math.floor(i / 6) % 6], levels[i % 6]];
-});
-function xterm(c) {
-  let best = 0;
-  let far = Infinity;
-  XTERM.forEach((p, i) => {
-    const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2;
-    if (d < far) [best, far] = [i, d];
-  });
-  return 16 + best;
-}
 
 // `pose` from the package's controller, as `rows` lines of `cols` cells.
 // The package paints its own backdrop (#1E1E1E) and softens each edge
@@ -84,10 +68,10 @@ function xterm(c) {
 // other is the package's own pixel, soft edge and all, so Pip looks as the
 // package draws it. A cell with both halves background is a space, one ink
 // half is `▀` or `▄` over the default background, two are `▀` in both
-// colors. 256 colors, or 24-bit where the terminal reports it. Without a
-// pose, blank rows of the same size (to measure a screen with it).
+// colors, in 24-bit color. Without a pose, blank rows of the same size (to
+// measure a screen with it).
 export const PIP_SEEN = 0.08;
-export function pipRaster(t, pose, size) {
+export function pipRaster(pose, size) {
   const { cols, rows } = PIP_RASTER[size];
   if (!pose) return Array.from({ length: rows }, () => ' '.repeat(cols));
   const own = rasterizePip(pose, { columns: cols, rows }).pixels;
@@ -100,7 +84,7 @@ export function pipRaster(t, pose, size) {
   const code = (at, bg) => {
     const c = [own[at], own[at + 1], own[at + 2]];
     const key = `${bg}:${c.join(',')}`;
-    if (!codes.has(key)) codes.set(key, t.depth >= 24 ? `${bg ? 48 : 38};2;${c.join(';')}` : `${bg ? 48 : 38};5;${xterm(c)}`);
+    if (!codes.has(key)) codes.set(key, `${bg ? 48 : 38};2;${c.join(';')}`);
     return codes.get(key);
   };
   return Array.from({ length: rows }, (_, row) => {
