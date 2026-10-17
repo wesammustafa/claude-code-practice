@@ -39,7 +39,8 @@ export const BEAT_KEYS = {
 // says which (ticket 89). `win-note`: the page's note for native Windows,
 // at most one. `need-repo`: the page's You need line that asks for one of
 // the learner's own repositories, naming no command, at most one; shown
-// only where the level's work folder is not the practice copy (ticket 179).
+// only where the lesson runs in its level's work folder and that folder is
+// not the practice copy (ticket 179).
 export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, read: true, need: true, 'win-note': true, 'need-repo': true };
 export const LADDER_KEYS = { hint: true, bottom: true, win: true };
 // The card (the c overlay): each entry a `skill` line in the app's words,

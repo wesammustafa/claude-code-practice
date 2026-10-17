@@ -406,9 +406,12 @@ export function folderProblem(s) {
   return found.missing ? 'missing' : found.gitBroken ? 'gitBroken' : !found.git ? 'notGit' : !found.practice ? 'noPractice' : null;
 }
 // The page's You need line for the learner's own repository (ticket 179),
-// where the lesson's work folder is set and is not the practice copy.
+// where the lesson runs in its level's work folder and that folder is set
+// and is not the practice copy: never in a lesson pinned to the copy, nor
+// in one that runs in a new copy of the template.
 export function repoNeed(s) {
-  const dir = folderOf(s);
+  const k = folderKey(s);
+  const dir = k && k === levelKey(s) ? s.folders[k] : null;
   return dir && dir !== s.facts.root ? contentOf(s)?.intro['need-repo'] ?? null : null;
 }
 // What the intro has to say before the learner starts, a note each: the

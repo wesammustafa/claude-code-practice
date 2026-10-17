@@ -168,6 +168,39 @@ test('the intro shows the repository line only where the level\'s work folder is
   assert.equal(mine.state.view, 'step');
 });
 
+// At `id`'s intro, every lesson before it finished, with `opts` in its
+// lesson file and `folders` saved.
+const atLesson = (id, opts, folders) => {
+  const course = threeLevels({ [id]: withNeeds(opts).replace('lesson: i-1', `lesson: ${id}`) });
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(id, course), folders } });
+  assert.deepEqual([d.state.view, d.state.lesson], ['intro', id]);
+  return d;
+};
+
+test('the repository line shows on a later intro in the level\'s work folder, and never where the lesson runs elsewhere', () => {
+  const repo = { intro: [`- need-repo: "${NEED_REPO}"`] };
+  // A later intro, with no answer row: the line still shows.
+  const later = atLesson('i-2', repo, { intermediate: MINE });
+  for (const size of SIZES) {
+    const text = flat(screen(later.state, size));
+    assert.ok(text.includes(`"${NEED_REPO}"`) && !text.includes(C.workFolder), `${size}\n${screen(later.state, size).join('\n')}`);
+  }
+  // The capstone pinned to the copy, a lesson in a new copy of the
+  // template, and Beginner, which has no work folder: nothing, and n does
+  // nothing.
+  const elsewhere = [
+    ['i-capstone', { intermediate: MINE }],
+    ['a-5', { intermediate: MINE, advanced: MINE, 'a-5': '/home/sam/new-copy' }],
+    ['b-4', {}],
+  ];
+  for (const [id, folders] of elsewhere) {
+    const d = atLesson(id, repo, folders);
+    for (const size of SIZES) assert.ok(!flat(screen(d.state, size)).includes(NEED_REPO), `${id} at ${size}\n${screen(d.state, size).join('\n')}`);
+    d.key('n');
+    assert.equal(d.state.overlay, null, `${id}: with nothing to say, n does nothing`);
+  }
+});
+
 // ---- prerequisites -------------------------------------------------------------
 const SKILL = '.claude/skills/five-whys/SKILL.md';
 
@@ -413,6 +446,9 @@ test('the intro\'s notes share its row plan with the Why line and the folder que
     // my-app only I1 is.
     ['first, answered, everything', 'i-3', everything, { mode: 'answered' }, [C.workFolder, C.openFirst('B5')]],
     ['saved, everything in my-app', 'i-3', everything, { probe: NOT_GIT, extra: 1 }, [C.openFirst('I1')]],
+    // The level's first intro in my-app: the answer row, the folder's note
+    // and the repository line together.
+    ['saved, everything on the level\'s first intro', 'i-1', { ...everything, front: [everything.front[0], 'requires: [b-5 check 0]'] }, { probe: NOT_GIT, extra: 1 }, [C.workFolder, C.startLesson(1)]],
     ['later, two needs', 'a-7', sandbox, {}, []],
   ];
   let dropped = 0;
@@ -429,7 +465,7 @@ test('the intro\'s notes share its row plan with the Why line and the folder que
     if (content.intro['win-note']) assert.ok(all.includes(`"${WINDOWS}"`), `${label}: n shows the Windows note`);
     if (how.probe) assert.ok(all.includes(C.notGit), `${label}: n shows the folder's note`);
     // The repository line, in my-app alone.
-    if (content.intro['need-repo']) assert.equal(all.includes(`"${NEED_REPO}"`), !how.mode, `${label}: n shows the repository line in my-app alone\n${all}`);
+    if (content.intro['need-repo']) assert.equal(all.includes(`"${NEED_REPO}"`), (how.mode ?? 'saved') === 'saved', `${label}: n shows the repository line in my-app alone\n${all}`);
   }
   assert.ok(dropped > 0, 'the Why line never had to give way');
   assert.ok(short > 0, 'the notes never had to give way');

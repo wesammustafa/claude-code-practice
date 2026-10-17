@@ -777,8 +777,8 @@ function folderNotes(ctx, w = ctx.W) {
 
 // What the intro says before the learner starts, in `w` columns, each note
 // its kept rows: what main found wrong with the work folder (ticket 86);
-// in a work folder that is not the practice copy, the page's line for the
-// learner's repository (ticket 179); then what the lesson needs (ticket
+// in the level's work folder, where it is not the practice copy, the page's
+// line for the learner's repository (ticket 179); then what the lesson needs (ticket
 // 89): on native Windows the page's note, as a beat shows it; the commands
 // main found on no PATH folder, in one sentence with the You need line that
 // names each; and each prerequisite that failed, with what isn't there.
@@ -788,9 +788,10 @@ function noteRows(ctx, w) {
   const repo = repoNeed(s);
   const missing = missingNeeds(s);
   const quotes = missing.map((n) => `"${n.quote}"`).join(' ');
+  const quoted = (text) => kept(para(t, text, w, 'text', { quote: true }));
   return [asksFolder(s) ? [] : folderNotes(ctx, w),
-    repo ? kept(para(t, repo, w, 'text', { quote: true })) : [],
-    win && t.caps.win32 ? kept(para(t, win, w, 'text', { quote: true })) : [],
+    repo ? quoted(repo) : [],
+    win && t.caps.win32 ? quoted(win) : [],
     missing.length ? warnNote(t, quotes, w, 'text', { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : [],
     ...unmet(s).map((r) => warnNote(t, (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
 }
