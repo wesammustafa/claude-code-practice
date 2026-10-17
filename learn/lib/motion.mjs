@@ -62,11 +62,13 @@ export const SHOTS = {
   // Beginner's five, and reaches the cup at `cup`; from `pulse` one pulse
   // crosses the arrow, a cell every `cell`. Pip wakes in its greeting.
   welcome: { every: 80, fuse: 80, cup: 320, pulse: 320, cell: 80 },
-  // Pip's greeting on the welcome and resume (176). The 9x4 Pip's eyes open
-  // at `waking` and are awake at `awake` (the boot frame's wake-up too); it
-  // looks left at `left`, right at `right` and up at `up`; from `wave` its
-  // eyes are happy and its antenna row sparks every other `swing`, until
-  // `back`; it blinks from `blink` to `open`, and is awake to the end.
+  // Pip's greeting on the welcome and resume (176). On the welcome the 9x4
+  // Pip's eyes open at `waking` and are awake at `awake` (the boot frame's
+  // wake-up too); on resume it starts awake. It looks left at `left`, right
+  // at `right` and up at `up`; from `wave` its eyes are happy and its
+  // antenna row sparks every other `swing`, until `back`; it blinks from
+  // `blink` to `open`, and is awake to the end. It plays once per opening
+  // of the app (flow.mjs stamps fx.greet).
   // The detailed Pip's, `raster`, a frame every `every`: its eyes are wide
   // and its antenna flicks once until `wide`; then its eyes ease happy by
   // `glad`, and its antenna waves, a swing every `swing`, whole by `waved`.
@@ -247,7 +249,9 @@ export function shotStarts(s) {
     levelUp: on(['levelup'], fx.view),
     complete: on(['complete'], fx.view),
     welcome: on(['welcome'], fx.view),
-    greet: on(['welcome', 'resume'], fx.view),
+    // Pip's greeting, once per opening: on the arrival flow.mjs stamped
+    // for it, not on a later return to the welcome or resume.
+    greet: fx.greet === fx.view ? on(['welcome', 'resume'], fx.greet) : undefined,
     lookAround: on(['complete'], fx.view),
     itemPass: on(['checkonly'], fx.itemPass),
     sweep: sweepFrom(s),

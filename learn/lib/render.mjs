@@ -1181,14 +1181,16 @@ function windows(ctx) {
 }
 
 // The 9x4 Pip's frame in its greeting on the welcome and resume (176): it
-// wakes, looks left, right and up, wears happy eyes while its antenna row
+// wakes on the welcome (on resume the boot frame woke it, so it starts
+// awake), looks left, right and up, wears happy eyes while its antenna row
 // sparks every other swing, blinks once, and is awake to the end; none
 // (awake, as at rest) once it is over.
 function greeting(ctx) {
   const e = into(ctx, 'greet');
   const at = SHOTS.greet;
-  if (e < at.waking) return 'shut';
-  if (e < at.awake) return 'waking';
+  const wakes = ctx.s.view === 'welcome';
+  if (wakes && e < at.waking) return 'shut';
+  if (wakes && e < at.awake) return 'waking';
   if (e < at.left) return undefined;
   if (e < at.right) return 'lookLeft';
   if (e < at.up) return 'glance';

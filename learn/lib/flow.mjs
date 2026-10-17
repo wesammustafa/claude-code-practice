@@ -21,6 +21,9 @@ const blankProgress = () => ({ step: null, beat: 0, done: [], answers: {}, level
 // How many warm-up questions open a lesson that has them.
 export const WARMUPS = 2;
 
+// The screens Pip greets the learner on, once per opening (176).
+const GREETS = ['welcome', 'resume'];
+
 export function initialState({ course, saved = null, facts, now = 0 }) {
   const progress = {};
   for (const l of course) {
@@ -55,6 +58,7 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     const w = l.content?.warmup.find((x) => x.id === pr.step && pr.warm.includes(x.id));
     if (w && eased.includes(w.beats[pr.beat]?.skill ?? w.skill)) answeredNow.push(`${l.id}.${w.id}`);
   }
+  const view = !welcomed ? 'welcome' : !open ? 'map' : progress[open.id].step ? 'resume' : 'intro';
   return {
     course, facts, progress, now,
     eased,
@@ -62,7 +66,7 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     missedNow: [],
     answeredNow,
     welcomed,
-    view: !welcomed ? 'welcome' : !open ? 'map' : progress[open.id].step ? 'resume' : 'intro',
+    view,
     overlay: null, lesson: next.id, pos: { step: 0, beat: 0 }, beat: null,
     checks: {}, git: null, session: 0, cursor: 0, mapCursor: course.indexOf(next), toast: null,
     held: null, swallowUntil: 0, confirmRestart: false, lastActivity: now,
@@ -76,8 +80,9 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     // own result lands: its lesson, r's number and how far the child has
     // got, in memory.
     checkOnlyRun: null,
-    // The motion layer's stamps (stampFx): the first screen appears now.
-    fx: { view: now },
+    // The motion layer's stamps (stampFx): the first screen appears now,
+    // and Pip greets on it if it is the welcome or resume.
+    fx: GREETS.includes(view) ? { view: now, greet: now } : { view: now },
     // The work folders the learner chose, saved (folderOf reads them), and
     // what the app found in each folder it looked at, in memory.
     folders: { ...(saved?.folders ?? {}) },
@@ -1110,6 +1115,9 @@ function stampFx(prev, s, ev) {
   if (ev.type === 'key' || ev.type === 'paste') fx.key = t;
   if (ev.type === 'run-start') fx.run = t;
   if (s.view !== prev.view) fx.view = t;
+  // Pip greets once per opening (176): on the first arrival on the welcome
+  // or resume, and on none after it.
+  if (fx.greet === undefined && GREETS.includes(s.view)) fx.greet = fx.view;
   const st = s.beat;
   const was = prev.beat;
   const opened = Boolean(st) && (!was || st.opened !== was.opened || s.lesson !== prev.lesson || !sameJson(s.pos, prev.pos));
