@@ -1229,8 +1229,13 @@ function onKey(s, ev, effects) {
       return VIEWS.next(s, ev, effects);
     }
     if (['escape', 'enter', 'q', '?', 'p', 'w', 'c', 'n'].includes(name) || (s.overlay === 'compare' && name === 'space')) s.overlay = null;
-    // The arrows: one place a press.
-    else if (SCROLLED[s.overlay] && (name === 'up' || name === 'down')) s.cardAt = Math.max(0, Math.min(SCROLLED[s.overlay](s).length, s.cardAt + (name === 'down' ? 1 : -1)));
+    // The arrows: one place a press. On your card, no further than it can
+    // scroll at the window's size, which main sends with the key (render's
+    // cardMax): where it fits, they move nothing.
+    else if (SCROLLED[s.overlay] && (name === 'up' || name === 'down')) {
+      const max = ev.cardMax ?? SCROLLED[s.overlay](s).length;
+      s.cardAt = Math.max(0, Math.min(max, Math.min(s.cardAt, max) + (name === 'down' ? 1 : -1)));
+    }
     return;
   }
   if (name === 'q') return effects.push({ type: 'quit' });

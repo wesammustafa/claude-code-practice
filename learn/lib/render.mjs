@@ -197,6 +197,19 @@ export function itemsMax(s, size, t) {
   return VIEWS.checkonly(frameCtx(s, size, t, REST).ctx).itemsMax;
 }
 
+// How far your card (the c overlay) can scroll in this window: the first
+// place of the window that ends on the Commands by level link, 0 where the
+// card fits, null where the card is not up. main sends it with each key, as
+// itemsMax.
+export function cardMax(s, size, t) {
+  if (s.overlay !== 'card') return null;
+  if (size.cols < MIN.cols || size.rows < MIN.rows) return 0;
+  const { ctx } = frameCtx(s, size, t, REST);
+  // The overlay's room, as screenOf gives it.
+  ctx.room = ctx.roomUnder(VIEWS[s.view](ctx).head.length) - 1;
+  return OVERLAYS.card(ctx).max;
+}
+
 // Every frame's card width, its left margin, and the blank above it on a
 // tall window.
 function frameOf({ cols, rows }) {
@@ -1666,18 +1679,26 @@ function placesTo(places, from, avail, first = places[from].length) {
 // room, it shows whole places from s.cardAt down, one a press of the
 // arrows: each entry is a place, and the link is the last, so the last
 // place always shows it, a toast or not. `scroll` is the arrows' key, or null.
-function cardPlaces(ctx, units, title, intro) {
+// `whole` is your card's (167): its link breaks only after a /, ? or &, and
+// it scrolls no further than the window that ends on the link, `max`.
+function cardPlaces(ctx, units, title, intro, whole = false) {
   const { s, t, inner, room } = ctx;
   const head = [t.bold(t.fg('white', title)), ...para(t, intro, inner, 'muted'), ''];
+  const url = whole ? urlRows(t, COMMANDS_URL, inner) : para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL));
   // Under an entry, the link keeps a blank above it.
-  const places = [...units, [...(units.length ? [''] : []), t.fg('text', C.cardLink), ...para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL))]];
+  const places = [...units, [...(units.length ? [''] : []), t.fg('text', C.cardLink), ...url]];
   const avail = room - head.length;
-  const from = places.flat().length <= avail ? 0 : Math.min(s.cardAt, places.length - 1);
   // The first place shown never opens on a blank: the link's goes there.
-  const shown = places[from][0] === '' ? places[from].slice(1) : [...places[from]];
+  const opening = (from) => (places[from][0] === '' ? places[from].slice(1) : [...places[from]]);
+  const fits = places.flat().length <= avail;
+  let max = places.length - 1;
+  if (fits) max = 0;
+  else if (whole) while (max > 0 && placesTo(places, max - 1, avail, opening(max - 1).length) === places.length) max--;
+  const from = fits ? 0 : Math.min(s.cardAt, max);
+  const shown = opening(from);
   const k = placesTo(places, from, avail, shown.length);
   shown.push(...places.slice(from + 1, k).flat());
-  return { body: [...head, ...shown], scroll: from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null };
+  return { body: [...head, ...shown], scroll: from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null, max };
 }
 
 // The fewest columns the comparison gives what a command does beside it.
@@ -1765,8 +1786,8 @@ const OVERLAYS = {
       const label = `${t.pill(pad(lessonLabel(e.lesson), 3), 'dimBg', 'dimText')}  `;
       return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
     });
-    const { body, scroll } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty);
-    return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)] };
+    const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty, true);
+    return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)], max };
   },
   // Recall, then compare: the lesson's own entries, whole as soon as space
   // asks. One lesson needs no pill, so what it does sits beside the command,
