@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
-import { bootFrame, render } from '../../learn/lib/render.mjs';
+import { bootFrame, cardMax, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
@@ -2777,6 +2777,85 @@ test('your card\'s last place is the Commands by level link, so a toast at 60x20
       for (let i = link + 1; url.join('').length < COMMANDS_BY_LEVEL.length && i < lines.length; i++) url.push(lines[i]);
       assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
       if (s.toast) assert.ok(lines.some((l) => l.includes("Couldn't save your place")), `the toast stays: ${where}`);
+    }
+  }
+});
+
+// An arrow on the card as main sends it: with how far the card scrolls in
+// that window (167).
+const cardArrow = (d, name, [cols, rows], t = theme(CAPS.full)) => d.send({ type: 'key', name, wait: 10, cardMax: cardMax(d.state, { cols, rows }, t) });
+
+test('your card scrolls no further than the window that ends on the Commands by level link, and up moves it at once', () => {
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of SHORT) {
+      const at = `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}`;
+      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(lessonById('b-capstone')) } } });
+      d.key('c');
+      // Each frame is exactly the window, no line too wide.
+      const shown = () => {
+        const frame = render(d.state, { cols: size[0], rows: size[1] }, t).map(strip);
+        assert.equal(frame.length, size[1], at);
+        for (const l of frame) assert.ok(width(l) <= size[0] - 1, `${at}: ${l}`);
+        return frame.map((l) => l.trim());
+      };
+      const linked = (lines) => lines.join('').includes(COMMANDS_BY_LEVEL);
+      for (let i = 0; i < 40; i++) cardArrow(d, 'down', size, t);
+      const end = shown();
+      assert.ok(linked(end), `${at}: the link shows whole\n${end.join('\n')}`);
+      // One up from there leaves the link: no window further down ends on it
+      // with more of the card above it.
+      cardArrow(d, 'up', size, t);
+      const up = shown();
+      assert.ok(!linked(up), `${at}: up moved the card at once\n${up.join('\n')}`);
+      assert.notDeepEqual(shownOn(up), shownOn(end), at);
+      // Scrolled further than this window allows, as in a smaller one before
+      // a resize: the card still shows the window that ends on the link.
+      for (let i = 0; i < 40; i++) d.send({ type: 'key', name: 'down', wait: 10 });
+      assert.deepEqual(shown(), end, at);
+    }
+  }
+});
+
+test('your card spells the Commands by level link out whole, breaking it only after a /, ? or &, never inside a word', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(lessonById('b-capstone')) } } });
+  d.key('c');
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of SHORT) {
+      while (d.state.cardAt) d.key('up');
+      for (let i = 0; i < 40; i++) cardArrow(d, 'down', size, t);
+      const lines = render(d.state, { cols: size[0], rows: size[1] }, t).map((l) => strip(l).trim());
+      const where = `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${lines.join('\n')}`;
+      const url = lines.slice(lines.indexOf(C.cardLink) + 1, lines.findIndex((l, i) => i > lines.indexOf(C.cardLink) && l.endsWith('commands.md')) + 1);
+      assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
+      assert.ok(url.length > 1, where);
+      for (const row of url.slice(0, -1)) assert.match(row, /[/?&]$/, where);
+    }
+  }
+});
+
+test('the arrows move your card only where it scrolls: while it fits, they move nothing', () => {
+  // The empty card, and one entry: claude --version.
+  const cards = [{ format: 1, welcomed: true, lessons: {} },
+    { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W3', beat: 0, done: ['W1', 'W2'] } } }];
+  for (const saved of cards) {
+    for (const caps of [CAPS.full, CAPS.ascii]) {
+      const t = theme(caps);
+      for (const size of SHORT) {
+        const d = driver({ saved });
+        d.key('enter');
+        d.key('c');
+        const card = () => render(d.state, { cols: size[0], rows: size[1] }, t).map((l) => strip(l).trim());
+        const before = card();
+        const at = `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}, ${Object.keys(saved.lessons).length ? 'B1' : 'empty'}\n${before.join('\n')}`;
+        assert.ok(before.join('').includes(COMMANDS_BY_LEVEL), at);
+        assert.equal(before.some((l) => /^B1\s+claude --version$/.test(l)), Object.keys(saved.lessons).length > 0, at);
+        assert.doesNotMatch(before.at(-1), /scroll/, `the card fits: ${at}`);
+        for (let i = 0; i < 5; i++) cardArrow(d, 'down', size, t);
+        assert.equal(d.state.cardAt, 0, `nothing to scroll: the arrows move nothing: ${at}`);
+        assert.deepEqual(card(), before, at);
+      }
     }
   }
 });
