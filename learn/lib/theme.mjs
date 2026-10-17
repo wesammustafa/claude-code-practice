@@ -71,7 +71,9 @@ export function theme(caps) {
   // An emoji and a space, or the ASCII word and a space, or nothing.
   const lead = (name) => (emoji(name) ? `${emoji(name)} ` : '');
   const link = (text, url) => (caps.links && url ? `\x1b]8;;${url}\x07${text}\x1b]8;;\x07` : text);
-  return { caps, fg, bg, bold, inverse, pill, glyph, emoji, lead, link, unicode, depth };
+  // 24-bit color: where the detailed Pip draws, and breathes.
+  const truecolor = depth >= 24;
+  return { caps, fg, bg, bold, inverse, pill, glyph, emoji, lead, link, unicode, depth, truecolor };
 }
 
 export const TIER_STYLE = {

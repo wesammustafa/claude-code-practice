@@ -1,9 +1,9 @@
 // Draws a state as exactly `rows` lines, none wider than `cols - 1`. Four
 // regions: the header (where am I), the body (what to do now, with how it's
 // going at the bottom of the card), and the key bar pinned to the bottom.
-import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipGreeting, pipRaster } from './art.mjs';
+import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipRaster, pipShown } from './art.mjs';
 import { C } from './copy.mjs';
-import { bootPhases, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
+import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
   answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
@@ -186,7 +186,7 @@ const STRAY = { kind: 'stray', until: Infinity };
 // draws with what this gives, and asks for Pip's frames only where it
 // gives a raster.
 export function pipSlot(s, size, t, ahead = null) {
-  if (!t.unicode || t.depth < 24 || size.cols < MIN.cols || size.rows < MIN.rows) return null;
+  if (!t.unicode || !t.truecolor || size.cols < MIN.cols || size.rows < MIN.rows) return null;
   // A raster with no pose: enough to measure the rows it takes.
   const blank = { size: 'standard' };
   if (!s) {
@@ -255,9 +255,9 @@ function bootOf(since, size, t, clock, raster) {
   const { cols, rows } = size;
   if (cols < MIN.cols || rows < MIN.rows) return { out: small(cols, rows), spare: -1 };
   const { W, M, top } = frameOf(size);
-  const ctx = { t, W, ph: bootPhases(since, clock.at, t.caps), raster };
+  const ctx = { t, W, clock, ph: bootPhases(since, clock.at, t.caps), raster };
   const out = [...top, appTitle(t), '', rule(t, W), '',
-    ...withPip(ctx, bigPip(ctx, BIG_PIP.welcome, ctx.ph.eyes), [() => spinning(ctx, [t.fg('text', C.askingGit)])]).rows];
+    ...withPip(ctx, bigPip(ctx, BIG_PIP.welcome, SHOTS.greet.wake, into(ctx, 'wake')), [() => spinning(ctx, [t.fg('text', C.askingGit)])]).rows];
   const spare = rows - 2 - out.length;
   while (out.length < rows - 2) out.push('');
   out.push(pulseLine(ctx), '');
@@ -383,9 +383,9 @@ function pulseLine(ctx) {
   return rule(t, W);
 }
 
-// How far into a one-shot this frame is, in ms, or Infinity once it rests
-// (and in every frame without motion).
-const into = (ctx, part) => (ctx.ph[part] >= 1 ? Infinity : Math.round(ctx.ph[part] * TIMING[part]));
+// How far into a one-shot this frame is, in ms, unrounded, or Infinity once
+// it rests (and in every frame without motion).
+const into = (ctx, part) => ctx.ph.ms[part] ?? Infinity;
 const spread = (left, right, w) => left + ' '.repeat(Math.max(1, w - width(left) - width(right))) + right;
 const rule = (t, W) => t.fg('faint', t.glyph.rule.repeat(W));
 // `n` of `total` as heavy green cells over the plain rule, `w` wide.
@@ -645,35 +645,19 @@ function lessonHead(ctx, right, rightText) {
 // cells after it, and leaves at least one rule cell before it.
 const PIP_ROOM = PIP_FACE + 3;
 
-// Pip's face in this frame, over the `mood` it rests in: sparks for a hop
-// or a cheer; away while the card enters, then landing with its eyes shut;
-// on a new "Not yet", a nod; on a file change, a glance; and its blink.
-function pipNow(ctx, shown) {
-  // Checking, with motion: Pip wears its checking face once a child has
-  // run 150 ms, and holds still.
-  const mood = shown === 'checking' && !ctx.ph.checking ? 'rest' : shown;
-  const e = into(ctx, 'entrance');
-  const n = into(ctx, 'notYet');
-  if (into(ctx, 'hop') < Infinity || into(ctx, 'cheer') < Infinity) return { mood, frame: 'sparks' };
-  if (n < Infinity) return { mood: n >= SHOTS.notYet.nod ? 'rest' : mood };
-  if (e < SHOTS.entrance.land) return null;
-  if (e < Infinity) return { mood, frame: 'shut' };
-  // A file change: a glance toward the other window, unless a check runs.
-  if (into(ctx, 'glance') < Infinity && mood !== 'checking') return { mood, frame: 'glance' };
-  return { mood, frame: ctx.ph.blink ? 'shut' : undefined };
-}
-
-function card(ctx, { tint, where, done, rows, mood }) {
-  const { t, W } = ctx;
+function card(ctx, { tint, where, done, rows }) {
+  const { s, t, W } = ctx;
   const rail = t.fg(tint, t.glyph.rail);
   const left = `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(where, 'chipBg')}${done ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
   const fill = Math.max(0, W - width(left));
-  const face = pipNow(ctx, mood);
+  // Pip's face in this frame (motion.mjs's cardFace), over the mood the
+  // card shows the app saw.
+  const face = cardFace(s, ctx.clock.at, ctx.ph);
   // As the card enters, the top rule grows from the pill a third a frame.
   const grown = Math.round((fill * (1 + Math.floor(into(ctx, 'entrance') / SHOTS.entrance.every))) / 3);
   const top = !face ? left + t.fg(tint, t.glyph.rule.repeat(grown))
     : fill >= PIP_ROOM
-      ? `${left}${t.fg(tint, t.glyph.rule.repeat(fill - PIP_FACE - 2))}${pipFace(t, face.mood, face.frame)}${t.fg(tint, t.glyph.rule.repeat(2))}`
+      ? `${left}${t.fg(tint, t.glyph.rule.repeat(fill - PIP_FACE - 2))}${pipFace(t, face.mood, face.face, face.ms, face.passing)}${t.fg(tint, t.glyph.rule.repeat(2))}`
       : left + t.fg(tint, t.glyph.rule.repeat(fill));
   // Each row carries the rail, so a `…` cut inside the card keeps it.
   // A blank row that is part of a sentence, such as the Why line's, is the
@@ -824,9 +808,8 @@ const VIEWS = {
     // The heat runs cool to hot across the level, however long.
     const path = `${ids.map((l, i) => `${t.fg(heat[Math.floor((i * heat.length) / ids.length)], t.bold(lessonLabel(l.id)))}${link(i)}`).join('')}${t.emoji('cup') || lessonLabel(cap.id)}`;
     const hint = lessHelpOn(s, lessons) ? t.fg('muted', `   ${C.pathHint}`) : '';
-    const eyes = greeting(ctx) ?? (ctx.ph.blink ? 'shut' : undefined);
     const body = [
-      withPip(ctx, bigPip(ctx, BIG_PIP.welcome, eyes), [
+      withPip(ctx, bigPip(ctx, BIG_PIP.welcome, ...greeting(ctx)), [
         (w) => led(t, 'wave', C.hi(s.facts.name), w, 'white').map((x) => t.bold(x)),
         (w) => sentence(t, [C.pip1, C.pip2], w, 'text'),
       ]),
@@ -861,7 +844,7 @@ const VIEWS = {
     return {
       head: lessonHead(ctx, '', C.stepOf(index + 1, steps.length)),
       body: [
-        withPip(ctx, bigPip(ctx, BIG_PIP.resume, greeting(ctx)), [
+        withPip(ctx, bigPip(ctx, BIG_PIP.resume, ...greeting(ctx)), [
           () => [lead(t, 'wave', t.bold(t.fg('white', C.welcomeBack)))],
           (w) => para(t, C.youreOn(lessonLabel(s.lesson), index + 1, steps.length, steps[index].title), w, 'text'),
         ]),
@@ -931,7 +914,7 @@ const VIEWS = {
     // the new star lands.
     const e = into(ctx, 'levelUp');
     const at = SHOTS.levelUp;
-    const art = bigPip(ctx, BIG_PIP.levelup, e < at.open ? 'shut' : e < at.whole ? 'awake' : undefined);
+    const art = bigPip(ctx, BIG_PIP.levelup, at.face, e);
     const word = banner(t, C.levelUp, e < at.whole ? { cells: Math.round((bannerWidth(C.levelUp) * e) / at.whole) } : {});
     const plain = t.bold(t.fg('accent', C.levelUp));
     // Pip and the banner, or the word beside Pip's face: decoration,
@@ -968,7 +951,7 @@ const VIEWS = {
     const e = into(ctx, 'complete');
     const at = SHOTS.complete;
     const cheer = e < at.whole;
-    const art = bigPip(ctx, BIG_PIP.complete, cheer ? 'cheer' : lookingAround(ctx));
+    const art = bigPip(ctx, BIG_PIP.complete, cheer ? 'cheer' : SHOTS.lookAround.face, into(ctx, 'lookAround'));
     const word = banner(t, C.complete, cheer ? { letters: Math.floor((C.complete.length * e) / at.whole) } : {});
     const label = s.lesson.endsWith('capstone') ? 'Capstone' : `Lesson ${lessonNumber(s)}`;
     // The confetti falls into its row: from 24 rows across it and the blank
@@ -1186,7 +1169,7 @@ const VIEWS = {
     }
     return {
       head,
-      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}${placeOf(s, t, null, 16) ? `, ${placeOf(s, t, null, 16)}` : ''}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: going ? 'checking' : checkOnlyMood(results) }),
+      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}${placeOf(s, t, null, 16) ? `, ${placeOf(s, t, null, 16)}` : ''}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes] }),
       // A lesson that runs in a new copy with none given yet: f is the way on.
       keys: [folderOf(s) ? null : mainKey('f', C.k.giveFolder), shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, folderOf(s) ? key('r', C.k.checkNow) : null, key('p', C.k.page), key('m', C.k.map), folderOf(s) && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
       itemsMax: last,
@@ -1215,45 +1198,24 @@ function windows(ctx) {
   return left.map((l, i) => `${l}${i === 2 ? arrow : ' '.repeat(width(arrow))}${right[i]}`);
 }
 
-// The 9x4 Pip's frame in its greeting on the welcome and resume (176): it
-// wakes on the welcome (on resume the boot frame woke it, so it starts
-// awake), looks left, right and up, wears happy eyes while its antenna row
-// sparks every other swing, blinks once, and is awake to the end; none
-// (awake, as at rest) once it is over.
+// The 9x4 Pip's face track on the welcome and resume, and how far into it:
+// its greeting while that plays (176; it wakes on the welcome, and on
+// resume the boot frame woke it, so it starts awake), else its blink, else
+// none (awake, as at rest).
 function greeting(ctx) {
-  const e = into(ctx, 'greet');
-  const at = SHOTS.greet;
-  const wakes = ctx.s.view === 'welcome';
-  if (wakes && e < at.waking) return 'shut';
-  if (wakes && e < at.awake) return 'waking';
-  if (e < at.left) return undefined;
-  if (e < at.right) return 'lookLeft';
-  if (e < at.up) return 'glance';
-  if (e < at.wave) return 'lookUp';
-  if (e < at.back) return Math.floor((e - at.wave) / at.swing) % 2 ? 'glad' : 'cheer';
-  if (e < at.blink) return undefined;
-  return e < at.open ? 'shut' : undefined;
-}
-
-// The 9x4 Pip's frame in its look around on the complete screen (176),
-// once the rest of the screen is still: left, back to its happy eyes,
-// right, and back at the end.
-function lookingAround(ctx) {
-  const e = into(ctx, 'lookAround');
-  const at = SHOTS.lookAround;
-  if (e < at.left) return undefined;
-  if (e < at.back) return 'lookLeft';
-  return e >= at.right && e < TIMING.lookAround ? 'glance' : undefined;
+  if (into(ctx, 'greet') < Infinity) return [greetFace(ctx.s.view), into(ctx, 'greet')];
+  return into(ctx, 'blink') < Infinity ? [SHOTS.blink.face, into(ctx, 'blink')] : [];
 }
 
 // The big Pip: the detailed raster where the screen has room for it
 // (ctx.raster, from pipSlot), with its greeting over main's pose while that
-// plays, else the 9x4 Pip in `mood` and `frame`. Its rows, how wide they
-// are, and the row its face is on.
-function bigPip(ctx, mood, frame) {
+// plays, eased from where its pose jumped while main's `fade` runs, else
+// the 9x4 Pip in `mood`, `ms` into the track `face`. Its rows, how wide
+// they are, and the row its face is on.
+function bigPip(ctx, mood, face, ms) {
   const { t, raster } = ctx;
-  if (!raster) return { rows: pip(t, mood, frame), width: 9, face: 2 };
-  return { rows: pipRaster(pipGreeting(raster.pose, into(ctx, 'greet')), raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
+  if (!raster) return { rows: pip(t, mood, face, ms), width: 9, face: 2 };
+  return { rows: pipRaster(raster.pose && pipShown(raster, into(ctx, 'greet'), ctx.clock.at), raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
 }
 
 // Pip with text beside it, from Pip's face row (on the 9x4 Pip its third,
@@ -1441,34 +1403,9 @@ function stepView(ctx) {
   const tint = done ? 'ok' : style.tint;
   return {
     head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
-    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows, mood: stepMood(s, beat, isLastBeat) }),
+    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows }),
     keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }),
   };
-}
-
-// Pip's face for what the card shows the app saw (design 2.2): the step's
-// last beat done or already done, as the cheer does (a beat before it rests,
-// as the hop does); `opening`, while the card says "Checking" (a check, git
-// or a file read); a check that could not run; a "Not yet", a `▲` git line,
-// a pick that wasn't right, the hint box or the "Stuck?" offer; else at rest.
-function stepMood(s, beat, isLastBeat) {
-  const st = s.beat;
-  if (['done', 'already'].includes(st.status)) return isLastBeat ? 'done' : 'rest';
-  if (st.status === 'opening') return 'checking';
-  if (st.status === 'broken') return 'broken';
-  const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && gitListed(s, beat).length > 0;
-  const wrong = ['wrong', 'stuck'].includes(st.feedback?.kind);
-  const stuck = st.idle && hintAvailable(s);
-  return st.status === 'fail' || gitLine || wrong || st.rung >= 0 || st.confirm || stuck ? 'worried' : 'rest';
-}
-
-// The check-only card, when r's run is not going: a check that could not
-// run, an item not passing yet.
-// Worried only where the card shows a failing mark: a slow item no run has
-// checked shows as not checked yet.
-function checkOnlyMood(results) {
-  if (results?.error) return 'broken';
-  return results?.items?.some((x) => !x.pass && !x.slow) ? 'worried' : 'rest';
 }
 
 // Chips in a beat share one width: room for the longest command, up to the

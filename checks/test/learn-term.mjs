@@ -76,9 +76,10 @@ export const turn = async () => {
 
 // A clock with timers. advance(ms) runs every timer that falls due, in time
 // order, each at its own time, and lets the event loop turn after each one so
-// the draws it asks for go out at that time.
-export function fakeClock() {
-  let time = 1_000_000;
+// the draws it asks for go out at that time. It reads `from` at first: 0 is
+// where performance.now() starts.
+export function fakeClock(from = 1_000_000) {
+  let time = from;
   let seq = 0;
   const timers = new Map();
   const add = (fn, ms, every) => {
