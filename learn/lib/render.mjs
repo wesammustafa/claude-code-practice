@@ -154,16 +154,20 @@ const STRAY = { kind: 'stray', until: Infinity };
 // screen is up: the room is measured with a toast (its own, and a stray
 // key's) and, on resume, the y/n to start over, whether they are up or
 // not. The boot frame has it only where `ahead` does, where given: the
-// screen it hands over to, so Pip does not shrink as git answers. main
+// screen it hands over to, so Pip does not change as git answers. main
 // draws with what this gives, and asks for Pip's frames only where it
 // gives a raster.
 export function pipSlot(s, size, t, ahead = null) {
   if (!t.unicode || t.depth < 24 || size.cols < MIN.cols || size.rows < MIN.rows) return null;
-  const slot = { size: 'standard' };
-  if (!s) return (!ahead || pipSlot(ahead, size, t)) && bootOf(0, size, t, REST, slot).spare >= 0 ? slot.size : null;
+  // A raster with no pose: enough to measure the rows it takes.
+  const blank = { size: 'standard' };
+  if (!s) {
+    if (ahead && !pipSlot(ahead, size, t)) return null;
+    return bootOf(0, size, t, REST, blank).spare >= 0 ? 'standard' : null;
+  }
   if (s.overlay || !BIG_PIP[s.view]) return null;
   const busiest = [STRAY, s.toast].filter(Boolean).map((toast) => ({ ...s, toast, confirmRestart: s.confirmRestart || s.view === 'resume' }));
-  return busiest.every((x) => screenOf(x, size, t, REST, slot).spare >= 0) ? slot.size : null;
+  return busiest.every((x) => screenOf(x, size, t, REST, blank).spare >= 0) ? 'standard' : null;
 }
 
 // A frame's width, margin and top, its toast and the blank above the pulse

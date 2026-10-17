@@ -102,7 +102,7 @@ function celebrations(id) {
   return out;
 }
 // The package's standard size, from its README: 32x16.
-const TALL = { standard: 16 };
+const RASTER = { standard: { cols: 32, tall: 16 } };
 const toast = { kind: 'save', message: 'EACCES: permission denied, open .practice/learn.json' };
 const BIG = [
   ...screens.filter(([, s]) => ['welcome', 'resume', 'levelup', 'complete'].includes(s.view) && !s.overlay),
@@ -156,7 +156,7 @@ test('the raster takes only rows the screen pads with: every row the 9x4 Pip\'s 
         continue;
       }
       drawn.add(`${s?.view ?? 'boot'} ${slot}`);
-      keepsEveryRow(g, r, TALL[slot], where);
+      keepsEveryRow(g, r, RASTER[slot].tall, where);
     }
   }
   // Every big-Pip screen drew standard somewhere.
@@ -181,8 +181,11 @@ test('in truecolor, a screen with no room for standard Pip draws the 9x4 Pip', (
   }
 });
 
-// At 256 colors the package's soft edges round to fringes (174): every
-// big-Pip screen draws the 9x4 Pip, as render draws it with no raster.
+// At 256 colors the package's soft edges round to fringes (174): main hands
+// render no raster, so every big-Pip screen is, byte for byte, the screen
+// render draws with no pip argument, the 9x4 Pip's path from before 170.
+// This pins that no raster reaches a 256-color screen; the 9x4 Pip's own
+// cells and colors are pinned in learn-render.test.mjs.
 test('at 256 colors every big-Pip screen draws the 9x4 Pip, byte for byte, at every size', () => {
   const t = theme(CAPS.full);
   for (const [cols, rows] of SIZES) {
@@ -243,12 +246,12 @@ test('beside the raster, text starts on the row of Pip\'s eyes, and the banner s
   const check = (label, draw, slot, beside) => {
     const top = pipTop(draw(null));
     const lines = draw({ size: slot, pose: awake });
-    const face = eyesRow(lines, top, TALL[slot]);
+    const face = eyesRow(lines, top, RASTER[slot].tall);
     const plain = lines.map(strip);
     const where = `${label} (${slot})\n${plain.join('\n')}`;
     assert.ok(face > top + 1, where);
     // Only Pip's rows: the complete screen's header says COMPLETE too.
-    beside(plain.map((l, k) => (k >= top && k < top + TALL[slot] ? l : '')), face, where);
+    beside(plain.map((l, k) => (k >= top && k < top + RASTER[slot].tall ? l : '')), face, where);
   };
   const startsAt = (text) => (plain, face, where) => assert.equal(plain.findIndex((l) => l.includes(text)), face, where);
   for (const [cols, rows] of [[60, 20], [80, 24], [120, 40], [200, 50]]) {
@@ -288,8 +291,8 @@ test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges i
     ['complete at 120x40', 'success', (t, pip) => render(screen('complete'), size(120, 40), t, undefined, pip)],
   ];
   const slot = 'standard';
-  const [cols, tall] = [32, 16];
-  for (const [label, state, draw] of cases) {
+  const { cols, tall } = RASTER[slot];
+  for (const [where, state, draw] of cases) {
     // Over black and over white: how much of each pixel is Pip, 0 to 1.
     const over = (background) => rasterizePip(restPose(state), { columns: cols, rows: tall, palette: { background } }).pixels;
     const [dark, light] = [over('#000000'), over('#FFFFFF')];
@@ -301,7 +304,6 @@ test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges i
     let soft = 0;
     const t = theme(CAPS.truecolor);
     const lines = draw(t, { size: slot, pose: restPose(state) });
-    const where = label;
     // The raster's top left is the 9x4 Pip's, on the screen without it.
     const glyph = draw(t, null).map(strip);
     const top = glyph.findIndex((l) => l.includes('╭───┴───╮')) - 1;
@@ -344,7 +346,7 @@ test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges i
     assert.ok(spaces > 0, where);
     // Pip's eyes, #F2CC60, where they are open: working narrows them.
     if (state !== 'working') assert.ok(lines.slice(top, top + tall).some((l) => l.includes('8;2;242;204;96')), where);
-    assert.ok(soft > 0, `${label}: some soft edges are drawn`);
+    assert.ok(soft > 0, `${where}: some soft edges are drawn`);
   }
 });
 
