@@ -1043,7 +1043,7 @@ const VIEWS = {
     const barW = W - 6;
     const head = [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', C.levelPath(levelName(s, cursor.id))))}`, t.fg('muted', C.ofDone(done, total)), W),
       `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)];
-    const next = s.course.find((l) => toFinish(s.progress, l));
+    const next = s.course.find((l) => toFinish(s, l));
     // The legend's items run on under "Help:" when one row can't hold them.
     // It and the footer explain the tier bars: a page with none has neither.
     const bars = lessons.some((l) => l.content);

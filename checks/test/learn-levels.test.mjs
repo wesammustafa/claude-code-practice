@@ -186,6 +186,35 @@ test('the welcome names the current level and draws only its path line, with one
   assert.match(screen(d.state, [80, 24], ASCII)[1], /^ {2}I1 -- I2 .* I8 -- \[cup\]$/);
 });
 
+// Ticket 172: a new copy's saved folder makes a-5 or a-capstone the next
+// lesson, and changes no count: a count is of completed lessons alone. The
+// counts were already so before 172; this keeps them so.
+test('a saved new copy changes neither the welcome\'s nor the map\'s n of m count: they count a completed a-5 or a-capstone, and only that', () => {
+  const course = threeLevels();
+  const folders = { 'a-5': '/home/sam/claude-actions-practice', 'a-capstone': '/home/sam/ci-review' };
+  const cases = [
+    ['a-5 given, not done', doneBefore(course, 'a-5'), '4 of 8 done'],
+    ['a-5 and a-capstone done', { ...doneBefore(course, 'a-5'), 'a-5': { complete: true }, 'a-capstone': { complete: true } }, '6 of 8 done'],
+  ];
+  for (const [label, lessons, count] of cases) {
+    for (const given of [{}, folders]) {
+      const at = `${label}, ${Object.keys(given).length ? 'folders saved' : 'no folder saved'}`;
+      const welcome = driver({ course, saved: { format: 1, welcomed: false, lessons, folders: given } });
+      assert.equal(welcome.state.view, 'welcome', at);
+      for (const size of [[60, 20], [80, 24]]) {
+        const ls = screen(welcome.state, size);
+        assert.ok(ls[0].endsWith(`Advanced path · ${count}`), `${at}\n${ls.join('\n')}`);
+      }
+      const map = driver({ course, saved: { format: 1, welcomed: true, lessons, folders: given } });
+      assert.equal(map.state.view, 'map', at);
+      for (const size of [[60, 20], [80, 24]]) {
+        const ls = screen(map.state, size);
+        assert.ok(ls[0].endsWith(count) && ls[0].includes('Advanced'), `${at}\n${ls.join('\n')}`);
+      }
+    }
+  }
+});
+
 // Beginner's five links light one a frame; a longer level lights up to two a
 // frame, so every level's fuse reaches its cup when Beginner's does.
 test('the welcome\'s fuse runs along the current level\'s path line, at most two links a frame, and reaches its cup at +320 ms, as Beginner\'s does', () => {
