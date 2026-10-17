@@ -12,7 +12,7 @@ import { bootFrame, cardMax, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, DEMO_I1_INDEX, driver, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -3312,4 +3312,25 @@ test('lessonScreens walks a beat of each git kind to its not-yet and done screen
     assert.ok(screens.some(([, s]) => s.beat.status === 'fail'), verify);
     for (const [label, s] of screens) for (const size of [[60, 20], [80, 24]]) fits(s, size, t, `${verify} ${label}`);
   }
+});
+
+// A ladder's bottom rung is drawn in a chip as wide as its own commands
+// (ticket 184): b-1's W3 with its run lines taken out, so the beat's own
+// commands no longer size the chip, and a long bottom in its ladder block.
+test('a ladder bottom that stands in for a beat\'s commands gets a chip as wide as it, on one row at 80x24 and 60x20', () => {
+  const long = 'jq .sandbox .claude/settings.local.json';
+  const text = readFileSync(join(root, 'learn', 'lessons', 'b-1.md'), 'utf8')
+    .replace(/- run: "cd <your practice copy>"\n- run: "mkdir -p \.practice"\n- win: "[^"]*"\n- tick: practice-dir\n- run: "claude --version > \.practice\/version\.txt"\n/, '')
+    .replace(/- bottom: "mkdir -p \.practice"\n- win: "[^"]*"\n- bottom: "claude --version > \.practice\/version\.txt"/, `- bottom: "${long}"`);
+  assert.ok(!/^- run: "claude --version > /m.test(text) && text.includes(long), 'the fixture took out the run lines and put in the long bottom');
+  const lessons = courseWith({ 'b-1': text });
+  const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W3', beat: 0, warm: [] } } } });
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'W3');
+  bottomRung(d);
+  assert.equal(rungsOf(d.state)[d.state.beat.rung].kind, 'bottom');
+  const at80 = render(d.state, { cols: 80, rows: 24 }, theme(CAPS.full)).map(strip);
+  assert.ok(at80.some((l) => l.includes(long)), `the command is on one row at 80x24:\n${at80.join('\n')}`);
+  const at60 = render(d.state, { cols: 60, rows: 20 }, theme(CAPS.full)).map(strip);
+  assert.ok(at60.some((l) => l.includes(long)), `the command is on one row at 60x20:\n${at60.join('\n')}`);
 });
