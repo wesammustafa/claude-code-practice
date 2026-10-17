@@ -62,7 +62,7 @@ function parseArgs(argv) {
   return dir === '' ? null : { dir };
 }
 
-export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, perf = PERF, timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, perf = PERF, pipSlot: slotFor = pipSlot, timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
   const args = parseArgs(argv);
   if (!args) {
     stderr.write(`${C.usage}\n`);
@@ -132,14 +132,20 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
 
   // Drawing. Every dispatch asks for a frame, and one goes out per turn of the
   // event loop, so the events of one turn (a watcher's burst, keys in one
-  // read) make one frame. After each draw, nextChange sets the one frame
-  // timer, or none. No two frames go out less than 40 ms apart: the floor
-  // counts from the screen's last write, a drain's included. Each effect's
-  // frames keep to the 40 ms grid from its own start (motion.mjs); a key's
-  // frame is not held back to a grid. Every time here is on `perf`, main's
-  // one clock: the event stamps, the frames, the screen's writes and Pip.
+  // read) make one frame. No two frames go out less than 40 ms apart: the
+  // floor counts from the screen's last write, a drain's included. An
+  // event's frame inside the floor waits for it, or joins a frame already
+  // due by then. After each draw, nextChange and the rest set the one frame
+  // timer, or none, as a deadline: the frame's own time plus the wait, so
+  // render and write time do not stretch the next. Each effect's frames keep
+  // to the 40 ms grid from its own start (motion.mjs), Pip's from its last
+  // change; a key's frame is not held back to a grid. A deadline's frame is
+  // drawn for its time, or the time it is if later, and its write waits out
+  // the floor. Every time here is on `perf`, main's one clock: the event
+  // stamps, the frames, the screen's writes and Pip.
   let drawAsked = false;
   let frameTimer = null;
+  let dueAt = null;
   const floor = () => TIMING.grid - (perf() - screen.wroteAt);
   function requestDraw() {
     if (drawAsked || closed) return;
@@ -150,30 +156,63 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     });
   }
   const sizeNow = () => ({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
-  const drawIn = (ms) => { frameTimer = timers.setTimeout(draw, ms); };
-  function draw() {
+  const later = (fn, ms) => { frameTimer = timers.setTimeout(fn, ms); };
+  // Pip's slot, measured once per state and size: the theme and the next
+  // screen are the run's, and no state changes once made.
+  let slotWas = null;
+  const slotOf = (s, size) => {
+    if (slotWas?.s !== s || slotWas.cols !== size.cols || slotWas.rows !== size.rows) slotWas = { s, ...size, slot: slotFor(s, size, t, nextScreen) };
+    return slotWas.slot;
+  };
+  // Pip's wait from `at` (the package's are all over 0), on the 40 ms grid
+  // from `from` and counted from the grid's last step at or before `at`: a
+  // timer that fires late, or an event's frame between steps, does not push
+  // Pip's next tick a step on. A moment of its own between steps (a glance's
+  // start) may get a frame one step before it; the next step shows it.
+  const onGrid = (at, wait, from) => (wait === null ? null : from + TIMING.grid * (Math.floor((at - from) / TIMING.grid) + Math.ceil(wait / TIMING.grid)) - at);
+  function draw(deadline) {
     if (closed) return;
+    const wait = floor();
+    if (deadline === undefined && wait > 0) {
+      if (dueAt === null || dueAt > perf() + wait) {
+        timers.clearTimeout(frameTimer);
+        dueAt = null;
+        later(() => draw(), wait);
+      }
+      return;
+    }
     timers.clearTimeout(frameTimer);
     frameTimer = null;
-    if (floor() > 0) return drawIn(floor());
-    const at = perf();
+    dueAt = null;
+    const at = deadline === undefined ? perf() : Math.max(perf(), deadline);
     const size = sizeNow();
     const clock = screen.motion ? { at } : REST;
     // The detailed Pip, where the screen has room for it: its pose and any
     // ease from where it jumped, and when it, its greeting or the ease next
     // moves, more deadlines for the one timer. All with the same gates, even
     // if this frame's write turns motion off.
-    const slot = pipSlot(state, size, t, nextScreen);
+    const slot = slotOf(state, size);
     const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.depth >= 24, remote: caps.remote });
     const pose = slot && pipPose(at, gates);
     if (!slot) shown = fade = null;
     const raster = slot ? { size: slot, pose, fade } : null;
-    screen.draw(state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster));
+    const lines = state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster);
     const waits = [state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion }),
-      slot ? pip.nextFrameIn(at, { ...gates, size: slot }) : null,
+      slot ? onGrid(at, pip.nextFrameIn(at, { ...gates, size: slot }), pipChanged) : null,
       slot && state ? greetFrameIn(state, at, { motion: screen.motion }) : null,
       fade ? Math.min(TIMING.grid - ((at - fade.at) % TIMING.grid), fade.at + fade.ms - at) : null].filter((w) => w !== null);
-    if (waits.length) drawIn(Math.max(Math.min(...waits), floor()));
+    put(lines, waits.length ? at + Math.min(...waits) : null);
+  }
+  // A frame's write, once the floor is out, then the timer for the next
+  // deadline. An event while it waits draws afresh.
+  function put(lines, next) {
+    if (closed) return;
+    frameTimer = null;
+    if (floor() > 0) return later(() => put(lines, next), floor());
+    screen.draw(lines);
+    if (next === null) return;
+    dueAt = next;
+    later(() => draw(next), Math.max(0, next - perf()));
   }
 
   // The detailed Pip's one controller, on the app's clock: its gates read

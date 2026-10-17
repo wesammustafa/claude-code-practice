@@ -571,7 +571,9 @@ const MOTION_ENV = { ...CALM_ENV, LEARN_CALM: '' };
 // `signals` stands in for the process's signals, and `runCheck` for the
 // check child. `saved` is the state file the app finds at start, and
 // `depth`, `cols` and `rows` the terminal's colors and size. The clock reads
-// `from` at start.
+// `from` at start. `slots` counts the times main measures Pip's slot. With
+// `lateMs` set, every timeout main sets fires that late, as a busy event
+// loop's can.
 function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols, rows, from } = {}) {
   const dir = exportHead(root);
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
@@ -581,7 +583,7 @@ function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols,
   }
   const term = fakeTerminal({ depth, cols, rows });
   const clock = fakeClock(from);
-  const app = { dir, term, clock, exited: null, times: [], writeMs: 0 };
+  const app = { dir, term, clock, exited: null, times: [], writeMs: 0, lateMs: 0, slots: 0 };
   // The wall clock steps by `ms`, as a wall clock can, and the monotonic one
   // (perf) does not. Step it only between clock.advance calls: settle and
   // until read Date.now.
@@ -599,7 +601,7 @@ function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols,
   };
   // When each frame from write `from` on went out.
   app.frameTimes = (from = 0) => app.times.slice(from).filter((_, i) => term.writes[from + i].startsWith('\x1b[?2026h'));
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, perf: clock.now, timers: clock, watch, askGit, signals, runCheck, exit: (code) => { app.exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, perf: clock.now, timers: { ...clock, setTimeout: (fn, ms) => clock.setTimeout(() => { clock.spend(app.lateMs); fn(); }, ms) }, pipSlot: (...a) => ((app.slots += 1), pipSlot(...a)), watch, askGit, signals, runCheck, exit: (code) => { app.exited = code; } });
   // Until fn() holds, moving the clock 40 ms at a time while the children run.
   app.settle = async (fn, ms = 8_000) => {
     const end = Date.now() + ms;
@@ -1286,7 +1288,9 @@ test('the greeting on main\'s one timer: the detailed Pip asks for a frame every
 // frame. Resume's x shows its y/n only once the letter acts, after the ease.
 test('a key ends the greeting on main\'s one timer: the detailed Pip eases to rest on 40 ms frames for 280 ms, the 9x4 Pip from the frame the key draws; then no frame timer waits, and Pip is at rest, beside resume\'s y/n too', async () => {
   for (const [depth, keys] of [[24, '\x1b[A'], [8, '\x1b[A'], [24, 'x']]) {
-    const app = clockedRun(MOTION_ENV, { saved: RESUME, depth, askGit: quickGit, runCheck: async () => ({ items: [] }) });
+    // No watcher: the real one reports the app's own save at whatever time
+    // the fake clock reads when it lands, a frame this test does not ask.
+    const app = clockedRun(MOTION_ENV, { saved: RESUME, depth, askGit: quickGit, runCheck: async () => ({ items: [] }), watch: () => ({ close() {} }) });
     const { term, clock } = app;
     const why = `depth ${depth}, ${JSON.stringify(keys)}`;
     try {
@@ -1524,6 +1528,75 @@ const breathingStops = async (app, from, to) => {
   }
   return null;
 };
+
+// What the detailed Pip costs on the wire and in work (design 4.7): the
+// welcome at 120x40 in truecolor, the 5 s of its greeting and each 5 s of
+// its 30 s of breathing, under ceilings about 1.3 times what was measured
+// (ticket 181). Its slot is measured once per state and size, not per frame.
+const CEILING = { greet: 140_000, breathing: 60_000 };
+test('the detailed Pip\'s bytes per 5 s stay under their ceilings while it greets and while it breathes, and its slot is measured once per state, not per frame', async () => {
+  const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40, watch: () => ({ close() {} }) });
+  const { term, clock } = app;
+  const bytes = (from, to) => term.writes.reduce((n, w, i) => n + (app.times[i] >= from && app.times[i] < to ? Buffer.byteLength(w) : 0), 0);
+  const frames = (from, to) => app.frameTimes().filter((at) => at >= from && at < to).length;
+  try {
+    await toWelcome(app);
+    const arrived = app.frameTimes()[0];
+    const opens = graceEnds(app);
+    await clock.advance(arrived + TIMING.greet - clock.now());
+    const greet = bytes(arrived, arrived + TIMING.greet);
+    assert.ok(greet > 0 && greet <= CEILING.greet, `the greeting: ${greet} bytes`);
+    await clock.advance(opens - clock.now());
+    for (let k = 0; k < 6; k++) {
+      const from = opens + k * 5_000;
+      const slots = app.slots;
+      await clock.advance(5_000);
+      const b = bytes(from, from + 5_000);
+      assert.ok(b > 0 && b <= CEILING.breathing, `breathing, ${k * 5} to ${k * 5 + 5} s: ${b} bytes`);
+      // The app's 1 s tick is a new state each second.
+      assert.ok(app.slots - slots <= 6 && frames(from, from + 5_000) >= 40, `breathing, ${k * 5} s: ${app.slots - slots} slots for ${frames(from, from + 5_000)} frames`);
+    }
+  } finally {
+    app.close();
+  }
+});
+
+// Render and write time and a late timer do not stretch Pip's frames: each
+// next frame counts from the frame's own time, so with every write taking
+// 8 ms and every timer firing 3 ms late, the frame timer still lands on the
+// 40 ms grid from the moment Pip's gate opened, at most a breath (120 ms)
+// after the last.
+test('with every write taking 8 ms and every timer 3 ms late, each frame timer while the detailed Pip breathes lands on the 40 ms grid from its gate\'s opening, at most 120 ms after the last', async () => {
+  const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40, watch: () => ({ close() {} }) });
+  const { clock } = app;
+  try {
+    await toWelcome(app);
+    const opens = graceEnds(app);
+    app.writeMs = 8;
+    app.lateMs = 3;
+    await clock.advance(opens - clock.now());
+    const off = [];
+    const long = [];
+    let n = 0;
+    let last = opens;
+    while (clock.now() < opens + 29_000) {
+      const [next, ...more] = app.frameTimers();
+      assert.equal(more.length, 0, 'one frame timer');
+      if (!next) break;
+      n += 1;
+      const due = clock.now() + next.ms - opens;
+      if (due % TIMING.grid !== 0) off.push(due);
+      if (due - last > 120) long.push(`${last} to ${due}`);
+      last = due;
+      await clock.advance(next.ms);
+    }
+    assert.ok(n > 200, `${n} frame timers`);
+    assert.deepEqual(off, []);
+    assert.deepEqual(long, []);
+  } finally {
+    app.close();
+  }
+});
 
 test('the welcome\'s detailed Pip asks for no frame while the learner reads, then breathes for 30 s from the moment its reading grace ends, and glances about 2.6 s and blinks about 4.2 s after it', async () => {
   const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
