@@ -186,7 +186,7 @@ const STRAY = { kind: 'stray', until: Infinity };
 // draws with what this gives, and asks for Pip's frames only where it
 // gives a raster.
 export function pipSlot(s, size, t, ahead = null) {
-  if (!t.unicode || t.depth < 24 || size.cols < MIN.cols || size.rows < MIN.rows) return null;
+  if (!t.unicode || !t.truecolor || size.cols < MIN.cols || size.rows < MIN.rows) return null;
   // A raster with no pose: enough to measure the rows it takes.
   const blank = { size: 'standard' };
   if (!s) {

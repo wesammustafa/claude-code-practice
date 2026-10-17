@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
-import { PIP_INK, pipRaster, pipShown } from '../../learn/lib/art.mjs';
+import { PIP_INK, pipGreeting, pipRaster, pipShown } from '../../learn/lib/art.mjs';
 import { createPip, PALETTE, rasterizePip, restPose } from '../../learn/lib/pip/pip.mjs';
 import { IDLE_MS, reduce } from '../../learn/lib/flow.mjs';
 import { ambientOpened, greetStart, pipGates, pipJump, REST, SHOTS, TIMING } from '../../learn/lib/motion.mjs';
@@ -31,6 +31,12 @@ const handed = (s, at, t, pose, ahead = null) => {
   const slot = pipSlot(s, at, t, ahead);
   return slot && { size: slot, pose };
 };
+
+// One truecolor predicate (181): the theme's, which pipSlot and main's
+// gates both read.
+test('theme.truecolor: 24-bit color only, at every other depth not', () => {
+  for (const [label, caps] of Object.entries(CAPS)) assert.equal(theme(caps).truecolor, caps.depth >= 24, label);
+});
 
 // The mapping study's room per screen (build/pipmap/layout.md): standard
 // (32x16) needs 12 spare rows. Small (20x10) and hero are not used: small's
@@ -552,7 +558,7 @@ test('the detailed Pip greets on the welcome and resume: eyes wide and an antenn
     const pipRows = (lines) => rasterRows(lines, glyph);
     // Zero at both ends: Pip's rows are its rest rows at +0 ms and from +5 s.
     for (const ms of [0, TIMING.greet, TIMING.greet + 1_000]) assert.deepEqual(pipRows(frame(ms)), pipRows(rest), `${label}, +${ms} ms`);
-    assert.notDeepEqual(pipRows(frame(TIMING.greet - 40)), pipRows(rest), `${label}: still easing back 40 ms before the end`);
+    assert.notDeepEqual(pipRows(frame(TIMING.greet - 80)), pipRows(rest), `${label}: still easing back 80 ms before the end`);
     assert.equal(sparks(still), 0, `${label}: no sparks at rest`);
     // At first the eyes widen, and the antenna flicks.
     assert.ok(eyes(gold(GREET_AT.wide)).n > eyes(still).n * 1.05, `${label}: wide eyes at +${GREET_AT.wide} ms`);
@@ -581,6 +587,19 @@ test('the detailed Pip greets on the welcome and resume: eyes wide and an antenn
       if (Math.abs(dx) > 0.8 && Math.sign(dx) !== side.at(-1)) side.push(Math.sign(dx));
     }
     assert.ok(side.length >= 4 && side.length <= 10, `${label}: the antenna swings ${side.length} times`);
+  }
+});
+
+// One curve for every ease of the detailed Pip (181): the greeting's eases
+// in and out are the controller's quintic, the one its crossfades use, so
+// the greeting's end and a key's ease out move alike.
+test('the greeting eases on the same curve as Pip\'s crossfades', () => {
+  const pose = restPose('ready');
+  for (const u of [0.1, 0.25, 0.5, 0.75, 0.9]) {
+    const fade = { at: 0, ms: 1, from: { ...pose, happy: 1 } };
+    const crossfade = pipShown({ pose, fade }, undefined, u).happy;
+    const easedBack = pipGreeting(pose, GREET.back + u * (TIMING.greet - GREET.back)).happy;
+    assert.ok(Math.abs(easedBack - crossfade) < 1e-12, `${u} of the way back: happy ${easedBack}, the crossfade's ${crossfade}`);
   }
 });
 

@@ -80,12 +80,15 @@ export const PIP_RASTER = {
 // turn happy and its antenna waves like a hand, slow swings that ease in
 // and out, with a hop and a spark at each of its hops; between the hops its
 // eyes, open again, look left, right and up. At the end all of it eases
-// back to the pose.
-const bump = (u) => (u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u) ** 2);
-const rise = (ms, from, to) => {
-  const u = Math.min(1, Math.max(0, (ms - from) / (to - from)));
-  return u * u * (3 - 2 * u);
+// back to the pose. Its eases are the package's own curves, which it does
+// not export: `ease`, the quintic its crossfades use (181), and `bump`, its
+// hump.
+const ease = (u) => {
+  const v = Math.min(1, Math.max(0, u));
+  return v * v * v * (v * (v * 6 - 15) + 10);
 };
+const bump = (u) => (u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u) ** 2);
+const rise = (ms, from, to) => ease((ms - from) / (to - from));
 export function pipGreeting(pose, ms) {
   if (!(ms > 0 && ms < TIMING.greet)) return pose;
   const at = SHOTS.greet.raster;
@@ -107,12 +110,6 @@ export function pipGreeting(pose, ms) {
     gazeY: pose.gazeY - bump((ms - at.up) / (at.again - at.up)),
   };
 }
-
-// The package's quintic ease, which it does not export.
-const ease = (u) => {
-  const v = Math.min(1, Math.max(0, u));
-  return v * v * v * (v * (v * 6 - 15) + 10);
-};
 
 // The detailed Pip as the frame at `at` shows it: the controller's `pose`
 // with the greeting `greetMs` in, and where main saw it jump (181), eased

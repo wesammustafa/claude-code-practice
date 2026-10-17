@@ -1,5 +1,8 @@
-// Wiring: the terminal, the state, the checks and the watcher. All decisions
-// are in flow.mjs; this file only carries events in and effects out.
+// Wiring: the terminal, the state, the checks and the watcher. The lesson's
+// decisions are in flow.mjs; this file carries events in and effects out.
+// It owns the app's one clock, its one frame timer and the detailed Pip's
+// controller: Pip's state changes, the restart of its lively window as the
+// ambient gate opens, and its eases where its pose jumps.
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -192,7 +195,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // moves, more deadlines for the one timer. All with the same gates, even
     // if this frame's write turns motion off.
     const slot = slotOf(state, size);
-    const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.depth >= 24, remote: caps.remote });
+    const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.truecolor, remote: caps.remote });
     const pose = slot && pipPose(at, gates);
     if (!slot) shown = fade = null;
     const raster = slot ? { size: slot, pose, fade } : null;
