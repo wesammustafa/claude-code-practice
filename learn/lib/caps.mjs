@@ -28,7 +28,11 @@ export function capabilities(stream = process.stdout, env = process.env, platfor
   // for a setting first, so neither is listed.
   const clipboard = tty && !plain && env.TERM !== 'dumb' && !env.TMUX && !env.STY
     && Boolean(env.KITTY_WINDOW_ID || env.TERM_PROGRAM === 'WezTerm' || env.TERM_PROGRAM === 'ghostty' || env.ALACRITTY_WINDOW_ID || env.WT_SESSION);
-  return { tty, depth, unicode, links, motion, calm, clipboard, win32: platform === 'win32', codespace: env.CODESPACES === 'true' };
+  // Over SSH or in a Codespace: a frame crosses the network, so the detailed
+  // Pip does not breathe there.
+  const codespace = env.CODESPACES === 'true';
+  const remote = Boolean(env.SSH_CONNECTION || env.SSH_TTY || codespace);
+  return { tty, depth, unicode, links, motion, calm, clipboard, remote, win32: platform === 'win32', codespace };
 }
 
 // The bytes that ask the terminal to put `text` on the clipboard.
