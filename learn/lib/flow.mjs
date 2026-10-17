@@ -42,10 +42,11 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
   }
   const open = course.find((l) => l.content && progress[l.id].step && !progress[l.id].complete)
     ?? course.find((l) => l.content && !progress[l.id].complete);
+  const folders = { ...(saved?.folders ?? {}) };
   // Every lesson in the app is done: open the map at the next lesson, or
   // where only lessons that run in a new copy with no folder saved are left,
   // at the first of them.
-  const next = open ?? course.find((l) => toFinish({ progress, folders: saved?.folders ?? {} }, l)) ?? course.find((l) => !progress[l.id].complete) ?? course[0];
+  const next = open ?? course.find((l) => toFinish({ progress, folders }, l)) ?? course.find((l) => !progress[l.id].complete) ?? course[0];
   const welcomed = Boolean(saved?.welcomed);
   const eased = saved?.eased ?? [];
   // A warm-up the learner quit on with its skill eased was most likely missed
@@ -81,7 +82,7 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     fx: { view: now },
     // The work folders the learner chose, saved (folderOf reads them), and
     // what the app found in each folder it looked at, in memory.
-    folders: { ...(saved?.folders ?? {}) },
+    folders,
     probes: {},
     // The path prompt while it is open: whose folder it asks for, what is
     // typed, the folder it last found missing, and the number of the ask

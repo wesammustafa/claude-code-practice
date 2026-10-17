@@ -187,7 +187,8 @@ test('the welcome names the current level and draws only its path line, with one
 });
 
 // Ticket 172: a new copy's saved folder makes a-5 or a-capstone the next
-// lesson, and changes no count: a count is of completed lessons alone.
+// lesson, and changes no count: a count is of completed lessons alone. The
+// counts were already so before 172; this keeps them so.
 test('a saved new copy changes neither the welcome\'s nor the map\'s n of m count: they count a completed a-5 or a-capstone, and only that', () => {
   const course = threeLevels();
   const folders = { 'a-5': '/home/sam/claude-actions-practice', 'a-capstone': '/home/sam/ci-review' };
