@@ -1038,6 +1038,15 @@ test('--dir opening on a-5 or a-capstone with its new copy saved sets the Advanc
       assert.equal(dirOf(copy.ran, 'a-1'), copy.copy, id);
       assert.equal(dirOf(copy.ran, id), actions, id);
     }
+    // With a-5 and a-capstone left and only a-capstone's copy saved, --dir
+    // works out its lesson as if none were saved (172): a-5, whose copy it
+    // sets. The a-capstone copy stays.
+    const left = (l) => !['a-5', 'a-capstone'].includes(l.id);
+    const r = await plain(['--dir', mine], { done: left, folders: () => ({ 'a-capstone': actions }) });
+    assert.equal(r.code, 0, r.err);
+    assert.equal(dirOf(r.ran, 'a-5'), mine);
+    assert.equal(dirOf(r.ran, 'a-capstone'), actions);
+    for (const other of ['a-1', 'a-6', 'a-7']) assert.equal(dirOf(r.ran, other), r.copy, other);
   } finally {
     for (const d of [mine, actions]) rmSync(d, { recursive: true, force: true });
   }

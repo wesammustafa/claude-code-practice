@@ -2667,6 +2667,15 @@ test('c opens your card: an entry shows only after a finished step on its skill,
 });
 
 const COMMANDS_BY_LEVEL = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/reference/commands.md';
+// The Commands by level link under its line, in trimmed rows: spelled out
+// whole, on more than one row, each broken only after a /, ? or &.
+const assertLinkBreaks = (lines, where) => {
+  const from = lines.indexOf(C.cardLink);
+  const url = lines.slice(from + 1, lines.findIndex((l, i) => i > from && l.endsWith('commands.md')) + 1);
+  assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
+  assert.ok(url.length > 1, where);
+  for (const row of url.slice(0, -1)) assert.match(row, /[/?&]$/, where);
+};
 // Every entry the lesson files put on the card, in course order.
 const CARD_SHOWS = ['claude --version', 'claude', '/status', '/exit', 'Shift+Tab', 'Ctrl+O', '/diff', 'git diff',
   '/context', '/compact', '/rewind', '/clear', '/resume', 'claude --continue', '/init', '/context all', 'git add -N <file>'];
@@ -2826,11 +2835,7 @@ test('your card spells the Commands by level link out whole, breaking it only af
       while (d.state.cardAt) d.key('up');
       for (let i = 0; i < 40; i++) cardArrow(d, 'down', size, t);
       const lines = render(d.state, { cols: size[0], rows: size[1] }, t).map((l) => strip(l).trim());
-      const where = `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${lines.join('\n')}`;
-      const url = lines.slice(lines.indexOf(C.cardLink) + 1, lines.findIndex((l, i) => i > lines.indexOf(C.cardLink) && l.endsWith('commands.md')) + 1);
-      assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
-      assert.ok(url.length > 1, where);
-      for (const row of url.slice(0, -1)) assert.match(row, /[/?&]$/, where);
+      assertLinkBreaks(lines, `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${lines.join('\n')}`);
     }
   }
 });
@@ -3029,9 +3034,7 @@ test('the comparison, as your card (173): it spells the Commands by level link o
         const end = shown();
         const where = `${at}\n${end.join('\n')}`;
         assert.ok(linked(end), where);
-        const url = end.slice(end.indexOf(C.cardLink) + 1, end.findIndex((l, i) => i > end.indexOf(C.cardLink) && l.endsWith('commands.md')) + 1);
-        assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
-        for (const row of url.slice(0, -1)) assert.match(row, /[/?&]$/, where);
+        assertLinkBreaks(end, where);
         if (fitsWhole) {
           assert.equal(d.state.cardAt, 0, `${at}: it fits, so the arrows move nothing`);
           continue;
@@ -3122,6 +3125,14 @@ test('a reading beat already passed when its step opens says "Already done, so t
         for (const words of shows) assert.ok(said.includes(words), `${where} ${verify}: ${said}`);
         assert.ok(!said.includes('check already passes'), `${where} ${verify}: ${said}`);
       }
+      // Its satisfied "Done when" gives way to what the file holds, as on a pass.
+      const doneWhen = onReading('file .practice/b-2-plan.txt\n- say: Done when `.practice/b-2-plan.txt` holds your plan.');
+      doneWhen.send({ type: 'file', path: '.practice/b-2-plan.txt', read: Buffer.from('Plan the change\n'), stamp: 'x' });
+      assert.equal(doneWhen.state.beat.status, 'already', where);
+      fits(doneWhen.state, size, t, where);
+      const holds = prose(doneWhen.state, size, t);
+      assert.ok(holds.includes('holds Plan the change'), `${where}: ${holds}`);
+      assert.ok(!holds.includes('holds your plan'), `${where}: ${holds}`);
       // A check did run for a check beat: its line stays.
       const check = onReading('check 0');
       check.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'saved', pass: true, hint: '' }] });

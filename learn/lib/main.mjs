@@ -79,14 +79,16 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // does --dir replace a new copy already saved (173): opening on its
     // lesson, it is the level's too.
     const opening = initialState({ course, saved: { ...saved, folders: {} }, facts: { root } });
+    const level = levelKey(opening);
     const own = folderKey(opening);
-    const key = (own && !saved?.folders?.[own] ? own : null) ?? levelKey(opening);
+    const savedCopy = Boolean(own && own !== level && saved?.folders?.[own]);
+    const key = savedCopy ? level : own ?? level;
     if (!key) {
       stderr.write(`${C.dirBeginner}\n`);
       return 2;
     }
     // A new copy is another folder than this practice copy.
-    if (key !== levelKey(opening) && ahead.path === root) {
+    if (key !== level && ahead.path === root) {
       stderr.write(`${C.newCopyIsCopy}\n`);
       return 2;
     }

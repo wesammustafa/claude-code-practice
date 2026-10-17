@@ -1488,11 +1488,13 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));
-    // git status, not a check, passed a beat that needs it to list
-    // something: what changed, as a pass shows it.
-    else if (needsChange(beat.verify)) rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'), ...(st.evidence ? para(t, st.evidence, inner, 'text') : []));
-    // The app read the file itself, so no check ran either.
-    else if (READS.has(beat.verify.kind)) rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'), ...(st.evidence ? holds(inner) : []));
+    // No check ran: git status passed a beat that needs it to list
+    // something, or the app read the file itself. What it saw, as a pass
+    // shows it: what changed, or what the file holds.
+    else if (needsChange(beat.verify) || READS.has(beat.verify.kind)) {
+      rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'),
+        ...(!st.evidence ? [] : READS.has(beat.verify.kind) ? holds(inner) : para(t, st.evidence, inner, 'text')));
+    }
     else rows.push(...para(t, `${t.lead('verified')}${beat.verify.all ? C.alreadyCheck : C.already}`, inner, 'ok'));
   }
   if (beat.verify.all && ['done', 'already'].includes(st.status) && s.checks[s.lesson]?.items) {
@@ -1606,9 +1608,11 @@ const gitListed = (s, beat) => cleanListed(beat.verify, s.git?.paths ?? []);
 
 // A beat whose check is about a file: a check item, or the file read here.
 const looksAtFile = (beat) => beat.verify.kind === 'check' || READS.has(beat.verify.kind);
-// Whether a done beat's footer draws the evidence line: what the file holds.
-const showsEvidence = (s, beat, isLastBeat) => isLastBeat && s.beat.status === 'done' && looksAtFile(beat)
-  && Boolean(beat.evidence && s.beat.evidence) && !(beat.verify.all && s.checks[s.lesson]?.items);
+// Whether the footer draws the evidence line, what the file holds: a done
+// beat's beside the burst, and a reading beat's already done (173).
+const showsEvidence = (s, beat, isLastBeat) => looksAtFile(beat) && Boolean(beat.evidence && s.beat.evidence)
+  && (s.beat.status === 'done' ? isLastBeat && !(beat.verify.all && s.checks[s.lesson]?.items)
+    : s.beat.status === 'already' && !s.beat.codespace && READS.has(beat.verify.kind));
 
 // The first clause of a check's FAIL message: what is wrong, before how to fix it.
 export function diagnosis(hint) {
@@ -1687,13 +1691,13 @@ function placesTo(places, from, avail, first = places[from].length) {
 // room, it shows whole places from s.cardAt down, one a press of the
 // arrows: each entry is a place, and the link is the last, so the last
 // place always shows it, a toast or not. `scroll` is the arrows' key, or null.
-// `toLink` is your card's (167) and the comparison's (173): its link breaks
-// only after a /, ? or &, and it scrolls no further than the window that
-// ends on the link, `max`.
-function cardPlaces(ctx, units, title, intro, { toLink = false } = {}) {
+// Your card's (167) and the comparison's (173) link breaks only after a /,
+// ? or &, and the card scrolls no further than the window that ends on the
+// link, `max`.
+function cardPlaces(ctx, units, title, intro) {
   const { s, t, inner, room } = ctx;
   const head = [t.bold(t.fg('white', title)), ...para(t, intro, inner, 'muted'), ''];
-  const url = toLink ? urlRows(t, COMMANDS_URL, inner) : para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL));
+  const url = urlRows(t, COMMANDS_URL, inner);
   // Under an entry, the link keeps a blank above it.
   const places = [...units, [...(units.length ? [''] : []), t.fg('text', C.cardLink), ...url]];
   const avail = room - head.length;
@@ -1702,7 +1706,7 @@ function cardPlaces(ctx, units, title, intro, { toLink = false } = {}) {
   const fits = places.flat().length <= avail;
   let max = places.length - 1;
   if (fits) max = 0;
-  else if (toLink) while (max > 0 && placesTo(places, max - 1, avail, opening(max - 1).length) === places.length) max--;
+  else while (max > 0 && placesTo(places, max - 1, avail, opening(max - 1).length) === places.length) max--;
   const from = fits ? 0 : Math.min(s.cardAt, max);
   const shown = opening(from);
   const k = placesTo(places, from, avail, shown.length);
@@ -1795,7 +1799,7 @@ const OVERLAYS = {
       const label = `${t.pill(pad(lessonLabel(e.lesson), 3), 'dimBg', 'dimText')}  `;
       return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
     });
-    const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty, { toLink: true });
+    const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty);
     return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)], max };
   },
   // Recall, then compare: the lesson's own entries, whole as soon as space
@@ -1810,7 +1814,7 @@ const OVERLAYS = {
     const units = entries.map((e) => (inner - col >= COMPARE_MIN
       ? hang(t.fg('code', pad(e.show, col)), para(t, e.does, inner - col, 'text', { quote: true }))
       : [t.fg('code', e.show), ...hang('   ', para(t, e.does, inner - 3, 'text', { quote: true }))]));
-    const { body, scroll, max } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro, { toLink: true });
+    const { body, scroll, max } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
     return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)], max };
   },
   page(ctx) {
