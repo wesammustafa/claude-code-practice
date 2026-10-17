@@ -1,9 +1,9 @@
 // When the screen moves: one-shot progress, the gates for ambient loops, and
 // the time until the next frame. Pure: it reads no clock and picks nothing at
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
-import { GIT } from './content.mjs';
 import { C } from './copy.mjs';
-import { beatOf, checkOnlyWords, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
+import { faceCells, facePose } from './face.mjs';
+import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -24,33 +24,52 @@ export const TIMING = {
   // The reading grace: 400 ms a word of the newest text, 3 s to 20 s; and
   // the quiet after a key.
   perWord: 400, graceMin: 3_000, graceMax: GRACE_MAX_MS, keyQuiet: 4_000,
+  // Where the detailed Pip's pose jumps, it eases from the pose it showed
+  // (181): over `pipFade` for a key that ends its greeting or shuts its
+  // ambient gate, over `pipBreathIn` as the gate opens and it breathes.
+  // Where the card face's mood changes mid one-shot, it passes from the
+  // face it showed to the new one over `mood`.
+  pipFade: 320, pipBreathIn: 800, mood: 80,
 };
 
 // The look marker's notches across the pulse line.
 export const NOTCHES = 12;
 
+// A face track from its steps, [ms, frame] each, frame an art.mjs FRAME
+// name or null for the mood's own face: each frame holds until one grid
+// step before the next, so a frame drawn on the 40 ms grid shows one
+// exactly, and Pip passes from one to the next between (181).
+const track = (...steps) => steps.flatMap(([ms, frame], k) => {
+  const next = steps[k + 1]?.[0];
+  return next === undefined || next - TIMING.grid <= ms ? [[ms, frame]] : [[ms, frame], [next - TIMING.grid, frame]];
+});
+
 // The moments inside each one-shot (design 2.3 and 4.3), under the same names
 // as its TIMING entry, which it rests at: `every`, how often its frame may
 // change, where the tests sample it, and the moments it changes at, in ms
-// from its start.
+// from its start. `face`: the 9x4 Pip's or the card face's keyframes,
+// [ms, frame], interpolated between and drawn through the package's glyphs;
+// a one-shot that moves only Pip's face asks for frames at its moments.
 export const SHOTS = {
   // The top rule grows from the pill, a third a frame, until Pip lands at
-  // `land`; the trail's new stop is hollow until then, then a ring.
-  entrance: { every: 40, land: 80 },
+  // `land`, its eyes shut, and opens them through half-lids; the trail's
+  // new stop is hollow until then, then a ring.
+  entrance: { every: 40, land: 80, face: track([80, 'shut'], [120, 'waking'], [160, null]) },
   // The line's mark is hollow until `pop`; Pip opens both eyes at the
-  // learner from `nod` to the end, then wears its worried face again.
-  notYet: { every: 80, pop: 80, nod: 160 },
-  hop: { every: 240 },
-  cheer: { every: 360 },
+  // learner from 160 ms to the end, then wears its worried face again.
+  notYet: { every: 80, pop: 80, face: track([0, null], [160, 'awake'], [360, null]) },
+  hop: { every: 240, face: track([0, 'sparks']) },
+  cheer: { every: 360, face: track([0, 'sparks']) },
   // The stop is a spark until `pop`, when its link half fills; by `fill`
   // the link and the progress rule are whole. Each command without a tick
   // gets one, a `tick` apart. From `strokes` the check mark draws a stroke
   // every `stroke`, then the sparks.
   stepDone: { every: 40, pop: 120, fill: 240, tick: 120, strokes: 320, stroke: 80 },
-  // Pip's eyes are shut until `open`, and the banner wipes in until `whole`,
-  // when Pip wears its focus face. Then the arrow fills a third every `fill`
-  // and its head and the new star land at `head`.
-  levelUp: { every: 40, open: 240, whole: 480, fill: 80, head: 720 },
+  // Pip's eyes are shut, then open through half-lids by 240 ms, and the
+  // banner wipes in until `whole`, when Pip wears its focus face. Then the
+  // arrow fills a third every `fill` and its head and the new star land at
+  // `head`.
+  levelUp: { every: 40, whole: 480, fill: 80, head: 720, face: track([0, 'shut'], [200, 'waking'], [240, 'awake'], [480, null]) },
   // The confetti changes every `fall`: from 24 rows it falls across its row
   // and the blank under it, below 24 it appears `first` glyphs, then `more`
   // at a time. Pip cheers with sparks, and COMPLETE stamps in, until `whole`.
@@ -63,12 +82,12 @@ export const SHOTS = {
   // crosses the arrow, a cell every `cell`. Pip wakes in its greeting.
   welcome: { every: 80, fuse: 80, cup: 320, pulse: 320, cell: 80 },
   // Pip's greeting on the welcome and resume (176). On the welcome the 9x4
-  // Pip's eyes open at `waking` and are awake at `awake` (the boot frame's
-  // wake-up too); on resume it starts awake. It looks left at `left`, right
-  // at `right` and up at `up`; from `wave` its eyes are happy and its
-  // antenna row sparks every other `swing`, until `back`; it blinks from
-  // `blink` to `open`, and is awake to the end. It plays once per opening
-  // of the app (flow.mjs stamps fx.greet).
+  // Pip wakes, `wake` (the boot frame's wake-up too); on resume it starts
+  // awake. Then, `face`, it looks left, passes the centre, looks right and
+  // up; from 1840 ms its eyes are happy and its antenna row sparks every
+  // other 320 ms; it blinks through half-lids, and is awake to the end
+  // (greetFace). It plays once per opening of the app (flow.mjs stamps
+  // fx.greet).
   // The detailed Pip's, `raster`, a frame every `every`: its eyes are wide
   // and its antenna flicks once until `wide`; then its eyes ease happy by
   // `glad`, and its antenna waves, a swing every `swing`, whole by `waved`.
@@ -77,21 +96,49 @@ export const SHOTS = {
   // `again`, and ease happy again by the second hop. From `back` all of it
   // eases back to the pose, which it reaches at the end.
   greet: {
-    every: 80, waking: 80, awake: 160, left: 640, right: 1_040, up: 1_440, wave: 1_840, swing: 320, back: 3_760, blink: 4_240, open: 4_560,
+    every: 40,
+    wake: track([0, 'shut'], [80, 'waking'], [160, null]),
+    face: track([0, null], [640, 'lookLeft'], [1_000, null], [1_040, 'glance'], [1_440, 'lookUp'],
+      [1_840, 'cheer'], [2_160, 'glad'], [2_480, 'cheer'], [2_800, 'glad'], [3_120, 'cheer'], [3_440, 'glad'], [3_760, null],
+      [4_240, 'waking'], [4_280, 'shut'], [4_600, 'waking'], [4_640, null]),
     raster: { every: 40, wide: 300, glad: 700, waved: 800, swing: 1_100, hops: [700, 3_300], hop: 450, open: 1_200, look: 1_500, up: 2_500, again: 3_000, back: 4_500 },
   },
   // On the complete screen, after the cheer and once the rest is still,
-  // Pip looks left from `left`, back from `back` and right from `right`,
-  // with its happy eyes between and at the end (176).
-  lookAround: { every: 400, left: 1_200, back: 1_600, right: 2_000 },
+  // Pip looks left, back and right, with its happy eyes between and at the
+  // end (176), each look through the centre, its eyes open, for one frame
+  // either side (182), as the greeting's look passes through it.
+  lookAround: {
+    every: 40,
+    face: track([0, null], [1_160, 'awake'], [1_200, 'lookLeft'], [1_560, 'awake'], [1_600, null],
+      [1_960, 'awake'], [2_000, 'glance'], [2_360, 'awake'], [2_400, null]),
+  },
   // On the check-only card, the mark of an item that starts passing is
   // hollow until `pop`, then a ring, then the check mark.
   itemPass: { every: 80, pop: 80 },
   // One segment crosses the pulse line, a fifth of the way each frame.
   sweep: { every: 80 },
   // Pip looks toward the other window, then back: one change each way.
-  glance: { every: 1_200 },
+  glance: { every: 1_200, face: track([0, 'glance']) },
+  // Pip's blink, an ambient loop's (TIMING.blink): through half-lids, shut,
+  // and open again through them.
+  blink: { every: 40, face: track([0, 'waking'], [40, 'shut'], [120, 'waking'], [160, null]) },
 };
+
+// The moments a face track changes the face, in ms from its start: its
+// first named frame, each change of frame, and `end` where it does not end
+// on the mood's own face. Between them a frame on the grid shows the same
+// face (181).
+export function faceMoments(face, end) {
+  const out = face.filter(([, frame], k) => frame !== (k ? face[k - 1][1] : null)).map(([ms]) => ms);
+  return face.at(-1)[1] === null ? out : [...out, end];
+}
+
+// The 9x4 Pip's greeting track on `view`: on the welcome it wakes first.
+const GREET_FACE = {
+  welcome: [...SHOTS.greet.wake, ...SHOTS.greet.face.filter(([ms]) => ms > SHOTS.greet.wake.at(-1)[0])],
+  resume: SHOTS.greet.face,
+};
+export const greetFace = (view) => GREET_FACE[view] ?? GREET_FACE.resume;
 
 // One-shot progress 0..1; 1 once a later key arrived.
 export function oneShot(s, at, start, ms) {
@@ -198,27 +245,119 @@ function quietFrom(s) {
 // opens them too, at no new moment of these.)
 export const ambientOpened = (s) => quietFrom(s);
 
-// How far into the blink cycle `at` is: shut for the first 160 ms of every
-// 6 s from the moment the gates opened.
+// How far into the blink cycle `at` is: blinking for the first 160 ms of
+// every 6 s from the moment the gates opened.
 const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 
 // What every moving part draws at rest, and while frozen: each one-shot at
 // its end (1), no spinner, no seconds, no ambient loop: no look marker
-// (`look`, its notch) and no blink. `checking`: Pip wears its checking face
-// whenever the card says "Checking"; with motion, only once the spinner
-// turns.
-export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
+// (`look`, its notch) and no blink, so nothing in `ms`. `checking`: Pip
+// wears its checking face whenever the card says "Checking"; with motion,
+// only once the spinner turns.
+export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false, ms: Object.freeze({}) });
 
-// Since when a check or git child has run for the beat on screen while it is
-// `opening`, or for r on the check-only card: a child that started before
-// the status became `opening`, or before r, is not this run, and a file read
-// starts none. Its first tick is the first 40 ms boundary from its start
-// once it has run 150 ms, then one every 80 ms.
-const CHILD = ['check', ...GIT];
+// A check or git child's spinner (its start, flow.mjs's childSince): its
+// first tick is the first 40 ms boundary from its start once it has run
+// 150 ms, then one every 80 ms.
 const FIRST_TICK = Math.ceil(TIMING.spinnerFrom / TIMING.grid) * TIMING.grid;
-const checkingChild = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
-  || (s.view === 'checkonly' && s.checkOnlyRun?.lesson === s.lesson);
-const childSince = (s) => (checkingChild(s) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
+
+// The card face's mood as it shows at `at` (cardMood's `mood`, with its
+// child's start `since`): checking only once the spinner turns.
+const moodShown = (mood, since, at) => (mood !== 'checking' || (since !== undefined && at - since >= FIRST_TICK) ? mood : 'rest');
+// When the face the card shows last changed mood, at or before `at`, on
+// this card (181), and the mood it showed before: flow.mjs stamps each
+// change of its mood, and the face changes there if it showed another mood
+// before; checking shows from its spinner's first tick, after rest.
+// Undefined where it never did.
+function moodChanged(s, at) {
+  const mood = cardMood(s);
+  if (!mood) return undefined;
+  const entered = Math.max(s.fx.view ?? NEVER, s.fx.open ?? NEVER);
+  const stamp = s.fx.mood;
+  const since = childSince(s);
+  const turned = mood === 'checking' && since !== undefined ? since + FIRST_TICK : NEVER;
+  const was = stamp && moodShown(stamp.was, stamp.since, stamp.at);
+  const changed = stamp?.at > entered && stamp.at <= at && was !== moodShown(mood, since, stamp.at) ? stamp.at : NEVER;
+  if (turned > entered && turned <= at && turned >= changed) return { at: turned, was: 'rest' };
+  return changed === NEVER ? undefined : { at: changed, was };
+}
+
+// The card face with phases `ph`, over the mood `shown` it rests in (169):
+// the one-shot that sets it, its track and how far into it (`part`, `face`,
+// `ms`), or none. Sparks for a hop or a cheer; away while the card enters
+// (null), then landing with its eyes shut; on a new "Not yet", a nod; on a
+// file change, a glance, unless a check runs; and its blink. Checking, with
+// motion: its checking face once a child has run 150 ms, and it holds
+// still.
+function faceWith(shown, ph) {
+  const mood = shown === 'checking' && !ph.checking ? 'rest' : shown;
+  const playing = (part) => ph.ms[part] !== undefined;
+  const shot = (part) => ({ mood, part, face: SHOTS[part].face, ms: ph.ms[part] });
+  if (playing('hop')) return shot('hop');
+  if (playing('cheer')) return shot('cheer');
+  if (playing('notYet')) return shot('notYet');
+  if ((ph.ms.entrance ?? Infinity) < SHOTS.entrance.land) return null;
+  if (playing('entrance')) return shot('entrance');
+  if (playing('glance') && mood !== 'checking') return shot('glance');
+  return playing('blink') ? shot('blink') : { mood };
+}
+
+// The card face as it showed at `m`, over the mood it showed then (`was`):
+// the one-shots that started before `m` and still played, the glance from
+// the file change before `m`, and a blink.
+function faceThen(s, m, was) {
+  const ms = {};
+  if (!idle(s, m)) {
+    for (const [part, start] of Object.entries(shotStarts(s, m))) if (start < m && oneShot(s, m, start, TIMING[part]) < 1) ms[part] = m - start;
+    const since = childSince(s);
+    const spinning = since !== undefined && m - since >= FIRST_TICK;
+    const blinked = blinkInto(s, m);
+    if (!spinning && ambientAllowed(s, m) && blinks(s) && blinked > 0 && blinked < TIMING.blink) ms.blink = blinked;
+  }
+  return faceWith(was, { ms, checking: true });
+}
+
+// The card face's one-shots that turn Pip back to the card: each shows at
+// once where it starts, as design 2.3's frames do.
+const TURNS_BACK = ['notYet', 'hop', 'cheer'];
+
+// Where the card face's mood changed mid one-shot (181), with
+// `face` the face it shows at `at`: the moment and the face it showed then,
+// which it passes from over TIMING.mood, or undefined. Only where a
+// one-shot that started before the change played as it changed or plays
+// now. None where the change starts one (its face shows at once, as design
+// 2.3's frames do) or where none plays (the new face shows at once). A
+// glance or a blink that starts as it passes passes on, from the face the
+// passage showed then, over TIMING.mood from its start; a "Not yet", hop
+// or cheer shows at once. None at idle, nor beside a question, its
+// options, a typed answer, the y/n before the exact command or the hint
+// box, where nothing moves; and a key ends it, as it ends every one-shot.
+function moodPassage(s, at, face) {
+  if (!face || idle(s, at) || answering(s)) return undefined;
+  const changed = moodChanged(s, at);
+  if (!changed) return undefined;
+  const started = face.part === undefined ? undefined : at - face.ms;
+  if (started > changed.at) {
+    if (TURNS_BACK.includes(face.part) || oneShot(s, at, started, TIMING.mood) >= 1) return undefined;
+    const shown = faceThen(s, started, moodShown(cardMood(s), childSince(s), started));
+    const passed = moodPassage(s, started, shown);
+    return passed && { at: started, from: { ...shown, passing: { from: passed.from, u: (started - passed.at) / TIMING.mood } } };
+  }
+  if (oneShot(s, at, changed.at, TIMING.mood) >= 1) return undefined;
+  const from = faceThen(s, changed.at, changed.was);
+  if (!from || started === changed.at || (from.part === undefined && started === undefined)) return undefined;
+  return { at: changed.at, from };
+}
+
+// The card face at `at`, with phases `ph` (phases(s, at, caps)): faceWith's
+// over the card's mood, and where it passes from the face it showed as its
+// mood changed (phases' `ms.mood`), `passing`: that face, and how far from
+// it.
+export function cardFace(s, at, ph) {
+  const face = faceWith(cardMood(s), ph);
+  if (ph.ms.mood === undefined) return face;
+  return { ...face, passing: { from: moodPassage(s, at, face).from, u: ph.ms.mood / TIMING.mood } };
+}
 
 // When the latest sweep started: the watcher saw a file change, or a look's
 // result differed from the last. Only while the screen watches something,
@@ -230,9 +369,11 @@ function sweepFrom(s) {
 }
 
 // When each one-shot on this screen started, or undefined where it does not
-// play. Each lasts its own TIMING entry.
-export function shotStarts(s) {
+// play. Each lasts its own TIMING entry. With `before`, the glance from the
+// last file change before then, where newer ones started it again.
+export function shotStarts(s, before = Infinity) {
   const fx = s.fx;
+  const glanced = [...(fx.activityWas ?? []), fx.activity].findLast((t) => t < before);
   const on = (views, start) => (views.includes(s.view) ? start : undefined);
   const entered = Math.max(fx.view ?? NEVER, fx.open ?? NEVER);
   const st = s.view === 'step' ? s.beat : null;
@@ -257,17 +398,42 @@ export function shotStarts(s) {
     sweep: sweepFrom(s),
     // A file change: Pip glances toward the other window, until a newer
     // "Not yet", hop or cheer turns Pip back to the card.
-    glance: watching(s) && !answering(s) && fx.activity > Math.max(fx.text ?? NEVER, fx.pass ?? NEVER, fx.passLast ?? NEVER) ? fx.activity : undefined,
+    glance: watching(s) && !answering(s) && glanced > Math.max(fx.text ?? NEVER, fx.pass ?? NEVER, fx.passLast ?? NEVER) ? glanced : undefined,
   };
 }
 
-// Milliseconds until the detailed Pip's greeting next moves (176): its next
-// frame or its end; null where it does not play or is over, with motion
-// off, an overlay or at idle. main adds it to the one timer where it draws
-// the detailed Pip.
+// When the detailed Pip's greeting started, while it plays at `at` (176);
+// undefined where it does not play, is over or a key ended it, with motion
+// off, an overlay or at idle.
+export function greetStart(s, at, caps) {
+  if (!caps?.motion || frozen(s, at)) return undefined;
+  const start = shotStarts(s).greet;
+  return oneShot(s, at, start, TIMING.greet) < 1 ? start : undefined;
+}
+
+// Milliseconds until the detailed Pip's greeting next moves: its next frame
+// or its end; null where it does not play. main adds it to the one timer
+// where it draws the detailed Pip.
 export function greetFrameIn(s, at, caps) {
-  if (!caps?.motion || s.overlay || idle(s, at)) return null;
-  return shotFrameIn(s, at, 'greet', shotStarts(s).greet, SHOTS.greet.raster.every);
+  const start = greetStart(s, at, caps);
+  return start === undefined ? null : shotFrameIn(s, at, 'greet', start, SHOTS.greet.raster.every);
+}
+
+// Where the detailed Pip's pose jumps on the frame at `at`, after the last
+// frame with it showed `shown` ({ gates, greet, view }): the moment, and
+// the ms it eases over from the pose shown then (181), or null. A key that
+// shuts its ambient gate or ends its greeting eases it out; the gate's
+// opening eases its breathing in. None across a screen change, with motion
+// off on either frame, with an overlay, or beside resume's y/n, where
+// nothing moves (main stops an ease from its x still running as the letter
+// acts).
+export function pipJump(s, at, shown, gates) {
+  if (!s || !shown || !shown.gates.motion || !gates.motion || shown.view !== s.fx.view || s.overlay || s.confirmRestart) return null;
+  const key = s.fx.key;
+  const cut = shown.greet !== undefined && greetStart(s, at, gates) === undefined && key > shown.greet && key < shown.greet + TIMING.greet;
+  if ((shown.gates.ambient && !gates.ambient) || cut) return { at: key, ms: TIMING.pipFade };
+  if (!shown.gates.ambient && gates.ambient) return { at: ambientOpened(s), ms: TIMING.pipBreathIn };
+  return null;
 }
 
 // The spinner's frame and the seconds, for a child that has run `ran` ms:
@@ -289,31 +455,41 @@ function spinsIn(ran) {
 
 // The boot frame (162): git's first questions at start, asked at `since`.
 // It goes up on the spinner's first tick, once they have run 150 ms, with
-// Pip's eyes shut, and Pip wakes as on the welcome. Without motion it is the
-// rest frame: Pip awake, no spinner.
+// Pip's eyes shut, and Pip wakes as on the welcome: `ms.wake`, how far into
+// SHOTS.greet.wake. Without motion it is the rest frame: Pip awake, no
+// spinner.
 export const BOOT_FROM = FIRST_TICK;
 export function bootPhases(since, at, caps) {
   if (!caps?.motion || at === Infinity) return REST_PHASES;
-  const woke = at - since - BOOT_FROM;
-  const eyes = woke < SHOTS.greet.waking ? 'shut' : woke < SHOTS.greet.awake ? 'waking' : undefined;
-  return { ...REST_PHASES, ...spun(at - since), eyes };
+  return { ...REST_PHASES, ...spun(at - since), ms: { wake: at - since - BOOT_FROM } };
 }
 // Milliseconds until the boot frame next differs, or null without motion.
 export function bootChange(since, at, caps) {
   if (!caps?.motion) return null;
   const woke = at - since - BOOT_FROM;
-  return Math.min(...spinsIn(at - since), ...[SHOTS.greet.waking, SHOTS.greet.awake].filter((ms) => ms > woke).map((ms) => ms - woke));
+  return Math.min(...spinsIn(at - since), ...faceMoments(SHOTS.greet.wake, Infinity).filter((ms) => ms > woke).map((ms) => ms - woke));
 }
 
 // What each moving part draws at `at`; the rest phases when motion is off.
+// `ms`: how far into each one-shot still playing `at` is, into a blink
+// while one is on, and into the card face's passage where its mood changed
+// mid one-shot (`mood`), in the clock's own milliseconds, unrounded.
 export function phases(s, at, caps) {
   if (!caps?.motion || at === Infinity || s.overlay) return REST_PHASES;
   const since = childSince(s);
   const { spinner, elapsed } = spun(since === undefined ? NEVER : at - since);
   const still = idle(s, at);
-  const shots = Object.fromEntries(Object.entries(shotStarts(s)).map(([part, start]) => [part, still ? 1 : oneShot(s, at, start, TIMING[part])]));
+  const starts = Object.entries(shotStarts(s));
+  const shots = Object.fromEntries(starts.map(([part, start]) => [part, still ? 1 : oneShot(s, at, start, TIMING[part])]));
+  const ms = Object.fromEntries(starts.filter(([part]) => shots[part] < 1).map(([part, start]) => [part, Math.max(0, at - start)]));
   // While a child runs, its bounce holds the pulse line: no ambient loop.
   const ambient = !still && spinner === null && ambientAllowed(s, at);
+  // A blink as the gates open, then every 6 s.
+  const blink = ambient && blinks(s) && blinkInto(s, at) < TIMING.blink;
+  if (blink) ms.blink = blinkInto(s, at);
+  // The card face passing from the face it showed as its mood changed.
+  const passage = moodPassage(s, at, faceWith(cardMood(s), { ms, checking: spinner !== null }));
+  if (passage) ms.mood = at - passage.at;
   return {
     ...shots,
     spinner,
@@ -321,8 +497,8 @@ export function phases(s, at, caps) {
     checking: spinner !== null,
     ambient,
     look: ambient && shots.sweep === 1 ? lookNotch(s) : null,
-    // A blink as the gates open, then every 6 s.
-    blink: ambient && blinks(s) && blinkInto(s, at) < TIMING.blink,
+    blink,
+    ms,
   };
 }
 
@@ -334,31 +510,66 @@ function shotFrameIn(s, at, part, start, every) {
   return Math.min(every - ((at - start) % every), start + TIMING[part] - at);
 }
 
+// Milliseconds from `e` into `face` until its next moment, or null.
+const nextMoment = (face, end, e) => {
+  const next = faceMoments(face, end).find((ms) => ms > e);
+  return next === undefined ? null : next - e;
+};
+
+// The one-shots that move only Pip's face, each with its track on `s`.
+const FACE_ONLY = { greet: (s) => greetFace(s.view), lookAround: () => SHOTS.lookAround.face, glance: () => SHOTS.glance.face, hop: () => SHOTS.hop.face, cheer: () => SHOTS.cheer.face };
+
+// One of them still playing from `start`: milliseconds until its face next
+// changes; null once it will not, it is over or a key ended it.
+function faceFrameIn(s, at, part, start) {
+  if (oneShot(s, at, start, TIMING[part]) >= 1) return null;
+  return nextMoment(FACE_ONLY[part](s), TIMING[part], at - start);
+}
+
 // Milliseconds until the screen next differs, or null. Null under calm,
 // with an overlay, at idle unless a child runs, and when nothing moves and
-// no deadline waits.
+// no deadline waits. With `caps.raster` the detailed Pip is drawn in the
+// 9x4 Pip's place, so the 9x4 Pip's face moments (its greeting, its look
+// around, its blinks) ask for nothing: main asks for the raster's (181).
 export function nextChange(s, at, caps) {
   if (!caps?.motion || s.overlay) return null;
   const still = idle(s, at);
   const times = [];
-  // A one-shot still playing: its next frame, or its end.
+  // A one-shot still playing: its next frame, or its end; one that moves
+  // only Pip's face, the next moment its face changes.
   if (!still) {
     for (const [part, start] of Object.entries(shotStarts(s))) {
-      const next = shotFrameIn(s, at, part, start, SHOTS[part].every);
+      if (FACE_ONLY[part] && caps.raster) continue;
+      const next = FACE_ONLY[part] ? faceFrameIn(s, at, part, start) : shotFrameIn(s, at, part, start, SHOTS[part].every);
       if (next !== null) times.push(next);
     }
   }
   const since = childSince(s);
   if (since !== undefined) times.push(...spinsIn(at - since));
+  // The card face passing from the face it showed as its mood changed: the
+  // next grid step of its passage where its cells change. A mood changes on
+  // an event's frame, or as the spinner turns.
+  const ph = moodChanged(s, at) ? phases(s, at, caps) : REST_PHASES;
+  if (ph.ms.mood !== undefined) {
+    const from = at - ph.ms.mood;
+    const cells = (when, p) => {
+      const face = cardFace(s, when, p);
+      return face && faceCells(facePose(face.mood, face.face, face.ms, face.passing));
+    };
+    const now = cells(at, ph);
+    const steps = Array.from({ length: TIMING.mood / TIMING.grid }, (_, k) => from + (k + 1) * TIMING.grid);
+    const step = steps.find((t) => t > at && cells(t, phases(s, t, caps)) !== now);
+    if (step !== undefined) times.push(step - at);
+  }
   // The moment ambient loops may start, on a screen that has one: the grace
-  // and the key quiet both over. Once they run, each blink's start and end.
+  // and the key quiet both over. Once they run, each blink's moments.
   // The look marker moves only on a look, and the app's 1 s tick draws the
   // first idle frame, where it stops.
   const quiet = quietFrom(s);
   if (!still && AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
-  if (!still && ambientAllowed(s, at) && blinks(s)) {
+  if (!still && !caps.raster && ambientAllowed(s, at) && blinks(s)) {
     const e = blinkInto(s, at);
-    times.push(e < TIMING.blink ? TIMING.blink - e : TIMING.blinkEvery - e);
+    times.push(nextMoment(SHOTS.blink.face, TIMING.blink, e) ?? TIMING.blinkEvery - e);
   }
   return times.length ? Math.min(...times) : null;
 }

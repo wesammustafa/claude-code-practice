@@ -1,15 +1,19 @@
-// Wiring: the terminal, the state, the checks and the watcher. All decisions
-// are in flow.mjs; this file only carries events in and effects out.
+// Wiring: the terminal, the state, the checks and the watcher. The lesson's
+// decisions are in flow.mjs; this file carries events in and effects out.
+// It owns the app's one clock, its one frame timer and the detailed Pip's
+// controller: Pip's state changes, the restart of its lively window as the
+// ambient gate opens, and its eases where its pose jumps.
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pipShown } from './art.mjs';
 import { capabilities, osc52 } from './caps.mjs';
 import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
-import { ambientOpened, BOOT_FROM, bootChange, greetFrameIn, nextChange, pipGates, REST, TIMING } from './motion.mjs';
+import { ambientOpened, BOOT_FROM, bootChange, greetFrameIn, greetStart, nextChange, pipGates, pipJump, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
 import { bootFrame, cardMax, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
@@ -26,9 +30,110 @@ const FLAGS = ['--calm', '--plain'];
 // Pip's states with no reaction of their own: no hop, no spark.
 const NO_REACTION = ['ready', 'waiting', 'working'];
 const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
+// main's one clock: monotonic, and on a 1/1024 ms grid so sums and
+// differences of its times are exact (a deadline on the 40 ms grid lands on
+// it, not a hair under, and `% 40` from it is 0, not 39.99...). A clock
+// reading, not a pose: the step is under a microsecond. A whole-ms clock
+// passes through unchanged.
+const PERF = () => Math.round(performance.now() * 1024) / 1024;
 // What git says first: whether this folder is a repository, and a name to
 // greet.
 const ASK_GIT = (root) => Promise.all([gitReady(root), gitFirstName(root)]);
+// Two of Pip's poses the same to within rounding.
+const samePose = (a, b) => Object.keys(a).every((k) => (typeof a[k] === 'number' ? Math.abs(a[k] - b[k]) < 1e-6 : a[k] === b[k]));
+// Two of Pip's poses exactly the same: a pose that holds. A breath that
+// passes back through a height it showed comes near it, not to it.
+const heldPose = (a, b) => Object.keys(a).every((k) => a[k] === b[k]);
+
+// The detailed Pip's one controller, made at `made` in `state`, as main
+// draws it (181). `pose(s, at, gates)` sets it to what the screen `s`
+// shows (null: the boot frame) and gives its pose at the frame's time
+// `at`; `fade`, where its pose jumped, the ease from the pose shown then;
+// `frameIn(at, options)`, the wait for its next frame; `gone()` is a frame
+// with no room for it. main's frame times never go back, so neither does
+// Pip.
+export function pipHost(made, state = 'working') {
+  const pip = createPip({ state, at: made });
+  // The last frame drawn with Pip, and Pip's last change (setState throws
+  // on a time before it).
+  let drawnAt = made;
+  let changed = made;
+  // The moment of the last ambient gate opening Pip's lively window started
+  // again at, so each opening starts it once, even one first seen after
+  // frames with no room for Pip.
+  let opened = null;
+  // What the last frame with Pip showed: its gates, its greeting's start
+  // and the screen's arrival. Where its pose jumps from there (a key ends
+  // its greeting or shuts its ambient gate, or the gate opens), `fade`
+  // eases it from the pose shown at that moment, on the 40 ms grid from it:
+  // a function of time alone, not of which frames happened to draw.
+  // The ease's frames keep to the grid of the frames already on screen:
+  // the greeting's, else Pip's own from its last change (`fade.grid`).
+  let shown = null;
+  let fade = null;
+  // A change from `since` (or now), seen on the frame at `at`: no earlier
+  // than the last change, nor than a frame already shown, and no later than
+  // this frame.
+  const from = (at, since) => Math.min(at, Math.max(since ?? at, changed, drawnAt));
+  return {
+    get fade() { return fade; },
+    // Milliseconds from `at` to Pip's next frame, on the 40 ms grid from its
+    // last change: the first step at or after its own next moment, as it
+    // gives it from the grid's last step at or before `at`. So a timer that
+    // fires late, or an event's frame between steps, does not push its next
+    // tick a step on, and no frame comes a step before a moment of its own
+    // (a blink's start) to show nothing new. Where that moment passed after
+    // the step, Pip moves now: its next tick from the step. A step before
+    // its next moment from `at` where the pose at `at` still holds (a frame
+    // drawn just after a moment of its own) shows nothing new either: the
+    // step after it, then. Null for none.
+    frameIn(at, options) {
+      const step = changed + TIMING.grid * Math.floor((at - changed) / TIMING.grid);
+      const own = pip.nextFrameIn(step, options);
+      if (own === null) return null;
+      const tick = pip.nextFrameIn(at, options);
+      if (step + own <= at && tick === null) return null;
+      let next = step + own > at ? changed + TIMING.grid * Math.ceil((step + own - changed) / TIMING.grid) : step + TIMING.grid * Math.ceil(tick / TIMING.grid);
+      const now = tick === null ? null : pip.pose(at, options);
+      while (now && next < at + tick && heldPose(pip.pose(next, options), now)) next += TIMING.grid;
+      return next - at;
+    },
+    gone() { shown = fade = null; },
+    pose(s, at, gates) {
+      const { state: next, since, ...event } = pipTarget(s, at);
+      // The pose shown at the jump, with the last frame's gates and any ease
+      // still running: before any change below, which retargets from it.
+      const jump = pipJump(s, at, shown, gates);
+      const jumped = jump && from(at, jump.at);
+      const eased = jump && { at: jumped, ms: jump.ms, from: pipShown({ pose: pip.pose(jumped, shown.gates), fade }, shown.greet === undefined ? Infinity : jumped - shown.greet, jumped) };
+      const change = from(at, since);
+      if (pip.setState(next, { at: change, ...event })) changed = change;
+      // The package's lively window (blinks, glances, breathing) is its 30 s
+      // from Pip's last change. On a state with no reaction of its own, it
+      // starts again as the ambient gate opens: from that moment, under that
+      // moment's id, at once, so the pose holds and nothing replays. (No
+      // ambient screen's target carries an event id today; one that did would
+      // replay its reaction after the restart, so it is left alone.)
+      if (gates.ambient && NO_REACTION.includes(next) && event.eventId === undefined) {
+        const openedAt = ambientOpened(s);
+        const restart = from(at, openedAt);
+        if (openedAt !== opened && pip.setState(next, { at: restart, eventId: `ambient:${openedAt}`, immediate: true })) changed = restart;
+        opened = openedAt;
+      }
+      // An ease with nothing to ease is none: an opening with no breathing
+      // asks for no frames. One still running stops at a new screen, as
+      // pipJump starts none across one, and beside resume's y/n, where
+      // nothing moves.
+      const greet = s ? greetStart(s, at, gates) : undefined;
+      if (shown?.view !== s?.fx.view) fade = null;
+      if (eased && !samePose(eased.from, pipShown({ pose: pip.pose(jumped, gates) }, greet === undefined ? Infinity : jumped - greet, jumped))) fade = { ...eased, grid: shown.greet ?? changed };
+      if (!gates.motion || s?.confirmRestart || (fade && at >= fade.at + fade.ms)) fade = null;
+      shown = gates.motion ? { gates, greet, view: s?.fx.view } : null;
+      drawnAt = at;
+      return pip.pose(at, gates);
+    },
+  };
+}
 
 // A folder path as the learner typed or pasted it, in full: quotes around
 // it and the shell's `\ ` for a space (a folder dragged onto the terminal)
@@ -55,7 +160,7 @@ function parseArgs(argv) {
   return dir === '' ? null : { dir };
 }
 
-export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, perf = PERF, pipSlot: slotFor = pipSlot, timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
   const args = parseArgs(argv);
   if (!args) {
     stderr.write(`${C.usage}\n`);
@@ -117,22 +222,42 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // When the write budget stops motion, the rest frame goes up on time.
   const openIt = () => { screen ??= openScreen(stdout, { clock: perf, motion: caps.motion, onMotionOff: () => requestDraw() }); };
   let closed = false;
-  let lastSave = 0;
+  let lastSave = -Infinity;
   const intervals = [];
   let watcher = null;
   // The lesson's work folder and its watcher, where it is not the copy.
   let work = { dir: root, watcher: null };
 
-  // Drawing. Every dispatch asks for a frame, and one goes out per turn of the
-  // event loop, so the events of one turn (a watcher's burst, keys in one
-  // read) make one frame. After each draw, nextChange sets the one frame
-  // timer, or none. No two frames go out less than 40 ms apart: the floor
-  // counts from the screen's last write, a drain's included, on the
-  // monotonic clock. Each effect's frames keep to the 40 ms grid from its
-  // own start (motion.mjs); a key's frame is not held back to a grid.
+  // Drawing. Every dispatch asks for a frame, and one goes out per turn of
+  // the event loop, so the events of one turn (a watcher's burst, keys in
+  // one read) make one frame. No two frames go out less than 40 ms apart:
+  // the floor counts from the screen's last write, a drain's included. An
+  // event's frame inside the floor waits for its end, or joins a deadline's
+  // frame the floor lets out by then. After each draw, nextChange and the
+  // rest set the one frame timer, or none, as a deadline: the frame's own
+  // time plus the wait, so render and write time do not stretch the next.
+  // Each effect's frames keep to the 40 ms grid from its own start
+  // (motion.mjs), Pip's from its last change; a key's frame is not held back
+  // to a grid. A deadline's frame is drawn for its time, or the time it is
+  // if later; one the floor holds is drawn for the floor's end and written
+  // then, so it shows the pose of the moment it goes out, or, where that is
+  // past halfway to the grid's next step, waits for that step instead: a
+  // late timer or a quicker render never holds the frames after it off their
+  // grid. A frame the floor holds waits for its end on the frame timer,
+  // armed again, so timers that fire unevenly late send fewer, wider-spaced
+  // frames, by decision: a deadline's timer armed for the floor's end
+  // instead puts a timer's lateness after the floor on every frame, and
+  // timers each a little late then creep off the grid. No frame is for a
+  // time before the last one's, though a timer can fire a little before its
+  // deadline. Every time here is on `perf`, main's one clock: the event
+  // stamps, the frames, the screen's writes and Pip.
   let drawAsked = false;
   let frameTimer = null;
-  const floor = () => TIMING.grid - (perf() - screen.wroteAt);
+  // When the deadline the frame timer waits for is due, or null.
+  let dueAt = null;
+  const floorEnd = () => screen.wroteAt + TIMING.grid;
+  // The last frame's time.
+  let drawnAt = -Infinity;
   function requestDraw() {
     if (drawAsked || closed) return;
     drawAsked = true;
@@ -142,65 +267,78 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     });
   }
   const sizeNow = () => ({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
-  const drawIn = (ms) => { frameTimer = timers.setTimeout(draw, ms); };
-  function draw() {
+  const later = (fn, ms, due = null) => {
+    timers.clearTimeout(frameTimer);
+    dueAt = due;
+    frameTimer = timers.setTimeout(fn, ms);
+  };
+  // Pip's slot, measured once per state and size: the theme and the next
+  // screen are the run's, and no state changes once made.
+  let slotWas = null;
+  const slotOf = (s, size) => {
+    if (slotWas?.s !== s || slotWas.cols !== size.cols || slotWas.rows !== size.rows) slotWas = { s, ...size, slot: slotFor(s, size, t, nextScreen) };
+    return slotWas.slot;
+  };
+  // The frame due at `deadline`, or with none an event's.
+  function draw(deadline) {
     if (closed) return;
+    const now = perf();
+    const end = floorEnd();
+    // An event's frame inside the floor joins a deadline's frame the floor
+    // lets out by its end, else waits for the end.
+    const joins = dueAt !== null && dueAt <= end && end - dueAt <= TIMING.grid / 2;
+    if (now < end && deadline === undefined) return joins ? undefined : later(() => draw(), end - now);
     timers.clearTimeout(frameTimer);
     frameTimer = null;
-    if (floor() > 0) return drawIn(floor());
-    const at = now();
+    dueAt = null;
+    // A deadline the floor holds past half a step skips, in one timer, to
+    // the first step of its grid within half a step of the floor's end.
+    if (now < end && end - deadline > TIMING.grid / 2) return wake(deadline + TIMING.grid * Math.ceil((end - TIMING.grid / 2 - deadline) / TIMING.grid));
+    const at = Math.max(now, end, deadline ?? -Infinity, drawnAt);
+    drawnAt = at;
+    const began = perf();
     const size = sizeNow();
     const clock = screen.motion ? { at } : REST;
-    // The detailed Pip, where the screen has room for it: its pose, and
-    // when it or its greeting next moves, more deadlines for the one timer.
-    // All with the same gates, even if this frame's write turns motion off.
-    const slot = pipSlot(state, size, t, nextScreen);
-    const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.depth >= 24, remote: caps.remote });
-    const raster = slot ? { size: slot, pose: pipPose(at, gates) } : null;
-    screen.draw(state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster));
-    const waits = [state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion }),
-      slot ? pip.nextFrameIn(pipAt, { ...gates, size: slot }) : null,
-      slot && state ? greetFrameIn(state, at, { motion: screen.motion }) : null].filter((w) => w !== null);
-    if (waits.length) drawIn(Math.max(Math.min(...waits), floor()));
+    // The detailed Pip, where the screen has room for it: its pose and any
+    // ease from where it jumped, and when it, its greeting or the ease next
+    // moves, more deadlines for the one timer. All with the same gates, even
+    // if this frame's write turns motion off.
+    const slot = slotOf(state, size);
+    const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.truecolor, remote: caps.remote });
+    const pose = slot && pip.pose(state, at, gates);
+    if (!slot) pip.gone();
+    const fade = pip.fade;
+    const raster = slot ? { size: slot, pose, fade } : null;
+    const lines = state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster);
+    const waits = [state ? nextChange(state, at, { motion: screen.motion, raster: Boolean(slot) }) : bootChange(askedAt, at, { motion: screen.motion }),
+      slot ? pip.frameIn(at, { ...gates, size: slot }) : null,
+      slot && state ? greetFrameIn(state, at, { motion: screen.motion }) : null,
+      fade ? TIMING.grid - ((at - fade.grid) % TIMING.grid) : null].filter((w) => w !== null);
+    put(lines, at, perf() - began, waits.length ? at + Math.min(...waits) : null, deadline);
+  }
+  // The timer for the frame due at `next`.
+  const wake = (next) => later(() => draw(next), Math.max(0, next - perf()), next);
+  // A frame's write at its time `at`, then the timer for the next deadline.
+  // A frame whose render ended before `at` waits for it; where that wait
+  // ran later than the render (`took`) takes, it is drawn again for the
+  // time it is now, so no frame shows a pose older than its render. An
+  // event while it waits draws afresh, and so does a drain's write
+  // meanwhile, which moves the floor past it. A deadline's frame that
+  // changes nothing leaves the screen's refresh to the next event's.
+  function put(lines, at, took, next, deadline, waited = false) {
+    if (closed) return;
+    frameTimer = null;
+    dueAt = null;
+    const now = perf();
+    if (floorEnd() > at || (waited && now - at > took)) return draw(deadline);
+    if (now < at) return later(() => put(lines, at, took, next, deadline, true), at - now);
+    screen.draw(lines, { repair: deadline === undefined });
+    if (next !== null) wake(next);
   }
 
-  // The detailed Pip's one controller. Its gates read the app's stamps on
-  // the app's clock (`at`); its own time (`pipAt`) runs with that clock but
-  // never back: when the wall clock steps back, `skew` takes up the step, so
-  // Pip goes on from where it was. A change is set no earlier than the last
-  // (`pipChanged`), and no later than now.
+  // The detailed Pip's one controller, on the app's clock: its gates read
+  // the app's stamps, and its pose is at the frame's time (`at`).
   let pip = null;
-  let pipAt = -Infinity;
-  let pipChanged = -Infinity;
-  let skew = 0;
-  // The moment of the last ambient gate opening Pip's lively window started
-  // again at, so each opening starts it once, even one first seen after
-  // frames with no room for Pip.
-  let pipOpened = null;
-  // A change set at `at` on the app's clock, on Pip's: no earlier than the
-  // last, no later than now.
-  const pipFrom = (at) => Math.min(pipAt, Math.max(at === undefined ? pipAt : at + skew, pipChanged));
-  // Pip set to what this screen shows, then its pose at `at`.
-  function pipPose(at, gates) {
-    if (at + skew < pipAt) skew = pipAt - at;
-    pipAt = at + skew;
-    const { state: next, since, ...event } = pipTarget(state, at);
-    const from = pipFrom(since);
-    if (pip.setState(next, { at: from, ...event })) pipChanged = from;
-    // The package's lively window (blinks, glances, breathing) is its 30 s
-    // from Pip's last change. On a state with no reaction of its own, it
-    // starts again as the ambient gate opens: from that moment, under that
-    // moment's id, at once, so the pose holds and nothing replays. (No
-    // ambient screen's target carries an event id today; one that did would
-    // replay its reaction after the restart, so it is left alone.)
-    if (gates.ambient && NO_REACTION.includes(next) && event.eventId === undefined) {
-      const opened = ambientOpened(state);
-      const restart = pipFrom(opened);
-      if (opened !== pipOpened && pip.setState(next, { at: restart, eventId: `ambient:${opened}`, immediate: true })) pipChanged = restart;
-      pipOpened = opened;
-    }
-    return pip.pose(pipAt, gates);
-  }
 
   // Git's first answers. If they take over 150 ms, the boot frame goes up on
   // the spinner's first tick and runs until they land. Till then no key
@@ -220,14 +358,12 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     screen.clear();
     requestDraw();
   });
-  const askedAt = now();
+  const askedAt = perf();
   // Pip starts working, as git is asked. The screen git's answers will open,
   // as far as the app knows before them: the boot frame's Pip is no bigger
   // than its own.
-  pip = createPip({ state: 'working', at: askedAt });
+  pip = pipHost(askedAt);
   const nextScreen = initialState({ course, saved, facts: { root, name: '', gitError: null, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 }, now: askedAt });
-  pipAt = askedAt;
-  pipChanged = askedAt;
   const boot = timers.setTimeout(() => {
     if (closed) return;
     openIt();
@@ -237,7 +373,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   timers.clearTimeout(boot);
   if (closed) return 0;
   const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, clipboard: caps.clipboard, win32: caps.win32, linux: platform === 'linux' };
-  state = initialState({ course, saved, facts, now: now() });
+  state = initialState({ course, saved, facts, now: perf() });
   openIt();
 
   // When a check or git child really starts. Like every dispatch an effect
@@ -319,7 +455,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // holds) never stops the lesson: the learner sees a note and goes on.
   let saveError = null;
   function save() {
-    lastSave = now();
+    lastSave = perf();
     try {
       saveState(root, snapshot(state));
       saveError = null;
@@ -335,7 +471,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // scroll in the window as it is now drawn, so the arrows move only what
     // it shows.
     if (ev.type === 'key') ev = { ...ev, itemsMax: itemsMax(state, sizeNow(), t), cardMax: cardMax(state, sizeNow(), t) };
-    const r = reduce(state, { now: now(), ...ev });
+    const r = reduce(state, { now: perf(), ...ev });
     state = r.state;
     run(r.effects);
     watchWork();
@@ -354,7 +490,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // saves. The lesson's work folder, where it is another, is watched too,
   // armed again whenever the lesson on screen moves to another folder.
   const changed = () => {
-    if (closed || now() - lastSave < 400) return;
+    if (closed || perf() - lastSave < 400) return;
     const practiceDir = existsSync(join(root, '.practice'));
     if (practiceDir !== state.facts.practiceDir) dispatch({ type: 'facts', facts: { practiceDir } });
     dispatch({ type: 'activity' });
@@ -365,13 +501,13 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // something changes, and on the poll, so its note goes once the learner
   // sets it right. One look at a time; a folder that was fine is left alone.
   let probing = false;
-  let lastProbe = 0;
+  let lastProbe = -Infinity;
   function reprobe() {
     const dir = folderOf(state);
     const found = dir && dir !== root ? state.probes[dir] : null;
     if (closed || probing || !found || (!found.missing && found.git && found.practice)) return;
     probing = true;
-    lastProbe = now();
+    lastProbe = perf();
     probeFolder(dir).then((f) => {
       probing = false;
       if (!closed) dispatch({ type: 'probed', ...f });
@@ -438,12 +574,12 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   }
 
   intervals.push(timers.setInterval(() => dispatch({ type: 'tick' }), 1_000));
-  let lastPoll = 0;
+  let lastPoll = -Infinity;
   intervals.push(timers.setInterval(() => {
-    if (now() - lastProbe >= POLL_CHECK_MS) reprobe();
+    if (perf() - lastProbe >= POLL_CHECK_MS) reprobe();
     const w = watching(state);
-    if (!w || now() - lastPoll < (w.git ? POLL_GIT_MS : POLL_CHECK_MS)) return;
-    lastPoll = now();
+    if (!w || perf() - lastPoll < (w.git ? POLL_GIT_MS : POLL_CHECK_MS)) return;
+    lastPoll = perf();
     poke();
   }, 500));
 

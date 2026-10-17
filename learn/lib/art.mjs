@@ -1,34 +1,18 @@
 // Pip the mascot, block-letter banners, the check burst and confetti. Each
 // has a plain ASCII form. Nothing here is random: the same screen draws the
 // same art every time.
+import { faceCells, facePose, STATE } from './face.mjs';
 import { SHOTS, TIMING } from './motion.mjs';
-import { rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
+import { PALETTE, rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
 import { width } from './text.mjs';
 
 // Pip is the pip-terminal package's (pip/pip.mjs, as it ships): its glyph
-// art, colored here by the theme. Each mood is one of the package's states
-// at rest, so Pip shows only what the app saw: the big Pip's happy, focus
-// and party, and the card's rest, checking, worried, done and broken.
-const STATE = { happy: 'ready', focus: 'working', party: 'success', rest: 'ready', checking: 'working', worried: 'retry', done: 'success', broken: 'error' };
-// Worried keeps the package's asymmetric retry: its right eye half shut.
-const MOOD = { worried: { right: 0.6 } };
-// A one-shot's `frame`, over the mood: eyes shut, waking or awake, with a
-// smile whatever the mood's mouth (a shut eye over a flat mouth would read
-// as one rule); a glance toward the other window, which is the greeting's
-// look right too, and its look left or up (176); a cheer's happy eyes and
-// sparks, or happy eyes alone; or a hop's sparks alone, its eyes the mood's.
-const OPEN = { left: 1, right: 1, happy: 0, smile: 1 };
-const FRAME = {
-  shut: { ...OPEN, left: 0, right: 0 }, waking: { ...OPEN, left: 0.45, right: 0.45 }, awake: OPEN,
-  glance: { ...OPEN, gazeX: 0.7 }, lookLeft: { ...OPEN, gazeX: -0.7 }, lookUp: { ...OPEN, gazeY: -0.7 },
-  cheer: { happy: 1, smile: 1.2, spark: 1 }, glad: { happy: 1, smile: 1.2 }, sparks: { spark: 1 },
-};
-// ASCII Pip is still, with three faces: at rest, checking, and done.
-// Broken draws as rest, since the package's ASCII error face is checking's.
+// art, colored here by the theme, over the poses face.mjs gives each mood
+// and one-shot frame. ASCII Pip is still, with three faces: at rest,
+// checking, and done. Broken draws as rest, since the package's ASCII error
+// face is checking's.
 const ASCII_STATE = { ...STATE, broken: STATE.rest };
-const poseOf = (t, mood, frame) => (t.unicode
-  ? { ...restPose(STATE[mood]), ...MOOD[mood], ...FRAME[frame] }
-  : restPose(ASCII_STATE[mood]));
+const poseOf = (t, mood, face, ms, passing) => (t.unicode ? facePose(mood, face, ms, passing) : restPose(ASCII_STATE[mood]));
 
 // Each cell's color, by its place: o the outline, e the eyes, antenna and
 // sparks, m the mouth. A run of one color takes one code; a blank, none.
@@ -46,12 +30,12 @@ function ink(t, row, places) {
 }
 
 // The big Pip, 4 rows of 9 cells: its antenna, its head (the antenna's foot
-// in `┴`), its face, its chin. A one-shot's `frame` sets its eyes and
-// smile: shut, waking or awake, or, to cheer, happy with sparks beside the
-// antenna. ASCII Pip is still.
-export function pip(t, mood = 'happy', frame) {
+// in `┴`), its face, its chin. A one-shot's `face`, `ms` in, sets its eyes
+// and smile: shut, waking or awake, or, to cheer, happy with sparks beside
+// the antenna. ASCII Pip is still.
+export function pip(t, mood = 'happy', face, ms) {
   const places = ['eeeeeeeee', t.unicode ? 'ooooeoooo' : 'ooooooooo', 'o  eme  o', 'ooooooooo'];
-  return renderPip(poseOf(t, mood, frame), { size: 'glyph', depth: 1, unicode: t.unicode }).map((row, i) => ink(t, row, places[i]));
+  return renderPip(poseOf(t, mood, face, ms), { size: 'glyph', depth: 1, unicode: t.unicode }).map((row, i) => ink(t, row, places[i]));
 }
 
 // The detailed Pip, the package's half-cell raster at its standard size,
@@ -69,12 +53,15 @@ export const PIP_RASTER = {
 // turn happy and its antenna waves like a hand, slow swings that ease in
 // and out, with a hop and a spark at each of its hops; between the hops its
 // eyes, open again, look left, right and up. At the end all of it eases
-// back to the pose.
-const bump = (u) => (u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u) ** 2);
-const rise = (ms, from, to) => {
-  const u = Math.min(1, Math.max(0, (ms - from) / (to - from)));
-  return u * u * (3 - 2 * u);
+// back to the pose. Its eases are the package's own curves, which it does
+// not export: `ease`, the quintic its crossfades use (181), and `bump`, its
+// hump.
+const ease = (u) => {
+  const v = Math.min(1, Math.max(0, u));
+  return v * v * v * (v * (v * 6 - 15) + 10);
 };
+const bump = (u) => (u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u) ** 2);
+const rise = (ms, from, to) => ease((ms - from) / (to - from));
 export function pipGreeting(pose, ms) {
   if (!(ms > 0 && ms < TIMING.greet)) return pose;
   const at = SHOTS.greet.raster;
@@ -97,30 +84,50 @@ export function pipGreeting(pose, ms) {
   };
 }
 
+// The detailed Pip as the frame at `at` shows it: the controller's `pose`
+// with the greeting `greetMs` in, and where main saw it jump (181), eased
+// from the pose shown then, `fade.from`, over `fade.ms` from `fade.at`.
+export function pipShown({ pose, fade }, greetMs, at) {
+  const live = pipGreeting(pose, greetMs);
+  if (!fade || !(at < fade.at + fade.ms)) return live;
+  const u = ease((at - fade.at) / fade.ms);
+  return Object.fromEntries(Object.entries(live).map(([k, v]) => [k, typeof v === 'number' ? fade.from[k] + (v - fade.from[k]) * u : v]));
+}
+
 // `pose` from the package's controller, as `rows` lines of `cols` cells.
 // The package paints its own backdrop (#1E1E1E) and softens each edge
 // toward it. Here the backdrop is the terminal's own background, so no
-// rectangle shows on another one: the pose is also rasterized over black
-// and over white, and where the two differ the backdrop shows through, by
-// as much as they differ. A pixel less than PIP_SEEN Pip is background; any
-// other is the package's own pixel, soft edge and all, so Pip looks as the
-// package draws it. A cell with both halves background is a space, one ink
-// half is `▀` or `▄` over the default background, two are `▀` in both
-// colors, in 24-bit color. Without a pose, blank rows of the same size (to
-// measure a screen with it).
-export const PIP_SEEN = 0.08;
+// rectangle shows on another one. The package blends linearly, so one pass
+// in a code palette gives each pixel's cover and its mix of Pip's colors:
+// red is how much of it is Pip, green how much is gold, blue how much is
+// mouth, the rest outline. The terminal's own background shows where Pip
+// covers under a quarter of a pixel (PIP_INK: any less inks the outline's
+// soft inner column too, 2 px thick and Pip about 1.7 times its area; a half
+// thins the mouth below its own); any other pixel is drawn in
+// Pip's own colors, unmixed with a backdrop, so an edge that breathing
+// moves is never a dark speck on a light terminal, and a shut eye still
+// shows. A cell with both halves background is a space, one ink half is `▀`
+// or `▄` over the default background, two are `▀` in both colors, in
+// 24-bit color. Without a pose, blank rows of the same size (to measure a
+// screen with it).
+export const PIP_INK = 0.25;
+const CODES = { background: '#000000', outline: '#FF0000', eyes: '#FFFF00', mouth: '#FF00FF' };
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const [OUTLINE, GOLD, MOUTH] = [PALETTE.outline, PALETTE.eyes, PALETTE.mouth].map(rgb);
 export function pipRaster(pose, size) {
   const { cols, rows } = PIP_RASTER[size];
   if (!pose) return Array.from({ length: rows }, () => ' '.repeat(cols));
-  const own = rasterizePip(pose, { columns: cols, rows }).pixels;
-  const dark = rasterizePip(pose, { columns: cols, rows, palette: { background: '#000000' } }).pixels;
-  const light = rasterizePip(pose, { columns: cols, rows, palette: { background: '#FFFFFF' } }).pixels;
-  // How much of the pixel at `at` is Pip, 0 to 1.
-  const cover = (at) => 1 - (light[at] - dark[at] + light[at + 1] - dark[at + 1] + light[at + 2] - dark[at + 2]) / 765;
-  const inked = (at) => cover(at) >= PIP_SEEN;
+  const px = rasterizePip(pose, { columns: cols, rows, palette: CODES }).pixels;
+  const inked = (at) => px[at] / 255 >= PIP_INK;
   const codes = new Map();
   const code = (at, bg) => {
-    const c = [own[at], own[at + 1], own[at + 2]];
+    // Each color's share of the pixel, in 255ths: their sum is its cover,
+    // or a little over where the package's rounding leaves gold and mouth
+    // over it, so the color is a mix of Pip's own either way.
+    const [gold, mouth] = [px[at + 1], px[at + 2]];
+    const outline = Math.max(0, px[at] - gold - mouth);
+    const sum = outline + gold + mouth;
+    const c = [0, 1, 2].map((k) => Math.round((OUTLINE[k] * outline + GOLD[k] * gold + MOUTH[k] * mouth) / sum));
     const key = `${bg}:${c.join(',')}`;
     if (!codes.has(key)) codes.set(key, `${bg ? 48 : 38};2;${c.join(';')}`);
     return codes.get(key);
@@ -149,14 +156,14 @@ export function pipRaster(pose, size) {
 
 // Pip's small face for a card's top border, 7 cells: ` [●‿●] `. Its moods
 // name what the card shows (rest, checking, worried, done, broken), apart
-// from the big Pip's happy, focus and party. A one-shot's `frame` is a pose
-// over that face: eyes shut, a glance, or a hop's or cheer's sparks, which
-// one row has no antenna for, on its sides: `+[●‿●]+`.
+// from the big Pip's happy, focus and party. A one-shot's `face`, `ms` in,
+// is a pose over that face: eyes shut, a glance, or a hop's or cheer's
+// sparks, which one row has no antenna for, on its sides: `+[●‿●]+`.
+// `passing`: where its mood changed mid one-shot, the face it showed then
+// and how far from it (face.mjs's facePose).
 export const PIP_FACE = 7;
-export function pipFace(t, mood, frame) {
-  const pose = poseOf(t, mood, frame);
-  const [face] = renderPip(pose, { size: 'compact', depth: 1, unicode: t.unicode });
-  return ink(t, pose.spark > 0.5 ? `+${face.slice(1, -1)}+` : face, 'eoemeoe');
+export function pipFace(t, mood, face, ms, passing) {
+  return ink(t, faceCells(poseOf(t, mood, face, ms, passing), t.unicode), 'eoemeoe');
 }
 
 const FONT = {

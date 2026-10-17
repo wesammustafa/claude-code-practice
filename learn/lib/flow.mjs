@@ -15,6 +15,8 @@ export const HINT_LOCK_MS = 2_000;
 export const DEFER_MS = 300;
 const SWALLOW_MS = 800;
 const TOAST_MS = 5_000;
+// The file-change stamps kept before the newest (motion.mjs's shotStarts).
+const ACTIVITY_KEPT = 8;
 
 const clone = (x) => structuredClone(x);
 const blankProgress = () => ({ step: null, beat: 0, done: [], answers: {}, levels: [], lessHelp: false, moreHelpAt: null, easedSteps: {}, complete: false, warm: [], recalled: [], stamps: {}, bottomAt: null });
@@ -1125,6 +1127,43 @@ export function reduce(prev, ev) {
 // When the screen changed, and how, for the motion layer (motion.mjs). Each
 // stamp is the event's own `now`; `s.fx` lives in memory and is never saved.
 export const isDone = (st) => ['done', 'already'].includes(st?.status);
+
+// The card face's mood for what the card shows the app saw (design 2.2),
+// or null on a screen with no card. On a step card: the step's last beat
+// done or already done, as the cheer does (a beat before it rests, as the
+// hop does); `opening`, while the card says "Checking" (a check, git or a
+// file read); a check that could not run; a "Not yet", a `▲` git line, a
+// pick that wasn't right, the hint box or the "Stuck?" offer; else at rest.
+// On the check-only card: checking while r's run goes; else a check that
+// could not run, or worried only where the card shows a failing mark (a
+// slow item no run has checked shows as not checked yet).
+export function cardMood(s) {
+  if (s.view === 'checkonly') {
+    const results = s.checks[s.lesson];
+    if (s.checkOnlyRun?.lesson === s.lesson) return 'checking';
+    if (results?.error) return 'broken';
+    return results?.items?.some((x) => !x.pass && !x.slow) ? 'worried' : 'rest';
+  }
+  const st = s.beat;
+  if (s.view !== 'step' || !st) return null;
+  const beat = beatOf(s);
+  if (isDone(st)) return s.pos.beat === stepOf(s).beats.length - 1 ? 'done' : 'rest';
+  if (st.status === 'opening') return 'checking';
+  if (st.status === 'broken') return 'broken';
+  const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && cleanListed(beat.verify, s.git?.paths ?? []).length > 0;
+  const wrong = ['wrong', 'stuck'].includes(st.feedback?.kind);
+  const stuck = st.idle && hintAvailable(s);
+  return st.status === 'fail' || gitLine || wrong || st.rung >= 0 || st.confirm || stuck ? 'worried' : 'rest';
+}
+
+// Since when a check or git child has run for the beat on screen while it
+// is `opening`, or for r on the check-only card: a child that started
+// before the status became `opening`, or before r, is not this run, and a
+// file read starts none.
+const CHILD = ['check', ...GIT];
+const checkingChild = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
+  || (s.view === 'checkonly' && s.checkOnlyRun?.lesson === s.lesson);
+export const childSince = (s) => (checkingChild(s) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function stampFx(prev, s, ev) {
   const fx = s.fx;
@@ -1141,6 +1180,12 @@ function stampFx(prev, s, ev) {
   if (opened) fx.open = t;
   if (st?.status === 'opening' && (opened || was.status !== 'opening')) fx.check = t;
   if (s.checkOnlyRun && !prev.checkOnlyRun) fx.check = t;
+  // The card face's mood changed on the same card (181): when, from which,
+  // and since when the child it was checking with had run, for the motion
+  // layer to tell which face that mood showed.
+  const mood = cardMood(s);
+  const before = cardMood(prev);
+  if (mood && before && mood !== before && s.view === prev.view && s.lesson === prev.lesson && !opened) fx.mood = { at: t, was: before, since: childSince(prev) };
   // New text on the same card: a "Not yet" line, a rung, feedback, a reveal.
   if (st && was && !opened && s.view === prev.view) {
     const notYet = st.status === 'fail' && (was.status !== 'fail' || !sameJson(st.fail, was.fail));
@@ -1171,7 +1216,10 @@ function stampFx(prev, s, ev) {
     fx.look = t;
   }
   if (!sameJson(w, watching(s))) delete fx.seen;
-  if (ev.type === 'activity' && w) fx.activity = t;
+  // The stamps before it too, the last few: the face Pip showed as a new
+  // glance started (motion.mjs) is an older one's, and a save's burst of
+  // changes chains several.
+  if (ev.type === 'activity' && w) Object.assign(fx, { activityWas: fx.activity === undefined ? [] : [...(fx.activityWas ?? []), fx.activity].slice(-ACTIVITY_KEPT), activity: t });
   // On the check-only card, the items a result finds passing that the
   // result before it, for the same lesson, found not passing or left out.
   if (ev.type === 'check' && s.view === 'checkonly' && ev.lesson === s.lesson) {
