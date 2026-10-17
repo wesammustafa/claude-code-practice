@@ -1729,6 +1729,40 @@ test('with timers 0 and 15 ms late in turn, the detailed Pip\'s greeting frames 
   late.times.forEach((ms, i) => assert.equal(late.shown[i], drawn.shown[i], `the frame at +${ms} ms`));
 });
 
+// A frame timer that fires 2 s late, as the drain of a write the terminal
+// held goes out: the deadline it was for is far behind the floor, which
+// skips it to the first step past half of the floor in one timer, not one
+// timer a step that draws nothing.
+test('a frame timer 2 s late as a held write drains: the floor skips its deadline in one timer, and the frames after go out 40 ms apart', async () => {
+  let zero = null;
+  const run = await greetingFrames(async (app, arrived) => {
+    const { clock, term } = app;
+    await clock.advance(arrived + 1_000 - clock.now());
+    term.stdout.full = true;
+    await clock.advance(120);
+    const spend = clock.spend;
+    clock.spend = (ms) => {
+      spend(ms);
+      if (ms !== 2_000) return;
+      app.lateMs = 0;
+      term.stdout.full = false;
+      term.stdout.drain();
+    };
+    const set = clock.setTimeout;
+    zero = 0;
+    clock.setTimeout = (fn, ms) => {
+      if (ms === 0) zero += 1;
+      return set(fn, ms);
+    };
+    app.lateMs = 2_000;
+    await clock.advance(200);
+    assert.equal(app.lateMs, 0, 'the late timer fired');
+  });
+  assert.equal(zero, 0, 'timers with no wait');
+  assert.deepEqual(run.times.slice(1).filter((at, i) => at - run.times[i] < TIMING.grid), [], 'writes under 40 ms after the last');
+  assert.ok(run.times.some((ms) => ms > 3_200), 'the greeting goes on');
+});
+
 // A key between two of the greeting's frames ends it, and Pip eases out of
 // it (181) on the frames the greeting had on screen: the key's own frame
 // waits for the floor, at the next step, and each of the ease's after it

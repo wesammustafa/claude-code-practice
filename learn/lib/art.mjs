@@ -1,57 +1,18 @@
 // Pip the mascot, block-letter banners, the check burst and confetti. Each
 // has a plain ASCII form. Nothing here is random: the same screen draws the
 // same art every time.
+import { faceCells, facePose, STATE } from './face.mjs';
 import { SHOTS, TIMING } from './motion.mjs';
 import { PALETTE, rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
 import { width } from './text.mjs';
 
 // Pip is the pip-terminal package's (pip/pip.mjs, as it ships): its glyph
-// art, colored here by the theme. Each mood is one of the package's states
-// at rest, so Pip shows only what the app saw: the big Pip's happy, focus
-// and party, and the card's rest, checking, worried, done and broken.
-const STATE = { happy: 'ready', focus: 'working', party: 'success', rest: 'ready', checking: 'working', worried: 'retry', done: 'success', broken: 'error' };
-// Worried keeps the package's asymmetric retry: its right eye half shut.
-const MOOD = { worried: { right: 0.6 } };
-// A one-shot's frame, over the mood: eyes shut, waking or awake, with a
-// smile whatever the mood's mouth (a shut eye over a flat mouth would read
-// as one rule); a glance toward the other window, which is the greeting's
-// look right too, and its look left or up (176); a cheer's happy eyes and
-// sparks, or happy eyes alone; or a hop's sparks alone, its eyes the mood's.
-const OPEN = { left: 1, right: 1, happy: 0, smile: 1 };
-const FRAME = {
-  shut: { ...OPEN, left: 0, right: 0 }, waking: { ...OPEN, left: 0.45, right: 0.45 }, awake: OPEN,
-  glance: { ...OPEN, gazeX: 0.7 }, lookLeft: { ...OPEN, gazeX: -0.7 }, lookUp: { ...OPEN, gazeY: -0.7 },
-  cheer: { happy: 1, smile: 1.2, spark: 1 }, glad: { happy: 1, smile: 1.2 }, sparks: { spark: 1 },
-};
-// ASCII Pip is still, with three faces: at rest, checking, and done.
-// Broken draws as rest, since the package's ASCII error face is checking's.
+// art, colored here by the theme, over the poses face.mjs gives each mood
+// and one-shot frame. ASCII Pip is still, with three faces: at rest,
+// checking, and done. Broken draws as rest, since the package's ASCII error
+// face is checking's.
 const ASCII_STATE = { ...STATE, broken: STATE.rest };
-const over = (mood, frame) => ({ ...restPose(STATE[mood]), ...MOOD[mood], ...FRAME[frame] });
-// `a` moved `u` of the way to `b`, each number linearly.
-const mix = (a, b, u) => Object.fromEntries(Object.entries(b).map(([key, v]) => [key, typeof v === 'number' ? a[key] + (v - a[key]) * u : v]));
-// Where `ms` is in a face (a FRAME name, none for the mood's own face, or a
-// track of [ms, frame] keyframes, motion.mjs's SHOTS): the keyframes' frames
-// either side, and how far from the one to the other.
-function trackAt(face, ms) {
-  const keys = Array.isArray(face) ? face : [[0, face ?? null]];
-  const k = keys.findIndex(([at]) => at > ms);
-  const [[from, a], [to, b]] = k > 0 ? [keys[k - 1], keys[k]] : [keys.at(k), keys.at(k)];
-  return [a, b, to > from ? (ms - from) / (to - from) : 0];
-}
-// Pip's pose `ms` into `face`, each frame over the mood and each value
-// interpolated linearly between the keyframes either side, so only the
-// package's glyphs step (181). `moodMs`: how far into SHOTS.mood, where the
-// mood changed, which sets its eyes and mouth from `waking`'s over that
-// pose, then eases them into it.
-function poseOf(t, mood, face, ms = 0, moodMs) {
-  if (!t.unicode) return restPose(ASCII_STATE[mood]);
-  const [a, b, u] = trackAt(face, ms);
-  const pose = mix(over(mood, a), over(mood, b), u);
-  if (moodMs === undefined) return pose;
-  const [lidA, lidB, v] = trackAt(SHOTS.mood.face, moodMs);
-  const lids = (lidA ? 1 - v : 0) + (lidB ? v : 0);
-  return mix(pose, { ...pose, ...FRAME.waking }, lids);
-}
+const poseOf = (t, mood, face, ms, passing) => (t.unicode ? facePose(mood, face, ms, passing) : restPose(ASCII_STATE[mood]));
 
 // Each cell's color, by its place: o the outline, e the eyes, antenna and
 // sparks, m the mouth. A run of one color takes one code; a blank, none.
@@ -198,13 +159,11 @@ export function pipRaster(pose, size) {
 // from the big Pip's happy, focus and party. A one-shot's `face`, `ms` in,
 // is a pose over that face: eyes shut, a glance, or a hop's or cheer's
 // sparks, which one row has no antenna for, on its sides: `+[●‿●]+`.
-// `moodMs`, how far into a change of its mood, passes its eyes through
-// the half-lid.
+// `passing`: where its mood changed mid one-shot, the face it showed then
+// and how far from it (face.mjs's facePose).
 export const PIP_FACE = 7;
-export function pipFace(t, mood, face, ms, moodMs) {
-  const pose = poseOf(t, mood, face, ms, moodMs);
-  const [row] = renderPip(pose, { size: 'compact', depth: 1, unicode: t.unicode });
-  return ink(t, pose.spark > 0.5 ? `+${row.slice(1, -1)}+` : row, 'eoemeoe');
+export function pipFace(t, mood, face, ms, passing) {
+  return ink(t, faceCells(poseOf(t, mood, face, ms, passing), t.unicode), 'eoemeoe');
 }
 
 const FONT = {

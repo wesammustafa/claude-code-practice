@@ -837,6 +837,22 @@ test('main\'s pipHost: Pip\'s next frame is the first step of its grid at or aft
   const breathing = { ...still, breathing: true };
   for (const at of [1_200, 1_201, 1_215, 1_239]) assert.equal(at + host.frameIn(at, breathing), 1_320, `breathing, from ${at} ms`);
   assert.equal(host.frameIn(1_000, { ...still, motion: false }), null, 'none with motion off');
+  // A frame drawn just after a moment of its own, between two steps: its
+  // blink's eyes hold shut from 4260 ms, so the step at 4280 shows nothing
+  // new, and its next frame is the first step at or after its own next
+  // moment. From any frame, with or without breathing, ready or waiting,
+  // no next frame shows the pose of the frame before it.
+  assert.deepEqual(pip.pose(4_280, still), pip.pose(4_261, still));
+  assert.equal(pip.nextFrameIn(4_261, still), 40);
+  for (const at of [4_261, 4_270, 4_279]) assert.equal(at + host.frameIn(at, still), 4_320, `from ${at} ms`);
+  for (const [state, options] of [['ready', still], ['ready', breathing], ['waiting', still]]) {
+    const own = pipHost(0, state);
+    const shown = createPip({ state, at: 0 });
+    for (let at = 0; at < 12_000; at += 1) {
+      const next = at + own.frameIn(at, options);
+      if (next < at + shown.nextFrameIn(at, options)) assert.notDeepEqual(shown.pose(next, options), shown.pose(at, options), `${state}, breathing ${options.breathing}: from ${at} ms to ${next} ms`);
+    }
+  }
 });
 
 test('words never move in the detailed Pip\'s greeting: every 40 ms frame fits the window, and from the moment the rest of the screen is still only the raster\'s cells differ from the rest frame', () => {

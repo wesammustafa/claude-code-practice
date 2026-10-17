@@ -3,9 +3,9 @@
 // going at the bottom of the card), and the key bar pinned to the bottom.
 import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipRaster, pipShown } from './art.mjs';
 import { C } from './copy.mjs';
-import { bootPhases, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
+import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardMood, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -645,39 +645,19 @@ function lessonHead(ctx, right, rightText) {
 // cells after it, and leaves at least one rule cell before it.
 const PIP_ROOM = PIP_FACE + 3;
 
-// Pip's face in this frame, over the `mood` it rests in, as the track of
-// the one-shot that sets it and how far into it: sparks for a hop or a
-// cheer; away while the card enters, then landing with its eyes shut; on a
-// new "Not yet", a nod; on a file change, a glance; and its blink. Where
-// its mood just changed (phases' `ms.mood`), card() passes its eyes from
-// the half-lid into that face.
-function pipNow(ctx, shown) {
-  // Checking, with motion: Pip wears its checking face once a child has
-  // run 150 ms, and holds still.
-  const mood = shown === 'checking' && !ctx.ph.checking ? 'rest' : shown;
-  const shot = (part) => ({ mood, face: SHOTS[part].face, ms: into(ctx, part) });
-  const playing = (part) => into(ctx, part) < Infinity;
-  if (playing('hop')) return shot('hop');
-  if (playing('cheer')) return shot('cheer');
-  if (playing('notYet')) return shot('notYet');
-  if (into(ctx, 'entrance') < SHOTS.entrance.land) return null;
-  if (playing('entrance')) return shot('entrance');
-  // A file change: a glance toward the other window, unless a check runs.
-  if (playing('glance') && mood !== 'checking') return shot('glance');
-  return playing('blink') ? shot('blink') : { mood };
-}
-
-function card(ctx, { tint, where, done, rows, mood }) {
-  const { t, W } = ctx;
+function card(ctx, { tint, where, done, rows }) {
+  const { s, t, W } = ctx;
   const rail = t.fg(tint, t.glyph.rail);
   const left = `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(where, 'chipBg')}${done ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
   const fill = Math.max(0, W - width(left));
-  const face = pipNow(ctx, mood);
+  // Pip's face in this frame (motion.mjs's cardFace), over the mood the
+  // card shows the app saw.
+  const face = cardFace(s, ctx.clock.at, ctx.ph);
   // As the card enters, the top rule grows from the pill a third a frame.
   const grown = Math.round((fill * (1 + Math.floor(into(ctx, 'entrance') / SHOTS.entrance.every))) / 3);
   const top = !face ? left + t.fg(tint, t.glyph.rule.repeat(grown))
     : fill >= PIP_ROOM
-      ? `${left}${t.fg(tint, t.glyph.rule.repeat(fill - PIP_FACE - 2))}${pipFace(t, face.mood, face.face, face.ms, ctx.ph.ms.mood)}${t.fg(tint, t.glyph.rule.repeat(2))}`
+      ? `${left}${t.fg(tint, t.glyph.rule.repeat(fill - PIP_FACE - 2))}${pipFace(t, face.mood, face.face, face.ms, face.passing)}${t.fg(tint, t.glyph.rule.repeat(2))}`
       : left + t.fg(tint, t.glyph.rule.repeat(fill));
   // Each row carries the rail, so a `…` cut inside the card keeps it.
   // A blank row that is part of a sentence, such as the Why line's, is the
@@ -1185,7 +1165,7 @@ const VIEWS = {
     }
     return {
       head,
-      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}${placeOf(s, t, null, 16) ? `, ${placeOf(s, t, null, 16)}` : ''}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: cardMood(s) }),
+      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}${placeOf(s, t, null, 16) ? `, ${placeOf(s, t, null, 16)}` : ''}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes] }),
       // A lesson that runs in a new copy with none given yet: f is the way on.
       keys: [folderOf(s) ? null : mainKey('f', C.k.giveFolder), shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, folderOf(s) ? key('r', C.k.checkNow) : null, key('p', C.k.page), key('m', C.k.map), folderOf(s) && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
       itemsMax: last,
@@ -1419,7 +1399,7 @@ function stepView(ctx) {
   const tint = done ? 'ok' : style.tint;
   return {
     head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
-    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows, mood: cardMood(s) }),
+    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows }),
     keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }),
   };
 }

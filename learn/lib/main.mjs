@@ -41,6 +41,9 @@ const PERF = () => Math.round(performance.now() * 1024) / 1024;
 const ASK_GIT = (root) => Promise.all([gitReady(root), gitFirstName(root)]);
 // Two of Pip's poses the same to within rounding.
 const samePose = (a, b) => Object.keys(a).every((k) => (typeof a[k] === 'number' ? Math.abs(a[k] - b[k]) < 1e-6 : a[k] === b[k]));
+// Two of Pip's poses exactly the same: a pose that holds. A breath that
+// passes back through a height it showed comes near it, not to it.
+const heldPose = (a, b) => Object.keys(a).every((k) => a[k] === b[k]);
 
 // The detailed Pip's one controller, made at `made` in `state`, as main
 // draws it (181). `pose(s, at, gates)` sets it to what the screen `s`
@@ -80,14 +83,20 @@ export function pipHost(made, state = 'working') {
     // fires late, or an event's frame between steps, does not push its next
     // tick a step on, and no frame comes a step before a moment of its own
     // (a blink's start) to show nothing new. Where that moment passed after
-    // the step, Pip moves now: its next tick from the step. Null for none.
+    // the step, Pip moves now: its next tick from the step. A step before
+    // its next moment from `at` where the pose at `at` still holds (a frame
+    // drawn just after a moment of its own) shows nothing new either: the
+    // step after it, then. Null for none.
     frameIn(at, options) {
       const step = changed + TIMING.grid * Math.floor((at - changed) / TIMING.grid);
       const own = pip.nextFrameIn(step, options);
       if (own === null) return null;
-      if (step + own > at) return changed + TIMING.grid * Math.ceil((step + own - changed) / TIMING.grid) - at;
       const tick = pip.nextFrameIn(at, options);
-      return tick === null ? null : step + TIMING.grid * Math.ceil(tick / TIMING.grid) - at;
+      if (step + own <= at && tick === null) return null;
+      let next = step + own > at ? changed + TIMING.grid * Math.ceil((step + own - changed) / TIMING.grid) : step + TIMING.grid * Math.ceil(tick / TIMING.grid);
+      const now = tick === null ? null : pip.pose(at, options);
+      while (now && next < at + tick && heldPose(pip.pose(next, options), now)) next += TIMING.grid;
+      return next - at;
     },
     gone() { shown = fade = null; },
     pose(s, at, gates) {
@@ -278,7 +287,9 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     timers.clearTimeout(frameTimer);
     frameTimer = null;
     dueAt = null;
-    if (now < end && end - deadline > TIMING.grid / 2) return wake(deadline + TIMING.grid);
+    // A deadline the floor holds past half a step skips, in one timer, to
+    // the first step of its grid within half a step of the floor's end.
+    if (now < end && end - deadline > TIMING.grid / 2) return wake(deadline + TIMING.grid * Math.ceil((end - TIMING.grid / 2 - deadline) / TIMING.grid));
     const at = Math.max(now, end, deadline ?? -Infinity, drawnAt);
     drawnAt = at;
     const began = perf();
