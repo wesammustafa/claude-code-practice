@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -760,18 +760,22 @@ function folderNotes(ctx, w = ctx.W) {
 }
 
 // What the intro says before the learner starts, in `w` columns, each note
-// its kept rows: what main found wrong with the work folder (ticket 86),
-// then what the lesson needs (ticket 89): on native Windows the page's
-// note, as a beat shows it; the commands main found on no PATH folder, in
-// one sentence with the You need line that names each; and each
-// prerequisite that failed, with what isn't there.
+// its kept rows: what main found wrong with the work folder (ticket 86);
+// in the level's work folder, where it is not the practice copy, the page's
+// line for the learner's repository (ticket 179); then what the lesson needs (ticket
+// 89): on native Windows the page's note, as a beat shows it; the commands
+// main found on no PATH folder, in one sentence with the You need line that
+// names each; and each prerequisite that failed, with what isn't there.
 function noteRows(ctx, w) {
   const { s, t } = ctx;
   const win = contentOf(s).intro['win-note'];
+  const repo = repoNeed(s);
   const missing = missingNeeds(s);
   const quotes = missing.map((n) => `"${n.quote}"`).join(' ');
+  const quoted = (text) => kept(para(t, text, w, 'text', { quote: true }));
   return [asksFolder(s) ? [] : folderNotes(ctx, w),
-    win && t.caps.win32 ? kept(para(t, win, w, 'text', { quote: true })) : [],
+    repo ? kept(para(t, repo, w, 'text', { quote: true, label: { text: C.youNeed, color: 'muted' } })) : [],
+    win && t.caps.win32 ? quoted(win) : [],
     missing.length ? warnNote(t, quotes, w, 'text', { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : [],
     ...unmet(s).map((r) => warnNote(t, (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
 }
@@ -867,10 +871,10 @@ const VIEWS = {
     // Where the level is practised (ticket 86): the question, until it has
     // an answer, in place of the start options; then the answer, on the
     // intro that asked. Both are kept rows, so the Why line gives way first.
-    // The notes before the start (86's folder note, 89's needs) are kept
-    // too, under the answer. Where they don't fit once the Why line is
-    // gone, they give way to one row that hands them to n, so no teaching
-    // row is cut.
+    // The notes before the start (86's folder note, 179's repository line,
+    // 89's needs) are kept too, under the answer. Where they don't fit once
+    // the Why line is gone, they give way to one row that hands them to n,
+    // so no teaching row is cut.
     const shown = noteRows(ctx, W).flat();
     const before = shown.length ? [notes(shown, warnNote(t, C.notesShort, W))] : [];
     const menu = asking
