@@ -52,7 +52,10 @@ export function openScreen(stdout, { clock, motion = false, onMotionOff = () => 
   stdout.write(ENTER);
   const screen = {
     // Writes the frame unless the terminal already shows it; true if it wrote.
-    draw(lines) {
+    // A frame for a deadline, `repair: false`, is for motion: one that
+    // changes no row is not written though the refresh is due, and the next
+    // frame an event draws (the 1 s tick's) repairs the screen.
+    draw(lines, { repair = true } = {}) {
       if (!open) return false;
       if (pending) {
         newest = lines;
@@ -61,7 +64,7 @@ export function openScreen(stdout, { clock, motion = false, onMotionOff = () => 
       const at = clock();
       const changed = shown?.length === lines.length ? lines.flatMap((l, i) => (l === shown[i] ? [] : [i])) : null;
       const due = at - fullAt >= REFRESH_MS;
-      if (changed?.length === 0 && !due) return false;
+      if (changed?.length === 0 && !(due && repair)) return false;
       const full = !changed || !motion || changed.length > lines.length / 2 || due;
       shown = lines;
       const bytes = full ? frame(lines, wipe) : rowFrame(lines, changed);
