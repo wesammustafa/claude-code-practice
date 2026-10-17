@@ -12,7 +12,7 @@ import { keyParser } from './keys.mjs';
 import { BOOT_FROM, bootChange, nextChange, pipGates, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
-import { bootFrame, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
+import { bootFrame, cardMax, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
@@ -301,9 +301,10 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   }
 
   function dispatch(ev) {
-    // A key carries how far the check-only card's items scroll in the window
-    // as it is now drawn, so the arrows move only what it shows.
-    if (ev.type === 'key') ev = { ...ev, itemsMax: itemsMax(state, sizeNow(), t) };
+    // A key carries how far the check-only card's items, and your card,
+    // scroll in the window as it is now drawn, so the arrows move only what
+    // it shows.
+    if (ev.type === 'key') ev = { ...ev, itemsMax: itemsMax(state, sizeNow(), t), cardMax: cardMax(state, sizeNow(), t) };
     const r = reduce(state, { now: now(), ...ev });
     state = r.state;
     run(r.effects);
