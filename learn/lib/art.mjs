@@ -13,12 +13,14 @@ const STATE = { happy: 'ready', focus: 'working', party: 'success', rest: 'ready
 const MOOD = { worried: { right: 0.6 } };
 // A one-shot's `frame`, over the mood: eyes shut, waking or awake, with a
 // smile whatever the mood's mouth (a shut eye over a flat mouth would read
-// as one rule); a glance toward the other window; a cheer's happy eyes and
-// sparks; or a hop's sparks alone, its eyes the mood's.
+// as one rule); a glance toward the other window; a look left, right or up
+// (the greeting's, 176); a cheer's happy eyes and sparks, or happy eyes
+// alone; or a hop's sparks alone, its eyes the mood's.
 const OPEN = { left: 1, right: 1, happy: 0, smile: 1 };
 const FRAME = {
   shut: { ...OPEN, left: 0, right: 0 }, waking: { ...OPEN, left: 0.45, right: 0.45 }, awake: OPEN,
-  glance: { ...OPEN, gazeX: 0.7 }, cheer: { happy: 1, smile: 1.2, spark: 1 }, sparks: { spark: 1 },
+  glance: { ...OPEN, gazeX: 0.7 }, lookLeft: { ...OPEN, gazeX: -0.7 }, lookRight: { ...OPEN, gazeX: 0.7 }, lookUp: { ...OPEN, gazeY: -0.7 },
+  cheer: { happy: 1, smile: 1.2, spark: 1 }, glad: { happy: 1, smile: 1.2 }, sparks: { spark: 1 },
 };
 // ASCII Pip is still, with three faces: at rest, checking, and done.
 // Broken draws as rest, since the package's ASCII error face is checking's.

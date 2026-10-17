@@ -8,7 +8,7 @@ import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { createPip, rasterizePip, renderPip, restPose } from '../../learn/lib/pip/pip.mjs';
 import { IDLE_MS } from '../../learn/lib/flow.mjs';
-import { pipGates, TIMING } from '../../learn/lib/motion.mjs';
+import { pipGates, REST, TIMING } from '../../learn/lib/motion.mjs';
 import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
@@ -431,4 +431,114 @@ test('caps.remote: over SSH (SSH_CONNECTION or SSH_TTY) or in a Codespace, and n
     assert.deepEqual(remote, { ...local, remote: true }, Object.keys(ssh)[0]);
   }
   assert.deepEqual(capabilities(tty, { ...env, CODESPACES: 'true' }, 'linux', []), { ...local, remote: true, codespace: true }, 'a Codespace');
+});
+
+// ---- the greeting (176) -----------------------------------------------------
+// Pip's raster on a screen as a grid of its 32x32 half-cell pixels, each
+// weighed by `weigh` of its drawn color, 0 for the terminal's background.
+// The glyph screen's Pip gives the raster's top left.
+function pixelsOf(lines, glyph, weigh) {
+  const top = glyph.findIndex((l) => strip(l).includes('╭───┴───╮')) - 1;
+  const left = strip(glyph[top + 1]).indexOf('╭');
+  const rgb = (code) => (code ? code.split(';').slice(2).map(Number) : null);
+  const grid = [];
+  for (let r = 0; r < RASTER.standard.tall; r++) {
+    const halves = cellsOf(lines[top + r]).slice(left, left + RASTER.standard.cols).map((c) => (c.ch === '▀' ? [rgb(c.fg), rgb(c.bg)] : c.ch === '▄' ? [null, rgb(c.fg)] : [null, null]));
+    grid.push(halves.map(([over]) => (over ? weigh(over) : 0)), halves.map(([, under]) => (under ? weigh(under) : 0)));
+  }
+  return grid;
+}
+// Pip's gold (its eyes, antenna and sparks, #F2CC60) is greener than it is
+// blue; its outline (#CE87F5) bluer than green.
+const GOLD = ([, g, b]) => Math.max(0, g - b);
+const PURPLE = ([, g, b]) => Math.max(0, b - g);
+// The weight of a region of pixels (rows y0 to y1, columns x0 to x1, both
+// ends in), and where it centres.
+function weight(grid, [y0, y1], [x0, x1]) {
+  let [n, sx, sy] = [0, 0, 0];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) [n, sx, sy] = [n + grid[y][x], sx + grid[y][x] * x, sy + grid[y][x] * y];
+  return { n, x: n ? sx / n : null, y: n ? sy / n : null };
+}
+// In the package's standard raster: its eyes in pixel rows 14 to 24, its
+// antenna's tip above row 9, its sparks at its two sides.
+const EYES_AT = [[14, 24], [6, 25]];
+const TIP_AT = [[0, 8], [8, 23]];
+const SPARKS_AT = [[[6, 13], [0, 6]], [[6, 13], [25, 31]]];
+
+test('the detailed Pip greets on the welcome and resume: eyes wide and an antenna flick, then happy eyes, an antenna that waves, two hops with a spark, a look left, right and up between them, all of it gone by exactly 5 s', () => {
+  const t = theme({ ...CAPS.truecolor, motion: true });
+  for (const [label, s] of [['welcome', driver().state], ['resume', screen('resume')]]) {
+    const at = size(120, 40);
+    assert.equal(pipSlot(s, at, t), 'standard', label);
+    const pip = { size: 'standard', pose: restPose('ready') };
+    const glyph = render(s, at, t);
+    const frame = (ms) => render(s, at, t, ms === null ? REST : { at: s.fx.view + ms }, pip);
+    const gold = (ms) => pixelsOf(frame(ms), glyph, GOLD);
+    const rest = frame(null);
+    const still = pixelsOf(rest, glyph, GOLD);
+    const eyes = (grid) => weight(grid, ...EYES_AT);
+    const tip = (grid) => weight(grid, ...TIP_AT);
+    const sparks = (grid) => SPARKS_AT.reduce((n, at) => n + weight(grid, ...at).n, 0);
+    const pipRows = (lines) => lines.slice(glyph.findIndex((l) => strip(l).includes('╭───┴───╮')) - 1).slice(0, RASTER.standard.tall);
+    // Zero at both ends: Pip's rows are its rest rows at +0 ms and from +5 s.
+    for (const ms of [0, 5_000, 6_000]) assert.deepEqual(pipRows(frame(ms)), pipRows(rest), `${label}, +${ms} ms`);
+    assert.notDeepEqual(pipRows(frame(4_960)), pipRows(rest), `${label}: still easing back at +4960 ms`);
+    assert.equal(sparks(still), 0, `${label}: no sparks at rest`);
+    // 0 to 300 ms: the eyes widen, and the antenna flicks.
+    assert.ok(eyes(gold(160)).n > eyes(still).n * 1.1, `${label}: wide eyes at +160 ms`);
+    assert.ok(Math.abs(tip(gold(80)).x - tip(still).x) > 0.3, `${label}: the antenna flicks at +80 ms`);
+    // Happy arcs: less gold than open eyes, before and after the looks.
+    for (const ms of [1_000, 3_600]) assert.ok(eyes(gold(ms)).n < eyes(still).n * 0.8, `${label}: happy eyes at +${ms} ms`);
+    // Two hops, each with a spark, and none between them: Pip's outline
+    // rises a pixel or so.
+    const outline = (ms) => weight(pixelsOf(ms === null ? rest : frame(ms), glyph, PURPLE), [0, 31], [0, 31]).y;
+    for (const ms of [925, 3_525]) {
+      assert.ok(sparks(gold(ms)) > 0, `${label}: a spark at +${ms} ms`);
+      assert.ok(outline(null) - outline(ms) > 0.5, `${label}: a hop at +${ms} ms (${outline(null) - outline(ms)} px)`);
+    }
+    for (const ms of [2_000, 2_750]) assert.equal(sparks(gold(ms)), 0, `${label}: no spark at +${ms} ms`);
+    // Between the hops the eyes, open again, look left, right and up.
+    assert.ok(eyes(gold(1_750)).x < eyes(still).x - 0.5, `${label}: a look left`);
+    assert.ok(eyes(gold(2_250)).x > eyes(still).x + 0.5, `${label}: a look right`);
+    assert.ok(eyes(gold(2_750)).y < eyes(still).y - 0.4, `${label}: a look up`);
+    // The antenna waves like a hand: from 300 ms to 4.5 s its tip swings
+    // to each side of where it rests, a few slow times.
+    const side = [];
+    for (let ms = 300; ms <= 4_500; ms += 40) {
+      const dx = tip(gold(ms)).x - tip(still).x;
+      if (Math.abs(dx) > 0.8 && Math.sign(dx) !== side.at(-1)) side.push(Math.sign(dx));
+    }
+    assert.ok(side.length >= 4 && side.length <= 10, `${label}: the antenna swings ${side.length} times`);
+  }
+});
+
+test('words never move in the detailed Pip\'s greeting: every 40 ms frame fits the window, and from the moment the rest of the screen is still only the raster\'s cells differ from the rest frame', () => {
+  const t = theme({ ...CAPS.truecolor, motion: true });
+  for (const [label, s, from] of [['welcome', driver().state, 480], ['resume', screen('resume'), 0]]) {
+    for (const [cols, rows] of [[120, 40], [140, 45]]) {
+      const at = size(cols, rows);
+      assert.equal(pipSlot(s, at, t), 'standard', `${label} at ${cols}x${rows}`);
+      const pip = { size: 'standard', pose: restPose('ready') };
+      const glyph = render(s, at, t).map(strip);
+      const top = glyph.findIndex((l) => l.includes('╭───┴───╮')) - 1;
+      const left = glyph[top + 1].indexOf('╭');
+      // A frame's cells as text, with the raster's 32x16 blanked.
+      const words = (lines) => lines.map((l, r) => {
+        const cells = [...strip(l)];
+        return (r < top || r >= top + RASTER.standard.tall ? cells : cells.map((c, k) => (k >= left && k < left + RASTER.standard.cols ? ' ' : c))).join('').trimEnd();
+      });
+      const rest = render(s, at, t, REST, pip);
+      let moved = 0;
+      for (let ms = 0; ms < 5_000; ms += 40) {
+        const f = render(s, at, t, { at: s.fx.view + ms }, pip);
+        const where = `${label} at ${cols}x${rows}, +${ms} ms`;
+        assert.equal(f.length, rows, where);
+        f.forEach((l, k) => assert.ok(width(l) <= cols - 1, `${where}, line ${k + 1}`));
+        if (ms < from) continue;
+        if (f.join('\n') !== rest.join('\n')) moved += 1;
+        assert.deepEqual(words(f), words(rest), where);
+      }
+      assert.ok(moved > 100, `${label} at ${cols}x${rows}: Pip moves in ${moved} frames`);
+    }
+  }
 });

@@ -9,7 +9,7 @@ import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
-import { ambientOpened, BOOT_FROM, bootChange, nextChange, pipGates, REST, TIMING } from './motion.mjs';
+import { ambientOpened, BOOT_FROM, bootChange, greetFrameIn, nextChange, pipGates, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
 import { bootFrame, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
@@ -144,14 +144,15 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const size = sizeNow();
     const clock = screen.motion ? { at } : REST;
     // The detailed Pip, where the screen has room for it: its pose, and
-    // when it next moves, one more deadline for the one timer. Both with
-    // the same gates, even if this frame's write turns motion off.
+    // when it or its greeting next moves, more deadlines for the one timer.
+    // All with the same gates, even if this frame's write turns motion off.
     const slot = pipSlot(state, size, t, nextScreen);
     const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.depth >= 24, remote: caps.remote });
     const raster = slot ? { size: slot, pose: pipPose(at, gates) } : null;
     screen.draw(state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster));
     const waits = [state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion }),
-      slot ? pip.nextFrameIn(pipAt, { ...gates, size: slot }) : null].filter((w) => w !== null);
+      slot ? pip.nextFrameIn(pipAt, { ...gates, size: slot }) : null,
+      slot && state ? greetFrameIn(state, at, { motion: screen.motion }) : null].filter((w) => w !== null);
     if (waits.length) drawIn(Math.max(Math.min(...waits), floor()));
   }
 

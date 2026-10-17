@@ -13,8 +13,10 @@ export const REST = { at: Infinity };
 // The moments inside each one-shot are its SHOTS entry, below.
 export const TIMING = {
   grid: 40, tick: 80, slowTick: 240, slowAfter: 10_000,
-  // One-shots: none lasts over 1.2 s.
-  entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160,
+  // One-shots: none lasts over 1.2 s but Pip's greeting on the welcome and
+  // resume, and its look around on the complete screen once the rest is
+  // still (176).
+  entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160, greet: 5_000, lookAround: 2_400,
   // A check or git child: the spinner from 150 ms, its seconds from 3 s.
   spinnerFrom: 150, elapsedFrom: 3_000,
   // A file change: the sweep and Pip's glance. Pip's blink, every 6 s.
@@ -61,6 +63,16 @@ export const SHOTS = {
   // reaches the cup at `cup`; from `pulse` one pulse crosses the arrow, a
   // cell every `cell`.
   welcome: { every: 80, waking: 80, awake: 160, fuse: 80, cup: 320, pulse: 320, cell: 80 },
+  // Pip's greeting on the welcome and resume (176): its eyes open at
+  // `waking` and are awake at `awake`; it looks left at `left`, right at
+  // `right` and up at `up`; from `wave` its eyes are happy and its antenna
+  // row sparks every other `swing`, until `back`; it blinks from `blink`
+  // to `open`, and is awake to the end.
+  greet: { every: 80, waking: 80, awake: 160, left: 640, right: 1_040, up: 1_440, wave: 1_840, swing: 320, back: 3_760, blink: 4_240, open: 4_560 },
+  // On the complete screen, after the cheer and once the rest is still,
+  // Pip looks left from `left`, back from `back` and right from `right`,
+  // with its happy eyes between and at the end (176).
+  lookAround: { every: 400, left: 1_200, back: 1_600, right: 2_000 },
   // On the check-only card, the mark of an item that starts passing is
   // hollow until `pop`, then a ring, then the check mark.
   itemPass: { every: 80, pop: 80 },
@@ -184,7 +196,7 @@ const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 // (`look`, its notch) and no blink. `checking`: Pip wears its checking face
 // whenever the card says "Checking"; with motion, only once the spinner
 // turns.
-export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
+export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
 
 // Since when a check or git child has run for the beat on screen while it is
 // `opening`, or for r on the check-only card: a child that started before
@@ -226,11 +238,56 @@ export function shotStarts(s) {
     levelUp: on(['levelup'], fx.view),
     complete: on(['complete'], fx.view),
     welcome: on(['welcome'], fx.view),
+    greet: on(['welcome', 'resume'], fx.view),
+    lookAround: on(['complete'], fx.view),
     itemPass: on(['checkonly'], fx.itemPass),
     sweep: sweepFrom(s),
     // A file change: Pip glances toward the other window, until a newer
     // "Not yet", hop or cheer turns Pip back to the card.
     glance: watching(s) && !answering(s) && fx.activity > Math.max(fx.text ?? NEVER, fx.pass ?? NEVER, fx.passLast ?? NEVER) ? fx.activity : undefined,
+  };
+}
+
+// Milliseconds until the detailed Pip's greeting next moves (176): the next
+// 40 ms frame from its start, or its end; null where it does not play or is
+// over, with motion off, an overlay or at idle. main adds it to the one
+// timer where it draws the detailed Pip.
+export function greetFrameIn(s, at, caps) {
+  const start = shotStarts(s).greet;
+  if (!caps?.motion || s.overlay || idle(s, at) || oneShot(s, at, start, TIMING.greet) >= 1) return null;
+  return Math.min(TIMING.grid - (Math.max(0, at - start) % TIMING.grid), start + TIMING.greet - at);
+}
+
+// The detailed Pip's greeting on the welcome and resume (176): a layer over
+// the controller's `pose`, a pure function of the `ms` since the screen
+// arrived, exactly nothing at 0 and from TIMING.greet on. To 300 ms its eyes
+// widen and its antenna flicks; then its eyes turn happy and its antenna
+// waves like a hand, slow swings that ease in and out, with a hop and a
+// spark at 700 and at 3300 ms; between the hops its eyes, open again, look
+// left, right and up. From 4500 ms all of it eases back to the pose.
+const bump = (u) => (u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u) ** 2);
+const rise = (ms, from, to) => {
+  const u = Math.min(1, Math.max(0, (ms - from) / (to - from)));
+  return u * u * (3 - 2 * u);
+};
+export function pipGreeting(pose, ms) {
+  if (!(ms > 0 && ms < TIMING.greet)) return pose;
+  const wide = bump(ms / 300);
+  const back = 1 - rise(ms, 4_500, TIMING.greet);
+  const happy = rise(ms, 300, 700) * (1 - rise(ms, 1_200, 1_500)) + rise(ms, 3_000, 3_300) * back;
+  const wave = rise(ms, 300, 800) * back * Math.sin((2 * Math.PI * (ms - 300)) / 1_100);
+  const hop = bump((ms - 700) / 450) + bump((ms - 3_300) / 450);
+  return {
+    ...pose,
+    left: pose.left + 0.2 * wide,
+    right: pose.right + 0.2 * wide,
+    happy: Math.min(1, pose.happy + happy),
+    antenna: pose.antenna + 0.03 * wide * Math.sin((2 * Math.PI * ms) / 300) + 0.05 * wave,
+    lift: pose.lift + 0.03 * hop,
+    spark: Math.min(1, pose.spark + hop),
+    // Left then right, from 1500 to 2500 ms, then up to 3000 ms.
+    gazeX: pose.gazeX - (ms > 1_500 && ms < 2_500 ? Math.sin((2 * Math.PI * (ms - 1_500)) / 1_000) : 0),
+    gazeY: pose.gazeY - bump((ms - 2_500) / 500),
   };
 }
 
