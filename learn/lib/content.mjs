@@ -385,7 +385,9 @@ function parseVerify(beat, file) {
   if (v === 'check all') return { kind: 'check', all: true };
   // `fresh`: it counts only once the beat's evidence file has changed since
   // its step opened (or since the step `since` names), so a step that redoes
-  // an earlier one can't pass on what the earlier one left behind.
+  // an earlier one can't pass on what the earlier one left behind. On a match
+  // or no-match, a file that only grew since then is read for what was added
+  // (a no-match whole when nothing was), and a rewritten one whole.
   const fresh = v.match(/ fresh(?: since ([WYTCR]\d*))?$/);
   const base = fresh ? v.slice(0, fresh.index) : v;
   const extra = fresh ? { fresh: true, since: fresh[1] ?? null } : {};
@@ -408,7 +410,8 @@ function parseVerify(beat, file) {
     return { kind: 'json', path: json[1], key: json[2] ?? null, value: json[3] ?? null, ...extra };
   }
   // `match <path> <regex>`: done once a line of the file matches.
-  // `no-match`: done once the file is there and no line matches.
+  // `no-match`: done once the file is there and no line matches. Fresh, on
+  // a file that only grew, the lines are the ones added (see `fresh` above).
   const lines = base.match(/^(match|no-match) (\S+) (.+)$/);
   if (lines) {
     own(lines[2]);

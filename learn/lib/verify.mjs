@@ -1,7 +1,6 @@
 // Asking the lesson's own check, and git, without blocking the screen. Both
 // run in child processes; the app writes nothing to the practice copy.
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +10,7 @@ import { lessons } from '../../checks/lessons/index.mjs';
 import { statusEntries } from '../../checks/paths.mjs';
 import { TIME_LIMIT } from '../../checks/stub-claude.mjs';
 import { SLOW } from './content.mjs';
+import { stampFor } from './holds.mjs';
 import { isStaged, listing } from './status.mjs';
 
 const RUN_CHECK = join(dirname(fileURLToPath(import.meta.url)), '..', 'run-check.mjs');
@@ -180,8 +180,7 @@ export function bytesOf(dir, path) {
 export function stampOf(dir, path) {
   try {
     const file = join(dir, path);
-    const { mtimeMs, size } = statSync(file);
-    return `${Math.trunc(mtimeMs)}:${size}:${createHash('sha1').update(readFileSync(file)).digest('hex').slice(0, 12)}`;
+    return stampFor(statSync(file).mtimeMs, readFileSync(file));
   } catch (error) {
     return error.code === 'ENOENT' || error.code === 'ENOTDIR' ? '' : null;
   }
