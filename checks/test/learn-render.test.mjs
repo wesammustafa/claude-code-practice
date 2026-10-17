@@ -3061,6 +3061,37 @@ test('a reading beat\'s not-yet line is shown whole, and its pass shows what the
   }
 });
 
+test('a reading beat already passed when its step opens says "Already done, so this step counts." with what the file holds: no check ran, at 60x20 and 80x24', () => {
+  const skill = '.claude/skills/tdd/SKILL.md';
+  const settings = '.claude/settings.json';
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of [[60, 20], [80, 24]]) {
+      const where = `${size.join('x')} ${caps.unicode ? 'unicode' : 'ascii'}`;
+      for (const [verify, path, text, shows] of [
+        ['file .practice/b-2-plan.txt', '.practice/b-2-plan.txt', 'Plan the change\n', ['.practice/b-2-plan.txt', 'holds Plan the change']],
+        [`json ${settings} permissions.deny`, settings, '{"permissions": {"deny": ["Read(./.env)"]}}', [settings, 'holds ["Read(./.env)"]']],
+        [`match ${skill} ^name:`, skill, '---\nname: tdd\n---\n', [skill, 'holds name: tdd']],
+        [`no-match ${skill} \\bTODO\\b`, skill, '---\nname: tdd\n---\n', []],
+      ]) {
+        const already = onReading(verify);
+        already.send({ type: 'file', path, read: Buffer.from(text), stamp: 'x' });
+        assert.equal(already.state.beat.status, 'already', `${where} ${verify}`);
+        fits(already.state, size, t, `${where} ${verify}`);
+        const said = prose(already.state, size, t);
+        assert.ok(said.includes('Already done, so this step counts.'), `${where} ${verify}: ${said}`);
+        for (const words of shows) assert.ok(said.includes(words), `${where} ${verify}: ${said}`);
+        assert.ok(!said.includes('check already passes'), `${where} ${verify}: ${said}`);
+      }
+      // A check did run for a check beat: its line stays.
+      const check = onReading('check 0');
+      check.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'saved', pass: true, hint: '' }] });
+      assert.equal(check.state.beat.status, 'already', where);
+      assert.ok(prose(check.state, size, t).includes('Already done: the check already passes, so this step counts.'), `${where}: ${prose(check.state, size, t)}`);
+    }
+  }
+});
+
 // ---- git status for part of the tree (ticket 88) -----------------------------
 // Every size the render tests hold a screen to: exactly `rows` lines, none
 // wider than cols - 1.

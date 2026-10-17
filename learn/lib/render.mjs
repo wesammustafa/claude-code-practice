@@ -1468,6 +1468,9 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   const warnMark = into(ctx, 'notYet') < SHOTS.notYet.pop ? t.glyph.warnPop : t.glyph.warnMark;
   // Room for text beside the burst.
   const room = inner - (t.unicode ? 21 : 7);
+  // What the file holds, in `max` columns: on two lines when one is too long.
+  const holds = (max) => (width(`${beat.evidence} holds ${st.evidence}`) <= max ? [`${t.fg('code', beat.evidence)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
+    : [t.fg('code', cut(beat.evidence, max, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, max - 6, t.unicode ? '…' : '.'))}`]);
   const celebrate = (lines) => {
     const count = s.session + (firstPass(s) ? 1 : 0);
     // The check mark draws in strokes, then the sparks.
@@ -1486,6 +1489,8 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     // git status, not a check, passed a beat that needs it to list
     // something: what changed, as a pass shows it.
     else if (needsChange(beat.verify)) rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'), ...(st.evidence ? para(t, st.evidence, inner, 'text') : []));
+    // The app read the file itself, so no check ran either.
+    else if (READS.has(beat.verify.kind)) rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'), ...(st.evidence ? holds(inner) : []));
     else rows.push(...para(t, `${t.lead('verified')}${beat.verify.all ? C.alreadyCheck : C.already}`, inner, 'ok'));
   }
   if (beat.verify.all && ['done', 'already'].includes(st.status) && s.checks[s.lesson]?.items) {
@@ -1499,11 +1504,8 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
       ...para(t, C.runItToo(dir ? `${C.where.terminal}, ${C.inCopy}` : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
   } else if (st.status === 'done' && looksAtFile(beat)) {
-    // What the file holds, beside the burst; on two lines when one is too long.
-    const one = `${beat.evidence} holds ${st.evidence}`;
-    const ev = !showsEvidence(s, beat, isLastBeat) ? []
-      : width(one) <= room ? [`${t.fg('code', beat.evidence)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
-        : [t.fg('code', cut(beat.evidence, room, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, room - 6, t.unicode ? '…' : '.'))}`];
+    // What the file holds, beside the burst.
+    const ev = showsEvidence(s, beat, isLastBeat) ? holds(room) : [];
     if (isLastBeat) celebrate(ev.length ? ev : para(t, C.beatDone, room, 'text'));
     else rows.push(lead(t, 'verified', t.fg('ok', C.beatDone)));
   } else if (st.status === 'done' && beat.verify.kind === 'git-clean') {
