@@ -512,21 +512,91 @@ test('the check-only card scrolls no further than the window that ends on the la
   }
 });
 
-test('until a-5 and a-capstone can run in their own copy, the next lesson passes over them: the map marks a-6, and left, right and a restart land there', () => {
-  const done = (ids) => Object.fromEntries(ids.map((id) => [id, { complete: true }]));
-  const saved = { ...beginnerDone(), ...done(['i-1', 'i-2', 'i-3', 'i-4', 'i-5', 'i-6', 'i-7', 'i-8', 'i-capstone', 'a-1', 'a-2', 'a-3', 'a-4']) };
-  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: saved } });
-  assert.deepEqual([d.state.view, d.state.course[d.state.mapCursor].id], ['map', 'a-6'], 'the app opens on the map at a-6');
-  const ls = lines(d.state, [80, 24]);
-  assert.match(mapRow(ls, 'A6'), /next/, ls.join('\n'));
-  assert.doesNotMatch(mapRow(ls, 'A5'), /next/, ls.join('\n'));
+const done = (ids) => Object.fromEntries(ids.map((id) => [id, { complete: true }]));
+// Every lesson before a-5 complete.
+const throughA4 = () => ({ ...beginnerDone(), ...done(['i-1', 'i-2', 'i-3', 'i-4', 'i-5', 'i-6', 'i-7', 'i-8', 'i-capstone', 'a-1', 'a-2', 'a-3', 'a-4']) });
+// The map screen fits in full and in ASCII at both sizes.
+const mapFits = (s, at) => {
+  for (const size of SIZES) {
+    for (const t of [FULL, ASCII]) {
+      const raw = render(s, { cols: size[0], rows: size[1] }, t);
+      const where = `${at} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${raw.map(strip).join('\n')}`;
+      assert.equal(raw.length, size[1], where);
+      for (const l of raw) {
+        assert.ok(width(l) <= size[0] - 1, where);
+        assert.ok(graphemes(strip(l)).filter(isEmoji).length <= 1, where);
+      }
+    }
+  }
+};
+
+test('until a-5\'s and a-capstone\'s new copy folder is saved, the next lesson passes over them: the map marks a-6, and left, right and a restart land there', () => {
+  // The Advanced level's own folder, or a-capstone's new copy, is not a-5's.
+  const ADVANCED = '/home/sam/advanced-work';
+  for (const folders of [{}, { advanced: ADVANCED }, { advanced: ADVANCED, 'a-capstone': '/home/sam/ci-review' }]) {
+    const at = `saved: ${Object.keys(folders).join(', ') || 'no folder'}`;
+    const d = driver({ course, saved: { format: 1, welcomed: true, lessons: throughA4(), folders } });
+    assert.deepEqual([d.state.view, d.state.course[d.state.mapCursor].id], ['map', 'a-6'], `${at}: the app opens on the map at a-6`);
+    const ls = lines(d.state, [80, 24]);
+    assert.match(mapRow(ls, 'A6'), /next/, `${at}\n${ls.join('\n')}`);
+    assert.doesNotMatch(mapRow(ls, 'A5'), /next/, `${at}\n${ls.join('\n')}`);
+    d.key('right');
+    d.key('left');
+    assert.equal(d.state.course[d.state.mapCursor].id, 'a-6', `${at}: back on Advanced, at a-6`);
+    if (folders['a-capstone']) continue;
+    // Only they are left: the app opens on the map at a-5, which no marker names.
+    const rest = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...throughA4(), ...done(['a-6', 'a-7']) }, folders } });
+    assert.deepEqual([rest.state.view, rest.state.course[rest.state.mapCursor].id], ['map', 'a-5'], at);
+    assert.ok(!lines(rest.state, [80, 24]).some((l) => / next/.test(l)), `${at}\n${lines(rest.state, [80, 24]).join('\n')}`);
+  }
+});
+
+// Ticket 172: since 86 a-5 and a-capstone run their check in the new copy
+// the learner gives, so once its folder is saved each is a lesson to finish.
+test('once a-5 or a-capstone has its new copy saved, it is the next lesson where it is the first unfinished one: the map marks it, and left, right and a restart land there', () => {
+  const cases = [
+    { id: 'a-5', label: 'A5', after: 'A6', lessons: throughA4(), folders: { 'a-5': '/home/sam/claude-actions-practice' } },
+    { id: 'a-capstone', label: 'AC', after: null, lessons: { ...throughA4(), ...done(['a-6', 'a-7']) }, folders: { 'a-capstone': '/home/sam/ci-review' } },
+  ];
+  for (const { id, label, after, lessons, folders } of cases) {
+    const d = driver({ course, saved: { format: 1, welcomed: true, lessons, folders } });
+    assert.deepEqual([d.state.view, d.state.course[d.state.mapCursor].id], ['map', id], `the app opens on the map at ${id}`);
+    for (const size of SIZES) {
+      const ls = lines(d.state, size);
+      assert.match(mapRow(ls, label), /next/, ls.join('\n'));
+      if (after) assert.doesNotMatch(mapRow(ls, after), /next/, ls.join('\n'));
+    }
+    mapFits(d.state, id);
+    d.key('right');
+    d.key('left');
+    assert.equal(d.state.course[d.state.mapCursor].id, id, `back on Advanced, at ${id}`);
+  }
+});
+
+test('a-5\'s new copy given in the session makes it the next lesson at once, and after a restart', () => {
+  const A5COPY = '/home/sam/claude-actions-practice';
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: throughA4() } });
+  mapTo(d, 'a-5');
+  d.key('enter');
+  assert.deepEqual([d.state.view, d.state.lesson], ['checkonly', 'a-5']);
+  d.key('f');
+  for (const c of A5COPY) d.send({ type: 'key', name: c.toLowerCase(), ch: c, wait: 40 });
+  d.send({ type: 'key', name: 'enter', wait: 40 });
+  const ask = d.effects.filter((e) => e.type === 'folder').at(-1);
+  d.send({ type: 'probed', key: ask.key, asked: ask.asked, path: ask.text, missing: false, git: true, practice: true });
+  assert.deepEqual(d.state.folders, { 'a-5': A5COPY });
+  d.key('m');
+  for (const size of SIZES) {
+    const ls = lines(d.state, size);
+    assert.match(mapRow(ls, 'A5'), /next/, ls.join('\n'));
+    assert.doesNotMatch(mapRow(ls, 'A6'), /next/, ls.join('\n'));
+  }
+  mapFits(d.state, 'a-5 given in the session');
+  mapTo(d, 'i-1');
   d.key('right');
-  d.key('left');
-  assert.equal(d.state.course[d.state.mapCursor].id, 'a-6', 'back on Advanced, at a-6');
-  // Only they are left: the app opens on the map at a-5, which no marker names.
-  const rest = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...saved, ...done(['a-6', 'a-7']) } } });
-  assert.deepEqual([rest.state.view, rest.state.course[rest.state.mapCursor].id], ['map', 'a-5']);
-  assert.ok(!lines(rest.state, [80, 24]).some((l) => / next/.test(l)), lines(rest.state, [80, 24]).join('\n'));
+  assert.equal(d.state.course[d.state.mapCursor].id, 'a-5', 'right onto Advanced lands at a-5');
+  const again = driver({ course, saved: snapshot(d.state) });
+  assert.deepEqual([again.state.view, again.state.course[again.state.mapCursor].id], ['map', 'a-5'], 'a restart opens at a-5');
 });
 
 // Ticket 168: a URL wrapped by the card's width broke inside a word, under
