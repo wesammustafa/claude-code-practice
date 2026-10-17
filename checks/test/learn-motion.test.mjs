@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, DEFER_MS, IDLE_MS, isDone, reduce, stepOf, tierOf, watching } from '../../learn/lib/flow.mjs';
-import { ambientAllowed, BOOT_FROM, bootChange, nextChange, oneShot, phases, pipGates, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
+import { ambientAllowed, ambientOpened, BOOT_FROM, bootChange, nextChange, oneShot, phases, pipGates, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
 import { createPip, restPose } from '../../learn/lib/pip/pip.mjs';
 import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
@@ -499,6 +499,16 @@ test('ambient loops wait for the reading grace and the quiet after a key, and st
   assert.equal(ambientAllowed(s, t + IDLE_MS), false, 'idle');
   d.key('?');
   assert.equal(ambientAllowed(d.state, t + TIMING.graceMax), false, 'an overlay');
+});
+
+test('ambientOpened: the moment the ambient gates open, at the reading grace\'s end, then at the end of the quiet after a later key', () => {
+  const d = driver();
+  assert.equal(d.state.view, 'welcome');
+  assert.equal(ambientOpened(d.state), gatesOpen(d.state), 'the grace\'s end');
+  const { now } = at(d, { type: 'key', name: 'down', wait: TIMING.graceMax + 1_000 });
+  assert.equal(d.state.view, 'welcome');
+  assert.equal(ambientOpened(d.state), now + TIMING.keyQuiet);
+  assert.equal(ambientOpened(d.state), gatesOpen(d.state), 'the quiet\'s end');
 });
 
 test('a file change ends the reading grace; a look does not', () => {
