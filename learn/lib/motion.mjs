@@ -13,8 +13,10 @@ export const REST = { at: Infinity };
 // The moments inside each one-shot are its SHOTS entry, below.
 export const TIMING = {
   grid: 40, tick: 80, slowTick: 240, slowAfter: 10_000,
-  // One-shots: none lasts over 1.2 s.
-  entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160,
+  // One-shots: none lasts over 1.2 s but Pip's greeting on the welcome and
+  // resume, and its look around on the complete screen once the rest is
+  // still (176).
+  entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160, greet: 5_000, lookAround: 2_400,
   // A check or git child: the spinner from 150 ms, its seconds from 3 s.
   spinnerFrom: 150, elapsedFrom: 3_000,
   // A file change: the sweep and Pip's glance. Pip's blink, every 6 s.
@@ -56,11 +58,32 @@ export const SHOTS = {
   // grid, so with five the gaps are 80 and 40 ms in turn. From `light` one
   // light runs the whole trail by the last frame before the end.
   complete: { every: 40, fall: 400, first: 2, more: 3, whole: 480, ticks: 560, ticksBy: 800, light: 840 },
-  // Pip's eyes open at `waking` and are awake at `awake`; the fuse lights
-  // more of the path every `fuse`, a link at a time on Beginner's five, and
-  // reaches the cup at `cup`; from `pulse` one pulse crosses the arrow, a
-  // cell every `cell`.
-  welcome: { every: 80, waking: 80, awake: 160, fuse: 80, cup: 320, pulse: 320, cell: 80 },
+  // The fuse lights more of the path every `fuse`, a link at a time on
+  // Beginner's five, and reaches the cup at `cup`; from `pulse` one pulse
+  // crosses the arrow, a cell every `cell`. Pip wakes in its greeting.
+  welcome: { every: 80, fuse: 80, cup: 320, pulse: 320, cell: 80 },
+  // Pip's greeting on the welcome and resume (176). On the welcome the 9x4
+  // Pip's eyes open at `waking` and are awake at `awake` (the boot frame's
+  // wake-up too); on resume it starts awake. It looks left at `left`, right
+  // at `right` and up at `up`; from `wave` its eyes are happy and its
+  // antenna row sparks every other `swing`, until `back`; it blinks from
+  // `blink` to `open`, and is awake to the end. It plays once per opening
+  // of the app (flow.mjs stamps fx.greet).
+  // The detailed Pip's, `raster`, a frame every `every`: its eyes are wide
+  // and its antenna flicks once until `wide`; then its eyes ease happy by
+  // `glad`, and its antenna waves, a swing every `swing`, whole by `waved`.
+  // It hops at each of `hops`, for `hop`, with a spark. Its eyes ease open
+  // from `open` to `look`, look left then right until `up`, up until
+  // `again`, and ease happy again by the second hop. From `back` all of it
+  // eases back to the pose, which it reaches at the end.
+  greet: {
+    every: 80, waking: 80, awake: 160, left: 640, right: 1_040, up: 1_440, wave: 1_840, swing: 320, back: 3_760, blink: 4_240, open: 4_560,
+    raster: { every: 40, wide: 300, glad: 700, waved: 800, swing: 1_100, hops: [700, 3_300], hop: 450, open: 1_200, look: 1_500, up: 2_500, again: 3_000, back: 4_500 },
+  },
+  // On the complete screen, after the cheer and once the rest is still,
+  // Pip looks left from `left`, back from `back` and right from `right`,
+  // with its happy eyes between and at the end (176).
+  lookAround: { every: 400, left: 1_200, back: 1_600, right: 2_000 },
   // On the check-only card, the mark of an item that starts passing is
   // hollow until `pop`, then a ring, then the check mark.
   itemPass: { every: 80, pop: 80 },
@@ -184,7 +207,7 @@ const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 // (`look`, its notch) and no blink. `checking`: Pip wears its checking face
 // whenever the card says "Checking"; with motion, only once the spinner
 // turns.
-export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
+export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false });
 
 // Since when a check or git child has run for the beat on screen while it is
 // `opening`, or for r on the check-only card: a child that started before
@@ -226,12 +249,25 @@ export function shotStarts(s) {
     levelUp: on(['levelup'], fx.view),
     complete: on(['complete'], fx.view),
     welcome: on(['welcome'], fx.view),
+    // Pip's greeting, once per opening: on the arrival flow.mjs stamped
+    // for it, not on a later return to the welcome or resume.
+    greet: fx.greet === fx.view ? on(['welcome', 'resume'], fx.greet) : undefined,
+    lookAround: on(['complete'], fx.view),
     itemPass: on(['checkonly'], fx.itemPass),
     sweep: sweepFrom(s),
     // A file change: Pip glances toward the other window, until a newer
     // "Not yet", hop or cheer turns Pip back to the card.
     glance: watching(s) && !answering(s) && fx.activity > Math.max(fx.text ?? NEVER, fx.pass ?? NEVER, fx.passLast ?? NEVER) ? fx.activity : undefined,
   };
+}
+
+// Milliseconds until the detailed Pip's greeting next moves (176): its next
+// frame or its end; null where it does not play or is over, with motion
+// off, an overlay or at idle. main adds it to the one timer where it draws
+// the detailed Pip.
+export function greetFrameIn(s, at, caps) {
+  if (!caps?.motion || s.overlay || idle(s, at)) return null;
+  return shotFrameIn(s, at, 'greet', shotStarts(s).greet, SHOTS.greet.raster.every);
 }
 
 // The spinner's frame and the seconds, for a child that has run `ran` ms:
@@ -259,14 +295,14 @@ export const BOOT_FROM = FIRST_TICK;
 export function bootPhases(since, at, caps) {
   if (!caps?.motion || at === Infinity) return REST_PHASES;
   const woke = at - since - BOOT_FROM;
-  const eyes = woke < SHOTS.welcome.waking ? 'shut' : woke < SHOTS.welcome.awake ? 'waking' : undefined;
+  const eyes = woke < SHOTS.greet.waking ? 'shut' : woke < SHOTS.greet.awake ? 'waking' : undefined;
   return { ...REST_PHASES, ...spun(at - since), eyes };
 }
 // Milliseconds until the boot frame next differs, or null without motion.
 export function bootChange(since, at, caps) {
   if (!caps?.motion) return null;
   const woke = at - since - BOOT_FROM;
-  return Math.min(...spinsIn(at - since), ...[SHOTS.welcome.waking, SHOTS.welcome.awake].filter((ms) => ms > woke).map((ms) => ms - woke));
+  return Math.min(...spinsIn(at - since), ...[SHOTS.greet.waking, SHOTS.greet.awake].filter((ms) => ms > woke).map((ms) => ms - woke));
 }
 
 // What each moving part draws at `at`; the rest phases when motion is off.
@@ -290,6 +326,14 @@ export function phases(s, at, caps) {
   };
 }
 
+// A one-shot still playing from `start`: milliseconds until its next frame,
+// every `every` from its start (on the 40 ms grid), or its end; null once
+// it is over or a key ended it.
+function shotFrameIn(s, at, part, start, every) {
+  if (oneShot(s, at, start, TIMING[part]) >= 1) return null;
+  return Math.min(every - ((at - start) % every), start + TIMING[part] - at);
+}
+
 // Milliseconds until the screen next differs, or null. Null under calm,
 // with an overlay, at idle unless a child runs, and when nothing moves and
 // no deadline waits.
@@ -297,11 +341,12 @@ export function nextChange(s, at, caps) {
   if (!caps?.motion || s.overlay) return null;
   const still = idle(s, at);
   const times = [];
-  // A one-shot still playing: its next frame, every `every` from its start
-  // (on the 40 ms grid), or its end.
-  for (const [part, start] of Object.entries(shotStarts(s))) {
-    const { every } = SHOTS[part];
-    if (!still && oneShot(s, at, start, TIMING[part]) < 1) times.push(Math.min(every - ((at - start) % every), start + TIMING[part] - at));
+  // A one-shot still playing: its next frame, or its end.
+  if (!still) {
+    for (const [part, start] of Object.entries(shotStarts(s))) {
+      const next = shotFrameIn(s, at, part, start, SHOTS[part].every);
+      if (next !== null) times.push(next);
+    }
   }
   const since = childSince(s);
   if (since !== undefined) times.push(...spinsIn(at - since));
