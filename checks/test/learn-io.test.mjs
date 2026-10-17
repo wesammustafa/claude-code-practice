@@ -635,34 +635,37 @@ const slowGit = () => {
 };
 const ENTERS = (writes) => writes.join('').split('\x1b[?1049h').length - 1;
 
-// The 9x4 Pip's boot: a 16-color terminal, which has no detailed Pip.
+// The 9x4 Pip's boot: a 16-color terminal, which has no detailed Pip, or a
+// truecolor one at 90x30, where the welcome after it has none (174).
 test('boot: when git takes over 150 ms at start, the screen opens with Pip waking, "Asking git about this folder…" and the spinner, until the welcome replaces it', async () => {
-  const git = slowGit();
-  const app = clockedRun(MOTION_ENV, { askGit: git.ask, depth: 4 });
-  const { term, clock } = app;
-  try {
-    assert.equal(git.asked, 1);
-    await clock.advance(159);
-    assert.deepEqual(term.writes, [], 'nothing is drawn, and the screen is not opened, before git has run 160 ms');
-    await clock.advance(1);
-    assert.equal(ENTERS(term.writes), 1);
-    assert.match(term.shows(), /│ {2}─‿─ {2}│ {3}Asking git about this folder… ⠋/, '+160 ms: Pip\'s eyes shut, the spinner starts');
-    await clock.advance(80);
-    assert.match(term.shows(), /│ {2}◒‿◒ {2}│ {3}Asking git about this folder… ⠙/, '+240 ms: waking');
-    await clock.advance(80);
-    assert.match(term.shows(), /│ {2}●‿● {2}│ {3}Asking git about this folder… ⠹/, '+320 ms: awake');
-    git.answer([null, 'Sam']);
-    await turn();
-    await clock.advance(40);
-    assert.match(term.shows(), /Hi Sam! Let's learn Claude Code/);
-    assert.doesNotMatch(term.shows(), /Asking git/);
-    assert.equal(ENTERS(term.writes), 1, 'the same screen goes on');
-    // The boot's frame timer is gone with it: the welcome draws alone.
-    const n = term.writes.length;
-    await clock.advance(2_000);
-    assert.ok(term.writes.slice(n).every((w) => !w.includes('Asking git')));
-  } finally {
-    app.close();
+  for (const depth of [4, 24]) {
+    const git = slowGit();
+    const app = clockedRun(MOTION_ENV, { askGit: git.ask, depth });
+    const { term, clock } = app;
+    try {
+      assert.equal(git.asked, 1);
+      await clock.advance(159);
+      assert.deepEqual(term.writes, [], 'nothing is drawn, and the screen is not opened, before git has run 160 ms');
+      await clock.advance(1);
+      assert.equal(ENTERS(term.writes), 1);
+      assert.match(term.shows(), /│ {2}─‿─ {2}│ {3}Asking git about this folder… ⠋/, '+160 ms: Pip\'s eyes shut, the spinner starts');
+      await clock.advance(80);
+      assert.match(term.shows(), /│ {2}◒‿◒ {2}│ {3}Asking git about this folder… ⠙/, '+240 ms: waking');
+      await clock.advance(80);
+      assert.match(term.shows(), /│ {2}●‿● {2}│ {3}Asking git about this folder… ⠹/, '+320 ms: awake');
+      git.answer([null, 'Sam']);
+      await turn();
+      await clock.advance(40);
+      assert.match(term.shows(), /Hi Sam! Let's learn Claude Code/);
+      assert.doesNotMatch(term.shows(), /Asking git/);
+      assert.equal(ENTERS(term.writes), 1, 'the same screen goes on');
+      // The boot's frame timer is gone with it: the welcome draws alone.
+      const n = term.writes.length;
+      await clock.advance(2_000);
+      assert.ok(term.writes.slice(n).every((w) => !w.includes('Asking git')));
+    } finally {
+      app.close();
+    }
   }
 });
 
@@ -1138,13 +1141,14 @@ test('calm: no frame timer, and nothing is written for 3 s on a waiting card', a
 });
 
 // The detailed Pip (170) on the resume screen, which moves nothing of its
-// own: a frame timer there is Pip's. At 90x30 it has room for the raster.
+// own: a frame timer there is Pip's. At 90x30 it has room for the raster,
+// in truecolor only (174).
 const RESUME = { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y3', beat: 0, done: ['W1'] } } };
 const RASTER = /[▀▄]/;
 const toResume = async (app) => assert.ok(await app.settle(() => app.term.shows().includes('Welcome back')), app.term.shows());
 
-test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s frames while it turns, an overlay stops them, resume gives it no ambient life (its y/n neither), and a 16-color terminal\'s 9x4 Pip adds none', async () => {
-  const app = clockedRun(MOTION_ENV, { saved: RESUME });
+test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s frames while it turns, an overlay stops them, resume gives it no ambient life (its y/n neither), and a 16- or 256-color terminal\'s 9x4 Pip adds none', async () => {
+  const app = clockedRun(MOTION_ENV, { saved: RESUME, depth: 24 });
   const { term, clock } = app;
   try {
     await toResume(app);
@@ -1180,16 +1184,18 @@ test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s fra
   }
   // The first look's result comes at once here, so its frame is out by 80 ms,
   // inside the 0.9 s that Pip's turn to ready would take.
-  const sixteen = clockedRun(MOTION_ENV, { saved: RESUME, depth: 4, runCheck: async () => ({ items: [] }) });
-  try {
-    await toResume(sixteen);
-    assert.doesNotMatch(sixteen.term.shows(), RASTER);
-    await sixteen.clock.advance(80);
-    assert.deepEqual(sixteen.frameTimers(), [], 'the 9x4 Pip, still');
-    await sixteen.clock.advance(5_000);
-    assert.deepEqual(sixteen.frameTimers(), [], 'and later');
-  } finally {
-    sixteen.close();
+  for (const depth of [4, 8]) {
+    const glyph = clockedRun(MOTION_ENV, { saved: RESUME, depth, runCheck: async () => ({ items: [] }) });
+    try {
+      await toResume(glyph);
+      assert.doesNotMatch(glyph.term.shows(), RASTER, `depth ${depth}`);
+      await glyph.clock.advance(80);
+      assert.deepEqual(glyph.frameTimers(), [], `depth ${depth}: the 9x4 Pip, still`);
+      await glyph.clock.advance(5_000);
+      assert.deepEqual(glyph.frameTimers(), [], `depth ${depth}: and later`);
+    } finally {
+      glyph.close();
+    }
   }
 });
 
@@ -1199,11 +1205,11 @@ test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s fra
 const WELCOME = /Let's learn Claude Code/;
 const toWelcome = async (app) => assert.ok(await app.settle(() => WELCOME.test(app.term.shows())), app.term.shows());
 
-test('the detailed Pip breathes only on a local truecolor terminal: frames every 120 ms there; over SSH, in a Codespace and in 256 colors it waits for its next blink or glance; q, Ctrl+C or SIGTERM leaves no timer', async () => {
-  const cases = [['truecolor', MOTION_ENV, 24, true, 'q'], ['truecolor over SSH', { ...MOTION_ENV, SSH_TTY: '/dev/pts/3' }, 24, false, '\x03'], ['truecolor in a Codespace', { ...MOTION_ENV, CODESPACES: 'true' }, 24, false, 'q'], ['256 colors', MOTION_ENV, 8, false, 'SIGTERM']];
-  for (const [why, env, depth, breathes, quit] of cases) {
+test('the detailed Pip breathes only on a local terminal: frames every 120 ms there; over SSH and in a Codespace it waits for its next blink or glance; q, Ctrl+C or SIGTERM leaves no timer', async () => {
+  const cases = [['local', MOTION_ENV, true, 'q'], ['over SSH', { ...MOTION_ENV, SSH_TTY: '/dev/pts/3' }, false, '\x03'], ['in a Codespace', { ...MOTION_ENV, CODESPACES: 'true' }, false, 'SIGTERM']];
+  for (const [why, env, breathes, quit] of cases) {
     const signals = new EventEmitter();
-    const app = clockedRun(env, { depth, signals, cols: 120, rows: 40 });
+    const app = clockedRun(env, { depth: 24, signals, cols: 120, rows: 40 });
     try {
       await toWelcome(app);
       assert.match(app.term.shows(), RASTER, why);
@@ -1230,7 +1236,7 @@ test('the detailed Pip breathes only on a local truecolor terminal: frames every
 });
 
 test('calm: the detailed Pip is drawn at rest, in its ready pose, as render draws it; no frame timer, nothing written', async () => {
-  const app = clockedRun(CALM_ENV, { saved: RESUME });
+  const app = clockedRun(CALM_ENV, { saved: RESUME, depth: 24 });
   const { term, clock } = app;
   try {
     await toResume(app);
@@ -1253,20 +1259,20 @@ test('calm: the detailed Pip is drawn at rest, in its ready pose, as render draw
 });
 
 test('boot, with room: the detailed Pip works beside "Asking git about this folder…" on the spinner\'s timer, at the size the next screen has it; calm, it is still', async () => {
-  // Resume has room for standard Pip at 90x30, the welcome for small.
-  const cases = [[MOTION_ENV, true, RESUME, 32, 'Welcome back'], [CALM_ENV, false, RESUME, 32, 'Welcome back'], [MOTION_ENV, true, undefined, 20, 'Hi Sam!']];
-  for (const [env, moves, saved, wide, next] of cases) {
+  // Resume has room for standard Pip at 90x30.
+  const cases = [[MOTION_ENV, true, RESUME, 'Welcome back'], [CALM_ENV, false, RESUME, 'Welcome back']];
+  for (const [env, moves, saved, next] of cases) {
     const git = slowGit();
-    const app = clockedRun(env, { askGit: git.ask, saved });
+    const app = clockedRun(env, { askGit: git.ask, saved, depth: 24 });
     const { term, clock } = app;
     // The margin and Pip's lead space, then its cells, then 3.
-    const beside = new RegExp(`^ {6}[ ▀▄]{${wide}} {3}\\S`);
+    const beside = /^ {6}[ ▀▄]{32} {3}\S/;
     try {
       await clock.advance(400);
       const lines = term.model.lines();
       const at = lines.findIndex((l) => l.includes('Asking git about this folder…'));
       assert.match(lines[at], beside, lines.join('\n'));
-      assert.ok(lines.slice(at - (wide === 32 ? 9 : 5), at + (wide === 32 ? 7 : 5)).every((l) => RASTER.test(l) || l.trim() === ''), lines.join('\n'));
+      assert.ok(lines.slice(at - 9, at + 7).every((l) => RASTER.test(l) || l.trim() === ''), lines.join('\n'));
       const timers = app.frameTimers();
       if (moves) assert.ok(timers.length === 1 && timers[0].ms <= 80, JSON.stringify(timers));
       else assert.deepEqual(timers, []);
@@ -1283,7 +1289,7 @@ test('boot, with room: the detailed Pip works beside "Asking git about this fold
 
 test('Pip\'s clock never runs back: a wall clock that steps back while git answers leaves the app drawing', async () => {
   const git = slowGit();
-  const app = clockedRun(MOTION_ENV, { saved: RESUME, askGit: git.ask });
+  const app = clockedRun(MOTION_ENV, { saved: RESUME, askGit: git.ask, depth: 24 });
   const { term, clock } = app;
   try {
     await clock.advance(400);
@@ -1315,7 +1321,7 @@ const untilPipMoves = async (app, rows, ms) => {
 
 test('a wall clock that steps back over two minutes while git answers: the welcome\'s Pip still comes alive after its reading grace, its gates on the app\'s clock and its own time going on', async () => {
   const git = slowGit();
-  const app = clockedRun(MOTION_ENV, { askGit: git.ask, cols: 120, rows: 40 });
+  const app = clockedRun(MOTION_ENV, { askGit: git.ask, cols: 120, rows: 40, depth: 24 });
   const { term, clock } = app;
   try {
     await clock.advance(400);
@@ -1335,7 +1341,7 @@ test('a wall clock that steps back over two minutes while git answers: the welco
 });
 
 test('a resize while Pip blinks or glances leaves no fragment of the raster: the screen is the new frame alone', async () => {
-  const app = clockedRun(MOTION_ENV, { cols: 140, rows: 45 });
+  const app = clockedRun(MOTION_ENV, { cols: 140, rows: 45, depth: 24 });
   const { term, clock } = app;
   try {
     await toWelcome(app);
