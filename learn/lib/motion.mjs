@@ -170,10 +170,9 @@ function quietFrom(s) {
   return Math.max(grace, (fx.key ?? NEVER) + TIMING.keyQuiet);
 }
 
-// When the ambient gates opened, for a screen whose gates are open now and
-// were shut at its last frame: the end of the reading grace or of the quiet
-// after a key. (A file change that ends idle opens them too, at no new
-// moment of these.)
+// When a screen's ambient gates last opened, or will: the end of the
+// reading grace or of the quiet after a key. (A file change that ends idle
+// opens them too, at no new moment of these.)
 export const ambientOpened = (s) => quietFrom(s);
 
 // How far into the blink cycle `at` is: shut for the first 160 ms of every

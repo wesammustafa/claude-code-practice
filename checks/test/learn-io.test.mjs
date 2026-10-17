@@ -16,7 +16,7 @@ import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
 import { REST, SHOTS, TIMING } from '../../learn/lib/motion.mjs';
-import { restPose } from '../../learn/lib/pip/pip.mjs';
+import { MOTION, restPose } from '../../learn/lib/pip/pip.mjs';
 import { pipSlot, render } from '../../learn/lib/render.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
@@ -1354,20 +1354,34 @@ const breathingStops = async (app, from, to) => {
   return null;
 };
 
-test('the welcome\'s detailed Pip asks for no frame while the learner reads, then breathes for 30 s from the moment its reading grace ends', async () => {
+test('the welcome\'s detailed Pip asks for no frame while the learner reads, then breathes for 30 s from the moment its reading grace ends, and glances about 2.6 s and blinks about 4.2 s after it', async () => {
   const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
-  const { clock } = app;
+  const { term, clock } = app;
   try {
     await toWelcome(app);
     const opens = graceEnds(app);
-    // Pip has turned to ready. Until the grace ends, the one frame timer
-    // waits for that moment.
-    await clock.advance(app.frameTimes()[0] + 2_000 - clock.now());
-    for (; clock.now() < opens; await clock.advance(1_000)) {
+    // As the welcome arrives Pip turns to ready, and its antenna sways: the
+    // package's frames, every 40 ms for its 900 ms. From then until the
+    // grace ends, the one frame timer waits for that moment, and Pip holds
+    // still (the screen's own full refresh every 10 s draws it the same).
+    const settled = app.frameTimes()[0] + MOTION.antenna + MOTION.frame;
+    await clock.advance(Math.max(0, settled - clock.now()));
+    const still = pipRows(term);
+    for (; clock.now() < opens; await clock.advance(Math.min(1_000, opens - clock.now()))) {
       assert.deepEqual(app.frameTimers().map((x) => x.ms), [opens - clock.now()], `${clock.now() - opens} ms from the grace's end`);
+      assert.equal(pipRows(term), still, `Pip still, ${clock.now() - opens} ms from the grace's end`);
     }
+    const n = term.writes.length;
     const stops = await breathingStops(app, opens, opens + 35_000);
     assert.ok(stops !== null && stops - opens >= 29_000 && stops - opens <= 31_000, `breathing stops ${stops === null ? 'never' : `${stops - opens} ms`} after the grace ends`);
+    // Breathing draws every 120 ms; a glance or a blink every 40 ms. The
+    // frames that start three such quick frames in a row, from a second
+    // after the opening (the app's own blink at the opening is over by then;
+    // the screen's own draws come one at a time).
+    const frames = app.frameTimes(n).map((at) => at - opens);
+    const quick = frames.filter((at, k) => at >= 1_000 && at <= 5_000 && frames[k + 2] - at <= 2 * MOTION.frame);
+    assert.ok(quick[0] >= 2_600 && quick[0] <= 2_680, `the glance, 40 ms frames from ${quick[0]} ms after the grace ends`);
+    assert.ok(quick.some((at) => at >= 4_200 && at < 4_400), `a blink after 4.2 s: ${quick.join(', ')}`);
   } finally {
     app.close();
   }
@@ -1399,23 +1413,42 @@ test('the welcome\'s detailed Pip holds its pose as its reading grace ends, then
   }
 });
 
-test('a key on the welcome shuts Pip\'s ambient gate for its quiet, with no frame asked, and its 30 s start again once, as the gate opens again', async () => {
-  const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
-  const { term, clock } = app;
-  try {
-    await toWelcome(app);
-    await clock.advance(graceEnds(app) + 20_000 - clock.now());
-    // Down does nothing on the welcome but stamp a key.
-    term.type('\x1b[B');
-    const opens = clock.now() + TIMING.keyQuiet;
-    await clock.advance(500);
-    for (; clock.now() < opens; await clock.advance(1_000)) {
-      assert.deepEqual(app.frameTimers().map((x) => x.ms), [opens - clock.now()], `${clock.now() - opens} ms from the gate's opening`);
+// A key a second after the grace ends: without a fresh 30 s at the gate's
+// opening again, breathing would stop about 25 s after it.
+test('a key on the welcome shuts Pip\'s ambient gate for its quiet, with no frame asked, and its 30 s start again once, as the gate opens again, even with the window too small for Pip until after that', async () => {
+  for (const small of [false, true]) {
+    const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
+    const { term, clock } = app;
+    const resize = async (cols, rows) => {
+      Object.assign(term.stdout, { columns: cols, rows });
+      term.stdout.emit('resize');
+      await clock.advance(40);
+    };
+    try {
+      await toWelcome(app);
+      await clock.advance(graceEnds(app) + 1_000 - clock.now());
+      // At 80x24 the welcome has no room for the detailed Pip.
+      if (small) {
+        await resize(80, 24);
+        assert.doesNotMatch(term.shows(), RASTER, 'no detailed Pip at 80x24');
+      }
+      // Down does nothing on the welcome but stamp a key.
+      term.type('\x1b[B');
+      const opens = clock.now() + TIMING.keyQuiet;
+      await clock.advance(500);
+      for (; clock.now() < opens; await clock.advance(1_000)) {
+        if (!small) assert.deepEqual(app.frameTimers().map((x) => x.ms), [opens - clock.now()], `${clock.now() - opens} ms from the gate's opening`);
+      }
+      if (small) {
+        await clock.advance(2_000);
+        await resize(120, 40);
+        assert.match(term.shows(), RASTER, 'the detailed Pip at 120x40 again');
+      }
+      const stops = await breathingStops(app, opens + 3_000, opens + 35_000);
+      assert.ok(stops !== null && stops - opens >= 29_000 && stops - opens <= 31_000, `${small ? 'resized: ' : ''}breathing stops ${stops === null ? 'never' : `${stops - opens} ms`} after the gate opens again`);
+    } finally {
+      app.close();
     }
-    const stops = await breathingStops(app, opens + 1_000, opens + 35_000);
-    assert.ok(stops !== null && stops - opens >= 29_000 && stops - opens <= 31_000, `breathing stops ${stops === null ? 'never' : `${stops - opens} ms`} after the gate opens again`);
-  } finally {
-    app.close();
   }
 });
 

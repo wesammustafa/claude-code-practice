@@ -24,7 +24,7 @@ const POLL_CHECK_MS = 2_000;
 const POLL_GIT_MS = 2_000;
 const FLAGS = ['--calm', '--plain'];
 // Pip's states with no reaction of their own: no hop, no spark.
-const CALM = ['ready', 'waiting', 'working'];
+const NO_REACTION = ['ready', 'waiting', 'working'];
 const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
 // What git says first: whether this folder is a repository, and a name to
 // greet.
@@ -164,8 +164,10 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   let pipAt = -Infinity;
   let pipChanged = -Infinity;
   let skew = 0;
-  // Whether Pip's ambient gate was open at its last frame.
-  let pipOpen = false;
+  // The moment of the last ambient gate opening Pip's lively window started
+  // again at, so each opening starts it once, even one first seen after
+  // frames with no room for Pip.
+  let pipOpened = null;
   // A change set at `at` on the app's clock, on Pip's: no earlier than the
   // last, no later than now.
   const pipFrom = (at) => Math.min(pipAt, Math.max(at === undefined ? pipAt : at + skew, pipChanged));
@@ -179,13 +181,15 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // The package's lively window (blinks, glances, breathing) is its 30 s
     // from Pip's last change. On a state with no reaction of its own, it
     // starts again as the ambient gate opens: from that moment, under that
-    // moment's id, at once, so the pose holds and nothing replays.
-    if (gates.ambient && !pipOpen && CALM.includes(next) && event.eventId === undefined) {
+    // moment's id, at once, so the pose holds and nothing replays. (No
+    // ambient screen's target carries an event id today; one that did would
+    // replay its reaction after the restart, so it is left alone.)
+    if (gates.ambient && NO_REACTION.includes(next) && event.eventId === undefined) {
       const opened = ambientOpened(state);
       const restart = pipFrom(opened);
-      if (pip.setState(next, { at: restart, eventId: `ambient:${opened}`, immediate: true })) pipChanged = restart;
+      if (opened !== pipOpened && pip.setState(next, { at: restart, eventId: `ambient:${opened}`, immediate: true })) pipChanged = restart;
+      pipOpened = opened;
     }
-    pipOpen = gates.ambient;
     return pip.pose(pipAt, gates);
   }
 
