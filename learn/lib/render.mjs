@@ -612,12 +612,26 @@ const whyLine = (t, text, w, color) => {
   return optional([...hang(t.fg(color, why), para(t, text, w - width(why), 'text', { quote: true })), '']);
 };
 // The lesson's Go further line: 📖, its label, then the quote, wrapped under
-// the label, and with `url` its address spelled out under it.
-const goFurther = (t, read, w, url) => {
-  const rows = led(t, 'read', read, w, 'text', { quote: true, label: { text: C.goFurther, color: 'muted' } });
-  if (!url) return rows;
-  const under = ' '.repeat(width(t.lead('read')));
-  return [...rows, ...hang(under, para(t, url, w - width(under), 'key').map((x) => t.link(x, url)))];
+// the label.
+const goFurther = (t, read, w) => led(t, 'read', read, w, 'text', { quote: true, label: { text: C.goFurther, color: 'muted' } });
+// An address spelled out in `w` columns, a link where links work. A copy
+// from a terminal with no links should give it whole, so it breaks only
+// after a /, ? or &, never inside a word, and its rows hold nothing else:
+// no rail, no indent. A piece wider than a row (no lesson's) breaks where
+// the row ends.
+const urlRows = (t, url, w) => {
+  const rows = [''];
+  for (let piece of url.split(/(?<=[/?&])/)) {
+    if (rows.at(-1) && width(rows.at(-1) + piece) > w) rows.push('');
+    while (width(rows.at(-1) + piece) > w) {
+      const room = w - width(rows.at(-1));
+      rows[rows.length - 1] += piece.slice(0, room);
+      rows.push('');
+      piece = piece.slice(room);
+    }
+    rows[rows.length - 1] += piece;
+  }
+  return rows.map((x) => t.link(t.fg('key', x), url));
 };
 // One sentence written as rows: those rows where each fits in `w`, or else
 // the sentence wrapped whole.
@@ -999,12 +1013,12 @@ const VIEWS = {
   },
 
   // The lesson's check, item by item. Where the items don't all fit, the
-  // page's address gives way (p shows it) and the items scroll: whole items
-  // from s.itemsAt down, one a press of the arrows, with a line that says
-  // which are shown, and never past the window that ends on the last item.
-  // An item too tall for that room takes the card's other rows; the items
-  // never drop, a toast does. Which rows the card has comes from the lesson
-  // and what r and errors said, so a poll changes only marks.
+  // page's row gives way (p shows the address) and the items scroll: whole
+  // items from s.itemsAt down, one a press of the arrows, with a line that
+  // says which are shown, and never past the window that ends on the last
+  // item. An item too tall for that room takes the card's other rows; the
+  // items never drop, a toast does. Which rows the card has comes from the
+  // lesson and what r and errors said, so a poll changes only marks.
   checkonly(ctx) {
     const { s, t, inner } = ctx;
     const l = lessonOf(s);
@@ -1021,7 +1035,9 @@ const VIEWS = {
       return kept(para(t, text, inner - 4).map((x, i) => `${i ? ' ' : mark} ${x}`));
     });
     const intro = [...sentence(t, checkOnlyWords(s, l), inner, 'text'), SPACER];
-    const url = [...para(t, l.url, inner, 'key').map((x) => t.link(x, l.url)), SPACER];
+    // The page by name, a link where links work: p spells out its address.
+    const name = t.link(t.fg('key', C.pageLink[0]), l.url);
+    const page = [`${name}${t.fg('muted', C.pageLink[1])}`, SPACER];
     // What the runs said beyond the marks: kept, like a step's status line.
     // A slow item stays unchecked until r runs it; once r has, a poll keeps
     // its result (flow), so the line goes for good.
@@ -1038,25 +1054,34 @@ const VIEWS = {
     const folder = folderNotes(ctx, inner);
     if (folder.length) notes.push(SPACER, ...folder);
     // The card's text rows: the body's room less the blank above the card,
-    // its two borders and its first blank.
+    // its two borders and its first blank. The blanks between its blocks
+    // give way to an item (fit drops them from the bottom), so the window
+    // leaves no row unused that the next item would fill.
     const room = ctx.roomUnder(head.length) - 4;
+    const blanks = (lead) => [...lead, ...notes].filter((r) => r === SPACER).length;
     const rows = blocks.flat().length;
     let shown = blocks;
-    let above = intro.length + url.length + rows + notes.length <= room ? [...intro, ...url] : intro;
+    let above = intro.length + page.length + rows + notes.length <= room ? [...intro, ...page] : intro;
     let more = [];
     let last = 0;
-    if (above.length + rows + notes.length > room) {
-      const avail = room - intro.length - notes.length - 1;
+    if (above.length + rows + notes.length > room + blanks(intro)) {
+      const avail = room + blanks(intro) - intro.length - notes.length - 1;
+      // The window from item `from`: the items that fit, and the sentence
+      // above them. One item taller than that room: the line, then the
+      // sentence, give way, and the next items take what they leave.
+      const windowAt = (from) => {
+        const tall = blocks[from].length;
+        if (tall <= avail) return { k: placesTo(blocks, from, avail), lead: intro };
+        const lead = tall > avail + 1 ? [] : intro;
+        return { k: placesTo(blocks, from, room + blanks(lead) - lead.length - notes.length), lead };
+      };
       last = blocks.length - 1;
-      while (last > 0 && placesTo(blocks, last - 1, avail) === blocks.length) last--;
+      while (last > 0 && windowAt(last - 1).k === blocks.length) last--;
       const from = Math.min(s.itemsAt, last);
-      const k = placesTo(blocks, from, avail);
+      const { k, lead } = windowAt(from);
       shown = blocks.slice(from, k);
-      more = [t.fg('muted', k - from === 1 ? C.itemOf(from + 1, blocks.length) : C.itemsShown(from + 1, k, blocks.length))];
-      // One item taller than that room: the line, then the sentence, give way.
-      const tall = shown[0].length;
-      if (tall > avail) more = [];
-      if (tall > avail + 1) above = [];
+      above = lead;
+      if (blocks[from].length <= avail) more = [t.fg('muted', k - from === 1 ? C.itemOf(from + 1, blocks.length) : C.itemsShown(from + 1, k, blocks.length))];
     }
     return {
       head,
@@ -1675,7 +1700,7 @@ const OVERLAYS = {
     return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)] };
   },
   page(ctx) {
-    const { s, t, inner } = ctx;
+    const { s, t, W, inner } = ctx;
     const step = s.view === 'step' ? stepOf(s) : null;
     // A warm-up recalls an earlier lesson: its page is that lesson's.
     const l = step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s);
@@ -1683,12 +1708,13 @@ const OVERLAYS = {
     const url = `${l.url}${anchor}`;
     const stuck = l.content?.stuck ?? l.stuck;
     // Go further with its address spelled out, for a terminal with no links.
-    // The parser holds a read line to one link.
+    // The parser holds a read line to one link. The addresses take the
+    // frame's whole width, from its margin.
     const read = l.content?.intro.read;
     return {
-      body: [t.bold(t.fg('white', C.pageTitle)), ...para(t, url, inner, 'key').map((x) => t.link(x, url)), SPACER,
-        t.fg('text', C.stuckLink), ...para(t, stuck, inner, 'key').map((x) => t.link(x, stuck)),
-        ...(read ? [SPACER, ...goFurther(t, read, inner, absolute(inline(read).find((r) => r.url).url))] : [])],
+      body: [t.bold(t.fg('white', C.pageTitle)), ...urlRows(t, url, W), SPACER,
+        t.fg('text', C.stuckLink), ...urlRows(t, stuck, W),
+        ...(read ? [SPACER, ...goFurther(t, read, inner), ...urlRows(t, absolute(inline(read).find((r) => r.url).url), W)] : [])],
       keys: [key('p', C.k.close), key('q', C.k.close)],
     };
   },

@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseLesson, PATH, SLOW } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
-import { reduce, watching } from '../../learn/lib/flow.mjs';
+import { reduce, stepOf, watching } from '../../learn/lib/flow.mjs';
 import { main } from '../../learn/lib/main.mjs';
 import { itemsMax, render } from '../../learn/lib/render.mjs';
 import { sanitize, snapshot } from '../../learn/lib/store.mjs';
@@ -527,4 +527,156 @@ test('until a-5 and a-capstone can run in their own copy, the next lesson passes
   const rest = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...saved, ...done(['a-6', 'a-7']) } } });
   assert.deepEqual([rest.state.view, rest.state.course[rest.state.mapCursor].id], ['map', 'a-5']);
   assert.ok(!lines(rest.state, [80, 24]).some((l) => / next/.test(l)), lines(rest.state, [80, 24]).join('\n'));
+});
+
+// Ticket 168: a URL wrapped by the card's width broke inside a word, under
+// the card's rail, so a copy of it from a terminal with no links gave a
+// broken address. The card names the page instead, as a link where links
+// work, and p spells out the address.
+test('the check-only card names the lesson page as link text and points to p for its address, with no URL on the card', () => {
+  for (const { id } of PATH) {
+    const d = checkOnly(id);
+    const url = course.find((l) => l.id === id).url;
+    for (const size of [...SIZES, [100, 30]]) {
+      for (const t of [FULL, ASCII]) {
+        const raw = render(d.state, { cols: size[0], rows: size[1] }, t);
+        const ls = raw.map((l) => strip(l).trimEnd());
+        const where = `${id} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${ls.join('\n')}`;
+        assert.ok(!ls.some((l) => /https?:|github\.com/.test(l)), `a URL on the card: ${where}`);
+        const named = ls.findIndex((l) => /[│|] {2}\S/.test(l) && l.includes(C.pageLink[0]));
+        // The row and its blank give way only where they don't fit (as the
+        // URL did): the items scroll (the bar offers the arrows), or fewer
+        // than two rows are left blank under the card, above the blank over
+        // the key bar's rule.
+        if (named < 0) {
+          const unused = size[1] - 3 - ls.findLastIndex((l) => /^\s*(╰|\+-)/.test(l)) - 1;
+          assert.ok(ls.at(-1).includes(C.k.scroll) || unused < 2, `no page row: ${where}`);
+          continue;
+        }
+        assert.ok(ls[named].endsWith(C.pageLink.join('')), where);
+        if (t.caps.links) assert.ok(raw[named].includes(`\x1b]8;;${url}\x07`) && strip(raw[named]).includes(C.pageLink[0]), where);
+        else assert.ok(!raw[named].includes('\x1b]8;;'), where);
+      }
+    }
+    // Where every item fits with room to spare, the page row shows.
+    assert.ok(lines(d.state, [100, 50]).some((l) => l.includes(C.pageLink.join(''))), id);
+  }
+  // The ticket's example: i-1 at 80x24 showed its URL on two rows.
+  assert.ok(lines(checkOnly('i-1').state, [80, 24]).some((l) => l.endsWith(`│  ${C.pageLink.join('')}`)));
+});
+
+// A URL as p shows it: its rows, from the one that starts it, each only
+// spaces and a piece of the URL, which join to the whole address.
+const urlRows = (ls, url, where) => {
+  const from = (at) => {
+    const rows = [];
+    while (rows.join('').length < url.length && at + rows.length < ls.length) rows.push(ls[at + rows.length].trim());
+    return rows;
+  };
+  const at = ls.findIndex((l, i) => l.trim().startsWith('https://') && from(i).join('') === url);
+  assert.ok(at >= 0, `${url} not shown whole: ${where}`);
+  const rows = from(at);
+  rows.forEach((r, i) => assert.match(ls[at + i], /^ *\S+$/, `a row holds more than spaces and the URL: "${ls[at + i]}"\n${where}`));
+  return rows;
+};
+
+test('p spells out each URL whole: a long one breaks only after a /, ? or &, on rows with nothing but the address', () => {
+  const shown = [];
+  for (const { id } of PATH) {
+    const d = checkOnly(id);
+    d.key('p');
+    assert.equal(d.state.overlay, 'page', id);
+    const l = course.find((x) => x.id === id);
+    shown.push([id, d.state, [l.url, l.stuck]]);
+  }
+  // A query longer than a row, which no lesson's link has yet: it breaks
+  // after its & as well.
+  const query = 'https://github.com/o/r/issues/new?template=lesson-feedback.yml&lesson=i-1&title=the-check-says-the-skill-is-not-committed&labels=lesson';
+  const long = checkOnly('i-1', noFiles.map((l) => (l.id === 'i-1' ? { ...l, stuck: query } : l)));
+  long.key('p');
+  shown.push(['a long query', long.state, [query]]);
+  // The Beginner lessons: on a step, at its part's anchor, and on the next
+  // screen, with the Go further line's address.
+  for (const l of course.filter((x) => x.content)) {
+    const read = l.content.intro.read?.match(/\]\(([^)\s]+)\)/)?.[1];
+    for (const [name, stop] of [['step', (s) => s.view === 'step' && s.lesson === l.id && stepOf(s).part !== 'Warm-up'],
+      ['next', (s) => s.view === 'next' && s.lesson === l.id]]) {
+      const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
+      playUntil(d, stop);
+      d.key('p');
+      assert.equal(d.state.overlay, 'page', `${l.id} ${name}`);
+      // The page's address at the step's anchor, as its link names it.
+      const page = render(d.state, { cols: 100, rows: 40 }, FULL).join('').match(new RegExp(`\x1b\\]8;;(${l.url.replace(/[.?]/g, '\\$&')}[^\x07]*)\x07`))[1];
+      if (name === 'step') assert.match(page, /#[a-z-]+$/, l.id);
+      const urls = [page, l.content.stuck];
+      shown.push([`${l.id} ${name}`, d.state, read && name === 'next' ? [...urls, read] : urls]);
+    }
+  }
+  let broken = 0;
+  for (const [label, state, urls] of shown) {
+    for (const size of SIZES) {
+      for (const t of [FULL, ASCII]) {
+        const ls = lines(state, size, t);
+        const where = `${label} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${ls.join('\n')}`;
+        for (const url of urls) {
+          const rows = urlRows(ls, url, where);
+          rows.slice(0, -1).forEach((r) => assert.match(r, /[/?&]$/, `"${r}" breaks inside a word: ${where}`));
+          if (rows.length > 1) broken++;
+        }
+      }
+    }
+  }
+  assert.ok(broken > 0, 'no URL was long enough to break');
+  // The long query's rows at 60 columns: one ends at its ?, one at an &.
+  const rows = urlRows(lines(long.state, [60, 20], ASCII), query, 'a long query');
+  assert.ok(rows.some((r) => r.endsWith('?')) && rows.some((r) => r.endsWith('&')), rows.join('\n'));
+});
+
+// Ticket 168: at 60x20 i-capstone showed item 1 of 11 over unused rows. An
+// item's rows, read from a window tall enough for every item: a mark row
+// and the rows under it, indented past the mark.
+const MARK = /^\s*[│|] {2}(○|✔|▲|◉|o|\[x\]|!|@) /;
+const itemHeights = (state, cols, t) => {
+  const ls = lines(state, [cols, 200], t);
+  const marks = ls.flatMap((l, i) => (MARK.test(l) ? [i] : []));
+  return marks.map((i) => {
+    let n = 1;
+    while (/^\s*[│|] {4}\S/.test(ls[i + n])) n++;
+    return n;
+  });
+};
+
+test('the check-only card\'s item window fills its room: no window leaves rows unused that the next whole item would fill', () => {
+  let filled = 0;
+  for (const { id } of PATH) {
+    const d = checkOnly(id);
+    for (const size of SIZES) {
+      for (const t of [FULL, ASCII]) {
+        const heights = itemHeights(d.state, size[0], t);
+        assert.equal(heights.length, lessons[id].items.length, id);
+        const max = itemsMax(d.state, { cols: size[0], rows: size[1] }, t);
+        for (let k = 0; k <= max; k++) {
+          const ls = lines(d.state, size, t);
+          const where = `${id} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}, ${k} down\n${ls.join('\n')}`;
+          const shown = ls.filter((l) => MARK.test(l)).length;
+          const next = Math.min(d.state.itemsAt, max) + shown;
+          if (next < heights.length) {
+            // The rows the window could have: those left blank under the
+            // card, above the blank over the key bar's rule, and the card's
+            // blank rows between its blocks, which give way to an item. The
+            // card's first row and the blank under the header stay.
+            const top = ls.findIndex((l) => /^\s*(╭|\+-)/.test(l));
+            const bottom = ls.findLastIndex((l) => /^\s*(╰|\+-)/.test(l));
+            const under = size[1] - 3 - bottom - 1;
+            const between = ls.slice(top + 2, bottom).filter((l) => /^\s*[│|]$/.test(l)).length;
+            assert.ok(under + between < heights[next], `item ${next + 1} (${heights[next]} rows) fits in ${under} + ${between}: ${where}`);
+            if (under + between > 0) filled++;
+          }
+          arrow(d, 'down', size, t);
+        }
+        for (let k = 0; k <= max; k++) arrow(d, 'up', size, t);
+      }
+    }
+  }
+  assert.ok(filled > 0, 'no window had rows to spare');
 });

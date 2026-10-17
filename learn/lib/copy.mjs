@@ -185,6 +185,9 @@ export const C = {
   ofDone: (n, m) => `${n} of ${m} done`,
 
   checkOnly: ["This lesson isn't in the app yet. Follow the lesson page,", "and I'll watch its check for you:"],
+  // The page's name, a link where links work, for the card: p spells out
+  // the address, which a card's rail would break.
+  pageLink: ['The lesson page', ': press p for its address.'],
   newCopy: [`This lesson runs in a ${TERMS.newCopy} of the template, not in this`, `${TERMS.practiceCopy}. Press f to give its folder, and I'll watch its check there:`],
   newCopyAt: [`This lesson runs in your ${TERMS.newCopy} of the template. Follow the`, "lesson page, and I'll watch its check there:"],
   newCopyPlain: `runs in a ${TERMS.newCopy} of the template, so it is not checked here`,
