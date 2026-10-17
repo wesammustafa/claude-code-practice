@@ -1019,6 +1019,30 @@ test('--dir with a-5\'s new copy saved and a-1 to a-4 done sets the Advanced fol
   }
 });
 
+// Ticket 173: opening on a-5 or a-capstone with its new copy saved, --dir
+// never replaces that copy: it sets the Advanced level's folder instead.
+test('--dir opening on a-5 or a-capstone with its new copy saved sets the Advanced folder, and the new copy stays', async () => {
+  const mine = repo();
+  const actions = repo();
+  try {
+    for (const [id, left] of [['a-5', ['a-5', 'a-capstone']], ['a-capstone', ['a-capstone']]]) {
+      const done = (l) => !left.includes(l.id);
+      const folders = () => ({ [id]: actions });
+      const r = await plain(['--dir', mine], { done, folders });
+      assert.equal(r.code, 0, `${id}: ${r.err}`);
+      assert.equal(dirOf(r.ran, id), actions, `${id} keeps the new copy it was given`);
+      for (const other of ['a-1', 'a-6', 'a-7']) assert.equal(dirOf(r.ran, other), mine, `${id}: ${other}`);
+      // The practice copy is the level's folder, not a new copy: no usage error.
+      const copy = await plain(['--dir', '.'], { done, folders });
+      assert.equal(copy.code, 0, `${id}: ${copy.err}`);
+      assert.equal(dirOf(copy.ran, 'a-1'), copy.copy, id);
+      assert.equal(dirOf(copy.ran, id), actions, id);
+    }
+  } finally {
+    for (const d of [mine, actions]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test('main: a path typed in the prompt is read relative to the copy, or from ~, looked at, and saved whole in learn.json', async () => {
   const mine = repo();
   const ways = [(copy) => relative(copy, mine), () => `~/${basename(mine)}`, () => `"${mine}"`];
