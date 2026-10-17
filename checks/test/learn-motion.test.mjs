@@ -888,10 +888,11 @@ test('the greeting: the 9x4 Pip wakes on the welcome and starts awake on resume,
 
 // The complete screen's 9x4 Pip (176): its cheer, then, once the rest of
 // the screen is still, a happy look left and right between ^‿^, ending
-// on ^‿^.
-const LOOK_AROUND = [[0, SPARKS, '^‿^'], [480, '●', '^‿^'], [1_200, '●', '◐‿◐'], [1_600, '●', '^‿^'], [2_000, '●', '◑‿◑']];
+// on ^‿^, each look through the centre ●‿● for one frame either side
+// (182).
+const LOOK_AROUND = [[0, SPARKS, '^‿^'], [480, '●', '^‿^'], [1_160, '●', '●‿●'], [1_200, '●', '◐‿◐'], [1_560, '●', '●‿●'], [1_600, '●', '^‿^'], [1_960, '●', '●‿●'], [2_000, '●', '◑‿◑'], [2_360, '●', '●‿●']];
 
-test('the complete screen: after its cheer, the 9x4 Pip looks left and right between happy eyes, and rests on ^‿^ by 2.4 s', () => {
+test('the complete screen: after its cheer, the 9x4 Pip looks left and right between happy eyes, through the centre, and rests on ^‿^ by 2.4 s', () => {
   for (const label of ['complete', 'b-capstone complete']) {
     const s = screen(label);
     for (const [cols, rows] of [[60, 20], [80, 24], [120, 40]]) {
@@ -906,7 +907,8 @@ test('the complete screen: after its cheer, the 9x4 Pip looks left and right bet
       assert.deepEqual(f(2_400), rest, `${where}, +2400 ms: rest`);
     }
   }
-  LOOK_AROUND.slice(1).forEach(([from], k, rest) => assert.ok((rest[k + 1]?.[0] ?? 2_400) - from >= 250, `the pose from +${from} ms`));
+  // Each pose holds long enough to read; the centre is one frame between.
+  LOOK_AROUND.slice(1).forEach(([from, , face], k, rest) => assert.ok((rest[k + 1]?.[0] ?? 2_400) - from >= (face === '●‿●' ? TIMING.grid : 250), `the pose from +${from} ms`));
 });
 
 // Every face track (181): its keyframes on the 40 ms grid from the shot's

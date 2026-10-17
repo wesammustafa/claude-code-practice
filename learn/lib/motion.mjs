@@ -105,8 +105,13 @@ export const SHOTS = {
   },
   // On the complete screen, after the cheer and once the rest is still,
   // Pip looks left, back and right, with its happy eyes between and at the
-  // end (176).
-  lookAround: { every: 400, face: track([0, null], [1_200, 'lookLeft'], [1_600, null], [2_000, 'glance'], [2_400, null]) },
+  // end (176), each look through the centre, its eyes open, for one frame
+  // either side (182), as the greeting's look passes through it.
+  lookAround: {
+    every: 40,
+    face: track([0, null], [1_160, 'awake'], [1_200, 'lookLeft'], [1_560, 'awake'], [1_600, null],
+      [1_960, 'awake'], [2_000, 'glance'], [2_360, 'awake'], [2_400, null]),
+  },
   // On the check-only card, the mark of an item that starts passing is
   // hollow until `pop`, then a ring, then the check mark.
   itemPass: { every: 80, pop: 80 },
