@@ -37,8 +37,10 @@ export const BEAT_KEYS = {
 // one of each. `need`: a line of the page's You need that names commands,
 // shown for each one the learner's PATH lacks; the front matter's `needs`
 // says which (ticket 89). `win-note`: the page's note for native Windows,
-// at most one.
-export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, read: true, need: true, 'win-note': true };
+// at most one. `need-repo`: the page's You need line that asks for one of
+// the learner's own repositories, naming no command, at most one; shown
+// only where the level's work folder is not the practice copy (ticket 179).
+export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, read: true, need: true, 'win-note': true, 'need-repo': true };
 export const LADDER_KEYS = { hint: true, bottom: true, win: true };
 // The card (the c overlay): each entry a `skill` line in the app's words,
 // then the page's command (`show`) and what it does (`does`). An entry shows

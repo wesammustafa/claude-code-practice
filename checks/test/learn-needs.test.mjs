@@ -128,6 +128,46 @@ test('on native Windows the intro shows the page\'s note, and the learner can st
   assert.equal(d.state.view, 'step');
 });
 
+// ---- what the page asks of your repository (ticket 179) ------------------------
+// Intermediate lesson 1's You need line, which names no command.
+const NEED_REPO = 'One of your own repositories with a test command and no uncommitted changes';
+
+test('an intro may quote the page\'s You need line for the learner\'s repository, once', () => {
+  assert.equal(parse({ intro: [`- need-repo: "${NEED_REPO}"`] }).intro['need-repo'], NEED_REPO);
+  assert.equal(parse().intro['need-repo'], undefined);
+  assert.throws(() => parse({ intro: [`- need-repo: ${NEED_REPO}`] }), /need-repo must be a quote of the lesson/);
+  assert.throws(() => parse({ intro: [`- need-repo: "${NEED_REPO}"`, `- need-repo: "${NEED_REPO}"`] }), /a second need-repo line/);
+});
+
+test('the intro shows the repository line only where the level\'s work folder is set and is not the practice copy; n shows it too', () => {
+  const repo = { intro: [`- need-repo: "${NEED_REPO}"`] };
+  const mine = atIntro(repo);
+  for (const size of SIZES) {
+    const text = flat(screen(mine.state, size));
+    assert.ok(text.includes(`"${NEED_REPO}"`), `${size}\n${screen(mine.state, size).join('\n')}`);
+    assert.ok(text.includes(C.startLesson(1)), 'the learner can still start');
+  }
+  mine.key('n');
+  assert.equal(mine.state.overlay, 'notes');
+  assert.ok(flat(screen(mine.state)).includes(`"${NEED_REPO}"`), screen(mine.state).join('\n'));
+  mine.key('n');
+  // In the practice copy, and while the folder question waits, it says nothing.
+  const copy = atIntro(repo, {}, { intermediate: COPY });
+  const asking = atIntro(repo, {}, null);
+  assert.ok(flat(screen(asking.state)).includes(C.folderAsk('Intermediate')));
+  for (const d of [copy, asking]) {
+    for (const size of SIZES) assert.ok(!flat(screen(d.state, size)).includes(NEED_REPO), `${size}\n${screen(d.state, size).join('\n')}`);
+  }
+  copy.key('n');
+  assert.equal(copy.state.overlay, null, 'with nothing to say, n does nothing');
+  // Answered with this practice copy, still nothing.
+  asking.key('enter');
+  assert.ok(flat(screen(asking.state)).includes(C.workFolder));
+  assert.ok(!flat(screen(asking.state)).includes(NEED_REPO), screen(asking.state).join('\n'));
+  mine.key('enter');
+  assert.equal(mine.state.view, 'step');
+});
+
 // ---- prerequisites -------------------------------------------------------------
 const SKILL = '.claude/skills/five-whys/SKILL.md';
 
@@ -358,7 +398,7 @@ test('the intro\'s notes share its row plan with the Why line and the folder que
   const first = { front: ['needs: [jq]', 'requires: [b-5 check 0]'], intro: [`- need: "${NEED_SHORT}"`] };
   // The longest real You need lines, the Windows note, a prerequisite and
   // a work folder that isn't a git repository, all on one intro.
-  const everything = { front: ['needs: [jq python3, bash jq bwrap socat]', `requires: [b-5 check 0, i-1 file ${SKILL}]`], intro: [`- need: "${NEED_JQ}"`, `- need: "${NEED_LONG}"`, `- win-note: "${WINDOWS}"`] };
+  const everything = { front: ['needs: [jq python3, bash jq bwrap socat]', `requires: [b-5 check 0, i-1 file ${SKILL}]`], intro: [`- need: "${NEED_JQ}"`, `- need: "${NEED_LONG}"`, `- win-note: "${WINDOWS}"`, `- need-repo: "${NEED_REPO}"`] };
   const cases = [
     // A level's first intro: the folder question, then its answer.
     ...[0, 1].flatMap((extra) => [
@@ -388,6 +428,8 @@ test('the intro\'s notes share its row plan with the Why line and the folder que
     for (const n of content.needs.filter((x) => !x.linux)) assert.ok(all.includes(words(n.quote)), `${label}: n shows "${n.quote}"\n${all}`);
     if (content.intro['win-note']) assert.ok(all.includes(`"${WINDOWS}"`), `${label}: n shows the Windows note`);
     if (how.probe) assert.ok(all.includes(C.notGit), `${label}: n shows the folder's note`);
+    // The repository line, in my-app alone.
+    if (content.intro['need-repo']) assert.equal(all.includes(`"${NEED_REPO}"`), !how.mode, `${label}: n shows the repository line in my-app alone\n${all}`);
   }
   assert.ok(dropped > 0, 'the Why line never had to give way');
   assert.ok(short > 0, 'the notes never had to give way');
@@ -405,7 +447,7 @@ test('a failed prerequisite outlasts the Why line: below 24 rows the Why line go
 });
 
 test('n opens the intro\'s notes whole, a note at a time where they are taller than the room, and n closes them', () => {
-  const everything = { front: ['needs: [jq python3, bash jq bwrap socat]', `requires: [b-5 check 0, i-1 file ${SKILL}]`], intro: [`- need: "${NEED_JQ}"`, `- need: "${NEED_LONG}"`, `- win-note: "${WINDOWS}"`] };
+  const everything = { front: ['needs: [jq python3, bash jq bwrap socat]', `requires: [b-5 check 0, i-1 file ${SKILL}]`], intro: [`- need: "${NEED_JQ}"`, `- need: "${NEED_LONG}"`, `- win-note: "${WINDOWS}"`, `- need-repo: "${NEED_REPO}"`] };
   const d = crowded('i-3', everything, { probe: NOT_GIT });
   d.key('n');
   assert.equal(d.state.overlay, 'notes');
@@ -418,7 +460,7 @@ test('n opens the intro\'s notes whole, a note at a time where they are taller t
     d.key('down');
   }
   const all = [...seen].join(' ');
-  for (const text of [C.notGit, `"${WINDOWS}"`, words(NEED_JQ), words(NEED_LONG), C.buildsOnCheck('B5', words(B5_ITEM)), C.buildsOnFile('I1', C.fileEmpty(SKILL))]) {
+  for (const text of [C.notGit, `"${NEED_REPO}"`, `"${WINDOWS}"`, words(NEED_JQ), words(NEED_LONG), C.buildsOnCheck('B5', words(B5_ITEM)), C.buildsOnFile('I1', C.fileEmpty(SKILL))]) {
     assert.ok(all.includes(text), `the notes never show "${text}"`);
   }
   d.key('n');
@@ -454,7 +496,9 @@ test('every lesson file\'s intro fits at 60x20 and 80x24 with everything it need
     const { content } = d.state.course.find((l) => l.id === d.state.lesson);
     fits(label, d, []);
     // Each note shows whole on the intro, or behind n.
-    const notes = [...content.needs.map((n) => n.quote), ...(content.intro['win-note'] ? [content.intro['win-note']] : [])];
+    // The repository line shows in my-app alone.
+    const repo = content.intro['need-repo'] && label.endsWith('saved') ? [content.intro['need-repo']] : [];
+    const notes = [...content.needs.map((n) => n.quote), ...(content.intro['win-note'] ? [content.intro['win-note']] : []), ...repo];
     for (const t of MODES) {
       for (const [cols, size] of SIZES) {
         const text = flat(render(d.state, { cols, rows: size }, t).map(strip));
