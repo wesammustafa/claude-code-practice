@@ -31,7 +31,7 @@ import { lessons } from '../lessons/index.mjs';
 import { statusPaths } from '../paths.mjs';
 import { TIME_LIMIT } from '../stub-claude.mjs';
 import { check, commit, exportHead, repo, withRepo, write } from './helpers.mjs';
-import { driver, root } from './learn-drive.mjs';
+import { course, driver, finished, finishedBefore, root } from './learn-drive.mjs';
 import { fakeClock, fakeOut, screenModel, turn } from './learn-term.mjs';
 
 // Every lesson on the course, in its order.
@@ -520,6 +520,38 @@ test('main sends each key with how far the check-only card scrolls in the window
     const end = Number(shown()[1]);
     term.type('\x1b[A');
     assert.ok(await until(() => Number(shown()?.[1]) === end - 1), term.lastFrame());
+    term.type('q');
+    assert.ok(await until(() => exited === 0));
+  } finally {
+    if (exited === null) term.type('\x03');
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main sends each key with how far your card scrolls in the window, so up leaves the Commands by level link at once after down went past the end', async () => {
+  const dir = exportHead(root);
+  rmSync(join(dir, '.practice'), { recursive: true, force: true });
+  mkdirSync(join(dir, '.practice'));
+  // Every Beginner lesson finished: a card taller than 60x20.
+  const capstone = course.find((l) => l.id === 'b-capstone');
+  writeFileSync(storePath(dir), JSON.stringify({ format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(capstone) } }));
+  const term = fakeTerminal({ cols: 60, rows: 20 });
+  let exited = null;
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  const lines = () => term.model.lines().map((l) => l.trim());
+  const linked = () => lines().join('').includes('https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/reference/commands.md');
+  try {
+    assert.ok(await until(() => term.lastFrame().trim() !== ''), term.shows());
+    term.type('c');
+    assert.ok(await until(() => lines().includes('Your card')), term.shows());
+    assert.ok(!linked(), `the card opens above its link at 60x20\n${term.shows()}`);
+    for (let i = 0; i < 40; i++) term.type('\x1b[B');
+    assert.ok(await until(() => linked()), term.shows());
+    term.type('\x1b[A');
+    assert.ok(await until(() => !linked()), `one up leaves the link\n${term.shows()}`);
+    assert.ok(lines().includes('Your card'), term.shows());
+    term.type('c');
+    assert.ok(await until(() => !lines().includes('Your card')), term.shows());
     term.type('q');
     assert.ok(await until(() => exited === 0));
   } finally {

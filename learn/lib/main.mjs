@@ -12,7 +12,7 @@ import { keyParser } from './keys.mjs';
 import { BOOT_FROM, bootChange, nextChange, pipGates, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
-import { bootFrame, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
+import { bootFrame, cardMax, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
@@ -72,15 +72,23 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       return 2;
     }
     // The lesson's own key for one that runs in a new copy; else its level's,
-    // i-capstone's too, though i-capstone itself stays in the copy.
-    const opening = initialState({ course, saved, facts: { root } });
-    const key = folderKey(opening) ?? levelKey(opening);
+    // i-capstone's too, though i-capstone itself stays in the copy. A saved
+    // new copy makes its lesson the next one (172), but not the one --dir
+    // answers for: that is the lesson the app opens on with none saved, so
+    // while other Advanced lessons are left --dir is still the level's. Nor
+    // does --dir replace a new copy already saved (173): opening on its
+    // lesson, it is the level's too.
+    const opening = initialState({ course, saved: { ...saved, folders: {} }, facts: { root } });
+    const level = levelKey(opening);
+    const own = folderKey(opening);
+    const savedCopy = Boolean(own && own !== level && saved?.folders?.[own]);
+    const key = savedCopy ? level : own ?? level;
     if (!key) {
       stderr.write(`${C.dirBeginner}\n`);
       return 2;
     }
     // A new copy is another folder than this practice copy.
-    if (key !== levelKey(opening) && ahead.path === root) {
+    if (key !== level && ahead.path === root) {
       stderr.write(`${C.newCopyIsCopy}\n`);
       return 2;
     }
@@ -301,9 +309,10 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   }
 
   function dispatch(ev) {
-    // A key carries how far the check-only card's items scroll in the window
-    // as it is now drawn, so the arrows move only what it shows.
-    if (ev.type === 'key') ev = { ...ev, itemsMax: itemsMax(state, sizeNow(), t) };
+    // A key carries how far the check-only card's items, and your card,
+    // scroll in the window as it is now drawn, so the arrows move only what
+    // it shows.
+    if (ev.type === 'key') ev = { ...ev, itemsMax: itemsMax(state, sizeNow(), t), cardMax: cardMax(state, sizeNow(), t) };
     const r = reduce(state, { now: now(), ...ev });
     state = r.state;
     run(r.effects);

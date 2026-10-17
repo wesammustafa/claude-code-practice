@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
-import { bootFrame, render } from '../../learn/lib/render.mjs';
+import { bootFrame, cardMax, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
@@ -2729,6 +2729,15 @@ test('c opens your card: an entry shows only after a finished step on its skill,
 });
 
 const COMMANDS_BY_LEVEL = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/reference/commands.md';
+// The Commands by level link under its line, in trimmed rows: spelled out
+// whole, on more than one row, each broken only after a /, ? or &.
+const assertLinkBreaks = (lines, where) => {
+  const from = lines.indexOf(C.cardLink);
+  const url = lines.slice(from + 1, lines.findIndex((l, i) => i > from && l.endsWith('commands.md')) + 1);
+  assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
+  assert.ok(url.length > 1, where);
+  for (const row of url.slice(0, -1)) assert.match(row, /[/?&]$/, where);
+};
 // Every entry the lesson files put on the card, in course order.
 const CARD_SHOWS = ['claude --version', 'claude', '/status', '/exit', 'Shift+Tab', 'Ctrl+O', '/diff', 'git diff',
   '/context', '/compact', '/rewind', '/clear', '/resume', 'claude --continue', '/init', '/context all', 'git add -N <file>'];
@@ -2839,6 +2848,81 @@ test('your card\'s last place is the Commands by level link, so a toast at 60x20
       for (let i = link + 1; url.join('').length < COMMANDS_BY_LEVEL.length && i < lines.length; i++) url.push(lines[i]);
       assert.equal(url.join(''), COMMANDS_BY_LEVEL, where);
       if (s.toast) assert.ok(lines.some((l) => l.includes("Couldn't save your place")), `the toast stays: ${where}`);
+    }
+  }
+});
+
+// An arrow on the card as main sends it: with how far the card scrolls in
+// that window (167).
+const cardArrow = (d, name, [cols, rows], t = theme(CAPS.full)) => d.send({ type: 'key', name, wait: 10, cardMax: cardMax(d.state, { cols, rows }, t) });
+
+test('your card scrolls no further than the window that ends on the Commands by level link, and up moves it at once', () => {
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of SHORT) {
+      const at = `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}`;
+      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(lessonById('b-capstone')) } } });
+      d.key('c');
+      // Each frame is exactly the window, no line too wide.
+      const shown = () => {
+        const frame = render(d.state, { cols: size[0], rows: size[1] }, t).map(strip);
+        assert.equal(frame.length, size[1], at);
+        for (const l of frame) assert.ok(width(l) <= size[0] - 1, `${at}: ${l}`);
+        return frame.map((l) => l.trim());
+      };
+      const linked = (lines) => lines.join('').includes(COMMANDS_BY_LEVEL);
+      for (let i = 0; i < 40; i++) cardArrow(d, 'down', size, t);
+      const end = shown();
+      assert.ok(linked(end), `${at}: the link shows whole\n${end.join('\n')}`);
+      // One up from there leaves the link: no window further down ends on it
+      // with more of the card above it.
+      cardArrow(d, 'up', size, t);
+      const up = shown();
+      assert.ok(!linked(up), `${at}: up moved the card at once\n${up.join('\n')}`);
+      assert.notDeepEqual(shownOn(up), shownOn(end), at);
+      // Scrolled further than this window allows, as in a smaller one before
+      // a resize: the card still shows the window that ends on the link.
+      for (let i = 0; i < 40; i++) d.send({ type: 'key', name: 'down', wait: 10 });
+      assert.deepEqual(shown(), end, at);
+    }
+  }
+});
+
+test('your card spells the Commands by level link out whole, breaking it only after a /, ? or &, never inside a word', () => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(lessonById('b-capstone')) } } });
+  d.key('c');
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of SHORT) {
+      while (d.state.cardAt) d.key('up');
+      for (let i = 0; i < 40; i++) cardArrow(d, 'down', size, t);
+      const lines = render(d.state, { cols: size[0], rows: size[1] }, t).map((l) => strip(l).trim());
+      assertLinkBreaks(lines, `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${lines.join('\n')}`);
+    }
+  }
+});
+
+test('the arrows move your card only where it scrolls: while it fits, they move nothing', () => {
+  // The empty card, and one entry: claude --version.
+  const cards = [{ format: 1, welcomed: true, lessons: {} },
+    { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W3', beat: 0, done: ['W1', 'W2'] } } }];
+  for (const saved of cards) {
+    for (const caps of [CAPS.full, CAPS.ascii]) {
+      const t = theme(caps);
+      for (const size of SHORT) {
+        const d = driver({ saved });
+        d.key('enter');
+        d.key('c');
+        const card = () => render(d.state, { cols: size[0], rows: size[1] }, t).map((l) => strip(l).trim());
+        const before = card();
+        const at = `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}, ${Object.keys(saved.lessons).length ? 'B1' : 'empty'}\n${before.join('\n')}`;
+        assert.ok(before.join('').includes(COMMANDS_BY_LEVEL), at);
+        assert.equal(before.some((l) => /^B1\s+claude --version$/.test(l)), Object.keys(saved.lessons).length > 0, at);
+        assert.doesNotMatch(before.at(-1), /scroll/, `the card fits: ${at}`);
+        for (let i = 0; i < 5; i++) cardArrow(d, 'down', size, t);
+        assert.equal(d.state.cardAt, 0, `nothing to scroll: the arrows move nothing: ${at}`);
+        assert.deepEqual(card(), before, at);
+      }
     }
   }
 });
@@ -2990,6 +3074,43 @@ test('a command too long to leave its quote room beside it puts the quote under 
   }
 });
 
+test('the comparison, as your card (173): it spells the Commands by level link out whole, breaking it only after a /, ? or &, and scrolls no further than the window that ends on it', () => {
+  let scrolled = 0;
+  for (const id of Object.keys(RECALL)) {
+    for (const caps of [CAPS.full, CAPS.ascii]) {
+      const t = theme(caps);
+      for (const size of SHORT) {
+        const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+        playUntil(d, (s) => s.view === 'next' && s.lesson === id);
+        d.key('space');
+        const at = `${id} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}`;
+        const shown = () => {
+          const frame = render(d.state, { cols: size[0], rows: size[1] }, t).map(strip);
+          assert.equal(frame.length, size[1], at);
+          for (const l of frame) assert.ok(width(l) <= size[0] - 1, `${at}: ${l}`);
+          return frame.map((l) => l.trim());
+        };
+        const linked = (lines) => lines.join('').includes(COMMANDS_BY_LEVEL);
+        const fitsWhole = linked(shown());
+        for (let i = 0; i < 40; i++) cardArrow(d, 'down', size, t);
+        const end = shown();
+        const where = `${at}\n${end.join('\n')}`;
+        assert.ok(linked(end), where);
+        assertLinkBreaks(end, where);
+        if (fitsWhole) {
+          assert.equal(d.state.cardAt, 0, `${at}: it fits, so the arrows move nothing`);
+          continue;
+        }
+        // One up from there leaves the link at once.
+        scrolled++;
+        cardArrow(d, 'up', size, t);
+        assert.ok(!linked(shown()), `${at}: up moved the comparison at once\n${shown().join('\n')}`);
+      }
+    }
+  }
+  assert.ok(scrolled > 0, 'no comparison scrolls at 60x20 or 80x24');
+});
+
 test('a next screen whose lesson put nothing on the card asks for no recall', () => {
   const lessons = allCourse.map((l) => (l.id === 'b-4' ? { ...l, content: { ...l.content, card: [] } } : l));
   const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4', lessons) } });
@@ -3040,6 +3161,45 @@ test('a reading beat\'s not-yet line is shown whole, and its pass shows what the
       // Beside the burst, on one line or, where that is too long, two.
       const words = prose(json.state, size, t);
       assert.ok(words.includes('.claude/settings.json holds ["Read(./.env)"]') || (words.includes('.claude/settings.json') && words.includes('holds ["Read(./.env)"]')), `${where}: ${words}`);
+    }
+  }
+});
+
+test('a reading beat already passed when its step opens says "Already done, so this step counts." with what the file holds: no check ran, at 60x20 and 80x24', () => {
+  const skill = '.claude/skills/tdd/SKILL.md';
+  const settings = '.claude/settings.json';
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of [[60, 20], [80, 24]]) {
+      const where = `${size.join('x')} ${caps.unicode ? 'unicode' : 'ascii'}`;
+      for (const [verify, path, text, shows] of [
+        ['file .practice/b-2-plan.txt', '.practice/b-2-plan.txt', 'Plan the change\n', ['.practice/b-2-plan.txt', 'holds Plan the change']],
+        [`json ${settings} permissions.deny`, settings, '{"permissions": {"deny": ["Read(./.env)"]}}', [settings, 'holds ["Read(./.env)"]']],
+        [`match ${skill} ^name:`, skill, '---\nname: tdd\n---\n', [skill, 'holds name: tdd']],
+        [`no-match ${skill} \\bTODO\\b`, skill, '---\nname: tdd\n---\n', []],
+      ]) {
+        const already = onReading(verify);
+        already.send({ type: 'file', path, read: Buffer.from(text), stamp: 'x' });
+        assert.equal(already.state.beat.status, 'already', `${where} ${verify}`);
+        fits(already.state, size, t, `${where} ${verify}`);
+        const said = prose(already.state, size, t);
+        assert.ok(said.includes('Already done, so this step counts.'), `${where} ${verify}: ${said}`);
+        for (const words of shows) assert.ok(said.includes(words), `${where} ${verify}: ${said}`);
+        assert.ok(!said.includes('check already passes'), `${where} ${verify}: ${said}`);
+      }
+      // Its satisfied "Done when" gives way to what the file holds, as on a pass.
+      const doneWhen = onReading('file .practice/b-2-plan.txt\n- say: Done when `.practice/b-2-plan.txt` holds your plan.');
+      doneWhen.send({ type: 'file', path: '.practice/b-2-plan.txt', read: Buffer.from('Plan the change\n'), stamp: 'x' });
+      assert.equal(doneWhen.state.beat.status, 'already', where);
+      fits(doneWhen.state, size, t, where);
+      const holds = prose(doneWhen.state, size, t);
+      assert.ok(holds.includes('holds Plan the change'), `${where}: ${holds}`);
+      assert.ok(!holds.includes('holds your plan'), `${where}: ${holds}`);
+      // A check did run for a check beat: its line stays.
+      const check = onReading('check 0');
+      check.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'saved', pass: true, hint: '' }] });
+      assert.equal(check.state.beat.status, 'already', where);
+      assert.ok(prose(check.state, size, t).includes('Already done: the check already passes, so this step counts.'), `${where}: ${prose(check.state, size, t)}`);
     }
   }
 });
