@@ -26,35 +26,39 @@ const screen = (label) => screens.find(([l]) => l === label)[1];
 const size = (cols, rows) => ({ cols, rows });
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 // The detailed Pip as main hands it to render: pipSlot's size, and a pose.
-const handed = (s, at, t, pose) => {
-  const slot = pipSlot(s, at, t);
+const handed = (s, at, t, pose, ahead = null) => {
+  const slot = pipSlot(s, at, t, ahead);
   return slot && { size: slot, pose };
 };
 
-// The mapping study's room per screen (build/pipmap/layout.md): small
-// (20x10) needs 6 spare rows, standard (32x16) 12, and hero is not used.
-// Each screen is measured at its busiest: with a toast, and on resume with
-// the y/n to start over.
-test('pipSlot: a raster only on boot, welcome, resume, level-up and complete, the biggest that fits, never hero', () => {
-  const t = theme(CAPS.full);
+// The mapping study's room per screen (build/pipmap/layout.md): standard
+// (32x16) needs 12 spare rows. Small (20x10) and hero are not used: small's
+// eyes turn to bars (174). Each screen is measured at its busiest: with a
+// toast, and on resume with the y/n to start over.
+test('pipSlot: standard or nothing, only on boot, welcome, resume, level-up and complete where it fits, and only in truecolor', () => {
+  const t = theme(CAPS.truecolor);
   const boot = null;
   const welcome = driver().state;
   const broken = driver({ facts: { gitError: 'spawn git ENOENT' } }).state;
   const expected = [
     // Boot: 9 spare rows at 60x20, 13 at 80x24, 28 at 120x40.
-    [boot, 60, 20, 'small'], [boot, 80, 24, 'standard'], [boot, 120, 40, 'standard'], [boot, 200, 50, 'standard'],
+    [boot, 60, 20, null], [boot, 80, 24, 'standard'], [boot, 120, 40, 'standard'], [boot, 200, 50, 'standard'],
     // The welcome: none spare at 60x20, 2 at 80x24, 7 at 100x30 less a
     // toast's row; with a git error 4 at 100x30 and 14 at 120x40.
-    [welcome, 60, 20, null], [welcome, 80, 24, null], [welcome, 100, 30, 'small'], [broken, 100, 30, null], [broken, 120, 40, 'standard'],
+    [welcome, 60, 20, null], [welcome, 80, 24, null], [welcome, 100, 30, null], [broken, 100, 30, null], [broken, 120, 40, 'standard'],
     // Resume, with the y/n and a toast: 6 spare at 60x20 less the toast's
     // two rows; 11 at 80x24 less one.
-    [screen('resume'), 60, 20, null], [screen('resume'), 80, 24, 'small'], [screen('resume'), 120, 40, 'standard'],
+    [screen('resume'), 60, 20, null], [screen('resume'), 80, 24, null], [screen('resume'), 120, 40, 'standard'],
     // Level-up: none spare at 60x20, 6 at 80x24 less a toast's row, 11 at 100x30.
-    [screen('level up hinted'), 60, 20, null], [screen('level up hinted'), 80, 24, null], [screen('level up hinted'), 100, 30, 'small'], [screen('level up challenge'), 120, 40, 'standard'],
+    [screen('level up hinted'), 60, 20, null], [screen('level up hinted'), 80, 24, null], [screen('level up hinted'), 100, 30, null], [screen('level up challenge'), 120, 40, 'standard'],
     // Complete: 2 or 3 spare at 80x24, 8 at 100x30, 18 at 120x40.
-    [screen('complete'), 80, 24, null], [screen('complete'), 100, 30, 'small'], [screen('complete'), 120, 40, 'standard'],
+    [screen('complete'), 80, 24, null], [screen('complete'), 100, 30, null], [screen('complete'), 120, 40, 'standard'],
   ];
   for (const [s, cols, rows, slot] of expected) assert.equal(pipSlot(s, size(cols, rows), t), slot, `${s?.view ?? 'boot'}${s?.facts.gitError ? ' (git error)' : ''} at ${cols}x${rows}`);
+  // Never small, at any size.
+  for (const [cols, rows] of [...SIZES, [90, 30], [140, 45]]) {
+    for (const [label, s] of [['boot', null], ...screens]) assert.ok([null, 'standard'].includes(pipSlot(s, size(cols, rows), t)), `${label} at ${cols}x${rows}`);
+  }
   // Pip keeps its size while a screen is up: a stray key's toast, or the
   // y/n to start over, leaves it as it was.
   const stray = { kind: 'stray', until: Infinity };
@@ -66,22 +70,22 @@ test('pipSlot: a raster only on boot, welcome, resume, level-up and complete, th
     }
   }
   // The boot frame's Pip is no bigger than the next screen's: none where the
-  // welcome has none, small where resume has small.
+  // next screen has none.
   for (const [cols, rows] of SIZES) {
     const at = size(cols, rows);
     for (const next of [welcome, screen('resume'), screen('intro')]) {
       const own = pipSlot(null, at, t);
       const cap = pipSlot(next, at, t);
-      assert.equal(pipSlot(null, at, t, next), cap && (own === 'small' ? 'small' : cap), `boot before ${next.view} at ${cols}x${rows}`);
+      assert.equal(pipSlot(null, at, t, next), cap && own, `boot before ${next.view} at ${cols}x${rows}`);
     }
   }
   // No big Pip, no raster: every other screen, and every overlay.
   for (const [label, s] of screens) {
     if (!['welcome', 'resume', 'levelup', 'complete'].includes(s.view) || s.overlay) assert.equal(pipSlot(s, size(200, 50), t), null, label);
   }
-  // Only with Unicode and 256 colors or more.
-  for (const caps of ['sixteen', 'noColor', 'ascii']) assert.equal(pipSlot(null, size(200, 50), theme(CAPS[caps])), null, caps);
-  assert.equal(pipSlot(null, size(200, 50), theme(CAPS.truecolor)), 'standard');
+  // Only with Unicode and truecolor: at 256 colors the package's soft edges
+  // round to fringes.
+  for (const caps of ['full', 'sixteen', 'noColor', 'ascii']) assert.equal(pipSlot(null, size(200, 50), theme(CAPS[caps])), null, caps);
   // Below the smallest window, the app draws no screen.
   assert.equal(pipSlot(null, size(59, 50), t), null);
 });
@@ -97,8 +101,8 @@ function celebrations(id) {
   });
   return out;
 }
-// The package's sizes, from its README: small 20x10, standard 32x16.
-const TALL = { small: 10, standard: 16 };
+// The package's standard size, from its README: 32x16.
+const TALL = { standard: 16 };
 const toast = { kind: 'save', message: 'EACCES: permission denied, open .practice/learn.json' };
 const BIG = [
   ...screens.filter(([, s]) => ['welcome', 'resume', 'levelup', 'complete'].includes(s.view) && !s.overlay),
@@ -135,7 +139,7 @@ function keepsEveryRow(g, r, tall, where) {
 }
 
 test('the raster takes only rows the screen pads with: every row the 9x4 Pip\'s screen shows is still there, at every size', () => {
-  const t = theme(CAPS.full);
+  const t = theme(CAPS.truecolor);
   const drawn = new Set();
   for (const [cols, rows] of SIZES) {
     const at = size(cols, rows);
@@ -155,8 +159,41 @@ test('the raster takes only rows the screen pads with: every row the 9x4 Pip\'s 
       keepsEveryRow(g, r, TALL[slot], where);
     }
   }
-  // Every big-Pip screen drew both sizes somewhere.
-  for (const view of ['boot', 'welcome', 'resume', 'levelup', 'complete']) for (const slot of ['small', 'standard']) assert.ok(drawn.has(`${view} ${slot}`), `${view} ${slot}`);
+  // Every big-Pip screen drew standard somewhere.
+  for (const view of ['boot', 'welcome', 'resume', 'levelup', 'complete']) assert.ok(drawn.has(`${view} standard`), view);
+});
+
+// The screens that had small Pip before 174 (its eyes bars, its arcs
+// smeared) draw the 9x4 Pip, in truecolor too.
+test('in truecolor, a screen with no room for standard Pip draws the 9x4 Pip', () => {
+  const t = theme(CAPS.truecolor);
+  const cases = [
+    ['boot at 60x20', (pip) => bootFrame(0, size(60, 20), t, undefined, pip), handed(null, size(60, 20), t, restPose('working'))],
+    ...[['welcome', 100, 30], ['resume', 80, 24], ['level up hinted', 100, 30], ['complete', 100, 30]].map(([label, cols, rows]) => {
+      const s = label === 'welcome' ? driver().state : screen(label);
+      return [`${label} at ${cols}x${rows}`, (pip) => render(s, size(cols, rows), t, undefined, pip), handed(s, size(cols, rows), t, restPose('ready'))];
+    }),
+  ];
+  for (const [where, draw, pip] of cases) {
+    const lines = draw(pip);
+    assert.deepEqual(lines, draw(null), where);
+    assert.ok(lines.some((l) => strip(l).includes('╭───┴───╮')), `${where}\n${lines.map(strip).join('\n')}`);
+  }
+});
+
+// At 256 colors the package's soft edges round to fringes (174): every
+// big-Pip screen draws the 9x4 Pip, as render draws it with no raster.
+test('at 256 colors every big-Pip screen draws the 9x4 Pip, byte for byte, at every size', () => {
+  const t = theme(CAPS.full);
+  for (const [cols, rows] of SIZES) {
+    const at = size(cols, rows);
+    for (const next of [null, driver().state, screen('resume')]) {
+      assert.deepEqual(bootFrame(0, at, t, undefined, handed(null, at, t, restPose('working'), next)), bootFrame(0, at, t), `boot${next ? ` before ${next.view}` : ''} at ${cols}x${rows}`);
+    }
+    for (const [label, s] of BIG) {
+      assert.deepEqual(render(s, at, t, undefined, handed(s, at, t, restPose('ready'))), render(s, at, t), `${label} at ${cols}x${rows}`);
+    }
+  }
 });
 
 // A line's cells, each with the colors it is drawn in: its SGR foreground
@@ -187,8 +224,8 @@ function cellsOf(line) {
   }
   return cells;
 }
-// Pip's eyes are #F2CC60 (the package's README): 221 in 256 colors.
-const EYES = '38;5;221';
+// Pip's eyes are #F2CC60 (the package's README).
+const EYES = '38;2;242;204;96';
 // The raster row Pip's eyes are on: the one with the most inked cells in
 // the eyes' yellow (the antenna's tip is yellow too, but smaller).
 const eyesRow = (lines, from, tall) => {
@@ -199,7 +236,7 @@ const eyesRow = (lines, from, tall) => {
 // Where things sit does not depend on the pose: each screen here draws Pip
 // awake, in its ready pose, to find its eyes.
 test('beside the raster, text starts on the row of Pip\'s eyes, and the banner sits around it where it fits, else the plain word on it', () => {
-  const t = theme(CAPS.full);
+  const t = theme(CAPS.truecolor);
   const awake = restPose('ready');
   // The raster's first row is the 9x4 Pip's, on the screen without it.
   const pipTop = (lines) => lines.findIndex((l) => strip(l).includes('╭───┴───╮')) - 1;
@@ -220,7 +257,7 @@ test('beside the raster, text starts on the row of Pip\'s eyes, and the banner s
     const resume = screen('resume');
     if (pipSlot(resume, at, t)) check(`resume at ${cols}x${rows}`, (pip) => render(resume, at, t, undefined, pip), pipSlot(resume, at, t), startsAt(C.welcomeBack));
   }
-  // The welcome's greeting, three to five rows, fits under the face row of either size.
+  // The welcome's greeting, three to five rows, fits under standard Pip's face row.
   for (const [cols, rows] of [[120, 40], [200, 50], [60, 50]]) {
     const s = driver().state;
     check(`welcome at ${cols}x${rows}`, (pip) => render(s, size(cols, rows), t, undefined, pip), pipSlot(s, size(cols, rows), t), startsAt(C.hi('Sam').split(' ').slice(0, 2).join(' ')));
@@ -240,20 +277,19 @@ test('beside the raster, text starts on the row of Pip\'s eyes, and the banner s
       assert.equal(pipSlot(s, at, t), 'standard', `${label} at ${cols}x${rows}`);
       check(`${label} at ${cols}x${rows}`, (pip) => render(s, at, t, undefined, pip), 'standard', has(text));
     }
-    assert.equal(pipSlot(s, size(100, 30), t), 'small', `${label} at 100x30`);
-    check(`${label} at 100x30`, (pip) => render(s, size(100, 30), t, undefined, pip), 'small', banner(text));
   }
 });
 
 // The package paints every pixel it leaves empty in its backdrop, #1E1E1E
-// (README): 234 in 256 colors. It softens each edge toward that backdrop.
-test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges included, its backdrop the terminal\'s own background, in 256 colors or 24-bit where the terminal reports it', () => {
+// (README). It softens each edge toward that backdrop.
+test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges included, its backdrop the terminal\'s own background, in 24-bit color', () => {
   const cases = [
-    ['boot at 60x20', 'small', 'working', (t, pip) => bootFrame(0, size(60, 20), t, undefined, pip)],
-    ['complete at 120x40', 'standard', 'success', (t, pip) => render(screen('complete'), size(120, 40), t, undefined, pip)],
+    ['boot at 80x24', 'working', (t, pip) => bootFrame(0, size(80, 24), t, undefined, pip)],
+    ['complete at 120x40', 'success', (t, pip) => render(screen('complete'), size(120, 40), t, undefined, pip)],
   ];
-  for (const [label, slot, state, draw] of cases) {
-    const [cols, tall] = { small: [20, 10], standard: [32, 16] }[slot];
+  const slot = 'standard';
+  const [cols, tall] = [32, 16];
+  for (const [label, state, draw] of cases) {
     // Over black and over white: how much of each pixel is Pip, 0 to 1.
     const over = (background) => rasterizePip(restPose(state), { columns: cols, rows: tall, palette: { background } }).pixels;
     const [dark, light] = [over('#000000'), over('#FFFFFF')];
@@ -263,53 +299,51 @@ test('the raster\'s cells: the package\'s own pixels two to a cell, soft edges i
     const ink = (row, col, under) => cover(row, col, under) >= 0.08;
     const whole = (row, col, under) => cover(row, col, under) === 1;
     let soft = 0;
-    for (const depth of [8, 24]) {
-      const t = theme({ ...CAPS.full, depth });
-      const lines = draw(t, { size: slot, pose: restPose(state) });
-      const where = `${label}, depth ${depth}`;
-      // The raster's top left is the 9x4 Pip's, on the screen without it.
-      const glyph = draw(t, null).map(strip);
-      const top = glyph.findIndex((l) => l.includes('╭───┴───╮')) - 1;
-      const left = glyph[top + 1].indexOf('╭');
-      // The package's own cells at this depth, each with both halves'
-      // colors, the backdrop's too: its color picks.
-      const own = renderPip(restPose(state), { size: slot, depth }).map(cellsOf);
-      let spaces = 0;
-      for (let r = 0; r < tall; r++) {
-        const cells = cellsOf(lines[top + r]).slice(left, left + cols);
-        assert.equal(cells.length, cols, `${where}, row ${r}`);
-        cells.forEach((c, k) => {
-          const at = `${where}, row ${r} cell ${k}: ${JSON.stringify(c)}`;
-          for (const code of [c.fg, c.bg].filter(Boolean)) assert.match(code, depth === 24 ? /^[34]8;2;/ : /^[34]8;5;/, at);
-          // A space keeps the terminal's background; an ink half alone is
-          // over the terminal's background; two are both colors.
-          if (!ink(r, k, 0) && !ink(r, k, 1)) {
-            assert.deepEqual([c.ch, c.bg], [' ', null], at);
-            spaces += 1;
-          } else if (!ink(r, k, 1)) assert.deepEqual([c.ch, c.bg], ['▀', null], at);
-          else if (!ink(r, k, 0)) assert.deepEqual([c.ch, c.bg], ['▄', null], at);
-          else assert.equal(c.ch, '▀', at);
-          soft += [0, 1].filter((u) => ink(r, k, u) && !whole(r, k, u)).length;
-          // Every pixel drawn, soft edge or whole, is the package's own
-          // color pick for it: Pip looks as the package draws it.
-          const { fg, bg } = own[r][k];
-          if (c.ch === '▀') assert.equal(c.fg, fg, at);
-          if (c.ch === '▀' && ink(r, k, 1)) assert.equal(c.bg, bg, at);
-          if (c.ch === '▄') assert.equal(c.fg, bg.replace(/^48/, '38'), at);
-        });
-        // The row is exactly the raster's width: nothing after it but text, three cells on.
-        const rest = cellsOf(lines[top + r]).slice(left + cols);
-        assert.ok(rest.slice(0, 3).every((c) => c.ch === ' ' && c.bg === null), `${where}, row ${r}: ${strip(lines[top + r])}`);
-      }
-      // Nothing of the raster above or before it.
-      assert.ok(lines.slice(0, top).every((l) => !/[▀▄]/.test(l)), where);
-      // No backdrop anywhere: not a rectangle, not a cell.
-      const all = lines.join('\n');
-      assert.doesNotMatch(all, depth === 24 ? /[34]8;2;30;30;30m/ : /[34]8;5;234\b/, where);
-      assert.ok(spaces > 0, where);
-      // Pip's eyes, #F2CC60, where they are open: working narrows them.
-      if (state !== 'working') assert.ok(lines.slice(top, top + tall).some((l) => l.includes(depth === 24 ? '8;2;242;204;96' : '8;5;221')), where);
+    const t = theme(CAPS.truecolor);
+    const lines = draw(t, { size: slot, pose: restPose(state) });
+    const where = label;
+    // The raster's top left is the 9x4 Pip's, on the screen without it.
+    const glyph = draw(t, null).map(strip);
+    const top = glyph.findIndex((l) => l.includes('╭───┴───╮')) - 1;
+    const left = glyph[top + 1].indexOf('╭');
+    // The package's own cells in 24-bit color, each with both halves'
+    // colors, the backdrop's too: its color picks.
+    const own = renderPip(restPose(state), { size: slot, depth: 24 }).map(cellsOf);
+    let spaces = 0;
+    for (let r = 0; r < tall; r++) {
+      const cells = cellsOf(lines[top + r]).slice(left, left + cols);
+      assert.equal(cells.length, cols, `${where}, row ${r}`);
+      cells.forEach((c, k) => {
+        const at = `${where}, row ${r} cell ${k}: ${JSON.stringify(c)}`;
+        for (const code of [c.fg, c.bg].filter(Boolean)) assert.match(code, /^[34]8;2;/, at);
+        // A space keeps the terminal's background; an ink half alone is
+        // over the terminal's background; two are both colors.
+        if (!ink(r, k, 0) && !ink(r, k, 1)) {
+          assert.deepEqual([c.ch, c.bg], [' ', null], at);
+          spaces += 1;
+        } else if (!ink(r, k, 1)) assert.deepEqual([c.ch, c.bg], ['▀', null], at);
+        else if (!ink(r, k, 0)) assert.deepEqual([c.ch, c.bg], ['▄', null], at);
+        else assert.equal(c.ch, '▀', at);
+        soft += [0, 1].filter((u) => ink(r, k, u) && !whole(r, k, u)).length;
+        // Every pixel drawn, soft edge or whole, is the package's own
+        // color pick for it: Pip looks as the package draws it.
+        const { fg, bg } = own[r][k];
+        if (c.ch === '▀') assert.equal(c.fg, fg, at);
+        if (c.ch === '▀' && ink(r, k, 1)) assert.equal(c.bg, bg, at);
+        if (c.ch === '▄') assert.equal(c.fg, bg.replace(/^48/, '38'), at);
+      });
+      // The row is exactly the raster's width: nothing after it but text, three cells on.
+      const rest = cellsOf(lines[top + r]).slice(left + cols);
+      assert.ok(rest.slice(0, 3).every((c) => c.ch === ' ' && c.bg === null), `${where}, row ${r}: ${strip(lines[top + r])}`);
     }
+    // Nothing of the raster above or before it.
+    assert.ok(lines.slice(0, top).every((l) => !/[▀▄]/.test(l)), where);
+    // No backdrop anywhere: not a rectangle, not a cell.
+    const all = lines.join('\n');
+    assert.doesNotMatch(all, /[34]8;2;30;30;30m/, where);
+    assert.ok(spaces > 0, where);
+    // Pip's eyes, #F2CC60, where they are open: working narrows them.
+    if (state !== 'working') assert.ok(lines.slice(top, top + tall).some((l) => l.includes('8;2;242;204;96')), where);
     assert.ok(soft > 0, `${label}: some soft edges are drawn`);
   }
 });
