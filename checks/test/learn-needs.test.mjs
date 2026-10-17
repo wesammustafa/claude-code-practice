@@ -144,12 +144,12 @@ test('the intro shows the repository line only where the level\'s work folder is
   const mine = atIntro(repo);
   for (const size of SIZES) {
     const text = flat(screen(mine.state, size));
-    assert.ok(text.includes(`"${NEED_REPO}"`), `${size}\n${screen(mine.state, size).join('\n')}`);
+    assert.ok(text.includes(`${C.youNeed} "${NEED_REPO}"`), `the line says it is a need: ${size}\n${screen(mine.state, size).join('\n')}`);
     assert.ok(text.includes(C.startLesson(1)), 'the learner can still start');
   }
   mine.key('n');
   assert.equal(mine.state.overlay, 'notes');
-  assert.ok(flat(screen(mine.state)).includes(`"${NEED_REPO}"`), screen(mine.state).join('\n'));
+  assert.ok(flat(screen(mine.state)).includes(`${C.youNeed} "${NEED_REPO}"`), screen(mine.state).join('\n'));
   mine.key('n');
   // In the practice copy, and while the folder question waits, it says nothing.
   const copy = atIntro(repo, {}, { intermediate: COPY });

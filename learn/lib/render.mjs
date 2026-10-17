@@ -774,7 +774,7 @@ function noteRows(ctx, w) {
   const quotes = missing.map((n) => `"${n.quote}"`).join(' ');
   const quoted = (text) => kept(para(t, text, w, 'text', { quote: true }));
   return [asksFolder(s) ? [] : folderNotes(ctx, w),
-    repo ? quoted(repo) : [],
+    repo ? kept(para(t, repo, w, 'text', { quote: true, label: { text: C.youNeed, color: 'muted' } })) : [],
     win && t.caps.win32 ? quoted(win) : [],
     missing.length ? warnNote(t, quotes, w, 'text', { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : [],
     ...unmet(s).map((r) => warnNote(t, (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
