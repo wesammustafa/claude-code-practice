@@ -9,7 +9,7 @@ import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
-import { BOOT_FROM, bootChange, nextChange, pipGates, REST, TIMING } from './motion.mjs';
+import { ambientOpened, BOOT_FROM, bootChange, nextChange, pipGates, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
 import { bootFrame, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
@@ -23,6 +23,8 @@ export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const POLL_CHECK_MS = 2_000;
 const POLL_GIT_MS = 2_000;
 const FLAGS = ['--calm', '--plain'];
+// Pip's states with no reaction of their own: no hop, no spark.
+const CALM = ['ready', 'waiting', 'working'];
 const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
 // What git says first: whether this folder is a repository, and a name to
 // greet.
@@ -162,13 +164,28 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   let pipAt = -Infinity;
   let pipChanged = -Infinity;
   let skew = 0;
+  // Whether Pip's ambient gate was open at its last frame.
+  let pipOpen = false;
+  // A change set at `at` on the app's clock, on Pip's: no earlier than the
+  // last, no later than now.
+  const pipFrom = (at) => Math.min(pipAt, Math.max(at === undefined ? pipAt : at + skew, pipChanged));
   // Pip set to what this screen shows, then its pose at `at`.
   function pipPose(at, gates) {
     if (at + skew < pipAt) skew = pipAt - at;
     pipAt = at + skew;
     const { state: next, since, ...event } = pipTarget(state, at);
-    const from = Math.min(pipAt, Math.max(since === undefined ? pipAt : since + skew, pipChanged));
+    const from = pipFrom(since);
     if (pip.setState(next, { at: from, ...event })) pipChanged = from;
+    // The package's lively window (blinks, glances, breathing) is its 30 s
+    // from Pip's last change. On a state with no reaction of its own, it
+    // starts again as the ambient gate opens: from that moment, under that
+    // moment's id, at once, so the pose holds and nothing replays.
+    if (gates.ambient && !pipOpen && CALM.includes(next) && event.eventId === undefined) {
+      const opened = ambientOpened(state);
+      const restart = pipFrom(opened);
+      if (pip.setState(next, { at: restart, eventId: `ambient:${opened}`, immediate: true })) pipChanged = restart;
+    }
+    pipOpen = gates.ambient;
     return pip.pose(pipAt, gates);
   }
 

@@ -1337,6 +1337,88 @@ test('a resize while Pip blinks or glances leaves no fragment of the raster: the
   }
 });
 
+// The welcome's words fill its reading grace, so its ambient gate opens 20 s
+// after it appears (175). Git answers at once, so the welcome is the first
+// frame.
+const quickGit = async () => [null, 'Sam'];
+const graceEnds = (app) => app.frameTimes()[0] + TIMING.graceMax;
+// From `from`, the first moment, sampled every 250 ms up to `to`, when
+// Pip's next frame is over 120 ms away: its breathing has stopped.
+const breathingStops = async (app, from, to) => {
+  await app.clock.advance(from - app.clock.now());
+  for (; app.clock.now() < to; await app.clock.advance(250)) {
+    const [next, ...more] = app.frameTimers();
+    assert.equal(more.length, 0, 'one frame timer');
+    if (!next || next.ms > 120) return app.clock.now();
+  }
+  return null;
+};
+
+test('the welcome\'s detailed Pip asks for no frame while the learner reads, then breathes for 30 s from the moment its reading grace ends', async () => {
+  const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
+  const { clock } = app;
+  try {
+    await toWelcome(app);
+    const opens = graceEnds(app);
+    // Pip has turned to ready. Until the grace ends, the one frame timer
+    // waits for that moment.
+    await clock.advance(app.frameTimes()[0] + 2_000 - clock.now());
+    for (; clock.now() < opens; await clock.advance(1_000)) {
+      assert.deepEqual(app.frameTimers().map((x) => x.ms), [opens - clock.now()], `${clock.now() - opens} ms from the grace's end`);
+    }
+    const stops = await breathingStops(app, opens, opens + 35_000);
+    assert.ok(stops !== null && stops - opens >= 29_000 && stops - opens <= 31_000, `breathing stops ${stops === null ? 'never' : `${stops - opens} ms`} after the grace ends`);
+  } finally {
+    app.close();
+  }
+});
+
+// Over SSH Pip does not breathe, so its rows change only for a glance, a
+// blink or a twitch.
+test('the welcome\'s detailed Pip holds its pose as its reading grace ends, then glances about 2.6 s and blinks about 4.2 s after that moment', async () => {
+  const app = clockedRun({ ...MOTION_ENV, SSH_TTY: '/dev/pts/3' }, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
+  const { term, clock } = app;
+  try {
+    await toWelcome(app);
+    const opens = graceEnds(app);
+    await clock.advance(opens - 1_000 - clock.now());
+    const still = pipRows(term);
+    // Pip's rows, 40 ms at a time, from a second before the opening.
+    const moved = [];
+    for (; clock.now() < opens + 5_000; await clock.advance(40)) {
+      if (pipRows(term) !== still) moved.push(clock.now() - opens);
+    }
+    assert.ok(moved.length, 'Pip moves');
+    // The glance: Pip's eyes leave the still pose within 80 ms of 2.6 s.
+    assert.ok(moved[0] >= 2_600 && moved[0] <= 2_680, `first move ${moved[0]} ms after the grace ends`);
+    // Back by 4.2 s, then shut for the blink.
+    assert.ok(moved.some((ms) => ms > 4_200 && ms < 4_400), `a blink after 4.2 s: ${moved.join(', ')}`);
+    assert.ok(moved.at(-1) < 4_400, `still again after the blink: ${moved.at(-1)}`);
+  } finally {
+    app.close();
+  }
+});
+
+test('a key on the welcome shuts Pip\'s ambient gate for its quiet, with no frame asked, and its 30 s start again once, as the gate opens again', async () => {
+  const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
+  const { term, clock } = app;
+  try {
+    await toWelcome(app);
+    await clock.advance(graceEnds(app) + 20_000 - clock.now());
+    // Down does nothing on the welcome but stamp a key.
+    term.type('\x1b[B');
+    const opens = clock.now() + TIMING.keyQuiet;
+    await clock.advance(500);
+    for (; clock.now() < opens; await clock.advance(1_000)) {
+      assert.deepEqual(app.frameTimers().map((x) => x.ms), [opens - clock.now()], `${clock.now() - opens} ms from the gate's opening`);
+    }
+    const stops = await breathingStops(app, opens + 1_000, opens + 35_000);
+    assert.ok(stops !== null && stops - opens >= 29_000 && stops - opens <= 31_000, `breathing stops ${stops === null ? 'never' : `${stops - opens} ms`} after the gate opens again`);
+  } finally {
+    app.close();
+  }
+});
+
 test('a motion run on a fake terminal: step 3 done, a key gives the rest frame, a still intro writes nothing, and nothing after q', async () => {
   const app = clockedRun(MOTION_ENV);
   const { dir, term, clock } = app;
