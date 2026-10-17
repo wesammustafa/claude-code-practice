@@ -1466,6 +1466,30 @@ test('a glance that starts while the card face passes passes on from the face it
   }
 });
 
+// A save's burst: several file changes inside one passage each start the
+// glance again, and the face still passes on from the face it showed.
+test('file changes in a burst while the card face passes pass on from the face it showed, and each cell changes once at most', () => {
+  for (const gaps of [[20, 2], [10, 20], [20, 2, 2, 2]]) {
+    const { d: e } = checkingW3();
+    at(e, { type: 'activity', wait: 250 });
+    const changed = at(e, { type: 'check', lesson: 'b-1', items: [b1Item(null)], wait: 50 }).now;
+    const label = `changes ${gaps.join(', ')} ms apart`;
+    // The state each change makes, from the ms it lands.
+    const pieces = [[0, e.state]];
+    for (const wait of gaps) pieces.push([at(e, { type: 'activity', wait }).now - changed, e.state]);
+    const shown = (ms) => frameAt(pieces.findLast(([from]) => from <= ms)[1], changed, ms)[4].slice(-9, -2);
+    for (const [from, s] of pieces.slice(1)) assert.equal(frameAt(s, changed, from)[4].slice(-9, -2), frameAt(pieces[pieces.findIndex(([f]) => f === from) - 1][1], changed, from)[4].slice(-9, -2), `${label}: +${from} ms shows the face it showed`);
+    const [last, after] = pieces.at(-1);
+    const on = passesOnce(after, changed, last, 300, label);
+    assert.equal(on(last + TIMING.mood), ' [◑‿◑] ', `${label}: the new glance, whole 80 ms after the last`);
+    const faces = Array.from({ length: 301 }, (_, ms) => [...shown(ms)]);
+    for (let c = 0; c < faces[0].length; c++) {
+      const seen = faces.map((cells) => cells[c]).filter((g, k, all) => k === 0 || g !== all[k - 1]);
+      assert.equal(new Set(seen).size, seen.length, `${label}: cell ${c} never goes back (${seen.join(' ')})`);
+    }
+  }
+});
+
 test('nothing passes beside a question or a typed answer: a wrong pick and a typed wrong answer show the worried face at once and ask for no frame', () => {
   const pick = driver();
   pick.key('enter');

@@ -365,10 +365,10 @@ function sweepFrom(s) {
 
 // When each one-shot on this screen started, or undefined where it does not
 // play. Each lasts its own TIMING entry. With `before`, the glance from the
-// file change before then, where a newer one started it again.
+// last file change before then, where newer ones started it again.
 export function shotStarts(s, before = Infinity) {
   const fx = s.fx;
-  const glanced = fx.activity < before ? fx.activity : fx.activityWas;
+  const glanced = [...(fx.activityWas ?? []), fx.activity].findLast((t) => t < before);
   const on = (views, start) => (views.includes(s.view) ? start : undefined);
   const entered = Math.max(fx.view ?? NEVER, fx.open ?? NEVER);
   const st = s.view === 'step' ? s.beat : null;

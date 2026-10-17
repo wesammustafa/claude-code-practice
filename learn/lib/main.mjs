@@ -228,29 +228,29 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // The lesson's work folder and its watcher, where it is not the copy.
   let work = { dir: root, watcher: null };
 
-  // Drawing. Every dispatch asks for a frame, and one goes out per turn of the
-  // event loop, so the events of one turn (a watcher's burst, keys in one
-  // read) make one frame. No two frames go out less than 40 ms apart: the
-  // floor counts from the screen's last write, a drain's included. An
+  // Drawing. Every dispatch asks for a frame, and one goes out per turn of
+  // the event loop, so the events of one turn (a watcher's burst, keys in
+  // one read) make one frame. No two frames go out less than 40 ms apart:
+  // the floor counts from the screen's last write, a drain's included. An
   // event's frame inside the floor waits for its end, or joins a deadline's
-  // frame the floor lets out by then. After each draw,
-  // nextChange and the rest set the one frame timer, or none, as a
-  // deadline: the frame's own time plus the wait, so render and write time
-  // do not stretch the next. Each effect's frames keep to the 40 ms grid
-  // from its own start (motion.mjs), Pip's from its last change; a key's
-  // frame is not held back to a grid. A deadline's frame is drawn for its
-  // time, or the time it is if later; one the floor holds is drawn for the
-  // floor's end and written then, so it shows the pose of the moment it
-  // goes out, or, where that is past halfway to the grid's next step, waits
-  // for that step instead: a late timer or a quicker render never holds the
-  // frames after it off their grid. A frame the floor holds waits for its
-  // end on a second timer, so timers that fire unevenly late send fewer,
-  // wider-spaced frames, by decision: a deadline's timer armed for the
-  // floor's end instead puts a timer's lateness after the floor on every
-  // frame, and timers each a little late then creep off the grid. No frame is for a time before the last
-  // one's, though a timer can fire a little before its deadline. Every time
-  // here is on `perf`, main's one clock: the event stamps, the frames, the
-  // screen's writes and Pip.
+  // frame the floor lets out by then. After each draw, nextChange and the
+  // rest set the one frame timer, or none, as a deadline: the frame's own
+  // time plus the wait, so render and write time do not stretch the next.
+  // Each effect's frames keep to the 40 ms grid from its own start
+  // (motion.mjs), Pip's from its last change; a key's frame is not held back
+  // to a grid. A deadline's frame is drawn for its time, or the time it is
+  // if later; one the floor holds is drawn for the floor's end and written
+  // then, so it shows the pose of the moment it goes out, or, where that is
+  // past halfway to the grid's next step, waits for that step instead: a
+  // late timer or a quicker render never holds the frames after it off their
+  // grid. A frame the floor holds waits for its end on the frame timer,
+  // armed again, so timers that fire unevenly late send fewer, wider-spaced
+  // frames, by decision: a deadline's timer armed for the floor's end
+  // instead puts a timer's lateness after the floor on every frame, and
+  // timers each a little late then creep off the grid. No frame is for a
+  // time before the last one's, though a timer can fire a little before its
+  // deadline. Every time here is on `perf`, main's one clock: the event
+  // stamps, the frames, the screen's writes and Pip.
   let drawAsked = false;
   let frameTimer = null;
   // When the deadline the frame timer waits for is due, or null.

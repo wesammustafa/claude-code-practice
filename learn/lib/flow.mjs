@@ -15,6 +15,8 @@ export const HINT_LOCK_MS = 2_000;
 export const DEFER_MS = 300;
 const SWALLOW_MS = 800;
 const TOAST_MS = 5_000;
+// The file-change stamps kept before the newest (motion.mjs's shotStarts).
+const ACTIVITY_KEPT = 8;
 
 const clone = (x) => structuredClone(x);
 const blankProgress = () => ({ step: null, beat: 0, done: [], answers: {}, levels: [], lessHelp: false, moreHelpAt: null, easedSteps: {}, complete: false, warm: [], recalled: [], stamps: {}, bottomAt: null });
@@ -1204,9 +1206,10 @@ function stampFx(prev, s, ev) {
     fx.look = t;
   }
   if (!sameJson(w, watching(s))) delete fx.seen;
-  // The stamp before it too: the face Pip showed as a new glance started
-  // (motion.mjs) is the older one's.
-  if (ev.type === 'activity' && w) Object.assign(fx, { activityWas: fx.activity, activity: t });
+  // The stamps before it too, the last few: the face Pip showed as a new
+  // glance started (motion.mjs) is an older one's, and a save's burst of
+  // changes chains several.
+  if (ev.type === 'activity' && w) Object.assign(fx, { activityWas: fx.activity === undefined ? [] : [...(fx.activityWas ?? []), fx.activity].slice(-ACTIVITY_KEPT), activity: t });
   // On the check-only card, the items a result finds passing that the
   // result before it, for the same lesson, found not passing or left out.
   if (ev.type === 'check' && s.view === 'checkonly' && ev.lesson === s.lesson) {
