@@ -232,11 +232,12 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (ev && stampOf(dir, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev, dir));
     dispatch({ type: 'check', lesson, items: r.items, read: ev ? bytesOf(dir, ev) : null, path: ev ?? null, stamp: before, asked, dir });
   });
-  const git = owing(async ({ asked }, dir) => {
+  // `files`: git lists each untracked file, for a beat on part of the tree.
+  const git = owing(async ({ asked }, dir, files) => {
     runStart();
-    const r = await gitStatus(dir);
+    const r = await gitStatus(dir, { files });
     if (closed) return;
-    dispatch(r.error ? { type: 'git-error', message: r.error, asked, dir } : { type: 'git', paths: r.paths, asked, dir });
+    dispatch(r.error ? { type: 'git-error', message: r.error, asked, dir } : { type: 'git', paths: r.paths, staged: r.staged, files: Boolean(files), asked, dir });
   });
 
   // A file's bytes and its state, read now in the lesson's folder: local and
@@ -248,7 +249,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       if (e.type === 'check') check(e, e.lesson, e.items, e.evidence, e.dir);
       else if (e.type === 'file') file(e.path, e.asked, e.dir);
       else if (e.type === 'stamp') queueMicrotask(() => !closed && dispatch({ type: 'stamp', key: e.key, stamp: stampOf(e.dir, e.path), dir: e.dir }));
-      else if (e.type === 'git') git(e, e.dir);
+      else if (e.type === 'git') git(e, e.dir, e.files);
       else if (e.type === 'folder') look(e);
       else if (e.type === 'save') save();
       else if (e.type === 'later') timers.setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
@@ -295,7 +296,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const w = watching(state);
     if (w?.check) check({}, w.check.lesson, w.check.items, state.view === 'step' ? stepsOf(state)[state.pos.step].beats[state.pos.beat].evidence : null, w.dir);
     if (w?.file) file(w.file, 0, w.dir);
-    if (w?.git) git({}, w.dir);
+    if (w?.git) git({}, w.dir, w.files);
   }
 
   // The copy is always watched: its .practice/ decides whether progress

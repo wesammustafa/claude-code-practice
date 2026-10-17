@@ -17,7 +17,7 @@ import { openScreen } from '../../learn/lib/screen.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { repo, withRepo } from './helpers.mjs';
-import { allScreens, b1Item, course, driver, finishedBefore, lessonScreens, playUntil, root } from './learn-drive.mjs';
+import { allScreens, b1Item, course, driver, finishedBefore, gitLists, lessonScreens, onReading, playUntil, root } from './learn-drive.mjs';
 import { fakeClock, fakeOut, screenModel } from './learn-term.mjs';
 
 // A terminal that can show everything: a TTY with 256 colors.
@@ -1948,4 +1948,29 @@ test('the boot frame fits in every mode: exactly the window, no line too wide, o
   const pipRows = (lines) => lines.flatMap((l, i) => (/│ {2}●‿● {2}│/.test(strip(l)) ? [i] : []));
   for (const [cols, rows] of [...SIZES, [120, 40]]) assert.deepEqual(pipRows(bootFrame(SINCE, { cols, rows }, MOVING)), pipRows(render(driver().state, { cols, rows }, MOVING)), `${cols}x${rows}`);
   assert.match(strip(bootFrame(SINCE, { cols: 60, rows: 20 }, themes.ASCII, REST)[6]), /^ {3}\| {2}o_o {2}\| {3}Asking git about this folder\.\.\.$/);
+});
+
+test('phases: a git child for a beat on part of the tree turns the spinner, as a whole-tree git child does', () => {
+  for (const verify of ['git-clean secrets/', 'git-changed src/', 'git-only .claude/', 'git-staged']) {
+    const d = onReading(verify);
+    assert.equal(d.state.beat.status, 'opening', verify);
+    const run = at(d, { type: 'run-start', wait: 500 }).now;
+    assert.equal(phases(d.state, run + 160, ON).spinner, 0, verify);
+    at(d, { ...gitLists(['README.md']), wait: 200 });
+    assert.equal(phases(d.state, run + 400, ON).spinner, null, `${verify}: the result landed`);
+  }
+});
+
+test('a look at part of the tree: a newly staged path is a change, and a whole-tree result the beat does not read is no look', () => {
+  const d = onReading('git-staged');
+  at(d, gitLists(['src/a.js']));
+  at(d, gitLists(['src/a.js']));
+  assert.equal(d.state.fx.changed, false);
+  at(d, gitLists(['src/a.js'], ['src/a.js']));
+  assert.equal(d.state.fx.changed, true, 'the same paths, one now staged');
+  const scoped = onReading('git-changed src/');
+  at(scoped, gitLists(['README.md']));
+  const seen = scoped.state.fx.look;
+  at(scoped, { type: 'git', paths: ['src/'] });
+  assert.equal(scoped.state.fx.look, seen, 'git listed the folder whole: the beat read nothing');
 });

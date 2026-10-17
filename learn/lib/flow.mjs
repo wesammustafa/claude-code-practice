@@ -2,9 +2,10 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
-import { PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
+import { GIT, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
 import { evidenceOf, judge } from './holds.mjs';
+import { cleanListed, eachFile, judgeGit, needsChange } from './status.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
 export const IDLE_MS = 120_000;
@@ -249,9 +250,15 @@ export function watching(s) {
   const v = beatOf(s).verify;
   if (v.kind === 'check') return { check: { lesson: s.lesson, items: v.all ? null : v.items }, dir };
   if (READS.has(v.kind)) return { file: v.path, dir };
-  if (v.kind === 'git-clean') return { git: true, dir };
+  if (GIT.has(v.kind)) return { git: true, dir, ...(eachFile(v) ? { files: true } : {}) };
   return null;
 }
+// The effect that asks git about what `w` watches, in its folder.
+const gitAsk = (w, extra = {}) => ({ type: 'git', ...extra, dir: w.dir, ...(w.files ? { files: true } : {}) });
+// Whether a git result answers what `w` watches: a beat on part of the tree
+// reads only one that lists each untracked file, and a whole-tree beat only
+// one that lists what git status shows.
+const answersGit = (w, ev) => Boolean(w?.git) && Boolean(ev.files) === Boolean(w.files);
 
 // The intro that holds the folder question: a lesson that runs in a new
 // copy; for a level, the first of its intros the learner opens while it has
@@ -360,7 +367,7 @@ export function rungsOf(s) {
 // where nothing can fail, so h answers at once.
 export function tryFirst(s) {
   const beat = beatOf(s);
-  if (beat.verify.kind === 'check' || beat.verify.kind === 'git-clean' || READS.has(beat.verify.kind)) return 'r';
+  if (beat.verify.kind === 'check' || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind)) return 'r';
   const canMiss = beat.options.some((o) => o.kind === 'wrong' || o.kind === 'decoy');
   return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' && canMiss ? 'pick' : null;
 }
@@ -397,9 +404,9 @@ function openBeat(s, effects) {
   } else if (READS.has(beat.verify.kind)) {
     s.beat.status = 'opening';
     effects.push({ type: 'file', path: beat.verify.path, dir: folderOf(s) });
-  } else if (beat.verify.kind === 'git-clean') {
+  } else if (GIT.has(beat.verify.kind)) {
     s.beat.status = 'opening';
-    effects.push({ type: 'git', dir: folderOf(s) });
+    effects.push(gitAsk(watching(s)));
   }
   effects.push({ type: 'save' });
 }
@@ -834,12 +841,21 @@ function decide(s, ev, effects, failing) {
 }
 
 function onGit(s, ev, effects, rRuns) {
+  const w = watching(s);
+  if (w?.git && !answersGit(w, ev)) return;
   s.git = { paths: ev.paths, error: null };
-  if (rRuns || s.view !== 'step' || !s.beat || beatOf(s).verify.kind !== 'git-clean') return;
+  if (rRuns || s.view !== 'step' || !s.beat || !GIT.has(beatOf(s).verify.kind)) return;
   const beat = beatOf(s);
   const st = s.beat;
   if (['done', 'already'].includes(st.status)) return;
-  const clean = ev.paths.length === 0;
+  // A beat that needs git status to list something starts from what it
+  // lists first, as a check does.
+  if (needsChange(beat.verify)) {
+    const r = judgeGit(beat.verify, ev);
+    return decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
+  }
+  const listed = cleanListed(beat.verify, ev.paths);
+  const clean = listed.length === 0;
   // With a done-label, the tree decides only after the learner says the
   // session has ended; before that it is shown live.
   if (beat.doneLabel && !st.ended) {
@@ -856,7 +872,7 @@ function onGit(s, ev, effects, rRuns) {
   }
   st.status = 'fail';
   st.unlocked = true;
-  st.fail = { paths: ev.paths };
+  st.fail = { paths: listed };
   st.explicit = false;
 }
 
@@ -917,7 +933,7 @@ export function reduce(prev, ev) {
     }
     case 'git-error':
       s.git = { paths: [], error: ev.message };
-      if (!rRuns && s.view === 'step' && s.beat && beatOf(s).verify.kind === 'git-clean' && !['done', 'already'].includes(s.beat.status)) {
+      if (!rRuns && s.view === 'step' && s.beat && GIT.has(beatOf(s).verify.kind) && !['done', 'already'].includes(s.beat.status)) {
         Object.assign(s.beat, { status: 'broken', error: ev.message, rung: -1, confirm: false });
       }
       break;
@@ -1012,9 +1028,11 @@ function stampFx(prev, s, ev) {
   // from the last one. A new thing to watch starts the comparison over,
   // after the look that ended the old one.
   const w = watching(prev);
-  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && w?.git);
+  // A git result the beat doesn't read (onGit) is no look; one on part of
+  // the tree also differs when another path is staged.
+  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && answersGit(w, ev));
   if (looked) {
-    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read) : ev.paths);
+    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read) : ev.files ? [ev.paths, ev.staged] : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;
     if (fx.changed) fx.changedAt = t;
     fx.seen = seen;
@@ -1141,7 +1159,7 @@ function closeMap(s, effects) {
     const w = watching(s);
     if (w?.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beatOf(s).evidence ?? null, dir: w.dir });
     if (w?.file) effects.push({ type: 'file', path: w.file, dir: w.dir });
-    if (w?.git) effects.push({ type: 'git', dir: w.dir });
+    if (w?.git) effects.push(gitAsk(w));
   }
 }
 
@@ -1261,7 +1279,7 @@ const VIEWS = {
       Object.assign(st, { status: 'opening', slowWait: false, asked: s.asks, running: null, before: st.status === 'opening' ? st.before : st.status });
       if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks, dir: w.dir });
       if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks, dir: w.dir });
-      if (w.git) effects.push({ type: 'git', asked: s.asks, dir: w.dir });
+      if (w.git) effects.push(gitAsk(w, { asked: s.asks }));
       return true;
     }
     // At CHALLENGE, hints wait for a first try: name it instead of ignoring h.
@@ -1302,7 +1320,7 @@ const VIEWS = {
     if ((name === 'space' || name === 'enter') && v === 'git-clean' && beat.doneLabel) {
       st.ended = true;
       st.explicit = true;
-      effects.push({ type: 'git' });
+      effects.push(gitAsk(watching(s)));
       return true;
     }
     return false;
