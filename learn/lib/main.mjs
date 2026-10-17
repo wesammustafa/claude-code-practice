@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { capabilities } from './caps.mjs';
 import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
-import { contentOf, folderKey, folderOf, initialState, levelKey, reduce, stepsOf, watching } from './flow.mjs';
+import { contentOf, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
 import { BOOT_FROM, bootChange, nextChange, pipGates, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
@@ -16,7 +16,7 @@ import { bootFrame, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './
 import { openScreen } from './screen.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
-import { bytesOf, gitFirstName, gitReady, gitStatus, owing, probeFolder, runCheck, stampOf, stopChildren } from './verify.mjs';
+import { bytesOf, gitFirstName, gitReady, gitStatus, onPath, owing, probeFolder, runCheck, singleFlight, stampOf, stopChildren } from './verify.mjs';
 import { watchDirs } from './watch.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -206,7 +206,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   const [gitError, name] = await askGit(root);
   timers.clearTimeout(boot);
   if (closed) return 0;
-  const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32 };
+  const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32, linux: platform === 'linux' };
   state = initialState({ course, saved, facts, now: now() });
   openIt();
 
@@ -232,11 +232,12 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (ev && stampOf(dir, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev, dir));
     dispatch({ type: 'check', lesson, items: r.items, read: ev ? bytesOf(dir, ev) : null, path: ev ?? null, stamp: before, asked, dir });
   });
-  const git = owing(async ({ asked }, dir) => {
+  // `files`: git lists each untracked file, for a beat on part of the tree.
+  const git = owing(async ({ asked }, dir, files) => {
     runStart();
-    const r = await gitStatus(dir);
+    const r = await gitStatus(dir, { files });
     if (closed) return;
-    dispatch(r.error ? { type: 'git-error', message: r.error, asked, dir } : { type: 'git', paths: r.paths, asked, dir });
+    dispatch(r.error ? { type: 'git-error', message: r.error, asked, dir } : { type: 'git', paths: r.paths, staged: r.staged, files: Boolean(files), asked, dir });
   });
 
   // A file's bytes and its state, read now in the lesson's folder: local and
@@ -248,13 +249,30 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       if (e.type === 'check') check(e, e.lesson, e.items, e.evidence, e.dir);
       else if (e.type === 'file') file(e.path, e.asked, e.dir);
       else if (e.type === 'stamp') queueMicrotask(() => !closed && dispatch({ type: 'stamp', key: e.key, stamp: stampOf(e.dir, e.path), dir: e.dir }));
-      else if (e.type === 'git') git(e, e.dir);
+      else if (e.type === 'git') git(e, e.dir, e.files);
       else if (e.type === 'folder') look(e);
+      else if (e.type === 'prereqs') prereqs(e);
+      else if (e.type === 'commands') queueMicrotask(() => !closed && dispatch({ type: 'commands', found: Object.fromEntries(e.names.map((n) => [n, onPath(n, env, platform)])) }));
       else if (e.type === 'save') save();
       else if (e.type === 'later') timers.setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
       else if (e.type === 'quit') quit(0);
     }
   }
+
+  // A lesson's prerequisites, in its work folder, in turn: a check item
+  // through the check child, a file read as it is now, with no process. One
+  // ask at a time; a later ask waits in line and takes the place of one
+  // already waiting (singleFlight), and each answer carries its ask's number.
+  const prereqs = singleFlight(async (e) => {
+    for (const [at, req] of e.requires.entries()) {
+      const found = await (req.path ? { read: bytesOf(e.dir, req.path) } : checkChild(e.dir, req.lesson, [req.item]).then((r) => {
+        const item = r.items?.find((it) => it.index === req.item);
+        return { pass: item ? item.pass : null };
+      }));
+      if (closed) return;
+      dispatch({ type: 'prereq', lesson: e.lesson, dir: e.dir, at, asked: e.asked, ...found });
+    }
+  });
 
   // The path prompt's ask: what is at that path, for the reducer to take or
   // turn down.
@@ -295,7 +313,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const w = watching(state);
     if (w?.check) check({}, w.check.lesson, w.check.items, state.view === 'step' ? stepsOf(state)[state.pos.step].beats[state.pos.beat].evidence : null, w.dir);
     if (w?.file) file(w.file, 0, w.dir);
-    if (w?.git) git({}, w.dir);
+    if (w?.git) git({}, w.dir, w.files);
   }
 
   // The copy is always watched: its .practice/ decides whether progress
@@ -407,5 +425,6 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // The first look: the current lesson's check, for "welcome back" and the map.
   draw();
   if ((state.view === 'resume' || state.view === 'intro') && folderOf(state)) check({}, state.lesson, null, null, folderOf(state));
+  run(introAsks(state));
   return new Promise(() => {});
 }

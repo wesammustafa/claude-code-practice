@@ -3,14 +3,23 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative } from 'node:path';
 
-// Paths from `git status --porcelain` lines, without the two status letters,
-// leaving out the checks' own saved state under .practice/.
-export function statusPaths(text) {
+// `git status --porcelain` lines: each one's path (a rename's new name), the
+// old name a rename or copy had (`from`) and the two status letters, leaving
+// out the checks' own saved state under .practice/.
+export function statusEntries(text) {
+  const unquote = (path) => path.replace(/^"|"$/g, '').trim();
   return (text ?? '').split(/\r?\n/)
     .filter((line) => line.trim())
-    .map((line) => line.slice(3).split(' -> ').pop().replace(/^"|"$/g, '').trim())
-    .filter((path) => !path.startsWith('.practice/'));
+    .map((line) => {
+      const names = line.slice(3).split(' -> ');
+      const path = unquote(names.pop());
+      return names.length ? { xy: line.slice(0, 2), path, from: unquote(names.join(' -> ')) } : { xy: line.slice(0, 2), path };
+    })
+    .filter((e) => !e.path.startsWith('.practice/'));
 }
+
+// Paths from `git status --porcelain` lines, without the two status letters.
+export const statusPaths = (text) => statusEntries(text).map((e) => e.path);
 
 const real = (path) => {
   try {

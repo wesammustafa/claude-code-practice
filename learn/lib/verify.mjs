@@ -2,15 +2,16 @@
 // run in child processes; the app writes nothing to the practice copy.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STUB_RUNS } from '../../checks/lessons/a-4.mjs';
 import { NPM_TEST_LIMIT } from '../../checks/lessons/b-3.mjs';
 import { lessons } from '../../checks/lessons/index.mjs';
-import { statusPaths } from '../../checks/paths.mjs';
+import { statusEntries } from '../../checks/paths.mjs';
 import { TIME_LIMIT } from '../../checks/stub-claude.mjs';
 import { SLOW } from './content.mjs';
+import { isStaged, listing } from './status.mjs';
 
 const RUN_CHECK = join(dirname(fileURLToPath(import.meta.url)), '..', 'run-check.mjs');
 
@@ -78,11 +79,28 @@ export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {
   });
 }
 
-export function gitStatus(dir) {
+// What git status lists in `dir`, and which of those paths are staged. With
+// `files`, a look at part of the tree: each untracked file on its own line,
+// where git status lists a new folder whole, and only what is in `dir`,
+// named from there, where `dir` is a folder inside a repository.
+export function gitStatus(dir, { files = false } = {}) {
+  const opts = { cwd: dir, env: childEnv(), windowsHide: true, timeout: 30_000 };
   return new Promise((resolve) => {
-    track(execFile('git', ['status', '--porcelain'], { cwd: dir, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error, stdout) => {
-      if (error) resolve({ error: error.message.split('\n')[0] });
-      else resolve({ paths: statusPaths(stdout) });
+    const failed = (error) => resolve({ error: error.message.split('\n')[0] });
+    if (!files) {
+      track(execFile('git', ['status', '--porcelain'], opts, (error, stdout) => {
+        if (error) return failed(error);
+        const entries = statusEntries(stdout);
+        resolve({ paths: entries.map((e) => e.path), staged: entries.filter(isStaged).map((e) => e.path) });
+      }));
+      return;
+    }
+    track(execFile('git', ['rev-parse', '--show-prefix'], opts, (error, prefix) => {
+      if (error) return failed(error);
+      track(execFile('git', ['status', '--porcelain', '--untracked-files=all', '--', '.'], opts, (again, stdout) => {
+        if (again) failed(again);
+        else resolve(listing(statusEntries(stdout), prefix.trim()));
+      }));
     }));
   });
 }
@@ -113,6 +131,28 @@ export async function probeFolder(path) {
     execFile('git', ['check-ignore', '-q', '.practice/'], { cwd: path, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error) => resolve(!error));
   }));
   return { path, missing: false, git, gitBroken, practice };
+}
+
+// Whether a command is on the PATH (ticket 89): a file of its name in one
+// of the PATH folders that may run, or on Windows one with an extension
+// PATHEXT lists. Found by reading the folders: no process starts, so
+// nothing the learner installed runs.
+export function onPath(name, env = process.env, platform = process.platform) {
+  const win = platform === 'win32';
+  // Windows names it Path as often as PATH.
+  const get = (key) => env[Object.keys(env).find((k) => k.toUpperCase() === key) ?? key];
+  const dirs = (get('PATH') ?? '').split(win ? ';' : ':').map((d) => d.replace(/^"(.*)"$/, '$1')).filter(Boolean);
+  const exts = win ? (get('PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
+  return dirs.some((dir) => exts.some((ext) => {
+    try {
+      const file = join(dir, name + ext);
+      if (!statSync(file).isFile()) return false;
+      if (!win) accessSync(file, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }));
 }
 
 // The first word of git's user.name, to say hello. Read, never stored.

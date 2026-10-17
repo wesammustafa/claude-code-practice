@@ -11,7 +11,7 @@ import { bootFrame, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -2979,5 +2979,115 @@ test('a reading beat\'s not-yet line is shown whole, and its pass shows what the
       const words = prose(json.state, size, t);
       assert.ok(words.includes('.claude/settings.json holds ["Read(./.env)"]') || (words.includes('.claude/settings.json') && words.includes('holds ["Read(./.env)"]')), `${where}: ${words}`);
     }
+  }
+});
+
+// ---- git status for part of the tree (ticket 88) -----------------------------
+// Every size the render tests hold a screen to: exactly `rows` lines, none
+// wider than cols - 1.
+const fits = (state, [cols, rows], t, where) => {
+  const lines = render(state, { cols, rows }, t);
+  assert.equal(lines.length, rows, where);
+  for (const line of lines) assert.ok(width(line) <= cols - 1, `${where}: ${strip(line)}`);
+};
+
+test('git-clean with paths: its lines name the paths, and list only what is under them, at 60x20 and 80x24', () => {
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of [[60, 20], [80, 24]]) {
+      const where = `${size.join('x')} ${caps.unicode ? 'unicode' : 'ascii'}`;
+      const d = onReading('git-clean secrets/');
+      d.send(gitLists(['README.md', 'secrets/key.txt']));
+      fits(d.state, size, t, where);
+      assert.ok(prose(d.state, size, t).includes('Not yet: 1 file changed under secrets/: secrets/key.txt'), `${where}: ${prose(d.state, size, t)}`);
+      assert.ok(!prose(d.state, size, t).includes('README.md'), where);
+      d.send(gitLists(['README.md']));
+      assert.equal(d.state.beat.status, 'done');
+      fits(d.state, size, t, where);
+      // Beside the burst, on one line or two.
+      const words = prose(d.state, size, t);
+      assert.ok(words.includes('git status lists nothing under secrets/.') || (words.includes('git status lists nothing under') && words.includes('secrets/.')), `${where}: ${words}`);
+      // With a done-label, the live line before the learner says it ended.
+      const live = onReading('git-clean secrets/\n- done-label: the session has ended');
+      live.send(gitLists(['README.md']));
+      assert.ok(prose(live.state, size, t).includes('Watching git status:') && prose(live.state, size, t).includes('no changes under secrets/ so far'), `${where}: ${prose(live.state, size, t)}`);
+      live.send(gitLists(['README.md', 'secrets/a.txt', 'secrets/b.txt']));
+      assert.ok(prose(live.state, size, t).includes('2 files changed under secrets/: secrets/a.txt, secrets/b.txt'), `${where}: ${prose(live.state, size, t)}`);
+      fits(live.state, size, t, where);
+    }
+  }
+});
+
+test('git-changed: it watches git status, its not-yet line is shown whole, and its pass, or a change already there, shows what changed, at 60x20 and 80x24', () => {
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of [[60, 20], [80, 24]]) {
+      const where = `${size.join('x')} ${caps.unicode ? 'unicode' : 'ascii'}`;
+      const d = onReading('git-changed src/');
+      d.send(gitLists(['README.md']));
+      fits(d.state, size, t, where);
+      assert.ok(prose(d.state, size, t).includes("Watching git status. I'll turn green the moment it's right."), `${where}: ${prose(d.state, size, t)}`);
+      d.key('r');
+      d.send(gitLists(['README.md'], [], { asked: d.state.beat.asked }));
+      fits(d.state, size, t, where);
+      assert.ok(prose(d.state, size, t).includes('Not yet: git status lists no change under src/ yet.'), `${where}: ${prose(d.state, size, t)}`);
+      d.send(gitLists(['src/config.js']));
+      fits(d.state, size, t, where);
+      const words = prose(d.state, size, t);
+      assert.ok(words.includes('Changed: src/config.js') || (words.includes('Changed:') && words.includes('src/config.js')), `${where}: ${words}`);
+      assert.match(words, /DONE/, where);
+      // Already changed when the step opens: git status passed it, not a
+      // check, and the card says what it lists.
+      for (const [verify, lists, shows] of [['git-changed src/', gitLists(['src/a.js']), 'Changed: src/a.js'], ['git-staged', gitLists(['src/a.js'], ['src/a.js']), 'Staged: src/a.js']]) {
+        const already = onReading(verify);
+        already.send(lists);
+        assert.equal(already.state.beat.status, 'already', verify);
+        fits(already.state, size, t, `${where} ${verify}`);
+        const said = prose(already.state, size, t);
+        assert.ok(said.includes('Already done, so this step counts.') && said.includes(shows), `${where}: ${said}`);
+        assert.ok(!said.includes('check already passes'), `${where}: ${said}`);
+      }
+    }
+  }
+});
+
+test('git-only and git-staged: a long not-yet line is shown whole, and the pass shows the paths, at 60x20 and 80x24', () => {
+  const long = '.claude/skills/five-whys/references/a-very-long-file-name-for-the-examples.md';
+  for (const caps of [CAPS.full, CAPS.ascii]) {
+    const t = theme(caps);
+    for (const size of [[60, 20], [80, 24]]) {
+      const where = `${size.join('x')} ${caps.unicode ? 'unicode' : 'ascii'}`;
+      const only = onReading('git-only .claude/');
+      only.send(gitLists([]));
+      only.send(gitLists([long, 'README.md', 'src/index.js', 'docs/notes.md', 'package.json']));
+      fits(only.state, size, t, where);
+      assert.ok(prose(only.state, size, t).includes('Not yet: 4 files changed outside .claude/: README.md, src/index.js, docs/notes.md'), `${where}: ${prose(only.state, size, t)}`);
+      only.send(gitLists([long]));
+      fits(only.state, size, t, where);
+      // Beside the burst, a long path wraps where it must.
+      const words = prose(only.state, size, t);
+      assert.ok(words.includes('Changed:') && words.includes('.claude/skills/five-whys/') && words.includes('examples.md'), `${where}: ${words}`);
+      const staged = onReading('git-staged');
+      staged.send(gitLists(['src/config.js']));
+      staged.key('r');
+      staged.send(gitLists(['src/config.js'], [], { asked: staged.state.beat.asked }));
+      fits(staged.state, size, t, where);
+      assert.ok(prose(staged.state, size, t).includes('Not yet: git status lists nothing staged yet.'), `${where}: ${prose(staged.state, size, t)}`);
+      staged.send(gitLists(['src/config.js'], ['src/config.js']));
+      fits(staged.state, size, t, where);
+      assert.ok(prose(staged.state, size, t).includes('Staged: src/config.js'), `${where}: ${prose(staged.state, size, t)}`);
+    }
+  }
+});
+
+test('lessonScreens walks a beat of each git kind to its not-yet and done screens, and each fits', () => {
+  const t = theme(CAPS.full);
+  for (const verify of ['git-clean secrets/', 'git-changed src/', 'git-only .claude/', 'git-staged']) {
+    const lessons = allCourse.map((l) => (l.id === 'b-2' ? { ...l, content: onReading(verify).state.course.find((x) => x.id === 'b-2').content } : l));
+    const screens = lessonScreens('b-2', lessons).filter(([label]) => label.startsWith('b-2 Y1.0'));
+    const end = screens.at(-1)[1];
+    assert.equal(end.beat.status, 'done', `${verify}: ${screens.map(([label]) => label)}`);
+    assert.ok(screens.some(([, s]) => s.beat.status === 'fail'), verify);
+    for (const [label, s] of screens) for (const size of [[60, 20], [80, 24]]) fits(s, size, t, `${verify} ${label}`);
   }
 });

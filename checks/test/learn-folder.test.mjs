@@ -4,8 +4,9 @@
 // Advanced capstone to the new copy each asks for.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, relative } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, delimiter, dirname, join, relative } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
@@ -16,7 +17,7 @@ import { theme } from '../../learn/lib/theme.mjs';
 import { FORMAT, loadState, sanitize, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
 import { beatOf, lessonOf, stepOf, watching } from '../../learn/lib/flow.mjs';
 import { probeFolder } from '../../learn/lib/verify.mjs';
-import { exportHead, repo, withRepo } from './helpers.mjs';
+import { commit, exportHead, repo, withRepo, write } from './helpers.mjs';
 import { course, DEMO_I1, driver, FACTS, finished, finishedBefore, mapTo, playUntil, root, threeLevels } from './learn-drive.mjs';
 import { fakeOut } from './learn-term.mjs';
 
@@ -754,7 +755,7 @@ test('a work folder that isn\'t a git repository, has no git-ignored .practice/,
 // any `saved` lessons. The check child is a stand-in that records the folder
 // it was asked to check.
 const CALM = { ...process.env, CODESPACES: '', LEARN_CALM: '1', NO_COLOR: '', LEARN_PLAIN: '', TERM: 'xterm-256color' };
-function inCopy({ folders, argv = [], env = {}, i1 = DEMO_I1, saved = {} } = {}) {
+function inCopy({ folders, argv = [], env = {}, i1 = DEMO_I1, saved = {}, platform = 'linux', checks = () => ({ items: [] }) } = {}) {
   const copy = exportHead(root);
   rmSync(join(copy, '.practice'), { recursive: true, force: true });
   writeFileSync(join(copy, 'learn', 'lessons', 'i-1.md'), i1);
@@ -773,10 +774,10 @@ function inCopy({ folders, argv = [], env = {}, i1 = DEMO_I1, saved = {} } = {})
   const onChanges = {};
   let exited = null;
   const stderr = { text: '', write(x) { this.text += x; } };
-  const done = main({ argv, stdin, stdout, stderr, env: { ...CALM, ...env }, platform: 'linux', root: copy, exit: (code) => { exited = code; },
+  const done = main({ argv, stdin, stdout, stderr, env: { ...CALM, ...env }, platform, root: copy, exit: (code) => { exited = code; },
     runCheck: (dir, lesson, items) => {
       ran.push({ dir, lesson, items });
-      return Promise.resolve({ items: [] });
+      return Promise.resolve(checks(dir, lesson, items));
     },
     watch: (dir, onChange) => {
       watched.push(dir);
@@ -843,6 +844,31 @@ test('main: a json beat reads its file in the work folder, with no process, and 
     }), app.frame());
     // The only check run is the lesson's whole check, which the resume screen asks for.
     assert.ok(app.ran.every((r) => r.items === null), `a check child ran for the beat: ${JSON.stringify(app.ran)}`);
+  } finally {
+    app.close();
+    rmSync(mine, { recursive: true, force: true });
+  }
+});
+
+test('main: a git-only beat asks git status in the work folder, which lists each untracked file', async () => {
+  const mine = repo({ 'README.md': 'r\n' });
+  commit(mine, 'start');
+  mkdirSync(join(mine, '.practice'));
+  const i1 = DEMO_I1.replace('- verify: check 0\n- watching: .claude/skills/tdd/SKILL.md\n', '- verify: git-only .claude/\n');
+  const app = inCopy({ folders: () => ({ intermediate: mine }), i1, saved: { 'i-1': { step: 'W1', beat: 0, warm: ['R1', 'R2'], done: ['R1', 'R2'] } } });
+  const words = () => app.frame().replace(/\s+/g, ' ');
+  try {
+    assert.ok(await until(() => words().includes('Welcome back')), app.frame());
+    app.type('\r');
+    assert.ok(await until(() => words().includes('Watching git status')), app.frame());
+    // A change in the copy says nothing about the work folder.
+    write(app.copy, { 'notes.md': 'n\n' });
+    write(mine, { '.claude/skills/tdd/SKILL.md': '---\nname: tdd\n---\n' });
+    // git status alone would list the new folder as .claude/.
+    assert.ok(await until(() => {
+      app.onChanges[mine]();
+      return words().includes('Changed: .claude/skills/tdd/SKILL.md');
+    }), app.frame());
   } finally {
     app.close();
     rmSync(mine, { recursive: true, force: true });
@@ -1032,4 +1058,110 @@ test('main: the goodbye says where to run the app again: the practice copy, name
     }
   }
   rmSync(mine, { recursive: true, force: true });
+});
+
+// ---- what a lesson needs (ticket 89) ------------------------------------------
+const NEED_JQ = '`jq`, which the hook scripts use, and `python3`, which `format-after-edit.sh` uses.';
+const NEED_SANDBOX = 'On Linux and WSL 2, the sandbox needs `bubblewrap` and `socat`';
+const needsI1 = DEMO_I1.replace('next: i-2\n---', 'next: i-2\nneeds: [jq python3, bwrap socat on linux]\n---')
+  .replace('- can: "do it"\n', `- can: "do it"\n- need: "${NEED_JQ}"\n- need: "${NEED_SANDBOX}"\n`);
+
+test('main: the intro finds the commands it needs by reading the PATH folders, starting none of them, and PATHEXT on Windows', async () => {
+  const bin = mkdtempSync(join(tmpdir(), 'learn-bin-'));
+  const ran = join(bin, 'ran');
+  // jq and socat run would leave a mark; python3 is there but can't run;
+  // bwrap is not there at all. A second folder on the PATH holds socat.
+  const other = join(bin, 'more');
+  mkdirSync(other);
+  writeFileSync(join(bin, 'jq'), `#!/bin/sh\ntouch '${ran}'\n`, { mode: 0o755 });
+  writeFileSync(join(bin, 'python3'), '#!/bin/sh\n', { mode: 0o644 });
+  writeFileSync(join(other, 'socat'), `#!/bin/sh\ntouch '${ran}'\n`, { mode: 0o755 });
+  const app = inCopy({ folders: (copy) => ({ intermediate: copy }), i1: needsI1, env: { PATH: `${bin}${delimiter}${join(bin, 'none')}${delimiter}${other}` } });
+  const words = () => app.frame().replace(/\s+/g, ' ');
+  try {
+    // python3 can't run, and Linux asks about the sandbox's commands too.
+    assert.ok(await until(() => words().includes(C.notOnPath('python3', 'bwrap'))), app.frame());
+    assert.ok(!existsSync(ran), 'a command was started to find it');
+  } finally {
+    app.close();
+  }
+  // On Windows a command is a file with one of PATHEXT's extensions, and
+  // the sandbox's commands are never asked about.
+  writeFileSync(join(bin, 'python3.EXE'), '');
+  const win = inCopy({ folders: (copy) => ({ intermediate: copy }), i1: needsI1, platform: 'win32', env: { PATH: `${bin};${other}`, PATHEXT: '.COM;.EXE' } });
+  const winWords = () => win.frame().replace(/\s+/g, ' ');
+  try {
+    assert.ok(await until(() => winWords().includes(C.notOnPath('jq'))), win.frame());
+    assert.ok(!winWords().includes(C.notOnPath('jq', 'python3')) && !winWords().includes('bwrap'), win.frame());
+  } finally {
+    win.close();
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('main: a prerequisite check item runs through the check child in the work folder, and a prerequisite file is read there with no process', async () => {
+  const mine = repo();
+  mkdirSync(join(mine, '.practice'));
+  const skill = '.claude/skills/five-whys/SKILL.md';
+  const i1 = DEMO_I1.replace('next: i-2\n---', `next: i-2\nrequires: [b-5 check 0, b-4 file ${skill}]\n---`);
+  let passing = false;
+  const checks = (dir, lesson, items) => (lesson === 'b-5' ? { items: [{ index: 0, text: 'b-5 item', pass: passing, hint: 'not yet' }] } : { items: [] });
+  const app = inCopy({ folders: () => ({ intermediate: mine }), i1, checks });
+  // The frame's words, its rows' line ends taken out, for a sentence that wraps.
+  const words = () => app.frame().replace(/\x1b\[K/g, '').replace(/\s+/g, ' ');
+  try {
+    assert.ok(await until(() => words().includes(C.buildsOnCheck('B5', 'a committed CLAUDE.md holds the rule saved in .practice/b-5-rule.txt')) && words().includes(C.buildsOnFile('B4', C.fileEmpty(skill)))), app.frame());
+    assert.deepEqual(app.ran.filter((r) => r.lesson !== 'i-1'), [{ dir: mine, lesson: 'b-5', items: [0] }], 'one check child, for the check item, in the work folder');
+    // B5 and B4 are practised in the copy, so doing them again there would
+    // not set the work folder right: neither is offered.
+    assert.ok(!words().includes(C.openFirst('B5')) && !words().includes(C.openFirst('B4')), app.frame());
+    // Set right in the work folder (the copy says nothing), the intro sees it when it opens again.
+    write(app.copy, { [skill]: '---\nname: five-whys\n---\n' });
+    write(mine, { [skill]: '---\nname: five-whys\n---\n' });
+    passing = true;
+    app.type('m');
+    assert.ok(await until(() => app.frame().includes('Intermediate path')), app.frame());
+    app.type('m');
+    assert.ok(await until(() => !words().includes('builds on') && words().includes(C.startLesson(1))), app.frame());
+    assert.deepEqual(app.ran.filter((r) => r.lesson !== 'i-1').map((r) => r.dir), [mine, mine]);
+  } finally {
+    app.close();
+    rmSync(mine, { recursive: true, force: true });
+  }
+});
+
+test('main: the prerequisites\' check items run one ask at a time; a later ask waits in line, in place of one already waiting', async () => {
+  const mine = repo();
+  mkdirSync(join(mine, '.practice'));
+  const i1 = DEMO_I1.replace('next: i-2\n---', 'next: i-2\nrequires: [b-5 check 0]\n---');
+  // Each b-5 run waits until the test answers it.
+  const waiting = [];
+  const checks = (dir, lesson) => (lesson === 'b-5' ? new Promise((answer) => waiting.push(answer)) : { items: [] });
+  const app = inCopy({ folders: () => ({ intermediate: mine }), i1, checks });
+  const words = () => app.frame().replace(/\x1b\[K/g, '').replace(/\s+/g, ' ');
+  const b5 = () => app.ran.filter((r) => r.lesson === 'b-5').length;
+  const reopen = async () => {
+    app.type('m');
+    assert.ok(await until(() => app.frame().includes('Intermediate path')), app.frame());
+    app.type('m');
+    assert.ok(await until(() => app.frame().includes(C.startLesson(1))), app.frame());
+  };
+  try {
+    assert.ok(await until(() => b5() === 1), JSON.stringify(app.ran));
+    // Two more looks while the first runs: no second child starts.
+    await reopen();
+    await reopen();
+    await until(() => false, 100);
+    assert.equal(b5(), 1, 'a second check child ran beside the first');
+    // The first answers: it fails. Then the last ask runs, once, and passes.
+    waiting[0]({ items: [{ index: 0, pass: false, hint: 'not yet' }] });
+    assert.ok(await until(() => words().includes('builds on') && b5() === 2), app.frame());
+    waiting[1]({ items: [{ index: 0, pass: true }] });
+    assert.ok(await until(() => !words().includes('builds on')), app.frame());
+    await until(() => false, 100);
+    assert.equal(b5(), 2, 'the ask that was waiting in line ran too');
+  } finally {
+    app.close();
+    rmSync(mine, { recursive: true, force: true });
+  }
 });

@@ -2,9 +2,10 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
-import { PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
+import { GIT, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
 import { evidenceOf, judge } from './holds.mjs';
+import { cleanListed, eachFile, judgeGit, needsChange } from './status.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
 export const IDLE_MS = 120_000;
@@ -87,6 +88,13 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     folderAsk: null,
     // The lesson whose intro took the answer, which then shows it, in memory.
     folderAnswered: null,
+    // What main found on the PATH, { command: true or false }, and, for
+    // each lesson, the folder its prerequisites were looked at in and what
+    // each one came to, { dir, met: { index: { pass, hint, asked } } }, with
+    // the number of the latest ask for them: in memory.
+    commands: {},
+    prereqs: {},
+    prereqAsks: 0,
   };
 }
 
@@ -176,8 +184,9 @@ export function cardOf(s) {
 // on the card.
 export const recallOf = (s) => cardOf(s).filter((e) => e.lesson === s.lesson);
 // The overlays the arrows scroll, each by its entries: one place an entry,
-// then the Commands by level link, the last (render.mjs).
-const SCROLLED = { card: cardOf, compare: recallOf };
+// then the Commands by level link, the last (render.mjs); the intro's notes
+// one place a note.
+const SCROLLED = { card: cardOf, compare: recallOf, notes: (s) => introNotes(s).slice(1) };
 // Where the next screen's enter goes: the next lesson, or null for the map.
 export const nextLessonOf = (s) => {
   const id = contentOf(s)?.next;
@@ -249,9 +258,15 @@ export function watching(s) {
   const v = beatOf(s).verify;
   if (v.kind === 'check') return { check: { lesson: s.lesson, items: v.all ? null : v.items }, dir };
   if (READS.has(v.kind)) return { file: v.path, dir };
-  if (v.kind === 'git-clean') return { git: true, dir };
+  if (GIT.has(v.kind)) return { git: true, dir, ...(eachFile(v) ? { files: true } : {}) };
   return null;
 }
+// The effect that asks git about what `w` watches, in its folder.
+const gitAsk = (w, extra = {}) => ({ type: 'git', ...extra, dir: w.dir, ...(w.files ? { files: true } : {}) });
+// Whether a git result answers what `w` watches: a beat on part of the tree
+// reads only one that lists each untracked file, and a whole-tree beat only
+// one that lists what git status shows.
+const answersGit = (w, ev) => Boolean(w?.git) && Boolean(ev.files) === Boolean(w.files);
 
 // The intro that holds the folder question: a lesson that runs in a new
 // copy; for a level, the first of its intros the learner opens while it has
@@ -325,6 +340,76 @@ function folderKeyPress(s, { name, ch }, effects) {
   Object.assign(a, { missing: null, isCopy: false });
 }
 
+// ---- what a lesson needs (ticket 89) ----------------------------------------
+// The groups of commands the lesson's page needs here: a Linux-only one on
+// Linux alone.
+const needsHere = (s) => (contentOf(s)?.needs ?? []).filter((n) => !n.linux || s.facts.linux);
+// What the intro on screen asks main to look at: the commands it needs,
+// and, once its folder question has an answer, its prerequisites there.
+export function introAsks(s) {
+  if (s.view !== 'intro') return [];
+  const names = needsHere(s).flatMap((n) => n.commands);
+  const requires = contentOf(s)?.requires ?? [];
+  return [...(names.length ? [{ type: 'commands', names }] : []),
+    ...(requires.length && !asksFolder(s) && folderOf(s) ? [{ type: 'prereqs', lesson: s.lesson, dir: folderOf(s), requires }] : [])];
+}
+// A prerequisite main looked at, in the folder it looked in: a check item
+// passes or not (null: the run couldn't say, an error); a file is read as a
+// `file` beat reads it, done once it holds a line. An answer to an older ask
+// than the one already shown says nothing.
+function onPrereq(s, ev) {
+  const req = contentOf(s, ev.lesson)?.requires?.[ev.at];
+  if (!req || ev.dir !== folderOf(s, ev.lesson)) return;
+  if (s.prereqs[ev.lesson]?.dir !== ev.dir) s.prereqs[ev.lesson] = { dir: ev.dir, met: {} };
+  const asked = ev.asked ?? 0;
+  if (asked < (s.prereqs[ev.lesson].met[ev.at]?.asked ?? 0)) return;
+  const r = req.path ? judge({ kind: 'file', path: req.path }, ev.read) : { pass: ev.pass ?? null, hint: lessonOf(s, req.lesson).items[req.item] };
+  s.prereqs[ev.lesson].met[ev.at] = { pass: r.pass, hint: r.hint, asked };
+  // An offer that goes takes the cursor on it back to the first option.
+  if (s.view === 'intro' && s.lesson === ev.lesson && !asksFolder(s) && s.cursor >= introOptions(s).length) s.cursor = 0;
+}
+// The intro's prerequisites that failed in the lesson's folder now, with
+// what was not there, and whether its lesson is one to offer: only where
+// that lesson is practised in the folder that was looked at, so doing it
+// there can set this one right.
+export function unmet(s) {
+  const r = s.prereqs[s.lesson];
+  if (!r || r.dir !== folderOf(s) || asksFolder(s)) return [];
+  return (contentOf(s)?.requires ?? []).flatMap((req, k) => (r.met[k]?.pass === false ? [{ ...req, hint: r.met[k].hint, offer: folderOf(s, req.lesson) === r.dir }] : []));
+}
+// The lesson the intro offers to open first: the first failed
+// prerequisite's that can set it right.
+export const offered = (s) => unmet(s).find((r) => r.offer)?.lesson ?? null;
+// The intro's start options, and, where a prerequisite failed, its lesson.
+export const introOptions = (s) => ['start', 'less', ...(offered(s) ? ['first'] : [])];
+// Each You need line with the commands it names that main found on no PATH
+// folder. Nothing until main has looked.
+export const missingNeeds = (s) => needsHere(s).map((n) => ({ quote: n.quote, names: n.commands.filter((c) => s.commands[c] === false) })).filter((n) => n.names.length);
+// What main found wrong with the lesson's work folder, where it isn't the
+// copy (ticket 86): 'missing', 'gitBroken', 'notGit' or 'noPractice'. Null
+// until main has looked, and where all is well.
+export function folderProblem(s) {
+  const dir = folderOf(s);
+  const found = dir && dir !== s.facts.root ? s.probes[dir] : null;
+  if (!found) return null;
+  return found.missing ? 'missing' : found.gitBroken ? 'gitBroken' : !found.git ? 'notGit' : !found.practice ? 'noPractice' : null;
+}
+// What the intro has to say before the learner starts, a note each: the
+// work folder's problem, on native Windows the page's note, the commands
+// missing, and each prerequisite that failed. n shows them all.
+export const introNotes = (s) => [
+  ...(!asksFolder(s) && folderProblem(s) ? ['folder'] : []),
+  ...(s.facts.win32 && contentOf(s)?.intro['win-note'] ? ['win'] : []),
+  ...(missingNeeds(s).length ? ['needs'] : []),
+  ...unmet(s).map(() => 'prereq'),
+];
+
+// n opens the notes at their first.
+function openNotes(s) {
+  s.overlay = 'notes';
+  s.cardAt = 0;
+}
+
 // ---- hints -------------------------------------------------------------------
 // The status the hints and the key bar answer to: while r's run goes, the one
 // r put "Checking" over, so an open hint, h and the keys stay as they were.
@@ -360,7 +445,7 @@ export function rungsOf(s) {
 // where nothing can fail, so h answers at once.
 export function tryFirst(s) {
   const beat = beatOf(s);
-  if (beat.verify.kind === 'check' || beat.verify.kind === 'git-clean' || READS.has(beat.verify.kind)) return 'r';
+  if (beat.verify.kind === 'check' || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind)) return 'r';
   const canMiss = beat.options.some((o) => o.kind === 'wrong' || o.kind === 'decoy');
   return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' && canMiss ? 'pick' : null;
 }
@@ -397,9 +482,9 @@ function openBeat(s, effects) {
   } else if (READS.has(beat.verify.kind)) {
     s.beat.status = 'opening';
     effects.push({ type: 'file', path: beat.verify.path, dir: folderOf(s) });
-  } else if (beat.verify.kind === 'git-clean') {
+  } else if (GIT.has(beat.verify.kind)) {
     s.beat.status = 'opening';
-    effects.push({ type: 'git', dir: folderOf(s) });
+    effects.push(gitAsk(watching(s)));
   }
   effects.push({ type: 'save' });
 }
@@ -834,12 +919,21 @@ function decide(s, ev, effects, failing) {
 }
 
 function onGit(s, ev, effects, rRuns) {
+  const w = watching(s);
+  if (w?.git && !answersGit(w, ev)) return;
   s.git = { paths: ev.paths, error: null };
-  if (rRuns || s.view !== 'step' || !s.beat || beatOf(s).verify.kind !== 'git-clean') return;
+  if (rRuns || s.view !== 'step' || !s.beat || !GIT.has(beatOf(s).verify.kind)) return;
   const beat = beatOf(s);
   const st = s.beat;
   if (['done', 'already'].includes(st.status)) return;
-  const clean = ev.paths.length === 0;
+  // A beat that needs git status to list something starts from what it
+  // lists first, as a check does.
+  if (needsChange(beat.verify)) {
+    const r = judgeGit(beat.verify, ev);
+    return decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
+  }
+  const listed = cleanListed(beat.verify, ev.paths);
+  const clean = listed.length === 0;
   // With a done-label, the tree decides only after the learner says the
   // session has ended; before that it is shown live.
   if (beat.doneLabel && !st.ended) {
@@ -856,7 +950,7 @@ function onGit(s, ev, effects, rRuns) {
   }
   st.status = 'fail';
   st.unlocked = true;
-  st.fail = { paths: ev.paths };
+  st.fail = { paths: listed };
   st.explicit = false;
 }
 
@@ -917,7 +1011,7 @@ export function reduce(prev, ev) {
     }
     case 'git-error':
       s.git = { paths: [], error: ev.message };
-      if (!rRuns && s.view === 'step' && s.beat && beatOf(s).verify.kind === 'git-clean' && !['done', 'already'].includes(s.beat.status)) {
+      if (!rRuns && s.view === 'step' && s.beat && GIT.has(beatOf(s).verify.kind) && !['done', 'already'].includes(s.beat.status)) {
         Object.assign(s.beat, { status: 'broken', error: ev.message, rung: -1, confirm: false });
       }
       break;
@@ -936,6 +1030,12 @@ export function reduce(prev, ev) {
       break;
     case 'facts':
       Object.assign(s.facts, ev.facts);
+      break;
+    case 'commands':
+      Object.assign(s.commands, ev.found);
+      break;
+    case 'prereq':
+      onPrereq(s, ev);
       break;
     case 'notice':
       s.toast = { kind: ev.kind, message: ev.message, until: s.now + TOAST_MS * 2 };
@@ -972,6 +1072,12 @@ export function reduce(prev, ev) {
       break;
     default:
       break;
+  }
+  // An intro that opens looks again at what its lesson needs, and so does
+  // one whose folder changed or got its answer. Each ask for prerequisites
+  // has its number, so an answer to an older one that comes late says nothing.
+  if (s.view === 'intro' && (prev.view !== 'intro' || prev.lesson !== s.lesson || folderOf(prev) !== folderOf(s) || asksFolder(prev) !== asksFolder(s))) {
+    effects.push(...introAsks(s).map((e) => (e.type === 'prereqs' ? { ...e, asked: ++s.prereqAsks } : e)));
   }
   stampFx(prev, s, ev);
   return { state: s, effects };
@@ -1012,9 +1118,11 @@ function stampFx(prev, s, ev) {
   // from the last one. A new thing to watch starts the comparison over,
   // after the look that ended the old one.
   const w = watching(prev);
-  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && w?.git);
+  // A git result the beat doesn't read (onGit) is no look; one on part of
+  // the tree also differs when another path is staged.
+  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && answersGit(w, ev));
   if (looked) {
-    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read) : ev.paths);
+    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read) : ev.files ? [ev.paths, ev.staged] : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;
     if (fx.changed) fx.changedAt = t;
     fx.seen = seen;
@@ -1103,7 +1211,7 @@ function onKey(s, ev, effects) {
       s.overlay = null;
       return VIEWS.next(s, ev, effects);
     }
-    if (['escape', 'enter', 'q', '?', 'p', 'w', 'c'].includes(name) || (s.overlay === 'compare' && name === 'space')) s.overlay = null;
+    if (['escape', 'enter', 'q', '?', 'p', 'w', 'c', 'n'].includes(name) || (s.overlay === 'compare' && name === 'space')) s.overlay = null;
     // The arrows: one place a press.
     else if (SCROLLED[s.overlay] && (name === 'up' || name === 'down')) s.cardAt = Math.max(0, Math.min(SCROLLED[s.overlay](s).length, s.cardAt + (name === 'down' ? 1 : -1)));
     return;
@@ -1141,7 +1249,7 @@ function closeMap(s, effects) {
     const w = watching(s);
     if (w?.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beatOf(s).evidence ?? null, dir: w.dir });
     if (w?.file) effects.push({ type: 'file', path: w.file, dir: w.dir });
-    if (w?.git) effects.push({ type: 'git', dir: w.dir });
+    if (w?.git) effects.push(gitAsk(w));
   }
 }
 
@@ -1180,12 +1288,16 @@ const VIEWS = {
       else if (DIGIT.test(ch ?? '') && Number(ch) <= options.length) s.cursor = Number(ch) - 1;
       else if (name === 'enter' && options[s.cursor] === 'copy') setFolder(s, folderKey(s), s.facts.root, effects);
       else if (name === 'enter') askFolder(s, folderKey(s));
+      else if (name === 'n' && introNotes(s).length) openNotes(s);
       else return false;
       return true;
     }
+    const options = introOptions(s);
     if (name === 'f' && folderKey(s)) askFolder(s, folderKey(s));
-    else if (name === 'up' || name === 'down') s.cursor = s.cursor ? 0 : 1;
-    else if (DIGIT.test(ch ?? '') && Number(ch) <= 2) s.cursor = Number(ch) - 1;
+    else if (name === 'n' && introNotes(s).length) openNotes(s);
+    else if (name === 'up' || name === 'down') s.cursor = (s.cursor + (name === 'down' ? 1 : options.length - 1)) % options.length;
+    else if (DIGIT.test(ch ?? '') && Number(ch) <= options.length) s.cursor = Number(ch) - 1;
+    else if (name === 'enter' && options[s.cursor] === 'first') startLesson(s, offered(s), effects);
     else if (name === 'enter') {
       // A finished lesson played again keeps its badge and its ticks, but
       // every fresh check waits for new work and the help starts from the plan.
@@ -1261,7 +1373,7 @@ const VIEWS = {
       Object.assign(st, { status: 'opening', slowWait: false, asked: s.asks, running: null, before: st.status === 'opening' ? st.before : st.status });
       if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks, dir: w.dir });
       if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks, dir: w.dir });
-      if (w.git) effects.push({ type: 'git', asked: s.asks, dir: w.dir });
+      if (w.git) effects.push(gitAsk(w, { asked: s.asks }));
       return true;
     }
     // At CHALLENGE, hints wait for a first try: name it instead of ignoring h.
@@ -1302,7 +1414,7 @@ const VIEWS = {
     if ((name === 'space' || name === 'enter') && v === 'git-clean' && beat.doneLabel) {
       st.ended = true;
       st.explicit = true;
-      effects.push({ type: 'git' });
+      effects.push(gitAsk(watching(s)));
       return true;
     }
     return false;

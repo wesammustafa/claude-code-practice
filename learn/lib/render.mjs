@@ -5,12 +5,13 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, hintAvailable, hintStatus, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, moreHelpGives, nextLessonOf, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { COMMANDS_URL, OWN_PARTS, READS } from './content.mjs';
+import { COMMANDS_URL, GIT, OWN_PARTS, READS } from './content.mjs';
+import { cleanListed, needsChange } from './status.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
 // Each body row says how it gives way when the body is taller than its room
@@ -39,6 +40,10 @@ const optional = (rows) => {
 // `alt`, decoration leaves `alt` behind.
 const repeat = (rows, alt) => ({ block: 'repeat', rows, alt });
 const decor = (rows, alt = []) => ({ block: 'decor', rows, alt });
+// Kept notes that give way to `alt`, kept too, after optional teaching and
+// before any teaching row is cut, at any size: the intro's notes before the
+// learner starts, whose short form hands them to a key.
+const notes = (rows, alt) => ({ block: 'notes', rows, alt });
 
 // A lesson's title on one row, its code spans as plain text: a-4's is
 // "Script Claude Code with `claude -p`".
@@ -229,9 +234,9 @@ function bootOf(since, size, t, clock, raster) {
 // The body in `room` rows. What gives way, in order: below 24 rows repeats
 // compact; spacers drop one at a time from the bottom; below 24 rows
 // decoration gives way, from the top; optional teaching drops from the
-// bottom, a sentence at a time; then teaching rows are cut from the bottom,
-// each run of cut rows under one `…`. Kept rows stay, so the list can
-// still be taller than `room`.
+// bottom, a sentence at a time; notes take their short form; then teaching
+// rows are cut from the bottom, each run of cut rows under one `…`. Kept
+// rows stay, so the list can still be taller than `room`.
 export function fit(body, room, short, more) {
   let list = body;
   const size = (l = list) => l.reduce((n, r) => n + (r?.block ? r.rows.length : 1), 0);
@@ -257,6 +262,7 @@ export function fit(body, room, short, more) {
     if (i < 0) break;
     list = [...list.slice(0, i), ...list[i].alt, ...list.slice(i + 1)];
   }
+  const notesAt = list.find((r) => r?.block === 'notes');
   list = list.flatMap((r) => (r?.block ? r.rows : [r]));
   const dropped = new Set();
   while (list.length > room) {
@@ -269,6 +275,9 @@ export function fit(body, room, short, more) {
   // A sentence can free more rows than were needed: fit again without it,
   // so the spacers and decoration that gave way first come back while they fit.
   if (dropped.size && list.length < room) return fit(body.filter((r) => !dropped.has(r)), room, short, more);
+  // Notes still too tall take their short form, and the body fits again, so
+  // what gave way before them comes back while it fits.
+  if (notesAt && list.length > room) return fit(body.flatMap((r) => (r === notesAt ? notesAt.alt : [r])), room, short, more);
   if (list.length > room) {
     const teaching = list.flatMap((r, i) => (typeof r === 'string' || !(r.keep || r.optional || r.spacer) ? [i] : []));
     // Inside a card the `…` keeps the card's rail. A lone row stays: a `…`
@@ -645,19 +654,40 @@ function folderLine(ctx, path = folderOf(ctx.s), after = '') {
   return `${t.fg('muted', lead)}${where}${after}`;
 }
 
+// A warning in `w` columns, as kept rows: the warn mark, then the text
+// wrapped under its first word.
+function warnNote(t, text, w, color = 'warn', opts) {
+  const mark = `${t.fg('warn', t.glyph.warnMark)} `;
+  return kept(hang(mark, para(t, text, w - width(mark), color, opts)));
+}
+
 // What main found wrong with the lesson's work folder, where it isn't the
 // copy, as kept rows: before the first step, the learner knows (ticket 86).
 // Nothing until main has looked.
 function folderNotes(ctx, w = ctx.W) {
   const { s, t } = ctx;
-  const dir = folderOf(s);
-  const found = dir && dir !== s.facts.root ? s.probes[dir] : null;
-  if (!found) return [];
-  const text = found.missing ? C.folderGone(shortPath(t, dir, w - 30)) : found.gitBroken ? C.folderGitBroken(found.gitBroken)
-    : !found.git ? C.notGit : !found.practice ? C.noPractice : null;
-  if (!text) return [];
-  const mark = `${t.fg('warn', t.glyph.warnMark)} `;
-  return kept(hang(mark, para(t, text, w - width(mark), 'warn')));
+  const problem = folderProblem(s);
+  if (!problem) return [];
+  const found = s.probes[folderOf(s)];
+  const text = { missing: () => C.folderGone(shortPath(t, folderOf(s), w - 30)), gitBroken: () => C.folderGitBroken(found.gitBroken), notGit: () => C.notGit, noPractice: () => C.noPractice }[problem]();
+  return warnNote(t, text, w);
+}
+
+// What the intro says before the learner starts, in `w` columns, each note
+// its kept rows: what main found wrong with the work folder (ticket 86),
+// then what the lesson needs (ticket 89): on native Windows the page's
+// note, as a beat shows it; the commands main found on no PATH folder, in
+// one sentence with the You need line that names each; and each
+// prerequisite that failed, with what isn't there.
+function noteRows(ctx, w) {
+  const { s, t } = ctx;
+  const win = contentOf(s).intro['win-note'];
+  const missing = missingNeeds(s);
+  const quotes = missing.map((n) => `"${n.quote}"`).join(' ');
+  return [asksFolder(s) ? [] : folderNotes(ctx, w),
+    win && t.caps.win32 ? kept(para(t, win, w, 'text', { quote: true })) : [],
+    missing.length ? warnNote(t, quotes, w, 'text', { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : [],
+    ...unmet(s).map((r) => warnNote(t, (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
 }
 
 // ---- views -------------------------------------------------------------------
@@ -751,11 +781,17 @@ const VIEWS = {
     // Where the level is practised (ticket 86): the question, until it has
     // an answer, in place of the start options; then the answer, on the
     // intro that asked. Both are kept rows, so the Why line gives way first.
-    // Room for 89's needs line goes here too, as kept rows above the menu.
+    // The notes before the start (86's folder note, 89's needs) are kept
+    // too, under the answer. Where they don't fit once the Why line is
+    // gone, they give way to one row that hands them to n, so no teaching
+    // row is cut.
+    const shown = noteRows(ctx, W).flat();
+    const before = shown.length ? [notes(shown, warnNote(t, C.notesShort, W))] : [];
     const menu = asking
-      ? [...kept([t.bold(t.fg('white', folderKey(s) === levelOf(s) ? C.folderAsk(levelName(s)) : C.newCopyAsk))]),
+      ? [...before, ...kept([t.bold(t.fg('white', folderKey(s) === levelOf(s) ? C.folderAsk(levelName(s)) : C.newCopyAsk))]),
         ...kept(folderOptions(s).map((o, i) => option(i, o === 'copy' ? C.folderCopy : folderKey(s) === levelOf(s) ? C.folderOther : C.folderNewCopy)))]
-      : [...(asksHere(s) ? kept([folderLine(ctx)]) : []), ...folderNotes(ctx), ...kept([option(0, label), option(1, C.lessHelp)])];
+      : [...(asksHere(s) ? kept([folderLine(ctx)]) : []), ...before,
+        ...kept(introOptions(s).map((o, i) => option(i, o === 'start' ? label : o === 'less' ? C.lessHelp : C.openFirst(lessonLabel(offered(s))))))];
     // Why the lesson matters, in the page's words, with its blank: an
     // optional row, so below 24 rows the staircase compacts first.
     return {
@@ -1243,7 +1279,7 @@ function stepView(ctx) {
   const tint = done ? 'ok' : style.tint;
   return {
     head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
-    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || beat.verify.kind === 'git-clean'), rows, mood: stepMood(s, beat, isLastBeat) }),
+    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows, mood: stepMood(s, beat, isLastBeat) }),
     keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }),
   };
 }
@@ -1258,7 +1294,7 @@ function stepMood(s, beat, isLastBeat) {
   if (['done', 'already'].includes(st.status)) return isLastBeat ? 'done' : 'rest';
   if (st.status === 'opening') return 'checking';
   if (st.status === 'broken') return 'broken';
-  const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && Boolean(s.git?.paths?.length);
+  const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && gitListed(s, beat).length > 0;
   const wrong = ['wrong', 'stuck'].includes(st.feedback?.kind);
   const stuck = st.idle && hintAvailable(s);
   return st.status === 'fail' || gitLine || wrong || st.rung >= 0 || st.confirm || stuck ? 'worried' : 'rest';
@@ -1320,6 +1356,8 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   const rows = [];
   const quoted = (text, color = 'text') => para(t, text, inner - 2, color, { quote: true });
   const stepNumber = (id) => stepsOf(s).findIndex((x) => x.id === id) + 1;
+  // The paths a git-clean beat names, where it names some.
+  const scope = beat.verify.paths?.join(', ');
   // A new "Not yet" line's mark pops from hollow.
   const warnMark = into(ctx, 'notYet') < SHOTS.notYet.pop ? t.glyph.warnPop : t.glyph.warnMark;
   // Room for text beside the burst.
@@ -1339,6 +1377,9 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));
+    // git status, not a check, passed a beat that needs it to list
+    // something: what changed, as a pass shows it.
+    else if (needsChange(beat.verify)) rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'), ...(st.evidence ? para(t, st.evidence, inner, 'text') : []));
     else rows.push(...para(t, `${t.lead('verified')}${beat.verify.all ? C.alreadyCheck : C.already}`, inner, 'ok'));
   }
   if (beat.verify.all && ['done', 'already'].includes(st.status) && s.checks[s.lesson]?.items) {
@@ -1360,8 +1401,13 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     if (isLastBeat) celebrate(ev.length ? ev : para(t, C.beatDone, room, 'text'));
     else rows.push(lead(t, 'verified', t.fg('ok', C.beatDone)));
   } else if (st.status === 'done' && beat.verify.kind === 'git-clean') {
-    if (isLastBeat) celebrate(para(t, C.cleanCopy, room, 'text'));
-    else rows.push(lead(t, 'verified', t.fg('ok', C.cleanCopy)));
+    const clean = scope ? C.cleanUnder(scope) : C.cleanCopy;
+    if (isLastBeat) celebrate(para(t, clean, room, 'text'));
+    else rows.push(...(scope ? para(t, `${t.lead('verified')}${clean}`, inner, 'ok') : [lead(t, 'verified', t.fg('ok', clean))]));
+  } else if (st.status === 'done' && needsChange(beat.verify)) {
+    // What changed, or is staged, beside the burst.
+    if (isLastBeat) celebrate(para(t, st.evidence ?? C.beatDone, room, 'text'));
+    else rows.push(lead(t, 'verified', t.fg('ok', C.beatDone)));
   } else if (st.status === 'done') {
     const f = st.feedback;
     if (beat.kind === 'predict') {
@@ -1385,20 +1431,22 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     }
   } else if (st.status === 'waiting' && st.slowWait) {
     rows.push(...para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted'));
-  } else if (st.status === 'waiting' && looksAtFile(beat)) {
-    const [a, what, b] = (st.stale ? C.staleWatch : C.watching)(beat.watching ?? beat.evidence ?? 'your files');
+  } else if (st.status === 'waiting' && (looksAtFile(beat) || needsChange(beat.verify))) {
+    const [a, what, b] = (st.stale ? C.staleWatch : C.watching)(beat.watching ?? beat.evidence ?? (needsChange(beat.verify) ? 'git status' : 'your files'));
     rows.push(...para(t, `${t.lead('watch')}${a}\`${what}\`${b}`, inner, 'muted'));
   } else if (beat.verify.kind === 'git-clean' && (st.status === 'waiting' || st.status === 'fail')) {
-    const paths = s.git?.paths ?? [];
+    const paths = gitListed(s, beat);
     if (st.status === 'fail' || paths.length) {
       const shown = (st.fail?.paths ?? paths).slice(0, 3).join(', ');
-      rows.push(...para(t, `${st.status === 'fail' ? `${C.notYet} ` : ''}${C.gitDirty((st.fail?.paths ?? paths).length)} ${shown}`, inner - 2, 'warn').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', st.status === 'fail' ? warnMark : t.glyph.warnMark)} ${x}`)));
+      rows.push(...para(t, `${st.status === 'fail' ? `${C.notYet} ` : ''}${scope ? C.changedUnder((st.fail?.paths ?? paths).length, scope) : C.gitDirty((st.fail?.paths ?? paths).length)} ${shown}`, inner - 2, 'warn').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', st.status === 'fail' ? warnMark : t.glyph.warnMark)} ${x}`)));
       if (st.status === 'fail') rows.push(`  ${t.fg('muted', C.gitFailAfter)}`);
-    } else rows.push(lead(t, 'watch', `${t.fg('muted', C.watchingGit)}${t.fg('code', 'git status')}${t.fg('muted', ':')} ${t.fg('ok', `${t.glyph.check} ${C.gitClean}`)}`));
+    } else if (scope) rows.push(...para(t, `${t.lead('watch')}${C.watchingGit}\`git status\`: ${t.glyph.check} ${C.gitCleanUnder(scope)}`, inner, 'muted'));
+    else rows.push(lead(t, 'watch', `${t.fg('muted', C.watchingGit)}${t.fg('code', 'git status')}${t.fg('muted', ':')} ${t.fg('ok', `${t.glyph.check} ${C.gitClean}`)}`));
   } else if (st.status === 'fail' && st.fail?.hint) {
-    // A beat that reads its file itself has a not-yet line in the app's own
-    // words, whole; a check's FAIL message is cut to what is wrong.
-    rows.push(...para(t, `${C.notYet} ${READS.has(beat.verify.kind) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`)));
+    // A beat that reads its file itself, or git status, has a not-yet line
+    // in the app's own words, whole; a check's FAIL message is cut to what
+    // is wrong.
+    rows.push(...para(t, `${C.notYet} ${READS.has(beat.verify.kind) || needsChange(beat.verify) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`)));
   }
 
   // Feedback on a pick that wasn't right, before the answer.
@@ -1441,6 +1489,9 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   if (st.eased && !['done', 'already'].includes(st.status) && s.pos.beat === 0) rows.push(...para(t, C.eased, inner, 'muted'));
   return rows;
 }
+
+// What git status lists that a git-clean beat counts.
+const gitListed = (s, beat) => cleanListed(beat.verify, s.git?.paths ?? []);
 
 // A beat whose check is about a file: a check item, or the file read here.
 const looksAtFile = (beat) => beat.verify.kind === 'check' || READS.has(beat.verify.kind);
@@ -1541,6 +1592,21 @@ function cardPlaces(ctx, units, title, intro) {
 const COMPARE_MIN = 24;
 
 const OVERLAYS = {
+  // The intro's notes before the start, whole, for where the intro has room
+  // for only the row that points here. Where they are taller than the
+  // room, whole notes from s.cardAt down, one a press of the arrows.
+  notes(ctx) {
+    const { s, t, inner, room } = ctx;
+    const head = [t.bold(t.fg('white', C.notesTitle)), ''];
+    const places = noteRows(ctx, inner).map((n) => n.map((r) => r.text));
+    const avail = room - head.length;
+    const from = places.flat().length <= avail ? 0 : Math.min(s.cardAt, places.length - 1);
+    const k = places.length ? placesTo(places, from, avail) : 0;
+    return {
+      body: [...head, ...places.slice(from, k).flat()],
+      keys: [from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null, key('n', C.k.close), key('q', C.k.close)],
+    };
+  },
   // The path prompt (ticket 86): what it asks for, the path as typed, its
   // last rows where it is long, so the end the next key goes to shows, and
   // a folder main found missing, or that main is looking.
