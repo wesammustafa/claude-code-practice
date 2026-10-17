@@ -139,12 +139,30 @@ export const levelFolder = (s, level) => s.folders[level] ?? s.facts.root;
 // The folder a lesson's check, git status and file reads run in: its work
 // folder, the practice copy by default. A lesson that runs in a new copy has
 // none (null) until the learner gives it, and no check runs for it before.
-export function folderOf(s, id = s.lesson) {
+// With `step`, the folder that step runs in: a Worked example step of a
+// lesson whose front matter says `worked: copy` runs in the practice copy,
+// every other step in its lesson's folder (ticket 183). Every choice of a
+// folder for a step comes through here: its verifies, its fresh stamps, the
+// watcher and the header. Without a step, the lesson's own folder, where
+// its prerequisites, its notes and its first look are.
+export function folderOf(s, id = s.lesson, step = null) {
   const l = lessonOf(s, id);
   if (pinOf(l) === 'new copy') return s.folders[l.id] ?? null;
+  if (step?.part === 'Worked example' && l.content?.worked === 'copy') return s.facts.root;
   const k = folderKey(s, id);
   return (k && s.folders[k]) || s.facts.root;
 }
+// The step the screen is about: the one on a step card or its level-up,
+// and the one a resume screen goes back to. Null on any other screen.
+export function stepHere(s) {
+  if (!contentOf(s)) return null;
+  if (s.view === 'step' || s.view === 'levelup') return stepOf(s) ?? null;
+  if (s.view === 'resume') return stepsOf(s).find((x) => x.id === s.progress[s.lesson].step) ?? null;
+  return null;
+}
+// The folder of what the screen shows (ticket 183): its step's where there
+// is one, else the lesson's. The header, the watcher and a card's place read it.
+export const folderHere = (s) => folderOf(s, s.lesson, stepHere(s));
 // A lesson the learner can still finish: not complete, and not one that
 // runs in a new copy of the template while that copy's folder is not saved,
 // as no check of it runs until then. The next lesson the map marks and
@@ -263,7 +281,7 @@ export const tierOf = (s) => tiersOf(s)[s.pos.step];
 // What the wiring should keep an eye on for the beat on screen.
 // `dir` is the folder it runs in.
 export function watching(s) {
-  const dir = folderOf(s);
+  const dir = folderHere(s);
   // A lesson that runs in a new copy has no check to run until it has one.
   if (s.view === 'checkonly') return dir ? { check: { lesson: s.lesson, items: null }, dir } : null;
   if (s.view !== 'step' || !s.beat) return null;
@@ -304,13 +322,22 @@ function askFolder(s, key) {
 
 // The learner's answer: saved, and from now on where that key's lessons
 // run. What a check found in the folder before, and the states a fresh
-// check compares its file with, say nothing about another one.
+// check compares its file with, say nothing about another one. A step that
+// stays where it was, a Worked example in the practice copy (ticket 183),
+// keeps its states.
 function setFolder(s, key, path, effects) {
   const moved = s.course.filter((l) => folderKey(s, l.id) === key && folderOf(s, l.id) !== path).map((l) => l.id);
+  const where = (id) => new Map(stepsOf(s, id).map((x) => [x.id, folderOf(s, id, x)]));
+  const was = new Map(moved.map((id) => [id, where(id)]));
   s.folders[key] = path;
   for (const id of moved) {
     delete s.checks[id];
-    s.progress[id].stamps = {};
+    const now = where(id);
+    const stays = (k) => {
+      const step = k.slice(0, k.lastIndexOf('.'));
+      return now.has(step) && now.get(step) === was.get(id).get(step);
+    };
+    s.progress[id].stamps = Object.fromEntries(Object.entries(s.progress[id].stamps).filter(([k]) => stays(k)));
   }
   if (s.checkOnlyRun && moved.includes(s.checkOnlyRun.lesson)) s.checkOnlyRun = null;
   if (s.folderAsk?.key === key) {
@@ -519,10 +546,10 @@ function openBeat(s, effects) {
     s.beat.codespace = true;
   } else if (beat.verify.kind === 'check') {
     s.beat.status = 'opening';
-    effects.push({ type: 'check', lesson: s.lesson, items: beat.verify.all ? null : beat.verify.items, evidence: beat.evidence ?? null, dir: folderOf(s) });
+    effects.push({ type: 'check', lesson: s.lesson, items: beat.verify.all ? null : beat.verify.items, evidence: beat.evidence ?? null, dir: folderOf(s, s.lesson, step) });
   } else if (READS.has(beat.verify.kind)) {
     s.beat.status = 'opening';
-    effects.push({ type: 'file', path: beat.verify.path, dir: folderOf(s) });
+    effects.push({ type: 'file', path: beat.verify.path, dir: folderOf(s, s.lesson, step) });
   } else if (GIT.has(beat.verify.kind)) {
     s.beat.status = 'opening';
     effects.push(gitAsk(watching(s)));
@@ -531,14 +558,15 @@ function openBeat(s, effects) {
 }
 
 // A fresh check compares its file with how it was when its step opened (or
-// the step it names): ask for that file's state now, once.
+// the step it names): ask for that file's state now, once, in the folder
+// the fresh beat's own step reads it in (ticket 183).
 function stampFresh(s, effects) {
   const step = stepOf(s);
   const stamps = s.progress[s.lesson].stamps;
   for (const other of stepsOf(s)) {
     other.beats.forEach((b, i) => {
       const key = `${other.id}.${i}`;
-      if (b.verify.fresh && (b.verify.since ?? other.id) === step.id && !(key in stamps)) effects.push({ type: 'stamp', key, path: b.evidence, dir: folderOf(s) });
+      if (b.verify.fresh && (b.verify.since ?? other.id) === step.id && !(key in stamps)) effects.push({ type: 'stamp', key, path: b.evidence, dir: folderOf(s, s.lesson, other) });
     });
   }
 }
@@ -1007,6 +1035,18 @@ function onGit(s, ev, effects, rRuns) {
 }
 
 // ---- the reducer -------------------------------------------------------------
+// The folder a result has to come from (ticket 183): a stamp's, its fresh
+// beat's step's; a result for the step card on screen, that step's; any
+// other, its lesson's.
+function resultFolder(s, ev) {
+  const id = ev.lesson ?? s.lesson;
+  if (ev.type === 'stamp') {
+    const named = ev.key.slice(0, ev.key.lastIndexOf('.'));
+    return folderOf(s, id, stepsOf(s, id).find((x) => x.id === named) ?? null);
+  }
+  return folderOf(s, id, id === s.lesson && s.view === 'step' && contentOf(s) ? stepOf(s) : null);
+}
+
 export function reduce(prev, ev) {
   const s = clone({ ...prev, course: null });
   s.course = prev.course;
@@ -1024,8 +1064,9 @@ export function reduce(prev, ev) {
   // reported has ended: the count goes with it.
   if ((ev.type === 'check' || ev.type === 'check-error') && s.beat?.running) s.beat.running = null;
   // A result about another folder than the one its lesson runs in now (a run
-  // asked for before the learner changed it) decides nothing.
-  if ((result || ev.type === 'stamp') && ev.dir !== undefined && ev.dir !== folderOf(s, ev.lesson ?? s.lesson)) ev = { ...ev, type: 'stale' };
+  // asked for before the learner changed it, or for a step in another
+  // folder) decides nothing.
+  if ((result || ev.type === 'stamp') && ev.dir !== undefined && ev.dir !== resultFolder(s, ev)) ev = { ...ev, type: 'stale' };
   switch (ev.type) {
     case 'check':
       onCheck(s, ev, effects, rRuns);
