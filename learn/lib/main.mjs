@@ -243,7 +243,11 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // floor's end and written then, so it shows the pose of the moment it
   // goes out, or, where that is past halfway to the grid's next step, waits
   // for that step instead: a late timer or a quicker render never holds the
-  // frames after it off their grid. No frame is for a time before the last
+  // frames after it off their grid. A frame the floor holds waits for its
+  // end on a second timer, so timers that fire unevenly late send fewer,
+  // wider-spaced frames, by decision: a deadline's timer armed for the
+  // floor's end instead puts a timer's lateness after the floor on every
+  // frame, and timers each a little late then creep off the grid. No frame is for a time before the last
   // one's, though a timer can fire a little before its deadline. Every time
   // here is on `perf`, main's one clock: the event stamps, the frames, the
   // screen's writes and Pip.

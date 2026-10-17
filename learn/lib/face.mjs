@@ -39,14 +39,15 @@ function trackAt(face, ms) {
 // interpolated linearly between the keyframes either side, so only the
 // package's glyphs step (181). `passing`: where the card face's mood
 // changed mid one-shot (motion.mjs's cardFace), the face it showed then,
-// `from` ({ mood, face, ms }), and how far from it, `u`: each value moves
-// linearly from that face's to this one's.
+// `from` ({ mood, face, ms }, and its own `passing` where it passed too),
+// and how far from it, `u`: each value moves linearly from that face's to
+// this one's.
 export function facePose(mood, face, ms = 0, passing) {
   const [a, b, u] = trackAt(face, ms);
   const pose = mix(over(mood, a), over(mood, b), u);
   if (!passing) return pose;
   const { from, u: moved } = passing;
-  return mix(facePose(from.mood, from.face, from.ms), pose, moved);
+  return mix(facePose(from.mood, from.face, from.ms, from.passing), pose, moved);
 }
 
 // The card face's 7 cells for `pose`, uncolored: ` [●‿●] `, with a hop's or

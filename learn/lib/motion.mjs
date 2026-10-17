@@ -298,34 +298,49 @@ function faceWith(shown, ph) {
 }
 
 // The card face as it showed at `m`, over the mood it showed then (`was`):
-// the one-shots that started before `m` and still played, and a blink.
+// the one-shots that started before `m` and still played, the glance from
+// the file change before `m`, and a blink.
 function faceThen(s, m, was) {
   const ms = {};
   if (!idle(s, m)) {
-    for (const [part, start] of Object.entries(shotStarts(s))) if (start < m && oneShot(s, m, start, TIMING[part]) < 1) ms[part] = m - start;
+    for (const [part, start] of Object.entries(shotStarts(s, m))) if (start < m && oneShot(s, m, start, TIMING[part]) < 1) ms[part] = m - start;
     const since = childSince(s);
     const spinning = since !== undefined && m - since >= FIRST_TICK;
-    if (!spinning && ambientAllowed(s, m) && blinks(s) && blinkInto(s, m) < TIMING.blink) ms.blink = blinkInto(s, m);
+    const blinked = blinkInto(s, m);
+    if (!spinning && ambientAllowed(s, m) && blinks(s) && blinked > 0 && blinked < TIMING.blink) ms.blink = blinked;
   }
   return faceWith(was, { ms, checking: true });
 }
+
+// The card face's one-shots that turn Pip back to the card: each shows at
+// once where it starts, as design 2.3's frames do.
+const TURNS_BACK = ['notYet', 'hop', 'cheer'];
 
 // Where the card face's mood changed mid one-shot (181), with
 // `face` the face it shows at `at`: the moment and the face it showed then,
 // which it passes from over TIMING.mood, or undefined. Only where a
 // one-shot that started before the change played as it changed or plays
 // now. None where the change starts one (its face shows at once, as design
-// 2.3's frames do) or where none plays (the new face shows at once); none
-// at idle, nor beside a question, its options, a typed answer, the y/n
-// before the exact command or the hint box, where nothing moves; and a key
-// ends it, as it ends every one-shot.
+// 2.3's frames do) or where none plays (the new face shows at once). A
+// glance or a blink that starts as it passes passes on, from the face the
+// passage showed then, over TIMING.mood from its start; a "Not yet", hop
+// or cheer shows at once. None at idle, nor beside a question, its
+// options, a typed answer, the y/n before the exact command or the hint
+// box, where nothing moves; and a key ends it, as it ends every one-shot.
 function moodPassage(s, at, face) {
   if (!face || idle(s, at) || answering(s)) return undefined;
   const changed = moodChanged(s, at);
-  if (oneShot(s, at, changed?.at, TIMING.mood) >= 1) return undefined;
-  const from = faceThen(s, changed.at, changed.was);
+  if (!changed) return undefined;
   const started = face.part === undefined ? undefined : at - face.ms;
-  if (!from || started >= changed.at || (from.part === undefined && started === undefined)) return undefined;
+  if (started > changed.at) {
+    if (TURNS_BACK.includes(face.part) || oneShot(s, at, started, TIMING.mood) >= 1) return undefined;
+    const shown = faceThen(s, started, moodShown(cardMood(s), childSince(s), started));
+    const passed = moodPassage(s, started, shown);
+    return passed && { at: started, from: { ...shown, passing: { from: passed.from, u: (started - passed.at) / TIMING.mood } } };
+  }
+  if (oneShot(s, at, changed.at, TIMING.mood) >= 1) return undefined;
+  const from = faceThen(s, changed.at, changed.was);
+  if (!from || started === changed.at || (from.part === undefined && started === undefined)) return undefined;
   return { at: changed.at, from };
 }
 
@@ -349,9 +364,11 @@ function sweepFrom(s) {
 }
 
 // When each one-shot on this screen started, or undefined where it does not
-// play. Each lasts its own TIMING entry.
-export function shotStarts(s) {
+// play. Each lasts its own TIMING entry. With `before`, the glance from the
+// file change before then, where a newer one started it again.
+export function shotStarts(s, before = Infinity) {
   const fx = s.fx;
+  const glanced = fx.activity < before ? fx.activity : fx.activityWas;
   const on = (views, start) => (views.includes(s.view) ? start : undefined);
   const entered = Math.max(fx.view ?? NEVER, fx.open ?? NEVER);
   const st = s.view === 'step' ? s.beat : null;
@@ -376,7 +393,7 @@ export function shotStarts(s) {
     sweep: sweepFrom(s),
     // A file change: Pip glances toward the other window, until a newer
     // "Not yet", hop or cheer turns Pip back to the card.
-    glance: watching(s) && !answering(s) && fx.activity > Math.max(fx.text ?? NEVER, fx.pass ?? NEVER, fx.passLast ?? NEVER) ? fx.activity : undefined,
+    glance: watching(s) && !answering(s) && glanced > Math.max(fx.text ?? NEVER, fx.pass ?? NEVER, fx.passLast ?? NEVER) ? glanced : undefined,
   };
 }
 
@@ -527,8 +544,7 @@ export function nextChange(s, at, caps) {
   // The card face passing from the face it showed as its mood changed: the
   // next grid step of its passage where its cells change. A mood changes on
   // an event's frame, or as the spinner turns.
-  const changed = moodChanged(s, at);
-  const ph = oneShot(s, at, changed?.at, TIMING.mood) < 1 ? phases(s, at, caps) : REST_PHASES;
+  const ph = moodChanged(s, at) ? phases(s, at, caps) : REST_PHASES;
   if (ph.ms.mood !== undefined) {
     const from = at - ph.ms.mood;
     const cells = (when, p) => {

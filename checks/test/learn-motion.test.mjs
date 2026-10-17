@@ -1421,6 +1421,51 @@ test('the card face passes from the face it showed only where its mood changes m
   }
 });
 
+// The card face's 7 cells on `s` from `start` + `from` ms to + `to` ms,
+// each millisecond, with the frames nextChange asks from `from`: every
+// cell changes once at most and never goes back, and the face each step of
+// the 40 ms grid from `from` shows is on a frame it asked for.
+function passesOnce(s, start, from, to, label) {
+  const face = (ms) => frameAt(s, start, ms)[4].slice(-9, -2);
+  const asked = [from];
+  for (let ms = from, n; ms < to && (n = nextChange(s, start + ms, ON)) !== null; ) asked.push((ms += n));
+  for (let ms = from; ms <= to; ms += TIMING.grid) assert.equal(face(ms), face(asked.findLast((f) => f <= ms)), `${label}: +${ms} ms shows on a frame it asked`);
+  const faces = Array.from({ length: to - from + 1 }, (_, k) => [...face(from + k)]);
+  for (let c = 0; c < faces[0].length; c++) {
+    const seen = faces.map((cells) => cells[c]).filter((g, k, all) => k === 0 || g !== all[k - 1]);
+    assert.equal(new Set(seen).size, seen.length, `${label}: cell ${c} never goes back (${seen.join(' ')})`);
+  }
+  return face;
+}
+
+// A glance that starts while the face passes, from a file change, passes
+// on from the face the passage showed then (181): it never jumps.
+test('a glance that starts while the card face passes passes on from the face it showed then, and each cell changes once at most', () => {
+  // The face passes from checking to the glance under it (the test above),
+  // and a file change 20 ms in starts a new glance: from the face it showed
+  // at +20 ms, it passes on into the new glance, whole 80 ms on.
+  const { d: e } = checkingW3();
+  at(e, { type: 'activity', wait: 250 });
+  const changed = at(e, { type: 'check', lesson: 'b-1', items: [b1Item(null)], wait: 50 }).now;
+  const passing = e.state;
+  at(e, { type: 'activity', wait: 20 });
+  const again = e.state;
+  assert.equal(again.fx.activity, changed + 20);
+  const was = frameAt(passing, changed, 20)[4].slice(-9, -2);
+  assert.equal(was, ' [◒‿◒] ', '+20 ms: the face passing');
+  const on = passesOnce(again, changed, 20, 300, 'on into the new glance');
+  assert.equal(on(20), was, '+20 ms: the face it showed as the new glance started');
+  assert.equal(on(20 + TIMING.mood), ' [◑‿◑] ', '+100 ms: the new glance');
+  assert.equal(phases(again, changed + 60, ON).ms.mood, 40, 'its passage counts from the new glance');
+  assert.equal(phases(again, changed + 20 + TIMING.mood, ON).ms.mood, undefined, 'over by +100 ms');
+  // Its cells from the first passage to the second never go back.
+  const cells = [...Array.from({ length: 20 }, (_, ms) => frameAt(passing, changed, ms)[4].slice(-9, -2)), ...Array.from({ length: 81 }, (_, k) => on(20 + k))];
+  for (let c = 0; c < cells[0].length; c++) {
+    const seen = cells.map((f) => f[c]).filter((g, k, all) => k === 0 || g !== all[k - 1]);
+    assert.equal(new Set(seen).size, seen.length, `cell ${c} never goes back (${seen.join(' ')})`);
+  }
+});
+
 test('nothing passes beside a question or a typed answer: a wrong pick and a typed wrong answer show the worried face at once and ask for no frame', () => {
   const pick = driver();
   pick.key('enter');

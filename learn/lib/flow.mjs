@@ -1204,7 +1204,9 @@ function stampFx(prev, s, ev) {
     fx.look = t;
   }
   if (!sameJson(w, watching(s))) delete fx.seen;
-  if (ev.type === 'activity' && w) fx.activity = t;
+  // The stamp before it too: the face Pip showed as a new glance started
+  // (motion.mjs) is the older one's.
+  if (ev.type === 'activity' && w) Object.assign(fx, { activityWas: fx.activity, activity: t });
   // On the check-only card, the items a result finds passing that the
   // result before it, for the same lesson, found not passing or left out.
   if (ev.type === 'check' && s.view === 'checkonly' && ev.lesson === s.lesson) {
