@@ -79,6 +79,11 @@ export const PATH = [
   { id: 'a-7', level: 'advanced', page: 'docs/advanced/07-bounded-runs.md', minutes: 'about 20 minutes, plus run time' },
   { id: 'a-capstone', level: 'advanced', page: 'docs/advanced/capstone.md', minutes: '30 to 60 minutes, plus run time', newCopy: true },
 ];
+// The guide's levels, in course order.
+export const LEVELS = [...new Set(PATH.map((p) => p.level))];
+// A warm-up may quote a level's index page, docs/<level>/README.md, with
+// `- from: <level>-index` (ticket 178): its level, or null for a lesson id.
+export const indexLevel = (id) => LEVELS.find((level) => id === `${level}-index`) ?? null;
 // The levels whose lessons practise in a work folder the learner picks, the
 // practice copy by default (ticket 86): Beginner practises in the copy.
 export const WORK_LEVELS = ['intermediate', 'advanced'];
@@ -97,6 +102,8 @@ export const SLOW = {
 export const GUIDE = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know';
 // The guide's Commands by level page, which ends your card.
 export const COMMANDS_URL = `${GUIDE}/blob/main/docs/reference/commands.md`;
+// A level's index page, which a `<level>-index` warm-up quotes.
+export const indexUrl = (level) => `${GUIDE}/blob/main/docs/${level}/README.md`;
 
 function value(raw) {
   const q = raw.match(/^"(.*)"$/);
@@ -201,6 +208,7 @@ export function parseLesson(text, file = 'lesson') {
     if (!beat) {
       if (!STEP_KEYS.has(key)) fail(i, `unknown step key ${key}`);
       if (key === 'from' && step.part !== 'Warm-up') fail(i, 'only a warm-up names the lesson it comes from');
+      if (key === 'from' && raw.endsWith('-index') && !indexLevel(raw)) fail(i, `from ${raw}: a level index is ${LEVELS.map((l) => `${l}-index`).join(', ').replace(/, (?=[^,]*$)/, ' or ')}`);
       step[key] = raw;
       continue;
     }

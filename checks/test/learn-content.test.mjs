@@ -6,12 +6,12 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GUIDE, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
+import { GUIDE, indexLevel, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
-import { DEMO_B2, DEMO_I1, root, withCode } from './learn-drive.mjs';
+import { DEMO_B2, DEMO_I1, DEMO_I1_INDEX, root, withCode } from './learn-drive.mjs';
 
 const dir = join(root, 'learn', 'lessons');
 const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
@@ -153,7 +153,8 @@ test('steps are numbered as on the page, one part after the other', () => {
 });
 
 // What is wrong with lesson `id`'s warm-ups: each a question from an earlier
-// lesson, in any level, numbered, from memory.
+// lesson, in any level, or from any level's index page (ticket 178),
+// numbered, from memory.
 function warmupOff(id, l) {
   const off = [];
   const at = PATH.findIndex((p) => p.id === id);
@@ -161,7 +162,7 @@ function warmupOff(id, l) {
     if (w.id !== `R${i + 1}`) off.push(`${id} ${w.id}: not R${i + 1}`);
     if (w.tier !== 'challenge') off.push(`${id} ${w.id}: a warm-up is CHALLENGE`);
     const from = PATH.findIndex((p) => p.id === w.from);
-    if (!(from >= 0 && from < at)) off.push(`${id} ${w.id}: from ${w.from} is not an earlier lesson`);
+    if (!indexLevel(w.from) && !(from >= 0 && from < at)) off.push(`${id} ${w.id}: from ${w.from} is not an earlier lesson`);
     if (w.beats.length !== 1) off.push(`${id} ${w.id}: one question`);
     if (!['ask', 'type'].includes(w.beats[0].kind)) off.push(`${id} ${w.id}: a warm-up asks`);
   });
@@ -576,6 +577,18 @@ test('warm-ups: a lesson may recall a lesson of an earlier level, as i-1 recalls
   assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1', i1)], []);
 });
 
+// Ticket 178: a warm-up may recall a level's index page, any level's, from
+// any lesson. The index has no lesson file and no place on PATH.
+test('warm-ups: a warm-up may recall a level index, from any lesson', () => {
+  const i1 = parseLesson(DEMO_I1_INDEX, 'i-1.md');
+  assert.deepEqual(i1.warmup.map((w) => [w.from, w.skill]), [['b-5', 'commit'], ['intermediate-index', 'when-to-use']]);
+  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1', i1)], []);
+  // Beginner's second lesson may quote the Advanced index.
+  const b2 = parseLesson(DEMO_B2.replace('- from: b-1\n- beat: type', '- from: advanced-index\n- beat: type'), 'b-2.md');
+  assert.deepEqual(b2.warmup.map((w) => w.from), ['b-1', 'advanced-index', 'b-1']);
+  assert.deepEqual(warmupOff('b-2', b2), []);
+});
+
 // A typed answer, a wrong or decoy pick, or s on any question but a guess
 // marks the skill missed, for a warm-up to ask it first later (flow.mjs:
 // submitTyped, pick and s).
@@ -592,15 +605,29 @@ const NO_LATER_WARMUP = {
   'save-version': 'only the capstone asks it, and no Beginner lesson comes after the capstone',
 };
 
-test('warm-ups: a skill a question can mark missed comes back in a later lesson\'s pool', () => {
-  // The first lesson whose questions can mark each skill missed.
+// The skills a question in `lessons` (in PATH order) can mark missed that no
+// later lesson's pool recalls.
+function closureGaps(lessons) {
+  // The first lesson whose questions can mark each skill missed. A level
+  // index warm-up recalls a level, not a lesson's skill (ticket 178).
   const first = new Map();
-  contents.forEach((c, i) => {
-    for (const s of c ? allSteps(c) : []) for (const b of s.beats) if (marksMissed(b) && !first.has(b.skill ?? s.skill)) first.set(b.skill ?? s.skill, i);
+  lessons.forEach((c, i) => {
+    for (const s of c ? allSteps(c).filter((x) => !indexLevel(x.from)) : []) for (const b of s.beats) if (marksMissed(b) && !first.has(b.skill ?? s.skill)) first.set(b.skill ?? s.skill, i);
   });
-  const gaps = [...first].filter(([skill, i]) => !contents.slice(i + 1).some((c) => c?.warmup.some((w) => w.skill === skill))).map(([skill]) => skill);
+  return [...first].filter(([skill, i]) => !lessons.slice(i + 1).some((c) => c?.warmup.some((w) => w.skill === skill))).map(([skill]) => skill);
+}
+
+test('warm-ups: a skill a question can mark missed comes back in a later lesson\'s pool', () => {
+  const gaps = closureGaps(contents);
   assert.deepEqual(gaps.filter((k) => !NO_LATER_WARMUP[k]), [], 'no later warm-up and no exemption');
   assert.deepEqual(Object.keys(NO_LATER_WARMUP).filter((k) => !gaps.includes(k)), [], 'an exemption names a skill that is no gap now: a later warm-up asks it, or no question can mark it missed');
+});
+
+// Ticket 178: a warm-up from a level index recalls that level, so its skill
+// is no lesson's for a later pool to ask again. i-1's R1, from b-5, is.
+test('warm-ups: a level index warm-up leaves no skill for a later pool to recall', () => {
+  const i1 = parseLesson(DEMO_I1_INDEX, 'i-1.md');
+  assert.deepEqual(closureGaps(PATH.map((p) => (p.id === 'i-1' ? i1 : null))), ['commit']);
 });
 
 // Questions whose options keep a natural order, so their right answer's

@@ -10,7 +10,7 @@ import {
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { COMMANDS_URL, GIT, OWN_PARTS, READS } from './content.mjs';
+import { COMMANDS_URL, GIT, indexLevel, indexUrl, OWN_PARTS, READS } from './content.mjs';
 import { cleanListed, needsChange } from './status.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
@@ -75,6 +75,13 @@ function placeOf(s, t, beat = null, n = 24) {
   return dir !== root || levelDir !== root ? C.inCopy : null;
 }
 
+// The page a warm-up recalls: its lesson's, or a level's index page (ticket
+// 178), which has no lesson of its own, so its stuck link is this lesson's.
+function recalledPage(s, step) {
+  const level = indexLevel(step.from);
+  return level ? { url: indexUrl(level), stuck: lessonOf(s).stuck } : lessonOf(s, step.from);
+}
+
 // The lesson page a quote's relative links point into: set for each frame.
 let pageUrl = '';
 
@@ -83,7 +90,7 @@ let pageUrl = '';
 // its `pose` from main's controller. Without it, the 9x4 Pip.
 export function render(s, size, t, clock = REST, pip = null) {
   const step = s.view === 'step' && s.beat ? stepOf(s) : null;
-  pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
+  pageUrl = (step?.part === 'Warm-up' ? recalledPage(s, step) : lessonOf(s))?.url ?? '';
   return screenOf(s, size, t, clock, pip).out;
 }
 
@@ -1267,9 +1274,11 @@ function stepView(ctx) {
   const inlineBottom = tier === 'guided' && authored !== 'guided';
   const rows = [t.bold(t.fg('white', beat.kind === 'type' && step.part === 'Check' ? C.lastQuestion : step.title))];
   if (step.part === 'Warm-up') {
-    // A warm-up from another level names that level.
+    // A warm-up from another level names that level; one from a level's
+    // index page names the index.
+    const index = indexLevel(step.from);
     const other = levelOf(s, step.from) !== levelOf(s);
-    rows.push(t.fg('muted', C.warmup(lessonNumber(s, step.from), other ? levelName(s, step.from) : null)));
+    rows.push(t.fg('muted', index ? C.warmupIndex(C.levels[index]) : C.warmup(lessonNumber(s, step.from), other ? levelName(s, step.from) : null)));
     if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
   }
   // At GUIDED the beat's reason, in the page's words, sits under the title;
@@ -1788,8 +1797,8 @@ const OVERLAYS = {
   page(ctx) {
     const { s, t, W, inner } = ctx;
     const step = s.view === 'step' ? stepOf(s) : null;
-    // A warm-up recalls an earlier lesson: its page is that lesson's.
-    const l = step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s);
+    // A warm-up recalls an earlier lesson or a level index: its page is that one.
+    const l = step?.part === 'Warm-up' ? recalledPage(s, step) : lessonOf(s);
     const anchor = step && step.part !== 'Warm-up' ? `#${step.part.toLowerCase().replace(/ /g, '-')}` : '';
     const url = `${l.url}${anchor}`;
     const stuck = l.content?.stuck ?? l.stuck;

@@ -17,6 +17,9 @@ export const TERMS = {
   tierHelp: { guided: 'every command shown', hinted: 'the goal, hints if you ask', challenge: 'just the goal' },
   // The guide's level names, by the folder of a lesson's page.
   levels: { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' },
+  // A level's index page, docs/<level>/README.md, as the guide's README
+  // links it: "Level index".
+  levelIndex: 'level index',
 };
 
 export const C = {
@@ -51,6 +54,7 @@ export const C = {
 
   where: { terminal: 'in your other terminal', claude: 'in Claude Code', shell: 'in a third terminal', editor: 'in your editor', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
   warmup: (n, level) => `Warm-up from ${level ? `${level} lesson` : 'lesson'} ${n}`,
+  warmupIndex: (level) => `Warm-up from the ${level} ${TERMS.levelIndex}`,
   warmupWhy: "A warm-up brings back an earlier lesson from memory. A wrong answer is fine: you see the lesson's words at once.",
   warmups: (n) => `${n} warm-up${n === 1 ? '' : 's'} first`,
   done: 'DONE',

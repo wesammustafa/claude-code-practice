@@ -6,7 +6,7 @@ import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, p
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
-import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
+import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
@@ -416,6 +416,22 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   for (const verify of ['git-clean ./secrets/', 'git-clean secrets/ /src', 'git-changed .', 'git-only ../other/', 'git-changed src//a.js', 'git-only src\\a.js']) {
     assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', `- verify: ${verify}`), 'demo'), /a git path is named from the work folder/, verify);
   }
+});
+
+// Ticket 178: a warm-up may quote a level's index page, as the guide's quote
+// check allows: from beginner-index, intermediate-index or advanced-index.
+test('the grammar: a warm-up may come from a level index, and only a warm-up', () => {
+  assert.deepEqual(parseLesson(DEMO_I1_INDEX, 'demo').warmup.map((w) => w.from), ['b-5', 'intermediate-index']);
+  for (const id of ['beginner-index', 'advanced-index']) {
+    assert.equal(parseLesson(DEMO_I1_INDEX.replace('- from: intermediate-index', `- from: ${id}`), 'demo').warmup[1].from, id);
+  }
+  // Any other index is an error that names the three.
+  for (const id of ['reference-index', 'Intermediate-index', 'i-index']) {
+    const text = DEMO_I1_INDEX.replace('- from: intermediate-index', `- from: ${id}`);
+    const at = text.split('\n').indexOf(`- from: ${id}`) + 1;
+    assert.throws(() => parseLesson(text, 'demo'), new RegExp(`^Error: demo:${at}: from ${id}: a level index is beginner-index, intermediate-index or advanced-index$`), id);
+  }
+  assert.throws(() => parseLesson(DEMO_I1.replace('- skill: skill-file\n', '- skill: skill-file\n- from: intermediate-index\n'), 'demo'), /only a warm-up names the lesson it comes from/);
 });
 
 test('the grammar: an intro holds one quoted why and one quoted payoff', () => {

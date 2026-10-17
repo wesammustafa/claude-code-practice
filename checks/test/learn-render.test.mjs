@@ -5,13 +5,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseLesson } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { bootFrame, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, driver, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, DEMO_I1_INDEX, driver, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -1613,6 +1614,36 @@ test('each level has its own first warm-up: a later level\'s first lesson with w
   const second = firstWarmup('i-2', {}, i2);
   assert.equal(stepOf(second.state).part, 'Warm-up');
   assert.ok(!explains(second), plainAt(second, 80, 24));
+});
+
+// Ticket 178: a warm-up from a level index names the index, its relative
+// links point into the index page, and p gives the index's address.
+test('a level index warm-up: its label names the index, its links and p point at the index page, at 60x20 and 80x24', () => {
+  const lessons = allCourse.map((l) => (l.id === 'i-1' ? { ...l, content: parseLesson(DEMO_I1_INDEX, 'i-1.md') } : l));
+  const d = firstWarmup('i-1', {}, lessons);
+  playUntil(d, (s) => stepOf(s)?.id === 'R2');
+  assert.equal(d.state.lesson, 'i-1');
+  const label = 'Warm-up from the Intermediate level index';
+  const at = (cols, rows) => {
+    for (const caps of [CAPS.full, CAPS.ascii]) fits(d.state, [cols, rows], theme(caps), `${cols}x${rows} ${caps.unicode ? 'unicode' : 'ascii'}`);
+    return plainAt(d, cols, rows);
+  };
+  for (const [cols, rows] of SHORT) assert.ok(at(cols, rows).includes(label), at(cols, rows));
+  // A wrong pick shows its because, whose link is relative to the index page.
+  d.key(String(beatOf(d.state).options.findIndex((o) => o.kind === 'wrong') + 1));
+  for (const [cols, rows] of SHORT) at(cols, rows);
+  const links = [...render(d.state, { cols: 80, rows: 24 }, theme(CAPS.full)).join('').matchAll(/\x1b\]8;;([^\x07]*)\x07/g)].map((m) => m[1]).filter(Boolean);
+  assert.ok(links.includes('https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/intermediate/01-first-skill.md'), links.join(' '));
+  d.key('p');
+  assert.equal(d.state.overlay, 'page');
+  for (const [cols, rows] of SHORT) {
+    const text = at(cols, rows).split('\n').map((x) => x.trim()).join('');
+    assert.ok(text.includes('https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/intermediate/README.md'), text);
+    assert.ok(text.includes('lesson-feedback.yml&lesson=i-1'), text);
+  }
+  d.key('p');
+  // The play goes on to i-1's own steps.
+  playUntil(d, (s) => stepOf(s)?.id === 'W1');
 });
 
 // A missed Windows note leaves a broken file (ticket 165), so on Windows the
