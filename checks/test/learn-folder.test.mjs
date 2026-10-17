@@ -8,17 +8,17 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { basename, delimiter, dirname, join, relative } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { parseLesson } from '../../learn/lib/content.mjs';
+import { loadCourse, parseLesson, PATH } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { main } from '../../learn/lib/main.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { FORMAT, loadState, sanitize, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
-import { beatOf, lessonOf, stepOf, watching } from '../../learn/lib/flow.mjs';
+import { beatOf, folderHere, introAsks, lessonOf, stepOf, stepsOf, watching } from '../../learn/lib/flow.mjs';
 import { probeFolder } from '../../learn/lib/verify.mjs';
 import { commit, exportHead, repo, withRepo, write } from './helpers.mjs';
-import { course, DEMO_I1, driver, FACTS, finished, finishedBefore, mapTo, playUntil, root, threeLevels } from './learn-drive.mjs';
+import { course, DEMO_I1, driver, FACTS, finished, finishedBefore, gitLists, lessonScreens, mapTo, playUntil, root, threeLevels } from './learn-drive.mjs';
 import { fakeOut } from './learn-term.mjs';
 
 const MINE = '/home/sam/code/my-app';
@@ -1216,6 +1216,464 @@ test('main: the prerequisites\' check items run one ask at a time; a later ask w
     assert.ok(await until(() => !words().includes('builds on')), app.frame());
     await until(() => false, 100);
     assert.equal(b5(), 2, 'the ask that was waiting in line ran too');
+  } finally {
+    app.close();
+    rmSync(mine, { recursive: true, force: true });
+  }
+});
+
+// ---- a Worked example in the practice copy (ticket 183) ------------------------
+// A made-up i-1 whose page runs its Worked example "In your practice copy:"
+// and its Your turn in the learner's repository, as i-4's does: W and Y
+// steps that read the same file, a check, git status, a run line for each
+// folder, a fresh stamp one step takes for another, and a prerequisite.
+const SETTINGS = '.claude/settings.json';
+const WORKED = `---
+lesson: i-1
+title: "Demo"
+stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
+next: i-2
+worked: copy
+requires: [b-5 check 0]
+---
+
+## intro
+- minutes: "about 20 minutes"
+- can: "do it"
+- need-repo: "One of your own repositories with a test command, for Your turn; or use the template copy for both."
+
+## steps
+
+### W1 | Worked example step 1 of 3 | Save the rules
+- tier: guided
+- skill: edit-settings
+- where: editor
+- beat: do
+- verify: json ${SETTINGS} permissions.deny.0 fresh
+- do: "Save the team's rules as \`${SETTINGS}\`."
+
+### W2 | Worked example step 2 of 3 | Check the copy
+- tier: guided
+- skill: run-check
+- where: shell
+- beat: do
+- verify: check 0
+- run: "cd <your practice copy>"
+
+### W3 | Worked example step 3 of 3 | See the change
+- tier: guided
+- skill: see-change
+- where: shell
+- beat: do
+- verify: git-changed .claude/
+- run: "git status"
+
+### Y1 | Your turn step 1 of 3 | Your rules
+- tier: hinted
+- skill: edit-settings
+- where: editor
+- beat: do
+- verify: json ${SETTINGS} permissions.allow.0 fresh since W1
+- goal: "Save this partial file as \`${SETTINGS}\`."
+- beat: do
+- verify: no-match ${SETTINGS} TODO
+- goal: "Replace each \`TODO\` with a rule."
+- hint: "Allow only the one command that runs your tests"
+
+### Y2 | Your turn step 2 of 3 | Check your repository
+- tier: challenge
+- skill: run-check
+- where: shell
+- beat: do
+- verify: check 0
+- goal: "Commit it"
+
+### Y3 | Your turn step 3 of 3 | A clean tree
+- tier: challenge
+- skill: see-change
+- where: shell
+- beat: do
+- verify: git-clean
+- goal: "Commit everything."
+
+### C | Check | Check
+- tier: challenge
+- skill: check
+- where: shell
+- beat: do
+- verify: check all
+- run: "npm run check -- i-1 --dir <your repo>"
+`;
+const worked = () => threeLevels({ 'i-1': WORKED });
+// A learner past Beginner, on i-1's intro (or where `lessons` puts them),
+// with these folders saved.
+const atWorked = (folders, lessons = {}) => {
+  const c = worked();
+  return driver({ course: c, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('i-1', c), ...lessons }, ...(folders ? { folders } : {}) } });
+};
+// The settings file as the learner saves it: it passes every beat that reads it.
+const RULES = Buffer.from('{"permissions": {"allow": ["Bash(npm test)"], "deny": ["Read(./.env)"]}}');
+// Passes the beat on screen with results from `dir`, then goes on: a fresh
+// file changes after its first read.
+function passHere(d, dir) {
+  const v = beatOf(d.state).verify;
+  const lesson = lessonOf(d.state);
+  if (v.kind === 'check') {
+    const items = (v.all ? lesson.items.map((_, i) => i) : v.items).map((index) => ({ index, text: lesson.items[index], pass: true, hint: '' }));
+    d.send({ type: 'check', lesson: 'i-1', items, dir });
+  } else if (v.path && v.kind.startsWith('git-')) d.send(gitLists([`${v.path}settings.json`], [], { dir }));
+  else if (v.kind === 'git-clean') d.send({ type: 'git', paths: [], dir });
+  else {
+    d.send({ type: 'file', path: v.path, read: RULES, stamp: 'first', dir });
+    if (v.fresh) d.send({ type: 'file', path: v.path, read: RULES, stamp: 'changed', dir });
+  }
+  assert.ok(['done', 'already'].includes(d.state.beat.status), `${stepOf(d.state).id}: ${d.state.beat.status}`);
+  d.key('enter');
+  if (d.state.view === 'levelup') d.key('enter');
+}
+// The folder the effect that opened the beat on screen names: its check,
+// file read or git status.
+const askedIn = (d) => {
+  const v = beatOf(d.state).verify;
+  return lastOf(d.effects, v.kind === 'check' ? 'check' : v.kind.startsWith('git-') ? 'git' : 'file').dir;
+};
+
+test('worked: copy, the key for a Worked example in the practice copy, parses; it is refused beside folder: copy or new copy, and on a lesson its PATH entry pins', () => {
+  assert.equal(parseLesson(WORKED, 'i-1.md').worked, 'copy');
+  assert.equal(parseLesson(DEMO_I1, 'i-1.md').worked, undefined);
+  assert.throws(() => parseLesson(WORKED.replace('worked: copy', 'worked: mine'), 'i-1.md'), /i-1\.md: worked is copy, not mine/);
+  for (const folder of ['copy', 'new copy']) {
+    assert.throws(() => parseLesson(WORKED.replace('worked: copy', `worked: copy\nfolder: ${folder}`), 'i-1.md'), new RegExp(`i-1\\.md: worked: copy with folder: ${folder}, which already places every step`));
+  }
+  // i-capstone is pinned to the copy, and a-5 to a new copy, on PATH.
+  const dir = mkdtempSync(join(tmpdir(), 'learn-worked-'));
+  try {
+    mkdirSync(join(dir, 'learn', 'lessons'), { recursive: true });
+    for (const [id, words] of [['i-capstone', 'the practice copy'], ['a-5', 'its new copy']]) {
+      writeFileSync(join(dir, 'learn', 'lessons', `${id}.md`), WORKED.replace('lesson: i-1', `lesson: ${id}`).replace('requires: [b-5 check 0]\n', ''));
+      assert.throws(() => loadCourse(dir, PATH.filter((p) => p.id === id)), new RegExp(`learn/lessons/${id}\\.md: worked: copy, but ${id} runs every step in ${words}`));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('worked: copy reads each Worked example step in the practice copy, every verify kind, and Your turn, the Check and the prerequisites in the work folder', () => {
+  const d = atWorked({ intermediate: MINE });
+  assert.equal(introAsks(d.state).find((e) => e.type === 'prereqs').dir, MINE, 'the prerequisites are looked at in the work folder');
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'W1');
+  // The fresh stamps: W1's in the copy, and Y1's, taken as W1 opens, in the work folder.
+  assert.deepEqual(d.effects.filter((e) => e.type === 'stamp').map((e) => [e.key, e.dir]), [['W1.0', COPY], ['Y1.0', MINE]]);
+  // A stamp from the other folder is not about its file.
+  d.send({ type: 'stamp', key: 'W1.0', stamp: 'mine', dir: MINE });
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'copy', dir: COPY });
+  assert.deepEqual(d.state.progress['i-1'].stamps, {});
+  d.send({ type: 'stamp', key: 'W1.0', stamp: 'first', dir: COPY });
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'first', dir: MINE });
+  assert.deepEqual(d.state.progress['i-1'].stamps, { 'W1.0': 'first', 'Y1.0': 'first' });
+  // W1 reads its file in the copy: on opening, on r, and only a read from there decides.
+  assert.deepEqual(lastOf(d.effects, 'file'), { type: 'file', path: SETTINGS, dir: COPY });
+  assert.deepEqual(watching(d.state), { file: SETTINGS, dir: COPY });
+  assert.equal(folderHere(d.state), COPY);
+  d.key('r');
+  assert.equal(lastOf(d.effects, 'file').dir, COPY, "r's read too");
+  d.send({ type: 'file', path: SETTINGS, read: RULES, stamp: 'changed', asked: d.state.beat.asked, dir: MINE });
+  assert.equal(d.state.beat.status, 'opening', 'a read of the work folder is not about this step');
+  // Unchanged in the copy since its stamp there, it waits; changed, it passes.
+  d.send({ type: 'file', path: SETTINGS, read: RULES, stamp: 'first', asked: d.state.beat.asked, dir: COPY });
+  assert.equal(d.state.beat.status, 'waiting');
+  d.send({ type: 'file', path: SETTINGS, read: RULES, stamp: 'changed', dir: COPY });
+  assert.equal(d.state.beat.status, 'done');
+  d.key('enter');
+  // W2's check, in the copy; a result from the work folder decides nothing.
+  assert.equal(stepOf(d.state).id, 'W2');
+  assert.equal(askedIn(d), COPY);
+  d.key('r');
+  assert.equal(lastOf(d.effects, 'check').dir, COPY, "r's run too");
+  const items = [{ index: 0, text: lessonOf(d.state).items[0], pass: true, hint: '' }];
+  d.send({ type: 'check', lesson: 'i-1', items, asked: d.state.beat.asked, dir: MINE });
+  assert.equal(d.state.beat.status, 'opening');
+  passHere(d, COPY);
+  // W3's git status, in the copy.
+  assert.equal(stepOf(d.state).id, 'W3');
+  assert.deepEqual(lastOf(d.effects, 'git'), { type: 'git', dir: COPY, files: true });
+  d.send(gitLists([`.claude/${'settings.json'}`], [], { dir: MINE }));
+  assert.equal(d.state.beat.status, 'opening');
+  passHere(d, COPY);
+  // Your turn: every verify in the work folder.
+  for (const [id, beat] of [['Y1', 0], ['Y1', 1], ['Y2', 0], ['Y3', 0], ['C', 0]]) {
+    assert.deepEqual([stepOf(d.state).id, d.state.pos.beat], [id, beat]);
+    assert.equal(askedIn(d), MINE, `${id}.${beat}`);
+    assert.equal(watching(d.state).dir, MINE, `${id}.${beat}`);
+    if (id === 'C') break;
+    passHere(d, MINE);
+  }
+  // Y1's fresh beat compared the work folder's file with its stamp from there.
+  assert.equal(d.state.progress['i-1'].stamps['Y1.0'], 'first');
+});
+
+test('worked: copy keeps each step in its own folder through back and forward, a resume, a restart and a replay', () => {
+  const d = atWorked({ intermediate: MINE }, { 'i-1': { step: 'Y1', beat: 0, done: ['W1', 'W2', 'W3'], levels: ['hinted'] } });
+  assert.equal(d.state.view, 'resume');
+  assert.equal(folderHere(d.state), MINE);
+  d.key('enter');
+  assert.equal(askedIn(d), MINE);
+  // b to W3, its last beat: git status in the copy; on again, the work folder.
+  d.key('b');
+  assert.equal(stepOf(d.state).id, 'W3');
+  assert.equal(askedIn(d), COPY);
+  assert.equal(watching(d.state).dir, COPY);
+  passHere(d, COPY);
+  assert.equal(stepOf(d.state).id, 'Y1');
+  assert.equal(askedIn(d), MINE);
+  // A resume on a Worked example step: the copy.
+  for (const [step, dir] of [['W1', COPY], ['W2', COPY], ['Y2', MINE], ['C', MINE]]) {
+    const r = atWorked({ intermediate: MINE }, { 'i-1': { step, beat: 0, levels: ['hinted', 'challenge'] } });
+    assert.equal(folderHere(r.state), dir, `resume at ${step}`);
+    r.key('enter');
+    assert.equal(askedIn(r), dir, `resumed at ${step}`);
+  }
+  // A restart from the resume screen starts over in the copy.
+  const x = atWorked({ intermediate: MINE }, { 'i-1': { step: 'Y2', beat: 0, levels: ['hinted', 'challenge'], stamps: { 'W1.0': 'old', 'Y1.0': 'old' } } });
+  x.key('x');
+  x.key('y');
+  assert.equal(x.state.view, 'intro');
+  assert.equal(lastOf(x.effects, 'prereqs').dir, MINE);
+  x.key('enter');
+  assert.deepEqual([stepOf(x.state).id, askedIn(x)], ['W1', COPY]);
+  assert.deepEqual(x.effects.filter((e) => e.type === 'stamp').map((e) => [e.key, e.dir]), [['W1.0', COPY], ['Y1.0', MINE]]);
+  // A finished lesson played again: the same.
+  const again = atWorked({ intermediate: MINE }, { 'i-1': { complete: true, done: ['W1', 'W2', 'W3', 'Y1', 'Y2', 'Y3', 'C'] } });
+  assert.equal(again.state.view, 'map');
+  mapTo(again, 'i-1');
+  again.key('enter');
+  assert.equal(again.state.view, 'intro');
+  again.key('enter');
+  assert.deepEqual([stepOf(again.state).id, askedIn(again)], ['W1', COPY]);
+});
+
+test('worked: copy where the work folder is the practice copy itself, or not chosen yet, runs every step in the copy, as before', () => {
+  for (const folders of [{ intermediate: COPY }, null]) {
+    const d = atWorked(folders);
+    if (!folders) d.key('enter');
+    assert.equal(introAsks(d.state).find((e) => e.type === 'prereqs').dir, COPY);
+    d.key('enter');
+    const dirs = [];
+    for (let i = 0; i < 8 && stepOf(d.state).id !== 'C'; i++) {
+      dirs.push(askedIn(d), watching(d.state).dir);
+      for (const size of SIZES) {
+        const head = headOf(screen(d.state, size));
+        assert.ok(!has(head, C.inCopy) && !has(head, C.inFolder('')), `${JSON.stringify(folders)} ${stepOf(d.state).id}\n${head.join('\n')}`);
+      }
+      passHere(d, COPY);
+    }
+    assert.deepEqual([...new Set(dirs)], [COPY]);
+    assert.equal(askedIn(d), COPY);
+  }
+});
+
+test('switching folders keeps what a Worked example step in the copy compares its file with, and drops the old work folder\'s', () => {
+  const OTHER = '/home/sam/code/other-app';
+  const d = atWorked({ intermediate: MINE });
+  d.key('enter');
+  d.send({ type: 'stamp', key: 'W1.0', stamp: 'copy-1', dir: COPY });
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'mine-1', dir: MINE });
+  d.key('m');
+  d.key('f');
+  typeIn(d, OTHER);
+  d.send({ type: 'key', name: 'enter', wait: 40 });
+  answer(d, { path: OTHER });
+  assert.deepEqual(d.state.progress['i-1'].stamps, { 'W1.0': 'copy-1' });
+  d.key('m');
+  assert.deepEqual([stepOf(d.state).id, lastOf(d.effects, 'file').dir], ['W1', COPY]);
+  // The file in the copy, unchanged since its stamp: W1 still waits for the change.
+  d.send({ type: 'file', path: SETTINGS, read: RULES, stamp: 'copy-1', dir: COPY });
+  assert.equal(d.state.beat.status, 'waiting');
+});
+
+test('the header says where each step happens: in your practice copy on a Worked example step, the work folder\'s name elsewhere, and each card\'s place and run line agree', () => {
+  const d = atWorked({ intermediate: MINE });
+  const head = (label, want, not) => {
+    for (const size of SIZES) {
+      const h = headOf(screen(d.state, size));
+      assert.ok(has(h, want) && !has(h, not), `${label} at ${size}\n${h.join('\n')}`);
+    }
+    fitsAll(d.state, label);
+  };
+  head('intro', C.inFolder('my-app'), C.inCopy);
+  d.key('enter');
+  head('W1', C.inCopy, C.inFolder('my-app'));
+  passHere(d, COPY);
+  head('W2', C.inCopy, C.inFolder('my-app'));
+  // W2's card: a third terminal in the copy, and its run line names the copy.
+  for (const size of SIZES) assert.ok(has(screen(d.state, size), `${C.where.shell}, ${C.inCopy}`), screen(d.state, size).join('\n'));
+  assert.ok(has(screen(d.state), `cd ${COPY}`), screen(d.state).join('\n'));
+  d.send({ type: 'paste', text: 'git status', wait: 40 });
+  assert.ok(flat(screen(d.state)).includes(C.strayIn(C.inCopy)), screen(d.state).join('\n'));
+  passHere(d, COPY);
+  passHere(d, COPY);
+  head('Y1', C.inFolder('my-app'), C.inCopy);
+  passHere(d, MINE);
+  passHere(d, MINE);
+  head('Y2', C.inFolder('my-app'), C.inCopy);
+  for (const size of SIZES) assert.ok(has(screen(d.state, size), `${C.where.shell}, ${C.inFolder('my-app')}`), screen(d.state, size).join('\n'));
+  passHere(d, MINE);
+  passHere(d, MINE);
+  // The Check: its run line fills <your repo> with the work folder, from the copy.
+  head('C', C.inFolder('my-app'), C.inCopy);
+  assert.ok(has(screen(d.state, [80, 24]), `npm run check -- i-1 --dir ${MINE}`), screen(d.state, [80, 24]).join('\n'));
+  assert.ok(has(screen(d.state), `${C.where.shell}, ${C.inCopy}`), screen(d.state).join('\n'));
+  // The resume screen of a Worked example step says the copy.
+  const r = atWorked({ intermediate: MINE }, { 'i-1': { step: 'W3', beat: 0, levels: [] } });
+  for (const size of SIZES) assert.ok(has(headOf(screen(r.state, size)), C.inCopy), screen(r.state, size).join('\n'));
+  fitsAll(r.state, 'resume at W3');
+});
+
+test('a check all on a Worked example step names no --dir: it runs in the copy itself', () => {
+  const text = WORKED.replace('- verify: check 0\n- run: "cd <your practice copy>"', '- verify: check all\n- run: "cd <your practice copy>"');
+  const c = threeLevels({ 'i-1': text });
+  const d = driver({ course: c, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('i-1', c), 'i-1': { step: 'W2', beat: 0 } }, folders: { intermediate: MINE } } });
+  d.key('enter');
+  assert.equal(lastOf(d.effects, 'check').dir, COPY);
+  const items = lessonOf(d.state).items.map((t, index) => ({ index, text: t, pass: true, hint: '' }));
+  d.send({ type: 'check', lesson: 'i-1', items, dir: COPY });
+  const lines = screen(d.state, [80, 24]);
+  assert.ok(has(lines, 'npm run check -- i-1 passes') && !has(lines, '--dir'), lines.join('\n'));
+  fitsAll(d.state, 'W2 check all done');
+});
+
+test('every screen of a lesson whose Worked example runs in the copy fits at 60x20 and 80x24 with its place whole, and cuts no line', () => {
+  for (const folders of [{ intermediate: MINE }, { intermediate: `/home/sam/${'deep/'.repeat(30)}a-repository-with-a-long-name` }, { intermediate: COPY }]) {
+    const all = lessonScreens('i-1', worked(), { folders });
+    assert.ok(all.length > 20, `${all.length} screens`);
+    for (const [label, state] of all) {
+      fitsAll(state, label);
+      for (const t of [FULL, ASCII]) {
+        for (const size of SIZES) {
+          const lines = screen(state, size, t);
+          const where = `${label} at ${size}\n${lines.join('\n')}`;
+          // The header's two rows above its rule, in either mode.
+          const head = lines.slice(0, 2);
+          const w = stepOf(state)?.part === 'Worked example';
+          if (folders.intermediate !== COPY && state.view === 'step') assert.ok(w ? has(head, C.inCopy) : has(head, C.inFolder('')) && !has(head, C.inCopy), where);
+          if (folders.intermediate === COPY) assert.ok(!has(head, C.inCopy) && !has(head, C.inFolder('')), where);
+          // At 60 columns too: a card's top row drops its DONE pill, then
+          // its terminal's words, before its place is cut.
+          assert.ok(!lines.some((l) => l.endsWith(t.unicode ? '…' : '.') && width(l) >= size[0] - 2 && (t.unicode || /\S\.$/.test(l))), `a cut line: ${where}`);
+        }
+      }
+    }
+  }
+});
+
+test('a Worked example as long as i-4\'s names the copy in the header of every W step, at 60 columns by its folder\'s name', () => {
+  // Six W steps, editor ones among them, five Y steps and the Check, their
+  // tiers taking turns as i-4's do, by skills Beginner taught none, one or
+  // several times: at 60 columns the closed trail leaves less room than
+  // C.inCopy takes.
+  const step = (id, part, n, of, where, tier, skill) => `### ${id} | ${part} step ${n} of ${of} | Step ${id}
+- tier: ${tier}
+- skill: ${skill}
+- where: ${where}
+- beat: do
+- verify: json ${SETTINGS} permissions.deny.0
+- ${where === 'editor' ? 'do' : 'run'}: "${where === 'editor' ? `Save \`${SETTINGS}\`.` : 'git status'}"
+`;
+  const ws = ['new-a', 'set-aside', 'check', 'new-b', 'resume', 'commit'].map((k, i) => step(`W${i + 1}`, 'Worked example', i + 1, 6, i % 2 ? 'editor' : 'shell', 'guided', k));
+  const ys = ['new-a', 'check', 'new-b', 'snapshot', 'new-c'].map((k, i) => step(`Y${i + 1}`, 'Your turn', i + 1, 5, i % 2 ? 'editor' : 'shell', 'hinted', k));
+  const long = WORKED.replace(/### W1[\s\S]*(?=### C \|)/, [...ws, ...ys].join('\n') + '\n');
+  const all = lessonScreens('i-1', threeLevels({ 'i-1': long }), { folders: { intermediate: MINE } });
+  // The copy's folder by name, cut to fit: its first letters at least.
+  const byName = C.inFolder(basename(COPY).slice(0, 4));
+  let short = 0;
+  for (const [label, state] of all) {
+    if (state.view !== 'step' || stepOf(state).part !== 'Worked example') continue;
+    assert.equal(stepsOf(state).length, 12, label);
+    fitsAll(state, label);
+    for (const t of [FULL, ASCII]) {
+      for (const size of SIZES) {
+        const lines = screen(state, size, t);
+        const head = lines.slice(0, 2);
+        const where = `${label} at ${size}\n${lines.join('\n')}`;
+        assert.ok(has(head, C.inCopy) || has(head, byName), where);
+        assert.ok(!has(head, C.inFolder('my-app')), where);
+        if (size[0] === 60 && !has(head, C.inCopy)) short++;
+      }
+    }
+  }
+  assert.ok(short > 0, 'the fixture is long enough that C.inCopy does not fit at 60 columns');
+});
+
+test('main: a Worked example step in the copy reads its file there and watches the copy alone; Your turn watches the work folder again, and b leaves it', async () => {
+  const mine = repo();
+  mkdirSync(join(mine, '.practice'));
+  const FILE = '.practice/i-1.json';
+  const i1 = `---
+lesson: i-1
+title: "Demo"
+stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
+next: i-2
+worked: copy
+---
+
+## intro
+- minutes: "about 20 minutes"
+- can: "do it"
+
+## steps
+
+### W1 | Worked example step 1 of 1 | Save it
+- tier: guided
+- skill: save
+- where: editor
+- beat: do
+- verify: json ${FILE} name
+- do: "Save it."
+
+### Y1 | Your turn step 1 of 1 | Save yours
+- tier: hinted
+- skill: save
+- where: editor
+- beat: do
+- verify: json ${FILE} name
+- goal: "Save yours."
+
+### C | Check | Check
+- tier: challenge
+- skill: check
+- where: shell
+- beat: do
+- verify: check all
+- goal: "Run the check."
+`;
+  const app = inCopy({ folders: () => ({ intermediate: mine }), i1, saved: { 'i-1': { step: 'W1', beat: 0 } } });
+  const words = () => app.frame().replace(/\s+/g, ' ');
+  try {
+    assert.ok(await until(() => words().includes('Welcome back')), app.frame());
+    app.type('\r');
+    assert.ok(await until(() => words().includes(`Watching ${FILE}`)), app.frame());
+    assert.ok(words().includes(C.inCopy), app.frame());
+    assert.ok(!app.watched.includes(mine), `the work folder is not watched on a step in the copy: ${app.watched}`);
+    writeFileSync(join(app.copy, '.practice', 'i-1.json'), '{"name": "copy"}');
+    writeFileSync(join(mine, '.practice', 'i-1.json'), '{"name": "tdd"}');
+    assert.ok(await until(() => {
+      app.onChanges[app.copy]();
+      return words().includes('holds copy');
+    }), app.frame());
+    // On to Y1, past its level-up: the work folder is watched, and its file read.
+    app.type('\r');
+    assert.ok(await until(() => words().includes(C.k.bringIt)), app.frame());
+    app.type('\r');
+    assert.ok(await until(() => app.watched.includes(mine)), `${app.watched}\n${app.frame()}`);
+    assert.ok(await until(() => {
+      app.onChanges[mine]();
+      return words().includes('holds tdd');
+    }), app.frame());
+    // b: back in the copy, the work folder's watcher closes.
+    app.type('b');
+    assert.ok(await until(() => app.closedDirs.includes(mine)), `${app.closedDirs}\n${app.frame()}`);
+    assert.ok(!app.closedDirs.includes(app.copy), 'the copy stays watched');
   } finally {
     app.close();
     rmSync(mine, { recursive: true, force: true });

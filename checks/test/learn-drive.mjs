@@ -403,15 +403,16 @@ export function allScreens() {
 
 // Screens of every step and beat of a lesson: each opened from a saved place,
 // then waiting, failing, done, with a hint open, as its beat allows. The
-// learner finished every lesson before it, or, with `skipped`, none.
-export function lessonScreens(id, lessons = course, { skipped = false } = {}) {
+// learner finished every lesson before it, or, with `skipped`, none, and
+// saved `folders`, the work folders, when given.
+export function lessonScreens(id, lessons = course, { skipped = false, folders = null } = {}) {
   const l = lessons.find((x) => x.id === id);
   const out = [];
   const warm = l.content.warmup.slice(0, 2).map((w) => w.id);
   const steps = [...warm.map((w) => l.content.warmup.find((x) => x.id === w)), ...l.content.steps];
   const complete = skipped ? {} : finishedBefore(id, lessons);
   steps.forEach((step) => step.beats.forEach((beat, b) => {
-    const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { ...complete, [id]: { step: step.id, beat: b, warm, levels: ['hinted', 'challenge'] } } } });
+    const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { ...complete, [id]: { step: step.id, beat: b, warm, levels: ['hinted', 'challenge'] } }, ...(folders ? { folders } : {}) } });
     d.key('enter');
     const at = `${id} ${step.id}.${b}`;
     out.push([`${at} open`, d.state]);

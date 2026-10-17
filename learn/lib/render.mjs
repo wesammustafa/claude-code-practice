@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -62,11 +62,12 @@ const baseName = (path) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p
 const shortName = (t, name, n) => cut(name, Math.max(4, n), t.unicode ? '…' : '.');
 // Where the lesson's level is practised in another folder than the copy
 // (ticket 86), the folder a line that sends the learner to another terminal
-// means: the work folder, or the copy for a lesson pinned to it and for a
-// beat whose command names <your repo>, which runs from the copy. Null where
+// means: the work folder, or the copy for a lesson pinned to it, for a
+// Worked example step that runs there (ticket 183) and for a beat whose
+// command names <your repo>, which runs from the copy. Null where
 // everything happens in the copy, as in Beginner. The name is cut to `n`.
 function placeOf(s, t, beat = null, n = 24) {
-  const dir = folderOf(s);
+  const dir = folderHere(s);
   if (!dir) return null;
   const root = s.facts.root;
   const levelDir = levelKey(s) ? levelFolder(s, levelKey(s)) : root;
@@ -623,12 +624,19 @@ function lessonHead(ctx, right, rightText) {
   const { s, t, W } = ctx;
   const l = lessonOf(s);
   // A work folder that isn't the copy is named beside the right-hand text,
-  // in the room the trail leaves closed up (ticket 86).
-  const dir = folderOf(s);
+  // in the room the trail leaves closed up (ticket 86). A step that runs in
+  // the copy while its lesson's folder is another, a Worked example's
+  // (ticket 183), says so.
+  const dir = folderHere(s);
+  const sep = rightText ? ' · ' : '';
+  const room = W - 1 - (l.content ? width(trail(ctx, 0)) + 1 : 0) - width(rightText) - width(sep);
   if (dir && dir !== s.facts.root) {
-    const sep = rightText ? ' · ' : '';
-    const room = W - 1 - (l.content ? width(trail(ctx, 0)) + 1 : 0) - width(rightText) - width(sep) - width(C.inFolder(''));
-    rightText = `${C.inFolder(shortName(t, baseName(dir), room))}${sep}${rightText}`;
+    rightText = `${C.inFolder(shortName(t, baseName(dir), room - width(C.inFolder(''))))}${sep}${rightText}`;
+  } else if (dir && folderOf(s) !== s.facts.root) {
+    // Where the room won't hold those words whole, as with i-4's twelve
+    // steps at 60 columns, the copy's folder by name, cut as a work folder's.
+    const place = width(C.inCopy) <= room ? C.inCopy : C.inFolder(shortName(t, baseName(dir), room - width(C.inFolder(''))));
+    rightText = `${place}${sep}${rightText}`;
   }
   // The check's short title, as on the map, cut to the room the pill leaves;
   // the content file keeps the page's heading.
@@ -641,14 +649,27 @@ function lessonHead(ctx, right, rightText) {
   ];
 }
 
+// A card's where pill: its emoji, its words and its place, if any, and the
+// place alone, for a top row too narrow for all three.
+const whereOf = (t, emoji, words, place) => ({
+  where: `${t.lead(emoji)}${words}${place ? `, ${place}` : ''}`,
+  short: place ? `${t.lead(emoji)}${place}` : null,
+});
+
 // Pip, at the end of a card's top border, needs the face and the two rule
 // cells after it, and leaves at least one rule cell before it.
 const PIP_ROOM = PIP_FACE + 3;
 
-function card(ctx, { tint, where, done, rows }) {
+// `short` is `where` with the place alone, as the top row's fallback.
+function card(ctx, { tint, where, short = null, done, rows }) {
   const { s, t, W } = ctx;
   const rail = t.fg(tint, t.glyph.rail);
-  const left = `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(where, 'chipBg')}${done ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
+  // The top row keeps its place whole (ticket 183): where the row is wider
+  // than the card, the DONE pill goes first, then the words before the
+  // place.
+  const leftOf = (w, d) => `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(w, 'chipBg')}${d ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
+  const tries = [[where, done], [where, false], ...(short ? [[short, done], [short, false]] : [])];
+  const left = tries.map(([w, d]) => leftOf(w, d)).find((x) => width(x) <= W) ?? leftOf(...tries.at(-1));
   const fill = Math.max(0, W - width(left));
   // Pip's face in this frame (motion.mjs's cardFace), over the mood the
   // card shows the app saw.
@@ -1169,7 +1190,7 @@ const VIEWS = {
     }
     return {
       head,
-      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}${placeOf(s, t, null, 16) ? `, ${placeOf(s, t, null, 16)}` : ''}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes] }),
+      body: card(ctx, { tint: 'muted', ...whereOf(t, 'terminal', C.where.terminal, placeOf(s, t, null, 16)), done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes] }),
       // A lesson that runs in a new copy with none given yet: f is the way on.
       keys: [folderOf(s) ? null : mainKey('f', C.k.giveFolder), shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, folderOf(s) ? key('r', C.k.checkNow) : null, key('p', C.k.page), key('m', C.k.map), folderOf(s) && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
       itemsMax: last,
@@ -1399,11 +1420,10 @@ function stepView(ctx) {
   const whereEmoji = { terminal: 'terminal', claude: 'claude', shell: 'terminal', editor: 'editor', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
   // A terminal or Claude Code names its folder where that isn't the copy.
   const place = ['terminal', 'claude', 'shell'].includes(whereKey) ? placeOf(s, t, beat, 16) : null;
-  const where = `${t.lead(whereEmoji)}${C.where[whereKey]}${place ? `, ${place}` : ''}`;
   const tint = done ? 'ok' : style.tint;
   return {
     head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
-    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows }),
+    body: card(ctx, { tint, ...whereOf(t, whereEmoji, C.where[whereKey], place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows }),
     keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }),
   };
 }
@@ -1493,7 +1513,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     const items = s.checks[s.lesson].items;
     // In a work folder that isn't the copy, the command names it with
     // --dir, and runs from the copy, as the pages say.
-    const dir = folderOf(s) !== s.facts.root ? folderOf(s) : null;
+    const dir = folderHere(s) !== s.facts.root ? folderHere(s) : null;
     const cmd = `npm run check -- ${s.lesson}${dir ? ` --dir ${quotePath(dir, t.caps.win32)}` : ''}`;
     const mark = `${t.fg('ok', t.glyph.check)} `;
     const passes = wrapRuns([{ text: cmd, color: 'code' }, { text: ` ${C.checkPasses(items.filter((x) => x.pass).length, items.length)[0]}`, color: 'ok' }], inner - width(mark));
