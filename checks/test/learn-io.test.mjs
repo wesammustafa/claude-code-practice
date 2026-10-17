@@ -21,7 +21,8 @@ import { pipSlot, render } from '../../learn/lib/render.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
-import { childEnv, ITEM_LIMIT, owing, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
+import { childEnv, gitStatus, ITEM_LIMIT, owing, probeFolder, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
+import { judgeGit, listedUnder } from '../../learn/lib/status.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { STUB_RUNS } from '../lessons/a-4.mjs';
@@ -29,7 +30,7 @@ import { NPM_TEST_LIMIT } from '../lessons/b-3.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { statusPaths } from '../paths.mjs';
 import { TIME_LIMIT } from '../stub-claude.mjs';
-import { check, exportHead, repo, withRepo, write } from './helpers.mjs';
+import { check, commit, exportHead, repo, withRepo, write } from './helpers.mjs';
 import { driver, root } from './learn-drive.mjs';
 import { fakeClock, fakeOut, screenModel, turn } from './learn-term.mjs';
 
@@ -274,6 +275,56 @@ test('children never take git\'s index lock or print color, and run one at a tim
   assert.equal(r.items.find((i) => i.index === 1).slow, true, 'the test run is left for r');
 });
 
+test('git status: a whole-tree look lists a new folder whole, a look at part of the tree lists each file, and the staged paths come from the index column', async () => {
+  const dir = repo({ 'src/a.js': 'a\n', 'src/b.js': 'b\n', 'README.md': 'r\n' });
+  try {
+    commit(dir);
+    const git = (...args) => execFileSync('git', args, { cwd: dir });
+    write(dir, { 'src/a.js': 'a2\n', 'src/b.js': 'b2\n', 'README.md': 'r2\n', '.claude/skills/five-whys/SKILL.md': 's\n', 'notes.md': 'n\n', '.practice/learn.json': '{}' });
+    // Staged, staged then changed again, renamed and staged; changed only.
+    git('add', 'src/a.js', 'README.md');
+    write(dir, { 'README.md': 'r3\n' });
+    git('mv', 'src/b.js', 'src/c.js');
+    const whole = await gitStatus(dir);
+    assert.deepEqual([...whole.paths].sort(), ['.claude/', 'README.md', 'notes.md', 'src/a.js', 'src/c.js'].sort());
+    assert.deepEqual(whole.paths, statusPaths(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })), 'the paths are the ones npm run check reads');
+    // A rename lists both its names; it is staged by its new one.
+    const each = await gitStatus(dir, { files: true });
+    assert.deepEqual(each.paths.sort(), ['.claude/skills/five-whys/SKILL.md', 'README.md', 'notes.md', 'src/a.js', 'src/b.js', 'src/c.js'].sort());
+    assert.deepEqual(each.staged.sort(), ['README.md', 'src/a.js', 'src/c.js']);
+    // The work tree changed and nothing added: nothing staged.
+    git('reset', '-q');
+    assert.deepEqual((await gitStatus(dir, { files: true })).staged, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('git status on part of the tree: a work folder inside a repository sees only its own paths, named from there, and a file moved out of a folder is a change there', async () => {
+  const top = repo({ 'proj/secrets/old.txt': 'o\n', 'proj/README.md': 'r\n' });
+  try {
+    commit(top, 'start');
+    const git = (...args) => execFileSync('git', args, { cwd: top });
+    write(top, { 'proj/secrets/key.txt': 'k\n', 'proj/src/a.js': 'a\n', 'other/o.txt': 'o\n' });
+    git('mv', 'proj/secrets/old.txt', 'proj/old.txt');
+    const proj = join(top, 'proj');
+    assert.equal((await probeFolder(proj)).git, true, 'a folder inside a repository is a work folder');
+    const r = await gitStatus(proj, { files: true });
+    assert.deepEqual([...r.paths].sort(), ['old.txt', 'secrets/key.txt', 'secrets/old.txt', 'src/a.js']);
+    assert.deepEqual(r.staged, ['old.txt']);
+    assert.deepEqual(listedUnder(r.paths, ['secrets/']).sort(), ['secrets/key.txt', 'secrets/old.txt'], 'git-clean secrets/ is not done');
+    assert.equal(judgeGit({ kind: 'git-changed', path: 'src/' }, r).pass, true);
+    // Staged and committed, only the move is left; it is still under secrets/.
+    commit(top, 'more', ['proj/secrets', 'proj/src', 'other']);
+    git('mv', 'proj/secrets/key.txt', 'proj/key.txt');
+    const moved = await gitStatus(proj, { files: true });
+    assert.deepEqual([...moved.paths].sort(), ['key.txt', 'secrets/key.txt']);
+    assert.equal(judgeGit({ kind: 'git-changed', path: 'secrets/' }, moved).pass, true);
+  } finally {
+    rmSync(top, { recursive: true, force: true });
+  }
+});
+
 test('the watcher arms a .practice folder made after it started', async () => {
   // Events only speed things up: they can lag or never come (WSL on
   // /mnt/c, network folders), so main.mjs also polls. What must hold is that
@@ -288,6 +339,33 @@ test('the watcher arms a .practice folder made after it started', async () => {
   } finally {
     w.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the watcher watches .claude/ and the folders right in it, when they exist, and arms ones made later', async () => {
+  const dir = repo({ '.claude/skills/five-whys/SKILL.md': 's\n', '.claude/settings.json': '{}\n' });
+  const w = watchDirs(dir, () => {}, { debounceMs: 20 });
+  const rel = () => w.dirs().map((d) => d.slice(dir.length + 1)).filter(Boolean).sort();
+  try {
+    assert.deepEqual(rel(), ['.claude', '.claude/skills', '.git'], 'a folder deeper in, and a file, are not watched');
+    mkdirSync(join(dir, '.claude', 'agents'));
+    w.arm();
+    assert.deepEqual(rel(), ['.claude', '.claude/agents', '.claude/skills', '.git']);
+  } finally {
+    w.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // A .claude/ made after the watcher started.
+  const later = repo();
+  const v = watchDirs(later, () => {}, { debounceMs: 20 });
+  try {
+    assert.ok(!v.dirs().some((d) => d.endsWith('.claude')));
+    mkdirSync(join(later, '.claude', 'skills'), { recursive: true });
+    v.arm();
+    assert.ok(v.dirs().some((d) => d.endsWith('.claude')) && v.dirs().some((d) => d.endsWith(join('.claude', 'skills'))), `${v.dirs()}`);
+  } finally {
+    v.close();
+    rmSync(later, { recursive: true, force: true });
   }
 });
 

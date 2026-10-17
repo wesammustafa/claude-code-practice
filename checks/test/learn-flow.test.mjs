@@ -6,7 +6,7 @@ import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, p
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
-import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, FACTS, finished, finishedBefore, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
+import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
@@ -169,7 +169,8 @@ test('a git step with a done-label decides only after the learner says the sessi
   d.send({ type: 'git', paths: [] });
   assert.equal(d.state.beat.status, 'waiting');
   d.key('space');
-  assert.deepEqual(d.effects.at(-1), { type: 'git' });
+  // git runs in the lesson's folder, as every other look does.
+  assert.deepEqual(d.effects.at(-1), { type: 'git', dir: FACTS.root });
   d.send({ type: 'git', paths: [] });
   assert.equal(d.state.beat.status, 'done');
   const w7 = at('W7', { beat: 2 });
@@ -408,6 +409,13 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   const said = parseLesson(DEMO_B2.replace('- goal: "Save it again."', '- goal: "Save it again."\n- say: Done when the file lists it.\n- say: Then press r.'), 'demo');
   assert.deepEqual(said.steps[1].beats[0].lines.filter((x) => x.key === 'say').map((x) => x.doneWhen ?? false), [true, false]);
   assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', '- verify: none\n- say: Done when it runs.'), 'demo'), /a "Done when" say line needs a check beat or a beat that reads a file/);
+  // A path git status is asked about is named as git names it, from the
+  // work folder: ./, / and .. would match nothing it lists.
+  const scoped = parseLesson(DEMO_B2.replace('- verify: check all', '- verify: git-clean secrets/ .claude/settings.local.json'), 'demo');
+  assert.deepEqual(scoped.steps.flatMap((x) => x.beats).find((x) => x.verify.kind === 'git-clean').verify.paths, ['secrets/', '.claude/settings.local.json']);
+  for (const verify of ['git-clean ./secrets/', 'git-clean secrets/ /src', 'git-changed .', 'git-only ../other/', 'git-changed src//a.js', 'git-only src\\a.js']) {
+    assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check all', `- verify: ${verify}`), 'demo'), /a git path is named from the work folder/, verify);
+  }
 });
 
 test('the grammar: an intro holds one quoted why and one quoted payoff', () => {
@@ -2078,5 +2086,125 @@ test('a "Done when" in the app\'s words may stand on a json, match or no-match b
   for (const verify of ['json .mcp.json mcpServers', 'match CLAUDE.md ^@', 'no-match SKILL.md TODO']) {
     const d = onReading(`${verify}\n- say: Done when the file has it.`);
     assert.deepEqual(beatOf(d.state).lines.filter((x) => x.doneWhen).map((x) => x.text), ['Done when the file has it.'], verify);
+  }
+});
+
+// ---- git status for part of the tree (ticket 88) -----------------------------
+test('git-clean with paths: done once git status lists nothing under them, whatever else it lists', () => {
+  const d = onReading('git-clean secrets/ package-lock.json');
+  assert.deepEqual(beatOf(d.state).verify, { kind: 'git-clean', paths: ['secrets/', 'package-lock.json'] });
+  // It asks git for every untracked file, not just its folder.
+  assert.deepEqual(d.effects.filter((e) => e.type === 'git').at(-1), { type: 'git', dir: FACTS.root, files: true });
+  d.send(gitLists(['README.md', 'secrets/key.txt', 'package-lock.json']));
+  assert.equal(d.state.beat.status, 'fail');
+  assert.deepEqual(d.state.beat.fail.paths, ['secrets/key.txt', 'package-lock.json']);
+  // A name that only starts like a path is not under it.
+  d.send(gitLists(['README.md', 'secrets-old.txt', 'package-lock.json.bak', '.claude/skills/five-whys/SKILL.md']));
+  assert.equal(d.state.beat.status, 'done');
+  // Without paths, it is the whole tree, as before.
+  const whole = onReading('git-clean');
+  assert.deepEqual(beatOf(whole.state).verify, { kind: 'git-clean' });
+  assert.deepEqual(whole.effects.filter((e) => e.type === 'git').at(-1), { type: 'git', dir: FACTS.root });
+  whole.send({ type: 'git', paths: ['README.md'] });
+  assert.equal(whole.state.beat.status, 'fail');
+});
+
+test('git-clean with paths: a result that lists untracked folders whole decides nothing, nor does a whole-tree beat take one that lists each file', () => {
+  const d = onReading('git-clean .claude/settings.local.json');
+  // git lists the untracked .claude/ whole: whether the file is in it can't be told.
+  d.send({ type: 'git', paths: ['.claude/'] });
+  assert.equal(d.state.beat.status, 'opening');
+  d.send(gitLists(['.claude/skills/five-whys/SKILL.md']));
+  assert.equal(d.state.beat.status, 'done');
+  const whole = onReading('git-clean');
+  whole.send(gitLists([]));
+  assert.equal(whole.state.beat.status, 'opening');
+  whole.send({ type: 'git', paths: [] });
+  assert.equal(whole.state.beat.status, 'done');
+});
+
+test('git-changed: done once git status lists something under the path; the first answer is where the learner starts, with no "not yet"', () => {
+  const d = onReading('git-changed src/');
+  assert.deepEqual(beatOf(d.state).verify, { kind: 'git-changed', path: 'src/' });
+  assert.deepEqual(d.effects.filter((e) => e.type === 'git').at(-1), { type: 'git', dir: FACTS.root, files: true });
+  d.send(gitLists(['README.md', 'srcs/a.js']));
+  assert.equal(d.state.beat.status, 'waiting');
+  d.key('r');
+  d.send(gitLists(['README.md'], [], { asked: d.state.beat.asked }));
+  assert.equal(d.state.beat.status, 'fail');
+  assert.equal(d.state.beat.fail.hint, 'git status lists no change under src/ yet.');
+  d.send(gitLists(['README.md', 'src/config.js', 'src/new/']));
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.beat.evidence, 'Changed: src/config.js, src/new/');
+  // A change there already when the step opens counts, as a check that already passes does.
+  const already = onReading('git-changed src');
+  already.send(gitLists(['src/a.js', 'src/b.js', 'src/c.js', 'src/d.js']));
+  assert.equal(already.state.beat.status, 'already');
+  assert.equal(already.state.beat.evidence, 'Changed: src/a.js, src/b.js, src/c.js and 1 more');
+  // A whole-tree result decides nothing.
+  const whole = onReading('git-changed src/');
+  whole.send({ type: 'git', paths: ['src/'] });
+  assert.equal(whole.state.beat.status, 'opening');
+});
+
+test('git-only: done once git status lists something, all of it under the path; the not-yet line names what is outside', () => {
+  const d = onReading('git-only .claude/');
+  assert.deepEqual(beatOf(d.state).verify, { kind: 'git-only', path: '.claude/' });
+  d.send(gitLists([]));
+  assert.equal(d.state.beat.status, 'waiting');
+  d.key('r');
+  d.send(gitLists([], [], { asked: d.state.beat.asked }));
+  assert.equal(d.state.beat.fail.hint, 'git status lists no change yet.');
+  d.send(gitLists(['.claude/skills/five-whys/SKILL.md', 'README.md', '.claudeignore']));
+  assert.equal(d.state.beat.status, 'fail');
+  assert.equal(d.state.beat.fail.hint, '2 files changed outside .claude/: README.md, .claudeignore');
+  d.send(gitLists(['.claude/skills/five-whys/SKILL.md', 'notes.md']));
+  assert.equal(d.state.beat.fail.hint, '1 file changed outside .claude/: notes.md');
+  d.send(gitLists(['.claude/skills/five-whys/SKILL.md', '.claude/skills/five-whys/notes.md']));
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.beat.evidence, 'Changed: .claude/skills/five-whys/SKILL.md, .claude/skills/five-whys/notes.md');
+});
+
+test('git-staged: done once git status says a path is staged; a change not yet added is not', () => {
+  const d = onReading('git-staged');
+  assert.deepEqual(beatOf(d.state).verify, { kind: 'git-staged' });
+  assert.deepEqual(d.effects.filter((e) => e.type === 'git').at(-1), { type: 'git', dir: FACTS.root, files: true });
+  d.send(gitLists(['src/config.js']));
+  assert.equal(d.state.beat.status, 'waiting');
+  d.key('r');
+  d.send(gitLists(['src/config.js'], [], { asked: d.state.beat.asked }));
+  assert.equal(d.state.beat.fail.hint, 'git status lists nothing staged yet.');
+  d.send(gitLists(['src/config.js', 'test/config.test.js'], ['src/config.js']));
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.beat.evidence, 'Staged: src/config.js');
+});
+
+test('a Your turn step that git-clean on paths, git-changed, git-only or git-staged verifies counts as checked: the last one gets a notch less help', () => {
+  assert.equal(tierOf(onReading('none').state), 'hinted', 'a step nothing checks keeps its tier');
+  for (const verify of ['git-clean secrets/', 'git-changed src/', 'git-only .claude/', 'git-staged']) {
+    assert.equal(tierOf(onReading(verify).state), 'challenge', verify);
+  }
+});
+
+test('h at CHALLENGE on a git-changed, git-only or git-staged beat: r is the try; and git that could not run is not the learner\'s work', () => {
+  for (const verify of ['git-changed src/', 'git-only .claude/', 'git-staged']) {
+    const d = onReading(`${verify}\n- hint: "Look at git status."`);
+    d.send(gitLists([]));
+    d.key('h');
+    assert.deepEqual([d.state.toast?.kind, d.state.toast?.try], ['hintsLater', 'r'], verify);
+    d.key('r');
+    d.send(gitLists([], [], { asked: d.state.beat.asked }));
+    d.key('h');
+    assert.equal(d.state.beat.rung, 0, verify);
+    const broken = onReading(verify);
+    broken.send({ type: 'git-error', message: 'git is not installed', dir: FACTS.root });
+    assert.deepEqual([broken.state.beat.status, broken.state.beat.error], ['broken', 'git is not installed'], verify);
+  }
+});
+
+test('playUntil plays through every git kind', () => {
+  for (const verify of ['git-clean secrets/', 'git-changed src/', 'git-only .claude', 'git-staged']) {
+    const d = onReading(verify);
+    playUntil(d, (s) => stepOf(s)?.id === 'C');
   }
 });

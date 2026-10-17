@@ -19,6 +19,9 @@ export const WHERE = new Set(['terminal', 'claude', 'shell', 'editor']);
 // process: `file`, and HOLDS, what a file holds (ticket 87).
 export const HOLDS = new Set(['json', 'match', 'no-match']);
 export const READS = new Set(['file', ...HOLDS]);
+// Verify kinds the app answers with git status (ticket 88): the whole tree
+// clean, or part of it.
+export const GIT = new Set(['git-clean', 'git-changed', 'git-only', 'git-staged']);
 export const BEAT_KINDS = new Set(['do', 'predict', 'ask', 'type', 'self']);
 // Keys a beat may hold, and whether their value must be a quote of the page.
 export const BEAT_KEYS = {
@@ -286,7 +289,24 @@ function parseVerify(beat, file) {
   const check = base.match(/^check (\d+(?: \d+)*)$/);
   if (check) return { kind: 'check', items: check[1].split(' ').map(Number), ...extra };
   if (fresh) throw new Error(`${file}:${beat.line}: only a check or a file can be fresh`);
-  if (['git-clean', 'answer', 'self', 'none'].includes(v)) return { kind: v };
+  // A path git status is asked about, as it names one: from the work
+  // folder, like src/ or .claude/settings.json, never ./, / or .. in it.
+  const gitPath = (path) => {
+    if (path.includes('\\') || path.startsWith('/') || path.replace(/\/$/, '').split('/').some((part) => ['', '.', '..'].includes(part))) {
+      throw new Error(`${file}:${beat.line}: a git path is named from the work folder, like src/ or .claude/settings.json, not ${path}`);
+    }
+    return path;
+  };
+  // `git-clean <path>...`: git status lists nothing under those paths; with
+  // none, nothing at all.
+  const clean = v.match(/^git-clean (\S+(?: \S+)*)$/);
+  if (clean) return { kind: 'git-clean', paths: clean[1].split(' ').map(gitPath) };
+  // `git-changed <path>`: git status lists something under the path.
+  // `git-only <path>`: it lists something, and all of it under the path.
+  const scoped = v.match(/^(git-changed|git-only) (\S+)$/);
+  if (scoped) return { kind: scoped[1], path: gitPath(scoped[2]) };
+  // `git-staged`: git status says a path is staged.
+  if (['git-clean', 'git-staged', 'answer', 'self', 'none'].includes(v)) return { kind: v };
   throw new Error(`${file}:${beat.line}: unknown verify value ${v}`);
 }
 
