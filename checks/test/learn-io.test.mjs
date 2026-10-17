@@ -1181,7 +1181,7 @@ test('the greeting on main\'s one timer: the detailed Pip asks for a frame every
       await toResume(app);
       assert.equal(RASTER.test(term.shows()), depth === 24, `depth ${depth}`);
       const arrived = app.frameTimes()[0];
-      const ends = arrived + 5_000;
+      const ends = arrived + TIMING.greet;
       let resized = false;
       while (clock.now() < ends) {
         if (!resized && clock.now() >= arrived + 2_000) {
@@ -1201,6 +1201,32 @@ test('the greeting on main\'s one timer: the detailed Pip asks for a frame every
       await clock.advance(40);
       assert.equal(term.shows(), still, `depth ${depth}: a resize draws the rest frame again`);
       assert.deepEqual(app.frameTimers(), [], `depth ${depth}: and asks for no frame`);
+    } finally {
+      app.close();
+    }
+  }
+});
+
+// Any key ends the greeting at once: main asks for no more of its frames,
+// and Pip's rows are already the ones it rests on once the 5 s are over.
+test('a key ends the greeting on main\'s one timer: from the frame it draws, no frame timer waits, and Pip is at rest', async () => {
+  for (const depth of [24, 8]) {
+    const app = clockedRun(MOTION_ENV, { saved: RESUME, depth, askGit: quickGit, runCheck: async () => ({ items: [] }) });
+    const { term, clock } = app;
+    try {
+      await toResume(app);
+      const arrived = app.frameTimes()[0];
+      await clock.advance(arrived + 1_000 - clock.now());
+      assert.equal(app.frameTimers().length, 1, `depth ${depth}: the greeting plays`);
+      // Up, which resume does not act on.
+      term.type('\x1b[A');
+      await turn();
+      await clock.advance(40);
+      assert.deepEqual(app.frameTimers(), [], `depth ${depth}: no frame after the key`);
+      const after = term.shows();
+      await clock.advance(arrived + TIMING.greet + 1_000 - clock.now());
+      assert.deepEqual(app.frameTimers(), [], `depth ${depth}: nor later`);
+      assert.equal(term.shows(), after, `depth ${depth}: the frame after the key is the rest frame`);
     } finally {
       app.close();
     }

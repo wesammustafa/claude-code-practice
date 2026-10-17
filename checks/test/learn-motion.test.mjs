@@ -598,7 +598,9 @@ test('screens with no ambient part never allow one, and ask for no frame once th
   for (const [view, s] of Object.entries(views)) {
     assert.equal(s.view, view);
     const from = Math.max(s.fx.view, s.fx.key ?? -Infinity);
-    for (const ms of [TIMING.lookAround, TIMING.graceMax + TIMING.keyQuiet]) {
+    // The complete screen's one-shots end with Pip's look around (176).
+    const ends = view === 'complete' ? TIMING.lookAround : TIMING.complete;
+    for (const ms of [ends, TIMING.graceMax + TIMING.keyQuiet]) {
       assert.equal(ambientAllowed(s, from + ms), false, `${view} at +${ms} ms`);
       assert.equal(nextChange(s, from + ms, { motion: true }), null, `${view} at +${ms} ms`);
     }
@@ -900,7 +902,24 @@ test('the greeting plays once per arrival: a toast neither starts it again nor s
   for (const ms of [3_040, 3_120, 4_240, 5_000]) assert.deepEqual(frameAt(d.state, start, ms), restOf(d.state), `+${ms} ms, the overlay closed`);
 });
 
-test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), the greeting and the look around show the rest frame at each of their poses, the detailed Pip too', () => {
+// Back from the map, resume is a new arrival (its fx.view stamp), so Pip
+// greets again from it. The key that closed the map came before it.
+test('back from the map, resume arrives again: the greeting plays again from that arrival, and ends at 5 s', () => {
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y3', beat: 0, done: ['W1'] } } } });
+  assert.equal(d.state.view, 'resume');
+  const first = d.state.fx.view;
+  d.key('m');
+  assert.equal(d.state.view, 'map');
+  d.key('m');
+  assert.equal(d.state.view, 'resume');
+  const back = d.state.fx.view;
+  assert.ok(back > first && d.state.fx.key < back, `arrived at ${back}, the key at ${d.state.fx.key}`);
+  const rest = restOf(d.state);
+  for (const [ms, antenna, face] of GREETING) assert.deepEqual(pipCells(frameAt(d.state, back, ms), rest), [antenna, face], `+${ms} ms after the return`);
+  assert.deepEqual(frameAt(d.state, back, TIMING.greet), rest, '+5000 ms after the return');
+});
+
+test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), the greeting and the look around show the rest frame at each of their poses, the detailed Pip too, where with motion they move', () => {
   const modes = {
     calm: capabilities(tty(), { ...ENV, LEARN_CALM: '1' }, 'linux', []),
     NO_COLOR: capabilities(tty(), { ...ENV, NO_COLOR: '1' }, 'linux', []),
@@ -909,6 +928,12 @@ test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), the 
     'TERM=dumb': capabilities(tty(), { TERM: 'dumb' }, 'linux', []),
   };
   const times = { welcome: GREETING.map(([ms]) => ms), resume: GREETING.map(([ms]) => ms), complete: LOOK_AROUND.map(([ms]) => ms) };
+  // The poses that differ from the rest pose.
+  const posed = {
+    welcome: GREETING.filter(([, a, face]) => a !== '●' || face !== '●‿●').map(([ms]) => ms),
+    resume: GREETING.filter(([, a, face]) => a !== '●' || face !== '●‿●').map(([ms]) => ms),
+    complete: LOOK_AROUND.filter(([, a, face]) => a !== '●' || face !== '^‿^').map(([ms]) => ms),
+  };
   for (const [mode, caps] of Object.entries(modes)) {
     const t = theme(caps);
     for (const [label, ms] of Object.entries(times)) {
@@ -916,6 +941,9 @@ test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), the 
       for (const [cols, rows] of [[60, 20], [80, 24], [120, 40]]) {
         const rest = render(s, { cols, rows }, t, REST);
         for (const at of ms) assert.deepEqual(render(s, { cols, rows }, t, { at: s.fx.view + at }), rest, `${label} (${mode}) at ${cols}x${rows}, +${at} ms`);
+        // With motion, the same poses move Pip: the rest above is motion off.
+        const moving = (at) => render(s, { cols, rows }, MOVING, { at: s.fx.view + at }).join('\n') !== render(s, { cols, rows }, MOVING, REST).join('\n');
+        for (const at of posed[label]) assert.ok(moving(at), `${label} at ${cols}x${rows}, +${at} ms: Pip moves with motion on`);
       }
     }
   }
@@ -927,7 +955,11 @@ test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), the 
     const size = { cols: 120, rows: 40 };
     const pip = { size: pipSlot(s, size, calm), pose: restPose('ready') };
     assert.equal(pip.size, 'standard', label);
-    for (const at of [160, 925, 1_750, 2_750]) assert.deepEqual(render(s, size, calm, { at: s.fx.view + at }, pip), render(s, size, calm, REST, pip), `${label}, calm, +${at} ms`);
+    const moving = theme({ ...MOTION.full, depth: 24, motion: true, calm: false });
+    for (const at of [160, 925, 1_750, 2_750]) {
+      assert.deepEqual(render(s, size, calm, { at: s.fx.view + at }, pip), render(s, size, calm, REST, pip), `${label}, calm, +${at} ms`);
+      assert.notDeepEqual(render(s, size, moving, { at: s.fx.view + at }, pip), render(s, size, moving, REST, pip), `${label}, with motion, +${at} ms`);
+    }
   }
 });
 
@@ -1621,7 +1653,7 @@ test('one-shots end: 1.2 s after the last one starts (Pip\'s greeting 5 s, its l
   for (const [label, s] of screens) {
     const starts = Object.entries(shotStarts(s)).filter(([, x]) => x !== undefined);
     if (!starts.length) continue;
-    const at = Math.max(...starts.map(([part, start]) => start + ({ greet: 5_000, lookAround: 2_400 }[part] ?? 1_200)));
+    const at = Math.max(...starts.map(([part, start]) => start + Math.max(TIMING[part], 1_200)));
     const p = phases(s, at, ON);
     for (const part of Object.keys(TIMING).filter((k) => k in SHOTS)) assert.equal(p[part], 1, `${label}: ${part}`);
     const wait = nextChange(s, at, ON);

@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { createPip, rasterizePip, renderPip, restPose } from '../../learn/lib/pip/pip.mjs';
-import { IDLE_MS } from '../../learn/lib/flow.mjs';
-import { pipGates, REST, TIMING } from '../../learn/lib/motion.mjs';
+import { IDLE_MS, reduce } from '../../learn/lib/flow.mjs';
+import { pipGates, REST, SHOTS, TIMING } from '../../learn/lib/motion.mjs';
 import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
@@ -465,6 +465,18 @@ const EYES_AT = [[14, 24], [6, 25]];
 const TIP_AT = [[0, 8], [8, 23]];
 const SPARKS_AT = [[[6, 13], [0, 6]], [[6, 13], [25, 31]]];
 
+// The greeting's moments, from SHOTS: halfway through each part.
+const GREET = SHOTS.greet.raster;
+const mid = (from, to) => Math.round((from + to) / 2);
+const GREET_AT = {
+  flick: Math.round(GREET.wide / 4), wide: mid(0, GREET.wide), glad: [mid(GREET.glad, GREET.open), mid(GREET.hops[1], GREET.back)],
+  hops: GREET.hops.map((from) => from + GREET.hop / 2), between: [mid(GREET.look, GREET.up), mid(GREET.up, GREET.again)],
+  left: GREET.look + (GREET.up - GREET.look) / 4, right: GREET.look + (3 * (GREET.up - GREET.look)) / 4, up: mid(GREET.up, GREET.again),
+};
+// A screen's rows from the 9x4 Pip's antenna row down, as many as the
+// raster's: the rows the detailed Pip is drawn on.
+const rasterRows = (lines, glyph) => lines.slice(glyph.findIndex((l) => strip(l).includes('╭───┴───╮')) - 1).slice(0, RASTER.standard.tall);
+
 test('the detailed Pip greets on the welcome and resume: eyes wide and an antenna flick, then happy eyes, an antenna that waves, two hops with a spark, a look left, right and up between them, all of it gone by exactly 5 s', () => {
   const t = theme({ ...CAPS.truecolor, motion: true });
   for (const [label, s] of [['welcome', driver().state], ['resume', screen('resume')]]) {
@@ -479,36 +491,57 @@ test('the detailed Pip greets on the welcome and resume: eyes wide and an antenn
     const eyes = (grid) => weight(grid, ...EYES_AT);
     const tip = (grid) => weight(grid, ...TIP_AT);
     const sparks = (grid) => SPARKS_AT.reduce((n, at) => n + weight(grid, ...at).n, 0);
-    const pipRows = (lines) => lines.slice(glyph.findIndex((l) => strip(l).includes('╭───┴───╮')) - 1).slice(0, RASTER.standard.tall);
+    const pipRows = (lines) => rasterRows(lines, glyph);
     // Zero at both ends: Pip's rows are its rest rows at +0 ms and from +5 s.
-    for (const ms of [0, 5_000, 6_000]) assert.deepEqual(pipRows(frame(ms)), pipRows(rest), `${label}, +${ms} ms`);
-    assert.notDeepEqual(pipRows(frame(4_960)), pipRows(rest), `${label}: still easing back at +4960 ms`);
+    for (const ms of [0, TIMING.greet, TIMING.greet + 1_000]) assert.deepEqual(pipRows(frame(ms)), pipRows(rest), `${label}, +${ms} ms`);
+    assert.notDeepEqual(pipRows(frame(TIMING.greet - 40)), pipRows(rest), `${label}: still easing back 40 ms before the end`);
     assert.equal(sparks(still), 0, `${label}: no sparks at rest`);
-    // 0 to 300 ms: the eyes widen, and the antenna flicks.
-    assert.ok(eyes(gold(160)).n > eyes(still).n * 1.1, `${label}: wide eyes at +160 ms`);
-    assert.ok(Math.abs(tip(gold(80)).x - tip(still).x) > 0.3, `${label}: the antenna flicks at +80 ms`);
+    // At first the eyes widen, and the antenna flicks.
+    assert.ok(eyes(gold(GREET_AT.wide)).n > eyes(still).n * 1.1, `${label}: wide eyes at +${GREET_AT.wide} ms`);
+    assert.ok(Math.abs(tip(gold(GREET_AT.flick)).x - tip(still).x) > 0.3, `${label}: the antenna flicks at +${GREET_AT.flick} ms`);
     // Happy arcs: less gold than open eyes, before and after the looks.
-    for (const ms of [1_000, 3_600]) assert.ok(eyes(gold(ms)).n < eyes(still).n * 0.8, `${label}: happy eyes at +${ms} ms`);
+    for (const ms of GREET_AT.glad) assert.ok(eyes(gold(ms)).n < eyes(still).n * 0.8, `${label}: happy eyes at +${ms} ms`);
     // Two hops, each with a spark, and none between them: Pip's outline
     // rises a pixel or so.
     const outline = (ms) => weight(pixelsOf(ms === null ? rest : frame(ms), glyph, PURPLE), [0, 31], [0, 31]).y;
-    for (const ms of [925, 3_525]) {
+    for (const ms of GREET_AT.hops) {
       assert.ok(sparks(gold(ms)) > 0, `${label}: a spark at +${ms} ms`);
       assert.ok(outline(null) - outline(ms) > 0.5, `${label}: a hop at +${ms} ms (${outline(null) - outline(ms)} px)`);
     }
-    for (const ms of [2_000, 2_750]) assert.equal(sparks(gold(ms)), 0, `${label}: no spark at +${ms} ms`);
+    for (const ms of GREET_AT.between) assert.equal(sparks(gold(ms)), 0, `${label}: no spark at +${ms} ms`);
     // Between the hops the eyes, open again, look left, right and up.
-    assert.ok(eyes(gold(1_750)).x < eyes(still).x - 0.5, `${label}: a look left`);
-    assert.ok(eyes(gold(2_250)).x > eyes(still).x + 0.5, `${label}: a look right`);
-    assert.ok(eyes(gold(2_750)).y < eyes(still).y - 0.4, `${label}: a look up`);
-    // The antenna waves like a hand: from 300 ms to 4.5 s its tip swings
-    // to each side of where it rests, a few slow times.
+    assert.ok(eyes(gold(GREET_AT.left)).x < eyes(still).x - 0.5, `${label}: a look left at +${GREET_AT.left} ms`);
+    assert.ok(eyes(gold(GREET_AT.right)).x > eyes(still).x + 0.5, `${label}: a look right at +${GREET_AT.right} ms`);
+    assert.ok(eyes(gold(GREET_AT.up)).y < eyes(still).y - 0.4, `${label}: a look up at +${GREET_AT.up} ms`);
+    // The antenna waves like a hand: from the flick's end until it eases
+    // back, its tip swings to each side of where it rests, a few slow times.
     const side = [];
-    for (let ms = 300; ms <= 4_500; ms += 40) {
+    for (let ms = GREET.wide; ms <= GREET.back; ms += GREET.every) {
       const dx = tip(gold(ms)).x - tip(still).x;
       if (Math.abs(dx) > 0.8 && Math.sign(dx) !== side.at(-1)) side.push(Math.sign(dx));
     }
     assert.ok(side.length >= 4 && side.length <= 10, `${label}: the antenna swings ${side.length} times`);
+  }
+});
+
+// Any key ends the greeting at once (the app's one-shot rule): from the
+// frame after it, the detailed Pip is the controller's pose alone.
+test('a key ends the detailed Pip\'s greeting: from the frame after it, Pip\'s rows are its rest rows', () => {
+  const t = theme({ ...CAPS.truecolor, motion: true });
+  for (const [label, s] of [['welcome', driver().state], ['resume', screen('resume')]]) {
+    const at = size(120, 40);
+    const pip = { size: 'standard', pose: restPose('ready') };
+    const glyph = render(s, at, t);
+    const start = s.fx.view;
+    const pressed = start + 1_000;
+    // Up, which neither screen acts on.
+    const sent = reduce(s, { type: 'key', name: 'up', now: pressed }).state;
+    assert.equal(sent.view, s.view, label);
+    const rest = rasterRows(render(sent, at, t, REST, pip), glyph);
+    assert.notDeepEqual(rasterRows(render(s, at, t, { at: pressed + 40 }, pip), glyph), rest, `${label}: it plays without the key`);
+    for (const ms of [40, GREET_AT.left - 1_000, GREET_AT.hops[1] - 1_000]) {
+      assert.deepEqual(rasterRows(render(sent, at, t, { at: pressed + ms }, pip), glyph), rest, `${label}: +${ms} ms after the key`);
+    }
   }
 });
 
@@ -529,7 +562,7 @@ test('words never move in the detailed Pip\'s greeting: every 40 ms frame fits t
       });
       const rest = render(s, at, t, REST, pip);
       let moved = 0;
-      for (let ms = 0; ms < 5_000; ms += 40) {
+      for (let ms = 0; ms < TIMING.greet; ms += GREET.every) {
         const f = render(s, at, t, { at: s.fx.view + ms }, pip);
         const where = `${label} at ${cols}x${rows}, +${ms} ms`;
         assert.equal(f.length, rows, where);

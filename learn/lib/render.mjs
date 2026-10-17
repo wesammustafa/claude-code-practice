@@ -1,9 +1,9 @@
 // Draws a state as exactly `rows` lines, none wider than `cols - 1`. Four
 // regions: the header (where am I), the body (what to do now, with how it's
 // going at the bottom of the card), and the key bar pinned to the bottom.
-import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipRaster } from './art.mjs';
+import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipGreeting, pipRaster } from './art.mjs';
 import { C } from './copy.mjs';
-import { bootPhases, NOTCHES, oneShot, phases, pipGreeting, REST, SHOTS, TIMING } from './motion.mjs';
+import { bootPhases, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
   answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
@@ -1191,7 +1191,7 @@ function greeting(ctx) {
   if (e < at.awake) return 'waking';
   if (e < at.left) return undefined;
   if (e < at.right) return 'lookLeft';
-  if (e < at.up) return 'lookRight';
+  if (e < at.up) return 'glance';
   if (e < at.wave) return 'lookUp';
   if (e < at.back) return Math.floor((e - at.wave) / at.swing) % 2 ? 'glad' : 'cheer';
   if (e < at.blink) return undefined;
@@ -1206,7 +1206,7 @@ function lookingAround(ctx) {
   const at = SHOTS.lookAround;
   if (e < at.left) return undefined;
   if (e < at.back) return 'lookLeft';
-  return e >= at.right && e < Infinity ? 'lookRight' : undefined;
+  return e >= at.right && e < TIMING.lookAround ? 'glance' : undefined;
 }
 
 // The big Pip: the detailed raster where the screen has room for it
