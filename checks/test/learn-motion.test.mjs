@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { capabilities } from '../../learn/lib/caps.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, DEFER_MS, IDLE_MS, isDone, reduce, stepOf, tierOf, watching } from '../../learn/lib/flow.mjs';
-import { ambientAllowed, ambientOpened, BOOT_FROM, bootChange, nextChange, oneShot, phases, pipGates, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
+import { ambientAllowed, ambientOpened, BOOT_FROM, bootChange, greetFrameIn, nextChange, oneShot, phases, pipGates, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
 import { createPip, restPose } from '../../learn/lib/pip/pip.mjs';
 import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
 import { FORMAT, saveState, snapshot, storePath } from '../../learn/lib/store.mjs';
@@ -459,10 +459,10 @@ test('stamps are never saved: learn.json after a run with stamps keeps its keys 
   assert.equal(after.format, 1);
 });
 
-test('the timing table is design 4.3\'s, and no one-shot lasts over 1.2 s', () => {
+test('the timing table is design 4.3\'s, and no one-shot lasts over 1.2 s but Pip\'s greeting, 5 s, and its look around on the complete screen, 2.4 s (176)', () => {
   const ms = {
     grid: 40, tick: 80, slowTick: 240, slowAfter: 10_000,
-    entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160,
+    entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160, greet: 5_000, lookAround: 2_400,
     spinnerFrom: 150, elapsedFrom: 3_000, sweep: 400, glance: 1_200, blink: 160, blinkEvery: 6_000,
     perWord: 400, graceMin: 3_000, graceMax: 20_000, keyQuiet: 4_000,
   };
@@ -598,7 +598,9 @@ test('screens with no ambient part never allow one, and ask for no frame once th
   for (const [view, s] of Object.entries(views)) {
     assert.equal(s.view, view);
     const from = Math.max(s.fx.view, s.fx.key ?? -Infinity);
-    for (const ms of [TIMING.complete, TIMING.graceMax + TIMING.keyQuiet]) {
+    // The complete screen's one-shots end with Pip's look around (176).
+    const ends = view === 'complete' ? TIMING.lookAround : TIMING.complete;
+    for (const ms of [ends, TIMING.graceMax + TIMING.keyQuiet]) {
       assert.equal(ambientAllowed(s, from + ms), false, `${view} at +${ms} ms`);
       assert.equal(nextChange(s, from + ms, { motion: true }), null, `${view} at +${ms} ms`);
     }
@@ -607,7 +609,7 @@ test('screens with no ambient part never allow one, and ask for no frame once th
 
 const ON = { motion: true };
 const OFF = { motion: false, calm: true };
-const RESTING = { entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false };
+const RESTING = { entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false };
 
 test('phases: the rest phases with motion off, at rest and under an overlay', () => {
   const { d, t } = opened('W3');
@@ -773,9 +775,10 @@ test('the welcome: Pip wakes, the fuse runs along the path, one pulse crosses th
   assert.deepEqual([...rowsOf(f(320), 2), ...rowsOf(f(320), 13)], [path(5), arrow('━─▸')], '+320 ms: the fuse reaches the cup');
   assert.deepEqual(rowsOf(f(400), 13), [arrow('─━▸')], '+400 ms');
   assert.deepEqual([...rowsOf(rest, 2), ...rowsOf(rest, 7), ...rowsOf(rest, 13)], [path(0), eyes('●‿●'), arrow('──▸')]);
-  // Pip's eyes move only in the first 160 ms; at 480 ms everything rests.
-  for (let ms = 160; ms < 480; ms += 40) assert.deepEqual(rowsOf(f(ms), 7), rowsOf(rest, 7), `+${ms} ms`);
-  for (const ms of [480, 2_000]) assert.deepEqual(f(ms), rest, `+${ms} ms`);
+  // Pip is awake from 160 ms until its greeting looks left at 640 ms; at
+  // 480 ms everything else rests, and at 5 s Pip too (176).
+  for (let ms = 160; ms < 640; ms += 40) assert.deepEqual(rowsOf(f(ms), 7), rowsOf(rest, 7), `+${ms} ms`);
+  for (const ms of [480, 5_000]) assert.deepEqual(f(ms), rest, `+${ms} ms`);
   // At 60x20 the windows sit closer, with a one-cell arrow: the pulse
   // crosses it too, and the fuse and the wake-up run.
   const small = (ms) => frameAt(s, start, ms, [60, 20]);
@@ -786,6 +789,194 @@ test('the welcome: Pip wakes, the fuse runs along the path, one pulse crosses th
 });
 
 const screen = (label) => screens.find(([l]) => l === label)[1];
+
+// The 9x4 Pip's greeting (176), as ticket 176 lays it out: from each
+// moment, the antenna row and the face. On the welcome it wakes; on resume
+// it starts awake, since the boot frame woke it. Then it looks left, right
+// and up, smiles with happy eyes while the antenna row sparks every other
+// 320 ms, blinks once, and ends on ●‿●.
+const SPARKS = '+  ●  +';
+const HELLO = [
+  [640, '●', '◐‿◐'], [1_040, '●', '◑‿◑'], [1_440, '●', '◓‿◓'],
+  [1_840, SPARKS, '^‿^'], [2_160, '●', '^‿^'], [2_480, SPARKS, '^‿^'], [2_800, '●', '^‿^'], [3_120, SPARKS, '^‿^'], [3_440, '●', '^‿^'],
+  [3_760, '●', '●‿●'], [4_240, '●', '─‿─'], [4_560, '●', '●‿●'],
+];
+const GREETING = {
+  welcome: [[0, '●', '─‿─'], [80, '●', '◒‿◒'], [160, '●', '●‿●'], ...HELLO],
+  resume: [[0, '●', '●‿●'], ...HELLO],
+};
+// The 9x4 Pip's antenna row and face in a frame: the 9 cells over and
+// under its head's top, where the rest frame has it.
+const pipCells = (lines, rest) => {
+  const head = rest.findIndex((l) => l.includes('╭───┴───╮'));
+  const col = [...rest[head]].indexOf('╭');
+  const cellsAt = (row) => [...lines[row]].slice(col, col + 9).join('').trim();
+  return [cellsAt(head - 1), cellsAt(head + 1).replace(/^│\s*|\s*│$/g, '')];
+};
+
+test('the greeting: the 9x4 Pip wakes on the welcome and starts awake on resume, looks left, right and up, smiles with happy eyes while its antenna sparks in turn, blinks once, and ends on ●‿● at 5 s', () => {
+  for (const label of ['welcome', 'resume']) {
+    const s = screen(label);
+    for (const [cols, rows] of [[60, 20], [80, 24], [120, 40]]) {
+      const f = (ms) => frameAt(s, s.fx.view, ms, [cols, rows]);
+      const rest = restOf(s, [cols, rows]);
+      const where = `${label} at ${cols}x${rows}`;
+      assert.deepEqual(pipCells(rest, rest), ['●', '●‿●'], `${where}: rest`);
+      for (let ms = 0; ms < 5_000; ms += 40) {
+        const [, antenna, face] = GREETING[label].findLast(([from]) => from <= ms);
+        assert.deepEqual(pipCells(f(ms), rest), [antenna, face], `${where}, +${ms} ms`);
+      }
+      assert.deepEqual(f(5_000), rest, `${where}, +5000 ms: rest`);
+    }
+  }
+  // Each pose holds long enough to read, the welcome's wake-up's two aside.
+  for (const poses of [GREETING.welcome.slice(2), GREETING.resume]) {
+    poses.forEach(([from], k, rest) => assert.ok((rest[k + 1]?.[0] ?? 5_000) - from >= 250, `the pose from +${from} ms`));
+  }
+});
+
+// The complete screen's 9x4 Pip (176): its cheer, then, once the rest of
+// the screen is still, a happy look left and right between ^‿^, ending
+// on ^‿^.
+const LOOK_AROUND = [[0, SPARKS, '^‿^'], [480, '●', '^‿^'], [1_200, '●', '◐‿◐'], [1_600, '●', '^‿^'], [2_000, '●', '◑‿◑']];
+
+test('the complete screen: after its cheer, the 9x4 Pip looks left and right between happy eyes, and rests on ^‿^ by 2.4 s', () => {
+  for (const label of ['complete', 'b-capstone complete']) {
+    const s = screen(label);
+    for (const [cols, rows] of [[60, 20], [80, 24], [120, 40]]) {
+      const f = (ms) => frameAt(s, s.fx.view, ms, [cols, rows]);
+      const rest = restOf(s, [cols, rows]);
+      const where = `${label} at ${cols}x${rows}`;
+      assert.deepEqual(pipCells(rest, rest), ['●', '^‿^'], `${where}: rest`);
+      for (let ms = 0; ms < 2_400; ms += 40) {
+        const [, antenna, face] = LOOK_AROUND.findLast(([from]) => from <= ms);
+        assert.deepEqual(pipCells(f(ms), rest), [antenna, face], `${where}, +${ms} ms`);
+      }
+      assert.deepEqual(f(2_400), rest, `${where}, +2400 ms: rest`);
+    }
+  }
+  LOOK_AROUND.slice(1).forEach(([from], k, rest) => assert.ok((rest[k + 1]?.[0] ?? 2_400) - from >= 250, `the pose from +${from} ms`));
+});
+
+// A frame with the 9x4 Pip's cells blanked, where the rest frame has them:
+// its 4 rows of 9 cells.
+const withoutPip = (lines, rest) => {
+  const head = rest.findIndex((l) => l.includes('╭───┴───╮'));
+  const col = cells(rest[head]).indexOf('╭');
+  return lines.map((l, r) => (r < head - 1 || r > head + 2 ? l : cells(l).map((c, k) => (k >= col && k < col + 9 ? ' ' : c)).join('').trimEnd()));
+};
+
+test('words never move in Pip\'s greeting and look around: from the moment the rest of the screen is still, only the 9x4 Pip\'s cells differ from the rest frame, at 60x20, 80x24 and 120x40', () => {
+  // The welcome's own one-shot ends at 480 ms; the complete screen's at 1.2 s.
+  for (const [label, from, to] of [['welcome', 480, 5_000], ['resume', 0, 5_000], ['complete', 1_200, 2_400]]) {
+    const s = screen(label);
+    for (const [cols, rows] of [[60, 20], [80, 24], [120, 40]]) {
+      const rest = restOf(s, [cols, rows]);
+      let moved = 0;
+      for (let ms = from; ms < to; ms += 40) {
+        const f = frameAt(s, s.fx.view, ms, [cols, rows]);
+        if (f.join('\n') !== rest.join('\n')) moved += 1;
+        assert.deepEqual(withoutPip(f, rest), withoutPip(rest, rest), `${label} at ${cols}x${rows}, +${ms} ms`);
+      }
+      assert.ok(moved > 0, `${label} at ${cols}x${rows}: Pip moves`);
+    }
+  }
+});
+
+test('the greeting plays once per arrival: a toast neither starts it again nor stops it, an overlay shows Pip at rest, and the key that closes it leaves the rest frame', () => {
+  const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y3', beat: 0, done: ['W1'] } } } });
+  assert.equal(d.state.view, 'resume');
+  const start = d.state.fx.view;
+  // A save that fails, 2 s in: its toast comes up, and the greeting goes on
+  // from the same arrival, then ends at 5 s.
+  d.send({ type: 'notice', kind: 'save', message: 'EACCES: permission denied', wait: 2_000 });
+  const toast = d.state;
+  assert.ok(toast.toast);
+  assert.equal(toast.fx.view, start);
+  const rest = restOf(toast);
+  assert.deepEqual(pipCells(frameAt(toast, start, 2_000), rest), [SPARKS, '^‿^'], '+2000 ms, the toast up');
+  assert.deepEqual(pipCells(frameAt(toast, start, 4_240), rest), ['●', '─‿─'], '+4240 ms, the toast up');
+  for (const ms of [5_000, 7_000]) assert.deepEqual(frameAt(toast, start, ms), rest, `+${ms} ms, the toast up`);
+  // ? at 2.5 s: the overlay's frame is its rest frame; ? again closes it,
+  // and the greeting is over.
+  d.send({ type: 'key', name: '?', wait: 500 });
+  assert.equal(d.state.overlay, 'help');
+  assert.deepEqual(frameAt(d.state, start, 2_600), restOf(d.state), 'under the overlay');
+  d.send({ type: 'key', name: '?', wait: 500 });
+  assert.equal(d.state.overlay, null);
+  assert.equal(d.state.fx.view, start);
+  for (const ms of [3_040, 3_120, 4_240, 5_000]) assert.deepEqual(frameAt(d.state, start, ms), restOf(d.state), `+${ms} ms, the overlay closed`);
+});
+
+// Pip greets once per opening of the app (176): back from the map, resume
+// is a new arrival (its fx.view stamp), but Pip has greeted already this
+// run, so neither Pip moves and main asks for no frame. Nothing of it is
+// saved: the next opening greets again.
+test('back from the map, resume arrives again but Pip does not greet again: it rests, and no frame waits for a greeting', () => {
+  const saved = { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y3', beat: 0, done: ['W1'] } } };
+  const d = driver({ saved });
+  assert.equal(d.state.view, 'resume');
+  const first = d.state.fx.view;
+  assert.ok(greetFrameIn(d.state, first, ON) !== null, 'the opening greets');
+  d.key('m');
+  assert.equal(d.state.view, 'map');
+  d.key('m');
+  assert.equal(d.state.view, 'resume');
+  const back = d.state.fx.view;
+  assert.ok(back > first && d.state.fx.key < back, `arrived at ${back}, the key at ${d.state.fx.key}`);
+  const rest = restOf(d.state);
+  for (let ms = 0; ms <= TIMING.greet; ms += 40) assert.deepEqual(frameAt(d.state, back, ms), rest, `+${ms} ms after the return`);
+  assert.equal(greetFrameIn(d.state, back, ON), null, 'the detailed Pip asks for no greeting frame');
+  assert.equal(nextChange(d.state, back, ON), null, 'nothing else moves on resume');
+  // In memory only: the save holds no stamp, so a new opening greets again.
+  assert.doesNotMatch(JSON.stringify(snapshot(d.state)), /greet/);
+  const again = driver({ saved });
+  assert.ok(greetFrameIn(again.state, again.state.fx.view, ON) !== null, 'the next opening greets again');
+});
+
+test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), the greeting and the look around show the rest frame at each of their poses, the detailed Pip too, where with motion they move', () => {
+  const modes = {
+    calm: capabilities(tty(), { ...ENV, LEARN_CALM: '1' }, 'linux', []),
+    NO_COLOR: capabilities(tty(), { ...ENV, NO_COLOR: '1' }, 'linux', []),
+    LEARN_PLAIN: capabilities(tty(), { ...ENV, LEARN_PLAIN: '1' }, 'linux', []),
+    'no Unicode': capabilities(tty(), { TERM: 'linux' }, 'linux', []),
+    'TERM=dumb': capabilities(tty(), { TERM: 'dumb' }, 'linux', []),
+  };
+  const times = { welcome: GREETING.welcome.map(([ms]) => ms), resume: GREETING.resume.map(([ms]) => ms), complete: LOOK_AROUND.map(([ms]) => ms) };
+  // The poses that differ from the rest pose.
+  const posed = {
+    welcome: GREETING.welcome.filter(([, a, face]) => a !== '●' || face !== '●‿●').map(([ms]) => ms),
+    resume: GREETING.resume.filter(([, a, face]) => a !== '●' || face !== '●‿●').map(([ms]) => ms),
+    complete: LOOK_AROUND.filter(([, a, face]) => a !== '●' || face !== '^‿^').map(([ms]) => ms),
+  };
+  for (const [mode, caps] of Object.entries(modes)) {
+    const t = theme(caps);
+    for (const [label, ms] of Object.entries(times)) {
+      const s = screen(label);
+      for (const [cols, rows] of [[60, 20], [80, 24], [120, 40]]) {
+        const rest = render(s, { cols, rows }, t, REST);
+        for (const at of ms) assert.deepEqual(render(s, { cols, rows }, t, { at: s.fx.view + at }), rest, `${label} (${mode}) at ${cols}x${rows}, +${at} ms`);
+        // With motion, the same poses move Pip: the rest above is motion off.
+        const moving = (at) => render(s, { cols, rows }, MOVING, { at: s.fx.view + at }).join('\n') !== render(s, { cols, rows }, MOVING, REST).join('\n');
+        for (const at of posed[label]) assert.ok(moving(at), `${label} at ${cols}x${rows}, +${at} ms: Pip moves with motion on`);
+      }
+    }
+  }
+  // Calm in truecolor, with room for the detailed Pip: its greeting adds
+  // nothing to the pose main hands over.
+  const calm = theme({ ...MOTION.full, depth: 24, motion: false, calm: true });
+  for (const label of ['welcome', 'resume']) {
+    const s = screen(label);
+    const size = { cols: 120, rows: 40 };
+    const pip = { size: pipSlot(s, size, calm), pose: restPose('ready') };
+    assert.equal(pip.size, 'standard', label);
+    const moving = theme({ ...MOTION.full, depth: 24, motion: true, calm: false });
+    for (const at of [160, 925, 1_750, 2_750]) {
+      assert.deepEqual(render(s, size, calm, { at: s.fx.view + at }, pip), render(s, size, calm, REST, pip), `${label}, calm, +${at} ms`);
+      assert.notDeepEqual(render(s, size, moving, { at: s.fx.view + at }, pip), render(s, size, moving, REST, pip), `${label}, with motion, +${at} ms`);
+    }
+  }
+});
 
 test('a card enters: its words whole at once, the top rule grows from the pill, Pip lands with its eyes shut, the stop pops', () => {
   const s = screen('W5');
@@ -985,7 +1176,9 @@ test('a lesson complete: confetti falls into its row, Pip cheers with sparks, CO
   assert.equal(f(880)[1], `  ●━━◉━━●━━●━━●━━●━━●━━●${end}`, '+880 ms');
   assert.equal(f(1_040)[1], `  ●━━●━━●━━●━━●━━●━━●━━◉${end}`, '+1040 ms: the light runs the whole trail by +1160 ms');
   assert.equal(rest[1], `  ●━━●━━●━━●━━●━━●━━●━━●${end}`);
-  assert.deepEqual(f(1_200), rest, '+1200 ms: rest');
+  // At 1.2 s all but Pip rests; Pip's look around ends at 2.4 s (176).
+  assert.deepEqual([...f(1_200).slice(0, 8), ...f(1_200).slice(9)], [...rest.slice(0, 8), ...rest.slice(9)], '+1200 ms: rest but Pip\'s face');
+  assert.deepEqual(f(2_400), rest, '+2400 ms: rest');
   // At 60x20 the confetti appears glyph by glyph in its own row.
   const row5 = (ms) => frameAt(s, s.fx.view, ms, [60, 20])[4];
   assert.deepEqual([0, 400, 800, 1_200].map(row5), [
@@ -1471,11 +1664,11 @@ test('elapsed seconds: on a slow check, from 3 s of the real child start, in 1 s
   }
 });
 
-test('one-shots end: 1.2 s after the last one starts, no frame is asked for unless a loop may then draw', () => {
+test('one-shots end: 1.2 s after the last one starts (Pip\'s greeting 5 s, its look around 2.4 s), no frame is asked for unless a loop may then draw', () => {
   for (const [label, s] of screens) {
-    const starts = Object.values(shotStarts(s)).filter((x) => x !== undefined);
+    const starts = Object.entries(shotStarts(s)).filter(([, x]) => x !== undefined);
     if (!starts.length) continue;
-    const at = Math.max(...starts) + 1_200;
+    const at = Math.max(...starts.map(([part, start]) => start + Math.max(TIMING[part], 1_200)));
     const p = phases(s, at, ON);
     for (const part of Object.keys(TIMING).filter((k) => k in SHOTS)) assert.equal(p[part], 1, `${label}: ${part}`);
     const wait = nextChange(s, at, ON);
@@ -1528,17 +1721,18 @@ const reduceKey = (s, at, name, ch) => {
 };
 
 test('a key ends every one-shot but the one it started, and still does its job', () => {
-  // Up, 40 ms into a one-shot: the next frame is the rest frame of what the
-  // key left.
-  const after = (s, start) => {
+  // Up, 40 ms into a one-shot: the next frame, and the one at `ms` where it
+  // would have moved, are the rest frame of what the key left.
+  const after = (s, start, ms = 80) => {
     const sent = reduceKey(s, start + 40, 'up');
-    assert.deepEqual(frameAt(sent, start, 80), restOf(sent), `${s.view}: the frame after the key`);
+    for (const at of new Set([80, ms])) assert.deepEqual(frameAt(sent, start, at), restOf(sent), `${s.view}: the frame +${at} ms, after the key`);
     return sent;
   };
-  for (const [label, from] of [['welcome', 'view'], ['W5', 'open'], ['W3 not yet', 'text'], ['W3 done', 'passLast'], ['C check', 'pass'], ['level up hinted', 'view'], ['complete', 'view']]) {
+  // Resume's Pip starts awake, its rest face: it first moves when it looks left.
+  for (const [label, from, ms = 0] of [['welcome', 'view'], ['resume', 'view', SHOTS.greet.left], ['W5', 'open'], ['W3 not yet', 'text'], ['W3 done', 'passLast'], ['C check', 'pass'], ['level up hinted', 'view'], ['complete', 'view']]) {
     const s = screen(label);
-    assert.notDeepEqual(frameAt(s, s.fx[from], 0), restOf(s), `${label} plays`);
-    after(s, s.fx[from]);
+    assert.notDeepEqual(frameAt(s, s.fx[from], ms), restOf(s), `${label} plays at +${ms} ms`);
+    after(s, s.fx[from], ms);
   }
   // Up on a question moves the cursor, and ends the entrance.
   const q = screen('W5');

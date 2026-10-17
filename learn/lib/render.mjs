@@ -1,7 +1,7 @@
 // Draws a state as exactly `rows` lines, none wider than `cols - 1`. Four
 // regions: the header (where am I), the body (what to do now, with how it's
 // going at the bottom of the card), and the key bar pinned to the bottom.
-import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipRaster } from './art.mjs';
+import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipGreeting, pipRaster } from './art.mjs';
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
@@ -809,8 +809,9 @@ const VIEWS = {
     const heat = ['guided', 'guided', 'hinted', 'heat4', 'challenge'];
     const ids = lessons.filter((l) => !l.id.endsWith('capstone'));
     const cap = lessons.find((l) => l.id.endsWith('capstone'));
-    // Once on entry: Pip wakes, and a fuse lights the path's links in turn,
-    // reaching the cup at `cup` however many lessons the level has.
+    // Once on entry: Pip greets the learner, and a fuse lights the path's
+    // links in turn, reaching the cup at `cup` however many lessons the
+    // level has.
     const e = into(ctx, 'welcome');
     const at = SHOTS.welcome;
     const frames = at.cup / at.fuse;
@@ -819,7 +820,7 @@ const VIEWS = {
     // The heat runs cool to hot across the level, however long.
     const path = `${ids.map((l, i) => `${t.fg(heat[Math.floor((i * heat.length) / ids.length)], t.bold(lessonLabel(l.id)))}${link(i)}`).join('')}${t.emoji('cup') || lessonLabel(cap.id)}`;
     const hint = lessHelpOn(s, lessons) ? t.fg('muted', `   ${C.pathHint}`) : '';
-    const eyes = e < at.waking || ctx.ph.blink ? 'shut' : e < at.awake ? 'waking' : undefined;
+    const eyes = greeting(ctx) ?? (ctx.ph.blink ? 'shut' : undefined);
     const body = [
       withPip(ctx, bigPip(ctx, BIG_PIP.welcome, eyes), [
         (w) => led(t, 'wave', C.hi(s.facts.name), w, 'white').map((x) => t.bold(x)),
@@ -856,7 +857,7 @@ const VIEWS = {
     return {
       head: lessonHead(ctx, '', C.stepOf(index + 1, steps.length)),
       body: [
-        withPip(ctx, bigPip(ctx, BIG_PIP.resume), [
+        withPip(ctx, bigPip(ctx, BIG_PIP.resume, greeting(ctx)), [
           () => [lead(t, 'wave', t.bold(t.fg('white', C.welcomeBack)))],
           (w) => para(t, C.youreOn(lessonLabel(s.lesson), index + 1, steps.length, steps[index].title), w, 'text'),
         ]),
@@ -963,7 +964,7 @@ const VIEWS = {
     const e = into(ctx, 'complete');
     const at = SHOTS.complete;
     const cheer = e < at.whole;
-    const art = bigPip(ctx, BIG_PIP.complete, cheer ? 'cheer' : undefined);
+    const art = bigPip(ctx, BIG_PIP.complete, cheer ? 'cheer' : lookingAround(ctx));
     const word = banner(t, C.complete, cheer ? { letters: Math.floor((C.complete.length * e) / at.whole) } : {});
     const label = s.lesson.endsWith('capstone') ? 'Capstone' : `Lesson ${lessonNumber(s)}`;
     // The confetti falls into its row: from 24 rows across it and the blank
@@ -1210,13 +1211,45 @@ function windows(ctx) {
   return left.map((l, i) => `${l}${i === 2 ? arrow : ' '.repeat(width(arrow))}${right[i]}`);
 }
 
+// The 9x4 Pip's frame in its greeting on the welcome and resume (176): it
+// wakes on the welcome (on resume the boot frame woke it, so it starts
+// awake), looks left, right and up, wears happy eyes while its antenna row
+// sparks every other swing, blinks once, and is awake to the end; none
+// (awake, as at rest) once it is over.
+function greeting(ctx) {
+  const e = into(ctx, 'greet');
+  const at = SHOTS.greet;
+  const wakes = ctx.s.view === 'welcome';
+  if (wakes && e < at.waking) return 'shut';
+  if (wakes && e < at.awake) return 'waking';
+  if (e < at.left) return undefined;
+  if (e < at.right) return 'lookLeft';
+  if (e < at.up) return 'glance';
+  if (e < at.wave) return 'lookUp';
+  if (e < at.back) return Math.floor((e - at.wave) / at.swing) % 2 ? 'glad' : 'cheer';
+  if (e < at.blink) return undefined;
+  return e < at.open ? 'shut' : undefined;
+}
+
+// The 9x4 Pip's frame in its look around on the complete screen (176),
+// once the rest of the screen is still: left, back to its happy eyes,
+// right, and back at the end.
+function lookingAround(ctx) {
+  const e = into(ctx, 'lookAround');
+  const at = SHOTS.lookAround;
+  if (e < at.left) return undefined;
+  if (e < at.back) return 'lookLeft';
+  return e >= at.right && e < TIMING.lookAround ? 'glance' : undefined;
+}
+
 // The big Pip: the detailed raster where the screen has room for it
-// (ctx.raster, from pipSlot), else the 9x4 Pip in `mood` and `frame`. Its
-// rows, how wide they are, and the row its face is on.
+// (ctx.raster, from pipSlot), with its greeting over main's pose while that
+// plays, else the 9x4 Pip in `mood` and `frame`. Its rows, how wide they
+// are, and the row its face is on.
 function bigPip(ctx, mood, frame) {
   const { t, raster } = ctx;
   if (!raster) return { rows: pip(t, mood, frame), width: 9, face: 2 };
-  return { rows: pipRaster(raster.pose, raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
+  return { rows: pipRaster(pipGreeting(raster.pose, into(ctx, 'greet')), raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
 }
 
 // Pip with text beside it, from Pip's face row (on the 9x4 Pip its third,

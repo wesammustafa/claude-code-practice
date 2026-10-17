@@ -1,6 +1,7 @@
 // Pip the mascot, block-letter banners, the check burst and confetti. Each
 // has a plain ASCII form. Nothing here is random: the same screen draws the
 // same art every time.
+import { SHOTS, TIMING } from './motion.mjs';
 import { rasterizePip, renderPip, restPose, SIZES } from './pip/pip.mjs';
 import { width } from './text.mjs';
 
@@ -13,12 +14,14 @@ const STATE = { happy: 'ready', focus: 'working', party: 'success', rest: 'ready
 const MOOD = { worried: { right: 0.6 } };
 // A one-shot's `frame`, over the mood: eyes shut, waking or awake, with a
 // smile whatever the mood's mouth (a shut eye over a flat mouth would read
-// as one rule); a glance toward the other window; a cheer's happy eyes and
-// sparks; or a hop's sparks alone, its eyes the mood's.
+// as one rule); a glance toward the other window, which is the greeting's
+// look right too, and its look left or up (176); a cheer's happy eyes and
+// sparks, or happy eyes alone; or a hop's sparks alone, its eyes the mood's.
 const OPEN = { left: 1, right: 1, happy: 0, smile: 1 };
 const FRAME = {
   shut: { ...OPEN, left: 0, right: 0 }, waking: { ...OPEN, left: 0.45, right: 0.45 }, awake: OPEN,
-  glance: { ...OPEN, gazeX: 0.7 }, cheer: { happy: 1, smile: 1.2, spark: 1 }, sparks: { spark: 1 },
+  glance: { ...OPEN, gazeX: 0.7 }, lookLeft: { ...OPEN, gazeX: -0.7 }, lookUp: { ...OPEN, gazeY: -0.7 },
+  cheer: { happy: 1, smile: 1.2, spark: 1 }, glad: { happy: 1, smile: 1.2 }, sparks: { spark: 1 },
 };
 // ASCII Pip is still, with three faces: at rest, checking, and done.
 // Broken draws as rest, since the package's ASCII error face is checking's.
@@ -58,6 +61,41 @@ export function pip(t, mood = 'happy', frame) {
 export const PIP_RASTER = {
   standard: { cols: SIZES.standard[0], rows: SIZES.standard[1], face: 9 },
 };
+
+// The detailed Pip's greeting on the welcome and resume (176): a layer over
+// the controller's `pose`, a pure function of the `ms` since the screen
+// arrived, exactly nothing at 0 and from TIMING.greet on, at the moments of
+// SHOTS.greet.raster. Its eyes widen and its antenna flicks; then its eyes
+// turn happy and its antenna waves like a hand, slow swings that ease in
+// and out, with a hop and a spark at each of its hops; between the hops its
+// eyes, open again, look left, right and up. At the end all of it eases
+// back to the pose.
+const bump = (u) => (u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u) ** 2);
+const rise = (ms, from, to) => {
+  const u = Math.min(1, Math.max(0, (ms - from) / (to - from)));
+  return u * u * (3 - 2 * u);
+};
+export function pipGreeting(pose, ms) {
+  if (!(ms > 0 && ms < TIMING.greet)) return pose;
+  const at = SHOTS.greet.raster;
+  const wide = bump(ms / at.wide);
+  const back = 1 - rise(ms, at.back, TIMING.greet);
+  const happy = rise(ms, at.wide, at.glad) * (1 - rise(ms, at.open, at.look)) + rise(ms, at.again, at.hops[1]) * back;
+  const wave = rise(ms, at.wide, at.waved) * back * Math.sin((2 * Math.PI * (ms - at.wide)) / at.swing);
+  const hop = at.hops.reduce((n, from) => n + bump((ms - from) / at.hop), 0);
+  return {
+    ...pose,
+    left: pose.left + 0.2 * wide,
+    right: pose.right + 0.2 * wide,
+    happy: Math.min(1, pose.happy + happy),
+    antenna: pose.antenna + 0.03 * wide * Math.sin((2 * Math.PI * ms) / at.wide) + 0.05 * wave,
+    lift: pose.lift + 0.03 * hop,
+    spark: Math.min(1, pose.spark + hop),
+    // Left then right, from `look` to `up`, then up to `again`.
+    gazeX: pose.gazeX - (ms > at.look && ms < at.up ? Math.sin((2 * Math.PI * (ms - at.look)) / (at.up - at.look)) : 0),
+    gazeY: pose.gazeY - bump((ms - at.up) / (at.again - at.up)),
+  };
+}
 
 // `pose` from the package's controller, as `rows` lines of `cols` cells.
 // The package paints its own backdrop (#1E1E1E) and softens each edge

@@ -814,7 +814,8 @@ test('draws: one frame for the events of one turn, a key within one frame, and n
   const { term, clock } = app;
   try {
     assert.ok(await app.settle(() => term.shows().includes("Let's learn Claude Code")), term.shows());
-    await clock.advance(1_000);
+    // Past Pip's greeting (176): no frame waits when the keys come.
+    await clock.advance(TIMING.greet + 1_000);
     let n = term.writes.length;
     term.type('\r\r');
     await turn();
@@ -1029,7 +1030,8 @@ test('draws: when slow writes stop motion, the rest frame is asked for at once',
   const { term, clock } = app;
   try {
     assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
-    await clock.advance(1_000);
+    // Past Pip's greeting (176): no frame waits when the keys come.
+    await clock.advance(TIMING.greet + 1_000);
     app.writeMs = 13;
     const n = term.writes.length;
     for (const [i, key] of ['\r', '\r', ' '].entries()) {
@@ -1147,7 +1149,7 @@ const RESUME = { format: 1, welcomed: true, lessons: { 'b-1': { step: 'Y3', beat
 const RASTER = /[▀▄]/;
 const toResume = async (app) => assert.ok(await app.settle(() => app.term.shows().includes('Welcome back')), app.term.shows());
 
-test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s frames while it turns, an overlay stops them, resume gives it no ambient life (its y/n neither), and a 16- or 256-color terminal\'s 9x4 Pip adds none', async () => {
+test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s frames while it turns, an overlay stops them, resume gives it no ambient life (its y/n neither), and a 16- or 256-color terminal\'s 9x4 Pip adds none once its greeting is over', async () => {
   const app = clockedRun(MOTION_ENV, { saved: RESUME, depth: 24 });
   const { term, clock } = app;
   try {
@@ -1182,19 +1184,83 @@ test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s fra
   } finally {
     app.close();
   }
-  // The first look's result comes at once here, so its frame is out by 80 ms,
-  // inside the 0.9 s that Pip's turn to ready would take.
+  // The first look's result comes at once here. The 9x4 Pip greets for
+  // 5 s from the screen's arrival (176), then holds still.
   for (const depth of [4, 8]) {
     const glyph = clockedRun(MOTION_ENV, { saved: RESUME, depth, runCheck: async () => ({ items: [] }) });
     try {
       await toResume(glyph);
       assert.doesNotMatch(glyph.term.shows(), RASTER, `depth ${depth}`);
-      await glyph.clock.advance(80);
+      await glyph.clock.advance(glyph.frameTimes()[0] + TIMING.greet - glyph.clock.now());
       assert.deepEqual(glyph.frameTimers(), [], `depth ${depth}: the 9x4 Pip, still`);
       await glyph.clock.advance(5_000);
       assert.deepEqual(glyph.frameTimers(), [], `depth ${depth}: and later`);
     } finally {
       glyph.close();
+    }
+  }
+});
+
+// Pip's greeting (176) on resume, which moves nothing else: from the
+// screen's arrival, the detailed Pip's frames come every 40 ms and the 9x4
+// Pip's at least as often as its poses change (every 80 ms at most), until
+// 5 s after it arrived; then none. Git and the first look answer at once.
+test('the greeting on main\'s one timer: the detailed Pip asks for a frame every 40 ms, the 9x4 Pip every 80 ms, until 5 s after the screen arrived, then none; a resize, during it or after, plays nothing again', async () => {
+  for (const [depth, every] of [[24, 40], [8, 80]]) {
+    const app = clockedRun(MOTION_ENV, { saved: RESUME, depth, askGit: quickGit, runCheck: async () => ({ items: [] }) });
+    const { term, clock } = app;
+    try {
+      await toResume(app);
+      assert.equal(RASTER.test(term.shows()), depth === 24, `depth ${depth}`);
+      const arrived = app.frameTimes()[0];
+      const ends = arrived + TIMING.greet;
+      let resized = false;
+      while (clock.now() < ends) {
+        if (!resized && clock.now() >= arrived + 2_000) {
+          term.stdout.emit('resize');
+          resized = true;
+          await turn();
+        }
+        const timers = app.frameTimers();
+        assert.equal(timers.length, 1, `depth ${depth}: one frame timer at +${clock.now() - arrived} ms`);
+        assert.ok(timers[0].ms > 0 && timers[0].ms <= every, `depth ${depth}: next frame in ${timers[0].ms} ms at +${clock.now() - arrived} ms`);
+        await clock.advance(timers[0].ms);
+      }
+      assert.equal(clock.now(), ends, `depth ${depth}: a frame at the greeting's end`);
+      assert.deepEqual(app.frameTimers(), [], `depth ${depth}: none after it`);
+      const still = term.shows();
+      term.stdout.emit('resize');
+      await clock.advance(40);
+      assert.equal(term.shows(), still, `depth ${depth}: a resize draws the rest frame again`);
+      assert.deepEqual(app.frameTimers(), [], `depth ${depth}: and asks for no frame`);
+    } finally {
+      app.close();
+    }
+  }
+});
+
+// Any key ends the greeting at once: main asks for no more of its frames,
+// and Pip's rows are already the ones it rests on once the 5 s are over.
+test('a key ends the greeting on main\'s one timer: from the frame it draws, no frame timer waits, and Pip is at rest', async () => {
+  for (const depth of [24, 8]) {
+    const app = clockedRun(MOTION_ENV, { saved: RESUME, depth, askGit: quickGit, runCheck: async () => ({ items: [] }) });
+    const { term, clock } = app;
+    try {
+      await toResume(app);
+      const arrived = app.frameTimes()[0];
+      await clock.advance(arrived + 1_000 - clock.now());
+      assert.equal(app.frameTimers().length, 1, `depth ${depth}: the greeting plays`);
+      // Up, which resume does not act on.
+      term.type('\x1b[A');
+      await turn();
+      await clock.advance(40);
+      assert.deepEqual(app.frameTimers(), [], `depth ${depth}: no frame after the key`);
+      const after = term.shows();
+      await clock.advance(arrived + TIMING.greet + 1_000 - clock.now());
+      assert.deepEqual(app.frameTimers(), [], `depth ${depth}: nor later`);
+      assert.equal(term.shows(), after, `depth ${depth}: the frame after the key is the rest frame`);
+    } finally {
+      app.close();
     }
   }
 });
@@ -1393,10 +1459,11 @@ test('the welcome\'s detailed Pip asks for no frame while the learner reads, the
     await toWelcome(app);
     const opens = graceEnds(app);
     // As the welcome arrives Pip turns to ready, and its antenna sways: the
-    // package's frames, every 40 ms for its 900 ms. From then until the
-    // grace ends, the one frame timer waits for that moment, and Pip holds
-    // still (the screen's own full refresh every 10 s draws it the same).
-    const settled = app.frameTimes()[0] + MOTION.antenna + MOTION.frame;
+    // package's frames, every 40 ms for its 900 ms; and it greets for 5 s
+    // (176). From then until the grace ends, the one frame timer waits for
+    // that moment, and Pip holds still (the screen's own full refresh every
+    // 10 s draws it the same).
+    const settled = app.frameTimes()[0] + Math.max(MOTION.antenna + MOTION.frame, TIMING.greet);
     await clock.advance(Math.max(0, settled - clock.now()));
     const still = pipRows(term);
     for (; clock.now() < opens; await clock.advance(Math.min(1_000, opens - clock.now()))) {
