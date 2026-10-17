@@ -10,6 +10,7 @@ import { PIP_INK, pipGreeting, pipRaster, pipShown } from '../../learn/lib/art.m
 import { createPip, PALETTE, rasterizePip, restPose } from '../../learn/lib/pip/pip.mjs';
 import { IDLE_MS, reduce } from '../../learn/lib/flow.mjs';
 import { ambientOpened, greetStart, pipGates, pipJump, REST, SHOTS, TIMING } from '../../learn/lib/motion.mjs';
+import { pipHost } from '../../learn/lib/main.mjs';
 import { bootFrame, pipSlot, pipTarget, render } from '../../learn/lib/render.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
@@ -679,34 +680,19 @@ test('pipJump: a key that shuts the ambient gate or ends the greeting eases Pip 
   assert.equal(pipJump(null, 5_000, seen(welcome, opened), gates(null, 5_000)), null, 'the boot frame');
 });
 
-// main's draw of the detailed Pip, as pipPose does it: where pipJump says,
-// the pose the last frame's gates (and any ease still running) show at
-// that moment, before any change; the 30 s restart as the gate opens; the
-// live pose, eased from there. `epoch`: how long before the welcome
-// arrived Pip was made, which sets its breathing's phase.
+// main's own draw of the detailed Pip (its pipHost), as render shows it:
+// the host's pose, eased from where it jumped, with the greeting over it.
+// `epoch`: how long before the welcome arrived Pip was made, which sets
+// its breathing's phase.
+const ON_TRUECOLOR = { motion: true, truecolor: true, remote: false };
 function drawsOf(epoch = 0) {
-  const on = { motion: true, truecolor: true, remote: false };
-  let pip = null;
-  let shown = null;
-  let fade = null;
-  let opened = null;
-  let last = -Infinity;
+  let host = null;
   return (s, at) => {
-    pip ??= createPip({ state: 'ready', at: s.fx.view - epoch });
-    const gates = pipGates(s, at, on);
-    const jump = pipJump(s, at, shown, gates);
-    const T = jump && Math.min(at, Math.max(jump.at, last));
-    const from = jump && { at: T, ms: jump.ms, from: pipShown({ pose: pip.pose(T, shown.gates), fade }, shown.greet === undefined ? Infinity : T - shown.greet, T) };
-    if (gates.ambient && ambientOpened(s) !== opened) {
-      opened = ambientOpened(s);
-      pip.setState('ready', { at: Math.min(at, Math.max(opened, last)), eventId: `ambient:${opened}`, immediate: true });
-    }
+    host ??= pipHost(s.fx.view - epoch, 'ready');
+    const gates = pipGates(s, at, ON_TRUECOLOR);
+    const pose = host.pose(s, at, gates);
     const greet = greetStart(s, at, gates);
-    if (from) fade = from;
-    if (fade && at >= fade.at + fade.ms) fade = null;
-    shown = { gates, greet, view: s.fx.view };
-    last = at;
-    return pipShown({ pose: pip.pose(at, gates), fade }, greet === undefined ? Infinity : at - greet, at);
+    return pipShown({ pose, fade: host.fade }, greet === undefined ? Infinity : at - greet, at);
   };
 }
 const POSE_KEYS = Object.keys(restPose('ready')).filter((k) => k !== 'state');
@@ -766,6 +752,24 @@ test('the detailed Pip changes continuously: where a key ends its greeting or sh
     const eased = largest(drawsOf(epoch), () => welcome, opened - 200, opened + TIMING.pipBreathIn + 200, 40);
     assert.ok(eased <= breath, `breathing ${epoch} ms into its cycle: ${eased} a frame, its own ${breath} each 120 ms`);
   }
+});
+
+// pipJump starts no ease across a screen change, and one already running
+// stops there too: the new screen's Pip is its own from its first frame.
+test('main\'s pipHost: an ease still running when the screen changes stops there, and none carries onto the new screen', () => {
+  const welcome = driver().state;
+  const opened = ambientOpened(welcome);
+  const host = pipHost(welcome.fx.view, 'ready');
+  const draw = (s, at) => host.pose(s, at, pipGates(s, at, ON_TRUECOLOR));
+  for (let at = opened; at <= opened + 1_000; at += 40) draw(welcome, at);
+  const pressed = opened + 1_007;
+  const keyed = reduce(welcome, { type: 'key', name: 'down', now: pressed }).state;
+  draw(keyed, pressed + 33);
+  assert.ok(host.fade, 'the key eases Pip out');
+  const arrived = { ...keyed, fx: { ...keyed.fx, view: pressed + 60 } };
+  const pose = draw(arrived, pressed + 73);
+  assert.equal(host.fade, null, 'the ease stops at the new screen');
+  assert.deepEqual(pipShown({ pose, fade: host.fade }, Infinity, pressed + 73), pose);
 });
 
 test('words never move in the detailed Pip\'s greeting: every 40 ms frame fits the window, and from the moment the rest of the screen is still only the raster\'s cells differ from the rest frame', () => {

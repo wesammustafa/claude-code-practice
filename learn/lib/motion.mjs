@@ -422,7 +422,9 @@ function faceFrameIn(s, at, part, start) {
 
 // Milliseconds until the screen next differs, or null. Null under calm,
 // with an overlay, at idle unless a child runs, and when nothing moves and
-// no deadline waits.
+// no deadline waits. With `caps.raster` the detailed Pip is drawn in the
+// 9x4 Pip's place, so the 9x4 Pip's face moments (its greeting, its look
+// around, its blinks) ask for nothing: main asks for the raster's (181).
 export function nextChange(s, at, caps) {
   if (!caps?.motion || s.overlay) return null;
   const still = idle(s, at);
@@ -431,6 +433,7 @@ export function nextChange(s, at, caps) {
   // only Pip's face, the next moment its face changes.
   if (!still) {
     for (const [part, start] of Object.entries(shotStarts(s))) {
+      if (FACE_ONLY[part] && caps.raster) continue;
       const next = FACE_ONLY[part] ? faceFrameIn(s, at, part, start) : shotFrameIn(s, at, part, start, SHOTS[part].every);
       if (next !== null) times.push(next);
     }
@@ -443,7 +446,7 @@ export function nextChange(s, at, caps) {
   // first idle frame, where it stops.
   const quiet = quietFrom(s);
   if (!still && AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
-  if (!still && ambientAllowed(s, at) && blinks(s)) {
+  if (!still && !caps.raster && ambientAllowed(s, at) && blinks(s)) {
     const e = blinkInto(s, at);
     times.push(nextMoment(SHOTS.blink.face, TIMING.blink, e) ?? TIMING.blinkEvery - e);
   }

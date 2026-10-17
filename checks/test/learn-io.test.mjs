@@ -1598,6 +1598,31 @@ test('with every write taking 8 ms and every timer 3 ms late, each frame timer w
   }
 });
 
+// The detailed Pip's frames are its own: the 9x4 Pip it replaces asks for
+// none (181). Past Pip's lively window only its sparse rest blinks move it,
+// so every frame drawn then, but the 1 s tick's, writes: none is drawn for
+// the 9x4 Pip's blink every 6 s, which the screen does not show.
+test('past its 30 s of life the welcome\'s detailed Pip draws a frame only to write it, or on the 1 s tick: none for the 9x4 Pip\'s blinks', async () => {
+  const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40, watch: () => ({ close() {} }) });
+  const { term, clock } = app;
+  // Each draw reads the window's width once.
+  const draws = [];
+  Object.defineProperty(term.stdout, 'columns', { get: () => (draws.push(clock.now()), 120) });
+  try {
+    await toWelcome(app);
+    const opens = graceEnds(app);
+    const [from, to] = [opens + 31_000, opens + 61_000];
+    await clock.advance(to - clock.now());
+    const ticks = (at) => (at - app.frameTimes()[0]) % 1_000 === 0;
+    const drawn = draws.filter((at) => at >= from && at < to && !ticks(at));
+    assert.ok(drawn.length >= 8, `the rest blinks' frames: ${drawn.length}`);
+    assert.deepEqual(drawn.filter((at) => !app.times.includes(at)).map((at) => at - opens), [], 'frames that wrote nothing');
+    assert.match(term.shows(), RASTER);
+  } finally {
+    app.close();
+  }
+});
+
 test('the welcome\'s detailed Pip asks for no frame while the learner reads, then breathes for 30 s from the moment its reading grace ends, and glances about 2.6 s and blinks about 4.2 s after it', async () => {
   const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
   const { term, clock } = app;

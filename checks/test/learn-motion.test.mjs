@@ -765,6 +765,30 @@ test('nextChange: the next 40 ms frame of a one-shot, the spinner\'s start and t
   assert.equal(n(10_010), 230);
 });
 
+// Where the detailed Pip is drawn (main passes `raster`), the 9x4 Pip is
+// not, so its face moments ask for no frame: the raster's own frames come
+// from the package and the greeting (181).
+test('nextChange: with the detailed Pip drawn, the 9x4 Pip\'s face moments ask for no frame: the welcome\'s blinks and greeting, the complete screen\'s look around', () => {
+  const RASTER = { ...ON, raster: true };
+  const welcome = driver().state;
+  const q = ambientOpened(welcome);
+  assert.equal(nextChange(welcome, q + 10, ON), 30, 'the 9x4 Pip\'s blink');
+  assert.equal(nextChange(welcome, q + 170, ON), 5_830, 'its next blink');
+  for (const ms of [10, 170, 6_010]) assert.equal(nextChange(welcome, q + ms, RASTER), null, `the gates open, +${ms} ms`);
+  assert.equal(nextChange(welcome, q - 1_000, RASTER), 1_000, 'the gates\' opening is still a deadline');
+  const start = welcome.fx.view;
+  assert.equal(nextChange(welcome, start + 600, ON), 40, 'the 9x4 Pip\'s greeting');
+  assert.equal(nextChange(welcome, start + 600, RASTER), q - start - 600, 'the greeting\'s 9x4 face asks for none');
+  assert.equal(nextChange(welcome, start + 10, RASTER), 70, 'the welcome\'s own one-shot still does');
+  const up = driver();
+  playUntil(up, (s) => s.view === 'complete');
+  const complete = up.state;
+  const done = complete.fx.view + TIMING.complete;
+  assert.notEqual(nextChange(complete, done + 10, ON), null, 'the 9x4 Pip\'s look around');
+  assert.equal(nextChange(complete, done + 10, RASTER), null, 'none with the detailed Pip');
+  assert.equal(nextChange(complete, complete.fx.view + 10, RASTER), 30, 'the complete screen\'s own one-shot');
+});
+
 test('nextChange: the moment ambient loops may start is a deadline', () => {
   const { d, t } = opened('W1');
   const wait = nextChange(d.state, t + 200, ON);
@@ -1953,6 +1977,27 @@ test('screen writer: a still screen still gets one full frame every 10 s, so str
     await clock.advance(5_000);
     screen.draw(page());
     assert.equal(out.writes.length, 0, 'the 10 s count starts again from that frame');
+  }
+});
+
+// A frame for a deadline (main's `repair: false`) is for motion: one that
+// changes no row repairs nothing either, so the refresh waits for the next
+// frame, which an event draws within a second (181).
+test('screen writer: a deadline\'s frame that changes no row writes nothing, even with the 10 s refresh due; the next frame repairs the screen', async () => {
+  for (const motion of [true, false]) {
+    const { out, clock, screen, bytes } = writer(motion);
+    screen.draw(page());
+    out.writes.length = 0;
+    await clock.advance(10_000);
+    assert.equal(screen.draw(page(), { repair: false }), false, `motion ${motion}: no write`);
+    assert.equal(out.writes.length, 0);
+    screen.draw(page());
+    assert.equal(out.writes.length, 1, `motion ${motion}: the next frame refreshes`);
+    assert.ok(bytes().includes('\x1b[H'), 'a full frame, from home');
+    out.writes.length = 0;
+    await clock.advance(10_000);
+    screen.draw(page(' changed', 6), { repair: false });
+    assert.ok(bytes().includes('\x1b[H'), `motion ${motion}: a deadline's frame that changes a row is full once the refresh is due`);
   }
 });
 
