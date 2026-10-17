@@ -4,12 +4,13 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pipShown } from './art.mjs';
 import { capabilities, osc52 } from './caps.mjs';
 import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
-import { ambientOpened, BOOT_FROM, bootChange, greetFrameIn, nextChange, pipGates, REST, TIMING } from './motion.mjs';
+import { ambientOpened, BOOT_FROM, bootChange, greetFrameIn, greetStart, nextChange, pipGates, pipJump, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
 import { bootFrame, cardMax, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
@@ -33,6 +34,8 @@ const PERF = () => Math.round(performance.now() * 1024) / 1024;
 // What git says first: whether this folder is a repository, and a name to
 // greet.
 const ASK_GIT = (root) => Promise.all([gitReady(root), gitFirstName(root)]);
+// Two of Pip's poses the same to within rounding.
+const samePose = (a, b) => Object.keys(a).every((k) => (typeof a[k] === 'number' ? Math.abs(a[k] - b[k]) < 1e-6 : a[k] === b[k]));
 
 // A folder path as the learner typed or pasted it, in full: quotes around
 // it and the shell's `\ ` for a space (a folder dragged onto the terminal)
@@ -156,16 +159,20 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const at = perf();
     const size = sizeNow();
     const clock = screen.motion ? { at } : REST;
-    // The detailed Pip, where the screen has room for it: its pose, and
-    // when it or its greeting next moves, more deadlines for the one timer.
-    // All with the same gates, even if this frame's write turns motion off.
+    // The detailed Pip, where the screen has room for it: its pose and any
+    // ease from where it jumped, and when it, its greeting or the ease next
+    // moves, more deadlines for the one timer. All with the same gates, even
+    // if this frame's write turns motion off.
     const slot = pipSlot(state, size, t, nextScreen);
     const gates = slot && pipGates(state, at, { motion: screen.motion, truecolor: t.depth >= 24, remote: caps.remote });
-    const raster = slot ? { size: slot, pose: pipPose(at, gates) } : null;
+    const pose = slot && pipPose(at, gates);
+    if (!slot) shown = fade = null;
+    const raster = slot ? { size: slot, pose, fade } : null;
     screen.draw(state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster));
     const waits = [state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion }),
       slot ? pip.nextFrameIn(at, { ...gates, size: slot }) : null,
-      slot && state ? greetFrameIn(state, at, { motion: screen.motion }) : null].filter((w) => w !== null);
+      slot && state ? greetFrameIn(state, at, { motion: screen.motion }) : null,
+      fade ? Math.min(TIMING.grid - ((at - fade.at) % TIMING.grid), fade.at + fade.ms - at) : null].filter((w) => w !== null);
     if (waits.length) drawIn(Math.max(Math.min(...waits), floor()));
   }
 
@@ -185,11 +192,23 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // than the last change, nor than a frame already shown, and no later than
   // this frame.
   const pipFrom = (at, since) => Math.min(at, Math.max(since ?? at, pipChanged, pipAt));
+  // What the last frame with Pip showed: its gates, its greeting's start
+  // and the screen's arrival. Where its pose jumps from there (a key ends
+  // its greeting or shuts its ambient gate, or the gate opens), `fade`
+  // eases it from the pose shown at that moment, on the 40 ms grid from it
+  // (181): a function of time alone, not of which frames happened to draw.
+  let shown = null;
+  let fade = null;
   // Pip set to what this screen shows, then its pose at `at`.
   function pipPose(at, gates) {
     const { state: next, since, ...event } = pipTarget(state, at);
-    const from = pipFrom(at, since);
-    if (pip.setState(next, { at: from, ...event })) pipChanged = from;
+    // The pose shown at the jump, with the last frame's gates and any ease
+    // still running: before any change below, which retargets from it.
+    const jump = pipJump(state, at, shown, gates);
+    const jumped = jump && pipFrom(at, jump.at);
+    const eased = jump && { at: jumped, ms: jump.ms, from: pipShown({ pose: pip.pose(jumped, shown.gates), fade }, shown.greet === undefined ? Infinity : jumped - shown.greet, jumped) };
+    const changed = pipFrom(at, since);
+    if (pip.setState(next, { at: changed, ...event })) pipChanged = changed;
     // The package's lively window (blinks, glances, breathing) is its 30 s
     // from Pip's last change. On a state with no reaction of its own, it
     // starts again as the ambient gate opens: from that moment, under that
@@ -202,6 +221,12 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       if (opened !== pipOpened && pip.setState(next, { at: restart, eventId: `ambient:${opened}`, immediate: true })) pipChanged = restart;
       pipOpened = opened;
     }
+    // An ease with nothing to ease is none: an opening with no breathing
+    // asks for no frames.
+    const greet = state ? greetStart(state, at, gates) : undefined;
+    if (eased && !samePose(eased.from, pipShown({ pose: pip.pose(jumped, gates) }, greet === undefined ? Infinity : jumped - greet, jumped))) fade = eased;
+    if (!gates.motion || (fade && at >= fade.at + fade.ms)) fade = null;
+    shown = gates.motion ? { gates, greet, view: state?.fx.view } : null;
     pipAt = at;
     return pip.pose(at, gates);
   }

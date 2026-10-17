@@ -1,7 +1,7 @@
 // Draws a state as exactly `rows` lines, none wider than `cols - 1`. Four
 // regions: the header (where am I), the body (what to do now, with how it's
 // going at the bottom of the card), and the key bar pinned to the bottom.
-import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipGreeting, pipRaster } from './art.mjs';
+import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipRaster, pipShown } from './art.mjs';
 import { C } from './copy.mjs';
 import { bootPhases, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
@@ -255,7 +255,7 @@ function bootOf(since, size, t, clock, raster) {
   const { cols, rows } = size;
   if (cols < MIN.cols || rows < MIN.rows) return { out: small(cols, rows), spare: -1 };
   const { W, M, top } = frameOf(size);
-  const ctx = { t, W, ph: bootPhases(since, clock.at, t.caps), raster };
+  const ctx = { t, W, clock, ph: bootPhases(since, clock.at, t.caps), raster };
   const out = [...top, appTitle(t), '', rule(t, W), '',
     ...withPip(ctx, bigPip(ctx, BIG_PIP.welcome, ctx.ph.eyes), [() => spinning(ctx, [t.fg('text', C.askingGit)])]).rows];
   const spare = rows - 2 - out.length;
@@ -1244,12 +1244,13 @@ function lookingAround(ctx) {
 
 // The big Pip: the detailed raster where the screen has room for it
 // (ctx.raster, from pipSlot), with its greeting over main's pose while that
-// plays, else the 9x4 Pip in `mood` and `frame`. Its rows, how wide they
-// are, and the row its face is on.
+// plays, eased from where its pose jumped while main's `fade` runs, else
+// the 9x4 Pip in `mood` and `frame`. Its rows, how wide they are, and the
+// row its face is on.
 function bigPip(ctx, mood, frame) {
   const { t, raster } = ctx;
   if (!raster) return { rows: pip(t, mood, frame), width: 9, face: 2 };
-  return { rows: pipRaster(pipGreeting(raster.pose, into(ctx, 'greet')), raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
+  return { rows: pipRaster(raster.pose && pipShown(raster, into(ctx, 'greet'), ctx.clock.at), raster.size), width: PIP_RASTER[raster.size].cols, face: PIP_RASTER[raster.size].face };
 }
 
 // Pip with text beside it, from Pip's face row (on the 9x4 Pip its third,

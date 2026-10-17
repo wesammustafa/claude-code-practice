@@ -24,6 +24,10 @@ export const TIMING = {
   // The reading grace: 400 ms a word of the newest text, 3 s to 20 s; and
   // the quiet after a key.
   perWord: 400, graceMin: 3_000, graceMax: GRACE_MAX_MS, keyQuiet: 4_000,
+  // Where the detailed Pip's pose jumps, it eases from the pose it showed
+  // (181): over `pipFade` for a key that ends its greeting or shuts its
+  // ambient gate, over `pipBreathIn` as the gate opens and it breathes.
+  pipFade: 280, pipBreathIn: 800,
 };
 
 // The look marker's notches across the pulse line.
@@ -261,13 +265,37 @@ export function shotStarts(s) {
   };
 }
 
-// Milliseconds until the detailed Pip's greeting next moves (176): its next
-// frame or its end; null where it does not play or is over, with motion
-// off, an overlay or at idle. main adds it to the one timer where it draws
-// the detailed Pip.
+// When the detailed Pip's greeting started, while it plays at `at` (176);
+// undefined where it does not play, is over or a key ended it, with motion
+// off, an overlay or at idle.
+export function greetStart(s, at, caps) {
+  if (!caps?.motion || frozen(s, at)) return undefined;
+  const start = shotStarts(s).greet;
+  return oneShot(s, at, start, TIMING.greet) < 1 ? start : undefined;
+}
+
+// Milliseconds until the detailed Pip's greeting next moves: its next frame
+// or its end; null where it does not play. main adds it to the one timer
+// where it draws the detailed Pip.
 export function greetFrameIn(s, at, caps) {
-  if (!caps?.motion || s.overlay || idle(s, at)) return null;
-  return shotFrameIn(s, at, 'greet', shotStarts(s).greet, SHOTS.greet.raster.every);
+  const start = greetStart(s, at, caps);
+  return start === undefined ? null : shotFrameIn(s, at, 'greet', start, SHOTS.greet.raster.every);
+}
+
+// Where the detailed Pip's pose jumps on the frame at `at`, after the last
+// frame with it showed `shown` ({ gates, greet, view }): the moment, and
+// the ms it eases over from the pose shown then (181), or null. A key that
+// shuts its ambient gate or ends its greeting eases it out; the gate's
+// opening eases its breathing in. None across a screen change, with motion
+// off on either frame, with an overlay, or beside resume's y/n, where
+// nothing moves (the ease from its x is over before the letter acts).
+export function pipJump(s, at, shown, gates) {
+  if (!s || !shown || !shown.gates.motion || !gates.motion || shown.view !== s.fx.view || s.overlay || s.confirmRestart) return null;
+  const key = s.fx.key;
+  const cut = shown.greet !== undefined && greetStart(s, at, gates) === undefined && key > shown.greet && key < shown.greet + TIMING.greet;
+  if ((shown.gates.ambient && !gates.ambient) || cut) return { at: key, ms: TIMING.pipFade };
+  if (!shown.gates.ambient && gates.ambient) return { at: ambientOpened(s), ms: TIMING.pipBreathIn };
+  return null;
 }
 
 // The spinner's frame and the seconds, for a child that has run `ran` ms:

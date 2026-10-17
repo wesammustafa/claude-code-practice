@@ -465,6 +465,7 @@ test('the timing table is design 4.3\'s, and no one-shot lasts over 1.2 s but Pi
     entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160, greet: 5_000, lookAround: 2_400,
     spinnerFrom: 150, elapsedFrom: 3_000, sweep: 400, glance: 1_200, blink: 160, blinkEvery: 6_000,
     perWord: 400, graceMin: 3_000, graceMax: 20_000, keyQuiet: 4_000,
+    pipFade: 280, pipBreathIn: 800,
   };
   assert.deepEqual(TIMING, ms);
   for (const k of ['entrance', 'notYet', 'hop', 'cheer', 'stepDone', 'levelUp', 'complete', 'welcome', 'itemPass', 'sweep', 'glance']) assert.ok(TIMING[k] <= 1_200, k);

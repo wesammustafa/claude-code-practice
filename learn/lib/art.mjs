@@ -97,6 +97,22 @@ export function pipGreeting(pose, ms) {
   };
 }
 
+// The package's quintic ease, which it does not export.
+const ease = (u) => {
+  const v = Math.min(1, Math.max(0, u));
+  return v * v * v * (v * (v * 6 - 15) + 10);
+};
+
+// The detailed Pip as the frame at `at` shows it: the controller's `pose`
+// with the greeting `greetMs` in, and where main saw it jump (181), eased
+// from the pose shown then, `fade.from`, over `fade.ms` from `fade.at`.
+export function pipShown({ pose, fade }, greetMs, at) {
+  const live = pipGreeting(pose, greetMs);
+  if (!fade || !(at < fade.at + fade.ms)) return live;
+  const u = ease((at - fade.at) / fade.ms);
+  return Object.fromEntries(Object.entries(live).map(([k, v]) => [k, typeof v === 'number' ? fade.from[k] + (v - fade.from[k]) * u : v]));
+}
+
 // `pose` from the package's controller, as `rows` lines of `cols` cells.
 // The package paints its own backdrop (#1E1E1E) and softens each edge
 // toward it. Here the backdrop is the terminal's own background, so no

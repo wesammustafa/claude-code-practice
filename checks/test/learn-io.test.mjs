@@ -1268,26 +1268,45 @@ test('the greeting on main\'s one timer: the detailed Pip asks for a frame every
   }
 });
 
-// Any key ends the greeting at once: main asks for no more of its frames,
-// and Pip's rows are already the ones it rests on once the 5 s are over.
-test('a key ends the greeting on main\'s one timer: from the frame it draws, no frame timer waits, and Pip is at rest', async () => {
-  for (const depth of [24, 8]) {
+// Any key ends the greeting at once: main asks for no more of its frames.
+// The detailed Pip eases out of it (181): one frame timer, 40 ms at most,
+// until 280 ms after the key, then none, and its rows are the ones it rests
+// on once the 5 s are over. The 9x4 Pip has no ease: none from the key's
+// frame. Resume's x shows its y/n only once the letter acts, after the ease.
+test('a key ends the greeting on main\'s one timer: the detailed Pip eases to rest on 40 ms frames for 280 ms, the 9x4 Pip from the frame the key draws; then no frame timer waits, and Pip is at rest, beside resume\'s y/n too', async () => {
+  for (const [depth, keys] of [[24, '\x1b[A'], [8, '\x1b[A'], [24, 'x']]) {
     const app = clockedRun(MOTION_ENV, { saved: RESUME, depth, askGit: quickGit, runCheck: async () => ({ items: [] }) });
     const { term, clock } = app;
+    const why = `depth ${depth}, ${JSON.stringify(keys)}`;
     try {
       await toResume(app);
       const arrived = app.frameTimes()[0];
       await clock.advance(arrived + 1_000 - clock.now());
-      assert.equal(app.frameTimers().length, 1, `depth ${depth}: the greeting plays`);
-      // Up, which resume does not act on.
-      term.type('\x1b[A');
+      assert.equal(app.frameTimers().length, 1, `${why}: the greeting plays`);
+      // Up, which resume does not act on; or x, which asks to start over.
+      term.type(keys);
       await turn();
-      await clock.advance(40);
-      assert.deepEqual(app.frameTimers(), [], `depth ${depth}: no frame after the key`);
+      const pressed = clock.now();
+      if (keys === 'x') {
+        assert.ok(await app.settle(() => term.shows().includes('Start this lesson over?')), term.shows());
+      } else if (depth === 24) {
+        const eased = pipRows(term);
+        while (clock.now() < pressed + TIMING.pipFade) {
+          const timers = app.frameTimers();
+          assert.equal(timers.length, 1, `${why}: one frame timer at +${clock.now() - pressed} ms`);
+          assert.ok(timers[0].ms > 0 && timers[0].ms <= TIMING.grid, `${why}: next frame in ${timers[0].ms} ms at +${clock.now() - pressed} ms`);
+          await clock.advance(timers[0].ms);
+        }
+        assert.equal(clock.now(), pressed + TIMING.pipFade, `${why}: a frame as the ease ends`);
+        assert.notEqual(pipRows(term), eased, `${why}: Pip eased`);
+      } else {
+        await clock.advance(40);
+      }
+      assert.deepEqual(app.frameTimers(), [], `${why}: no frame after the key's${depth === 24 ? ' ease' : ''}`);
       const after = term.shows();
       await clock.advance(arrived + TIMING.greet + 1_000 - clock.now());
-      assert.deepEqual(app.frameTimers(), [], `depth ${depth}: nor later`);
-      assert.equal(term.shows(), after, `depth ${depth}: the frame after the key is the rest frame`);
+      assert.deepEqual(app.frameTimers(), [], `${why}: nor later`);
+      assert.equal(term.shows(), after, `${why}: the frame after it is the rest frame`);
     } finally {
       app.close();
     }
@@ -1318,6 +1337,9 @@ test('the detailed Pip breathes only on a local terminal: frames every 120 ms th
         await app.clock.advance(250);
       }
       assert.ok(breathes ? waits.every((ms) => ms <= 120) : waits.some((ms) => ms > 120), `${why}: ${waits.join(', ')} ms`);
+      // With no breathing, the gate's opening has nothing to ease: 500 ms
+      // after it, the timer waits for the glance.
+      if (!breathes) assert.ok(waits[0] > 120, `${why}: ${waits[0]} ms 500 ms after the gate opened`);
       if (quit === 'SIGTERM') signals.emit(quit);
       else app.term.type(quit);
       await app.clock.advance(400);
@@ -1554,7 +1576,7 @@ test('the welcome\'s detailed Pip holds its pose as its reading grace ends, then
 
 // A key a second after the grace ends: without a fresh 30 s at the gate's
 // opening again, breathing would stop about 25 s after it.
-test('a key on the welcome shuts Pip\'s ambient gate for its quiet, with no frame asked, and its 30 s start again once, as the gate opens again, even with the window too small for Pip until after that', async () => {
+test('a key on the welcome shuts Pip\'s ambient gate for its quiet, easing Pip out for 280 ms and then with no frame asked, and its 30 s start again once, as the gate opens again, even with the window too small for Pip until after that', async () => {
   for (const small of [false, true]) {
     const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40 });
     const { term, clock } = app;
@@ -1571,10 +1593,25 @@ test('a key on the welcome shuts Pip\'s ambient gate for its quiet, with no fram
         await resize(80, 24);
         assert.doesNotMatch(term.shows(), RASTER, 'no detailed Pip at 80x24');
       }
-      // Down does nothing on the welcome but stamp a key.
+      // Down does nothing on the welcome but stamp a key. The detailed Pip
+      // eases out of its ambient pose, on frames 40 ms apart for 280 ms.
+      const n = term.writes.length;
       term.type('\x1b[B');
-      const opens = clock.now() + TIMING.keyQuiet;
-      await clock.advance(500);
+      const pressed = clock.now();
+      const opens = pressed + TIMING.keyQuiet;
+      if (!small) {
+        await turn();
+        while (clock.now() < pressed + TIMING.pipFade) {
+          const [next, ...more] = app.frameTimers();
+          assert.ok(next && !more.length, `one frame timer ${clock.now() - pressed} ms after the key`);
+          await clock.advance(next.ms);
+        }
+        const eased = app.frameTimes(n).map((at) => at - pressed);
+        const grid = Array.from({ length: TIMING.pipFade / TIMING.grid }, (_, k) => (k + 1) * TIMING.grid);
+        assert.deepEqual(eased.filter((ms) => ms >= TIMING.grid), grid, `frames ${eased.join(', ')} ms after the key`);
+        assert.ok(eased.length <= grid.length + 1, `the key's own frame, then the ease's: ${eased.join(', ')}`);
+      }
+      await clock.advance(pressed + 500 - clock.now());
       for (; clock.now() < opens; await clock.advance(1_000)) {
         if (!small) assert.deepEqual(app.frameTimers().map((x) => x.ms), [opens - clock.now()], `${clock.now() - opens} ms from the gate's opening`);
       }
