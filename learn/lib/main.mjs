@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { capabilities } from './caps.mjs';
+import { capabilities, osc52 } from './caps.mjs';
 import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
 import { contentOf, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
@@ -206,7 +206,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   const [gitError, name] = await askGit(root);
   timers.clearTimeout(boot);
   if (closed) return 0;
-  const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, win32: caps.win32, linux: platform === 'linux' };
+  const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, clipboard: caps.clipboard, win32: caps.win32, linux: platform === 'linux' };
   state = initialState({ course, saved, facts, now: now() });
   openIt();
 
@@ -253,6 +253,9 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       else if (e.type === 'folder') look(e);
       else if (e.type === 'prereqs') prereqs(e);
       else if (e.type === 'commands') queueMicrotask(() => !closed && dispatch({ type: 'commands', found: Object.fromEntries(e.names.map((n) => [n, onPath(n, env, platform)])) }));
+      // OSC 52: the reducer asks for a copy only where caps found a terminal
+      // that takes it.
+      else if (e.type === 'copy') stdout.write(osc52(e.text));
       else if (e.type === 'save') save();
       else if (e.type === 'later') timers.setTimeout(() => !closed && dispatch({ type: 'flush' }), e.ms);
       else if (e.type === 'quit') quit(0);

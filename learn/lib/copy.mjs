@@ -135,6 +135,14 @@ export const C = {
   fixThenPick: 'Fix it, then pick again.',
   otherFine: "That's fine.",
   stillStuck: 'Still stuck? Press p for the lesson page and the Stuck link.',
+  // Where a code block is taller than the window: what doesn't fit is on
+  // the page (ticket 90), above or below the line the beat explains.
+  codeMore: 'More lines are on the lesson page: press p.',
+  // Where a line of it is wider than the window and ends in `dots`.
+  codeWide: (dots) => `A line that ends in ${dots} goes on past the edge: press p for the lesson page.`,
+  // k sends the block to the terminal, which may or may not put it on the
+  // clipboard: the app can't see which, so it says what it did.
+  copied: (n) => `Asked your terminal to copy ${n === 1 ? 'this line' : `these ${n} lines`}. Nothing to paste? Press p for the page.`,
   lastQuestion: 'Last question',
   typeIt: 'Type it and press enter. No options this time.',
   emptyShows: 'Not sure? Press enter on an empty line to see the answer.',
@@ -277,5 +285,6 @@ export const C = {
     bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
     useIt: 'use it', cancel: 'cancel', folder: 'folder', giveFolder: 'give its folder',
     continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', scroll: 'scroll', level: 'level', card: 'card', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
+    copy: 'copy',
   },
 };
