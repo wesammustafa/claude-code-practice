@@ -26,6 +26,10 @@ const FLAGS = ['--calm', '--plain'];
 // Pip's states with no reaction of their own: no hop, no spark.
 const NO_REACTION = ['ready', 'waiting', 'working'];
 const TIMERS = { setTimeout, clearTimeout, setInterval, clearInterval };
+// main's one clock: monotonic, and on a 1/1024 ms grid so sums and
+// differences of its times are exact (a deadline on the 40 ms grid lands on
+// it, not a hair under). A whole-ms clock passes through unchanged.
+const PERF = () => Math.round(performance.now() * 1024) / 1024;
 // What git says first: whether this folder is a repository, and a name to
 // greet.
 const ASK_GIT = (root) => Promise.all([gitReady(root), gitFirstName(root)]);
@@ -55,7 +59,7 @@ function parseArgs(argv) {
   return dir === '' ? null : { dir };
 }
 
-export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, now = () => Date.now(), perf = () => performance.now(), timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, perf = PERF, timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
   const args = parseArgs(argv);
   if (!args) {
     stderr.write(`${C.usage}\n`);
@@ -117,7 +121,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // When the write budget stops motion, the rest frame goes up on time.
   const openIt = () => { screen ??= openScreen(stdout, { clock: perf, motion: caps.motion, onMotionOff: () => requestDraw() }); };
   let closed = false;
-  let lastSave = 0;
+  let lastSave = -Infinity;
   const intervals = [];
   let watcher = null;
   // The lesson's work folder and its watcher, where it is not the copy.
@@ -127,9 +131,10 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // event loop, so the events of one turn (a watcher's burst, keys in one
   // read) make one frame. After each draw, nextChange sets the one frame
   // timer, or none. No two frames go out less than 40 ms apart: the floor
-  // counts from the screen's last write, a drain's included, on the
-  // monotonic clock. Each effect's frames keep to the 40 ms grid from its
-  // own start (motion.mjs); a key's frame is not held back to a grid.
+  // counts from the screen's last write, a drain's included. Each effect's
+  // frames keep to the 40 ms grid from its own start (motion.mjs); a key's
+  // frame is not held back to a grid. Every time here is on `perf`, main's
+  // one clock: the event stamps, the frames, the screen's writes and Pip.
   let drawAsked = false;
   let frameTimer = null;
   const floor = () => TIMING.grid - (perf() - screen.wroteAt);
@@ -148,7 +153,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     timers.clearTimeout(frameTimer);
     frameTimer = null;
     if (floor() > 0) return drawIn(floor());
-    const at = now();
+    const at = perf();
     const size = sizeNow();
     const clock = screen.motion ? { at } : REST;
     // The detailed Pip, where the screen has room for it: its pose, and
@@ -159,33 +164,31 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const raster = slot ? { size: slot, pose: pipPose(at, gates) } : null;
     screen.draw(state ? render(state, size, t, clock, raster) : bootFrame(askedAt, size, t, clock, raster));
     const waits = [state ? nextChange(state, at, { motion: screen.motion }) : bootChange(askedAt, at, { motion: screen.motion }),
-      slot ? pip.nextFrameIn(pipAt, { ...gates, size: slot }) : null,
+      slot ? pip.nextFrameIn(at, { ...gates, size: slot }) : null,
       slot && state ? greetFrameIn(state, at, { motion: screen.motion }) : null].filter((w) => w !== null);
     if (waits.length) drawIn(Math.max(Math.min(...waits), floor()));
   }
 
-  // The detailed Pip's one controller. Its gates read the app's stamps on
-  // the app's clock (`at`); its own time (`pipAt`) runs with that clock but
-  // never back: when the wall clock steps back, `skew` takes up the step, so
-  // Pip goes on from where it was. A change is set no earlier than the last
-  // (`pipChanged`), and no later than now.
+  // The detailed Pip's one controller, on the app's clock: its gates read
+  // the app's stamps, and its pose is at the frame's time (`at`). Frame times
+  // never go back, so neither does Pip. `pipAt` is the last frame drawn with
+  // Pip, and `pipChanged` its last change (setState throws on a time before
+  // it).
   let pip = null;
   let pipAt = -Infinity;
   let pipChanged = -Infinity;
-  let skew = 0;
   // The moment of the last ambient gate opening Pip's lively window started
   // again at, so each opening starts it once, even one first seen after
   // frames with no room for Pip.
   let pipOpened = null;
-  // A change set at `at` on the app's clock, on Pip's: no earlier than the
-  // last, no later than now.
-  const pipFrom = (at) => Math.min(pipAt, Math.max(at === undefined ? pipAt : at + skew, pipChanged));
+  // A change from `since` (or now), seen on the frame at `at`: no earlier
+  // than the last change, nor than a frame already shown, and no later than
+  // this frame.
+  const pipFrom = (at, since) => Math.min(at, Math.max(since ?? at, pipChanged, pipAt));
   // Pip set to what this screen shows, then its pose at `at`.
   function pipPose(at, gates) {
-    if (at + skew < pipAt) skew = pipAt - at;
-    pipAt = at + skew;
     const { state: next, since, ...event } = pipTarget(state, at);
-    const from = pipFrom(since);
+    const from = pipFrom(at, since);
     if (pip.setState(next, { at: from, ...event })) pipChanged = from;
     // The package's lively window (blinks, glances, breathing) is its 30 s
     // from Pip's last change. On a state with no reaction of its own, it
@@ -195,11 +198,12 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // replay its reaction after the restart, so it is left alone.)
     if (gates.ambient && NO_REACTION.includes(next) && event.eventId === undefined) {
       const opened = ambientOpened(state);
-      const restart = pipFrom(opened);
+      const restart = pipFrom(at, opened);
       if (opened !== pipOpened && pip.setState(next, { at: restart, eventId: `ambient:${opened}`, immediate: true })) pipChanged = restart;
       pipOpened = opened;
     }
-    return pip.pose(pipAt, gates);
+    pipAt = at;
+    return pip.pose(at, gates);
   }
 
   // Git's first answers. If they take over 150 ms, the boot frame goes up on
@@ -220,7 +224,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     screen.clear();
     requestDraw();
   });
-  const askedAt = now();
+  const askedAt = perf();
   // Pip starts working, as git is asked. The screen git's answers will open,
   // as far as the app knows before them: the boot frame's Pip is no bigger
   // than its own.
@@ -237,7 +241,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   timers.clearTimeout(boot);
   if (closed) return 0;
   const facts = { root, name, gitError, practiceDir: existsSync(join(root, '.practice')), codespace: caps.codespace, clipboard: caps.clipboard, win32: caps.win32, linux: platform === 'linux' };
-  state = initialState({ course, saved, facts, now: now() });
+  state = initialState({ course, saved, facts, now: perf() });
   openIt();
 
   // When a check or git child really starts. Like every dispatch an effect
@@ -319,7 +323,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // holds) never stops the lesson: the learner sees a note and goes on.
   let saveError = null;
   function save() {
-    lastSave = now();
+    lastSave = perf();
     try {
       saveState(root, snapshot(state));
       saveError = null;
@@ -335,7 +339,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     // scroll in the window as it is now drawn, so the arrows move only what
     // it shows.
     if (ev.type === 'key') ev = { ...ev, itemsMax: itemsMax(state, sizeNow(), t), cardMax: cardMax(state, sizeNow(), t) };
-    const r = reduce(state, { now: now(), ...ev });
+    const r = reduce(state, { now: perf(), ...ev });
     state = r.state;
     run(r.effects);
     watchWork();
@@ -354,7 +358,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // saves. The lesson's work folder, where it is another, is watched too,
   // armed again whenever the lesson on screen moves to another folder.
   const changed = () => {
-    if (closed || now() - lastSave < 400) return;
+    if (closed || perf() - lastSave < 400) return;
     const practiceDir = existsSync(join(root, '.practice'));
     if (practiceDir !== state.facts.practiceDir) dispatch({ type: 'facts', facts: { practiceDir } });
     dispatch({ type: 'activity' });
@@ -365,13 +369,13 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // something changes, and on the poll, so its note goes once the learner
   // sets it right. One look at a time; a folder that was fine is left alone.
   let probing = false;
-  let lastProbe = 0;
+  let lastProbe = -Infinity;
   function reprobe() {
     const dir = folderOf(state);
     const found = dir && dir !== root ? state.probes[dir] : null;
     if (closed || probing || !found || (!found.missing && found.git && found.practice)) return;
     probing = true;
-    lastProbe = now();
+    lastProbe = perf();
     probeFolder(dir).then((f) => {
       probing = false;
       if (!closed) dispatch({ type: 'probed', ...f });
@@ -438,12 +442,12 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   }
 
   intervals.push(timers.setInterval(() => dispatch({ type: 'tick' }), 1_000));
-  let lastPoll = 0;
+  let lastPoll = -Infinity;
   intervals.push(timers.setInterval(() => {
-    if (now() - lastProbe >= POLL_CHECK_MS) reprobe();
+    if (perf() - lastProbe >= POLL_CHECK_MS) reprobe();
     const w = watching(state);
-    if (!w || now() - lastPoll < (w.git ? POLL_GIT_MS : POLL_CHECK_MS)) return;
-    lastPoll = now();
+    if (!w || perf() - lastPoll < (w.git ? POLL_GIT_MS : POLL_CHECK_MS)) return;
+    lastPoll = perf();
     poke();
   }, 500));
 

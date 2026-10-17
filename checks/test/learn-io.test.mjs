@@ -570,8 +570,9 @@ const MOTION_ENV = { ...CALM_ENV, LEARN_CALM: '' };
 // replaces git's first answers at start: [git's error or null, a first name].
 // `signals` stands in for the process's signals, and `runCheck` for the
 // check child. `saved` is the state file the app finds at start, and
-// `depth`, `cols` and `rows` the terminal's colors and size.
-function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols, rows } = {}) {
+// `depth`, `cols` and `rows` the terminal's colors and size. The clock reads
+// `from` at start.
+function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols, rows, from } = {}) {
   const dir = exportHead(root);
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
   if (saved) {
@@ -579,10 +580,17 @@ function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols,
     writeFileSync(storePath(dir), JSON.stringify(saved));
   }
   const term = fakeTerminal({ depth, cols, rows });
-  const clock = fakeClock();
-  // `back`: how far the wall clock (now) has stepped back from the
-  // monotonic one (perf), as a wall clock can.
-  const app = { dir, term, clock, exited: null, times: [], writeMs: 0, back: 0 };
+  const clock = fakeClock(from);
+  const app = { dir, term, clock, exited: null, times: [], writeMs: 0 };
+  // The wall clock steps by `ms`, as a wall clock can, and the monotonic one
+  // (perf) does not. Step it only between clock.advance calls: settle and
+  // until read Date.now.
+  const realNow = Date.now;
+  let wallBy = 0;
+  app.wall = (ms) => {
+    wallBy += ms;
+    Date.now = () => realNow() + wallBy;
+  };
   const write = term.stdout.write;
   term.stdout.write = (chunk) => {
     app.times.push(clock.now());
@@ -591,7 +599,7 @@ function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols,
   };
   // When each frame from write `from` on went out.
   app.frameTimes = (from = 0) => app.times.slice(from).filter((_, i) => term.writes[from + i].startsWith('\x1b[?2026h'));
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, now: () => clock.now() - app.back, perf: clock.now, timers: clock, watch, askGit, signals, runCheck, exit: (code) => { app.exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, perf: clock.now, timers: clock, watch, askGit, signals, runCheck, exit: (code) => { app.exited = code; } });
   // Until fn() holds, moving the clock 40 ms at a time while the children run.
   app.settle = async (fn, ms = 8_000) => {
     const end = Date.now() + ms;
@@ -619,6 +627,7 @@ function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols,
     await app.press('\r', 'Watching .practice/version.txt');
   };
   app.close = () => {
+    Date.now = realNow;
     if (app.exited === null) term.type('\x03');
     rmSync(dir, { recursive: true, force: true });
   };
@@ -893,6 +902,26 @@ test('draws: a watcher burst and the dispatch it queues from a microtask make on
     assert.deepEqual(app.frameTimers(), [], 'and no second one waiting for the floor');
     assert.match(term.shows(), /mkdir -p \.practice +✔/, 'it shows the new folder');
     assert.ok(await app.settle(() => term.shows().includes('Step 3 done!')), term.shows());
+  } finally {
+    app.close();
+  }
+});
+
+test('a watcher change in the app\'s first 400 ms counts: on a clock that starts at 0, as performance.now() does, a .practice/ made 100 ms in is seen, and step 3 ticks it', async () => {
+  let changed = null;
+  const watch = (_root, onChange) => {
+    changed = onChange;
+    return { close() {} };
+  };
+  const app = clockedRun(CALM_ENV, { watch, askGit: async () => [null, 'Sam'], from: 0 });
+  const { dir, term, clock } = app;
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    await clock.advance(100 - clock.now());
+    mkdirSync(join(dir, '.practice'));
+    changed();
+    await app.toWaiting();
+    assert.match(term.shows(), /mkdir -p \.practice +✔/, 'the new folder was seen');
   } finally {
     app.close();
   }
@@ -1353,24 +1382,35 @@ test('boot, with room: the detailed Pip works beside "Asking git about this fold
   }
 });
 
-test('Pip\'s clock never runs back: a wall clock that steps back while git answers leaves the app drawing', async () => {
-  const git = slowGit();
-  const app = clockedRun(MOTION_ENV, { saved: RESUME, askGit: git.ask, depth: 24 });
-  const { term, clock } = app;
-  try {
-    await clock.advance(400);
-    assert.match(term.shows(), /Asking git/);
-    assert.match(term.shows(), RASTER, 'the boot frame\'s Pip, working');
-    app.back = 60_000;
-    git.answer([null, 'Sam']);
-    await turn();
-    await toResume(app);
-    await clock.advance(2_000);
-    term.type('x');
-    assert.ok(await app.settle(() => term.shows().includes('Start this lesson over?')), term.shows());
-  } finally {
-    app.close();
-  }
+test('a wall clock that steps back or forward changes no frame: the boot frame, the welcome, its greeting, its reading grace and its breathing are the same, and keys still act', async () => {
+  // The same sitting twice: the second one's wall clock steps back a minute
+  // while git answers, and forward two hours once the reading grace is over.
+  const sitting = async (steps) => {
+    const git = slowGit();
+    const app = clockedRun(MOTION_ENV, { askGit: git.ask, cols: 120, rows: 40, depth: 24, watch: () => ({ close() {} }) });
+    const { term, clock } = app;
+    try {
+      await clock.advance(400);
+      assert.match(term.shows(), /Asking git/);
+      assert.match(term.shows(), RASTER, 'the boot frame\'s Pip, working');
+      if (steps) app.wall(-60_000);
+      git.answer([null, 'Sam']);
+      await turn();
+      await toWelcome(app);
+      await clock.advance(TIMING.graceMax + 1_000);
+      if (steps) app.wall(2 * 3_600_000);
+      await clock.advance(8_000);
+      const writes = term.writes.map((w) => w.replaceAll(app.dir, '<copy>'));
+      await app.press('\r', "You'll be able to");
+      return writes;
+    } finally {
+      app.close();
+    }
+  };
+  const still = await sitting(false);
+  const stepped = await sitting(true);
+  assert.ok(still.length > 200, `${still.length} writes`);
+  assert.deepEqual(stepped, still);
 });
 
 // Pip's rows on the screen.
@@ -1385,14 +1425,14 @@ const untilPipMoves = async (app, rows, ms) => {
   return false;
 };
 
-test('a wall clock that steps back over two minutes while git answers: the welcome\'s Pip still comes alive after its reading grace, its gates on the app\'s clock and its own time going on', async () => {
+test('the wall clock is not the app\'s: one that steps back over two minutes while git answers leaves the welcome\'s Pip coming alive after its reading grace, its gates and its own time on the app\'s clock', async () => {
   const git = slowGit();
   const app = clockedRun(MOTION_ENV, { askGit: git.ask, cols: 120, rows: 40, depth: 24 });
   const { term, clock } = app;
   try {
     await clock.advance(400);
     assert.match(term.shows(), RASTER, 'the boot frame\'s Pip, working');
-    app.back = IDLE_MS + 10_000;
+    app.wall(-(IDLE_MS + 10_000));
     git.answer([null, 'Sam']);
     await turn();
     await toWelcome(app);
