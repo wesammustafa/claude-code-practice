@@ -10,7 +10,7 @@ import {
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { COMMANDS_URL, GIT, OWN_PARTS, READS } from './content.mjs';
+import { COMMANDS_URL, GIT, indexLevel, indexUrl, OWN_PARTS, READS } from './content.mjs';
 import { cleanListed, needsChange } from './status.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
@@ -75,6 +75,20 @@ function placeOf(s, t, beat = null, n = 24) {
   return dir !== root || levelDir !== root ? C.inCopy : null;
 }
 
+// The page a warm-up recalls: its lesson's, or a level's index page (ticket
+// 178), which has no lesson of its own, so its stuck link is this lesson's.
+function recalledPage(s, step) {
+  const level = indexLevel(step.from);
+  return level ? { url: indexUrl(level), stuck: lessonOf(s).stuck } : lessonOf(s, step.from);
+}
+
+// The app's words around a quote: a level index warm-up's name the index.
+const INDEX_WORDS = { ...C, ...C.fromIndex };
+function wordsOf(s) {
+  const step = s.view === 'step' && s.beat ? stepOf(s) : null;
+  return step?.part === 'Warm-up' && indexLevel(step.from) ? INDEX_WORDS : C;
+}
+
 // The lesson page a quote's relative links point into: set for each frame.
 let pageUrl = '';
 
@@ -83,7 +97,7 @@ let pageUrl = '';
 // its `pose` from main's controller. Without it, the 9x4 Pip.
 export function render(s, size, t, clock = REST, pip = null) {
   const step = s.view === 'step' && s.beat ? stepOf(s) : null;
-  pageUrl = (step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s))?.url ?? '';
+  pageUrl = (step?.part === 'Warm-up' ? recalledPage(s, step) : lessonOf(s))?.url ?? '';
   return screenOf(s, size, t, clock, pip).out;
 }
 
@@ -92,12 +106,9 @@ export function render(s, size, t, clock = REST, pip = null) {
 function screenOf(s, size, t, clock, raster) {
   const { cols, rows } = size;
   if (cols < MIN.cols || rows < MIN.rows) return { out: small(cols, rows), spare: -1 };
-  const f = frameCtx(s, size, t, clock, raster);
+  const { f, view } = viewOf(s, size, t, clock, raster);
   const { ctx, W, M, top } = f;
-  const view = VIEWS[s.view](ctx);
   const room = () => ctx.roomUnder(view.head.length);
-  // The rows an overlay has under the view's header and its blank.
-  ctx.room = room() - 1;
   const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
   const body = overlay?.body ?? view.body;
   const keys = overlay?.keys ?? view.keys;
@@ -122,6 +133,16 @@ function screenOf(s, size, t, clock, raster) {
   while (out.length < rows - 2 - f.gap.length - f.toast.length) out.push('');
   out.push(...f.toast, ...f.gap, pulseLine(ctx), keybar(t, keys, W, s.held?.name));
   return { out: out.map(placed(t, M, cols)), spare };
+}
+
+// The frame and its view, with the rows an overlay has under the view's
+// header and its blank (ctx.room): what screenOf draws, and what cardMax
+// measures.
+function viewOf(s, size, t, clock, raster) {
+  const f = frameCtx(s, size, t, clock, raster);
+  const view = VIEWS[s.view](f.ctx);
+  f.ctx.room = f.ctx.roomUnder(view.head.length) - 1;
+  return { f, view };
 }
 
 // The big Pip's screens, each with the mood its 9x4 Pip rests in.
@@ -197,6 +218,16 @@ function frameCtx(s, size, t, clock, raster = null) {
 export function itemsMax(s, size, t) {
   if (s.view !== 'checkonly' || s.overlay || size.cols < MIN.cols || size.rows < MIN.rows) return 0;
   return VIEWS.checkonly(frameCtx(s, size, t, REST).ctx).itemsMax;
+}
+
+// How far your card (the c overlay), or the comparison (173), can scroll in
+// this window: the first place of the window that ends on the Commands by
+// level link, 0 where it fits, null where neither is up. main sends it with
+// each key, as itemsMax.
+export function cardMax(s, size, t) {
+  if (s.overlay !== 'card' && s.overlay !== 'compare') return null;
+  if (size.cols < MIN.cols || size.rows < MIN.rows) return 0;
+  return OVERLAYS[s.overlay](viewOf(s, size, t, REST).f.ctx).max;
 }
 
 // Every frame's card width, its left margin, and the blank above it on a
@@ -462,11 +493,11 @@ function chip(t, cmd, where, w) {
 // page. A line wider than its room breaks at a space, its next rows at its
 // indent under the wrap mark; a word wider than a whole row is cut, never
 // broken across rows, and a row under the block says where the rest is.
-function codeRows(t, code, w) {
+function codeRows(t, code, w, words = C) {
   const digits = String(code.to).length;
   const room = Math.max(10, w - digits - 5);
   const dots = t.glyph.ellipsis;
-  const more = t.fg('muted', `${dots} ${C.codeMore}`);
+  const more = t.fg('muted', `${dots} ${words.codeMore}`);
   let wide = false;
   const rows = code.lines.slice(code.from - 1, code.to).flatMap((line, k) => {
     const n = code.from + k;
@@ -495,7 +526,7 @@ function codeRows(t, code, w) {
       return n === code.point ? { keep: true, text: row } : { text: row, whole, more, far };
     });
   });
-  if (wide) rows.push(...para(t, C.codeWide(dots), w, 'muted').map((text) => ({ text, more, far: Infinity })));
+  if (wide) rows.push(...para(t, words.codeWide(dots), w, 'muted').map((text) => ({ text, more, far: Infinity })));
   return rows;
 }
 // A row after `prefix`, a code row's page mark too.
@@ -1027,7 +1058,7 @@ const VIEWS = {
     const barW = W - 6;
     const head = [spread(`${t.lead('map')}${t.pill(C.map, 'accentBg')}  ${t.bold(t.fg('white', C.levelPath(levelName(s, cursor.id))))}`, t.fg('muted', C.ofDone(done, total)), W),
       `${fill(t, done, total, barW)} ${t.fg('ok', `${pct}%`)}`, rule(t, W)];
-    const next = s.course.find((l) => toFinish(s.progress, l));
+    const next = s.course.find((l) => toFinish(s, l));
     // The legend's items run on under "Help:" when one row can't hold them.
     // It and the footer explain the tier bars: a page with none has neither.
     const bars = lessons.some((l) => l.content);
@@ -1298,12 +1329,15 @@ function stepView(ctx) {
   const isLastBeat = s.pos.beat === step.beats.length - 1;
   const hideRuns = tier !== 'guided' && authored === 'guided';
   const inlineBottom = tier === 'guided' && authored !== 'guided';
+  const words = wordsOf(s);
   const rows = [t.bold(t.fg('white', beat.kind === 'type' && step.part === 'Check' ? C.lastQuestion : step.title))];
   if (step.part === 'Warm-up') {
-    // A warm-up from another level names that level.
+    // A warm-up from another level names that level; one from a level's
+    // index page names the index.
+    const index = indexLevel(step.from);
     const other = levelOf(s, step.from) !== levelOf(s);
-    rows.push(t.fg('muted', C.warmup(lessonNumber(s, step.from), other ? levelName(s, step.from) : null)));
-    if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
+    rows.push(t.fg('muted', index ? C.warmupIndex(C.levels[index]) : C.warmup(lessonNumber(s, step.from), other ? levelName(s, step.from) : null)));
+    if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, words.warmupWhy, inner, 'muted')));
   }
   // At GUIDED the beat's reason, in the page's words, sits under the title;
   // a learner who knows the idea has it behind w.
@@ -1341,7 +1375,7 @@ function stepView(ctx) {
       } else if (l.key === 'code') {
         if (hideRuns) return;
         if (i > 0) rows.push(SPACER);
-        rows.push(...(t.caps.win32 && l.win ? chip(t, l.win, beat.where, chipWidth(ctx, beat)) : codeRows(t, l, inner)));
+        rows.push(...(t.caps.win32 && l.win ? chip(t, l.win, beat.where, chipWidth(ctx, beat)) : codeRows(t, l, inner, words)));
         if (i < beat.lines.length - 1) rows.push(SPACER);
       } else if (l.key === 'goal') {
         rows.push(...(tier === 'challenge' ? led(t, 'goal', l.text, inner, 'white') : para(t, l.text, inner, 'white')));
@@ -1477,6 +1511,7 @@ function spinning(ctx, lines) {
 function footerRows(ctx, { beat, content, isLastBeat }) {
   const { s, t, inner } = ctx;
   const st = s.beat;
+  const words = wordsOf(s);
   const rows = [];
   const quoted = (text, color = 'text') => para(t, text, inner - 2, color, { quote: true });
   const stepNumber = (id) => stepsOf(s).findIndex((x) => x.id === id) + 1;
@@ -1486,6 +1521,9 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   const warnMark = into(ctx, 'notYet') < SHOTS.notYet.pop ? t.glyph.warnPop : t.glyph.warnMark;
   // Room for text beside the burst.
   const room = inner - (t.unicode ? 21 : 7);
+  // What the file holds, in `max` columns: on two lines when one is too long.
+  const holds = (max) => (width(`${beat.evidence} holds ${st.evidence}`) <= max ? [`${t.fg('code', beat.evidence)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
+    : [t.fg('code', cut(beat.evidence, max, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, max - 6, t.unicode ? '…' : '.'))}`]);
   const celebrate = (lines) => {
     const count = s.session + (firstPass(s) ? 1 : 0);
     // The check mark draws in strokes, then the sparks.
@@ -1501,9 +1539,13 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));
-    // git status, not a check, passed a beat that needs it to list
-    // something: what changed, as a pass shows it.
-    else if (needsChange(beat.verify)) rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'), ...(st.evidence ? para(t, st.evidence, inner, 'text') : []));
+    // No check ran: git status passed a beat that needs it to list
+    // something, or the app read the file itself. What it saw, as a pass
+    // shows it: what changed, or what the file holds.
+    else if (needsChange(beat.verify) || READS.has(beat.verify.kind)) {
+      rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'),
+        ...(!st.evidence ? [] : READS.has(beat.verify.kind) ? holds(inner) : para(t, st.evidence, inner, 'text')));
+    }
     else rows.push(...para(t, `${t.lead('verified')}${beat.verify.all ? C.alreadyCheck : C.already}`, inner, 'ok'));
   }
   if (beat.verify.all && ['done', 'already'].includes(st.status) && s.checks[s.lesson]?.items) {
@@ -1517,11 +1559,8 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
       ...para(t, C.runItToo(dir ? `${C.where.terminal}, ${C.inCopy}` : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
   } else if (st.status === 'done' && looksAtFile(beat)) {
-    // What the file holds, beside the burst; on two lines when one is too long.
-    const one = `${beat.evidence} holds ${st.evidence}`;
-    const ev = !showsEvidence(s, beat, isLastBeat) ? []
-      : width(one) <= room ? [`${t.fg('code', beat.evidence)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
-        : [t.fg('code', cut(beat.evidence, room, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, room - 6, t.unicode ? '…' : '.'))}`];
+    // What the file holds, beside the burst.
+    const ev = showsEvidence(s, beat, isLastBeat) ? holds(room) : [];
     if (isLastBeat) celebrate(ev.length ? ev : para(t, C.beatDone, room, 'text'));
     else rows.push(lead(t, 'verified', t.fg('ok', C.beatDone)));
   } else if (st.status === 'done' && beat.verify.kind === 'git-clean') {
@@ -1544,14 +1583,14 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
       rows.push(t.bold(t.fg('ok', `${t.glyph.check} ${C.right}`)));
       if (beat.reveal) rows.push(...quoted(beat.reveal));
     } else if (f?.kind === 'revealed') {
-      rows.push(t.fg('ok', C.theAnswer));
+      rows.push(t.fg('ok', words.theAnswer));
       if (beat.reveal) rows.push(...quoted(beat.reveal));
       else rows.push(t.fg('text', C.theAnswerIs(st.answer.index + 1)));
     } else if (f) {
       rows.push(t.fg('ok', f.kind === 'other' ? C.otherFine : `${t.glyph.check} ${C.answered}`));
       if (f.because) rows.push(...quoted(f.because));
       if (beat.reveal) rows.push(...quoted(beat.reveal));
-      if (f.kind === 'other' && !f.because) rows.push(...para(t, C.stillStuck, inner, 'muted'));
+      if (f.kind === 'other' && !f.because) rows.push(...para(t, words.stillStuck, inner, 'muted'));
     }
   } else if (st.status === 'waiting' && st.slowWait) {
     rows.push(...para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted'));
@@ -1579,12 +1618,12 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     if (f.kind === 'wrong') {
       const box = [];
       if (f.because) {
-        box.push(...para(t, `**${C.notQuite}** ${C.trueOfElse}`, inner - 2, 'text'), ...quoted(f.because));
+        box.push(...para(t, `**${C.notQuite}** ${words.trueOfElse}`, inner - 2, 'text'), ...quoted(f.because));
         if (f.point) box.push(`${t.lead('hint')}${t.fg('text', C.lookFor)} ${para(t, f.point, inner - 14, 'warn', { quote: true })[0]}`);
       } else if (f.hint) box.push(`${t.bold(t.fg('warn', C.notQuite))}`, ...quoted(f.hint));
       else box.push(...para(t, `**${C.notQuite}** ${C.lookAgain}`, inner - 2, 'text'));
       rows.push(...hintBox(t, box));
-    } else if (f.kind === 'stuck') rows.push(...hintBox(t, [...para(t, C.fixFirst, inner - 2, 'warn'), ...quoted(f.because), ...para(t, C.fixThenPick, inner - 2, 'muted')]));
+    } else if (f.kind === 'stuck') rows.push(...hintBox(t, [...para(t, words.fixFirst, inner - 2, 'warn'), ...quoted(f.because), ...para(t, C.fixThenPick, inner - 2, 'muted')]));
   }
 
   // The hint box: one rung at a time, the y/n before the exact command.
@@ -1599,7 +1638,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
       else if (r.kind === 'check') box.push(t.fg('muted', C.checkSays), ...para(t, r.text, hw, 'text'));
       else if (r.kind === 'quote') box.push(...para(t, r.text, hw, 'warn', { quote: true }));
       else box.push(...r.lines.flatMap((b) => {
-        if (b.key === 'code' && !(t.caps.win32 && b.win)) return codeRows(t, b, hw);
+        if (b.key === 'code' && !(t.caps.win32 && b.win)) return codeRows(t, b, hw, words);
         const text = (t.caps.win32 && b.win) || withRoot(b.text, s.facts.root, t.caps.win32, folderOf(s));
         return text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat), hw));
       }));
@@ -1620,9 +1659,11 @@ const gitListed = (s, beat) => cleanListed(beat.verify, s.git?.paths ?? []);
 
 // A beat whose check is about a file: a check item, or the file read here.
 const looksAtFile = (beat) => beat.verify.kind === 'check' || READS.has(beat.verify.kind);
-// Whether a done beat's footer draws the evidence line: what the file holds.
-const showsEvidence = (s, beat, isLastBeat) => isLastBeat && s.beat.status === 'done' && looksAtFile(beat)
-  && Boolean(beat.evidence && s.beat.evidence) && !(beat.verify.all && s.checks[s.lesson]?.items);
+// Whether the footer draws the evidence line, what the file holds: a done
+// beat's beside the burst, and a reading beat's already done (173).
+const showsEvidence = (s, beat, isLastBeat) => looksAtFile(beat) && Boolean(beat.evidence && s.beat.evidence)
+  && (s.beat.status === 'done' ? isLastBeat && !(beat.verify.all && s.checks[s.lesson]?.items)
+    : s.beat.status === 'already' && !s.beat.codespace && READS.has(beat.verify.kind));
 
 // The first clause of a check's FAIL message: what is wrong, before how to fix it.
 export function diagnosis(hint) {
@@ -1701,18 +1742,27 @@ function placesTo(places, from, avail, first = places[from].length) {
 // room, it shows whole places from s.cardAt down, one a press of the
 // arrows: each entry is a place, and the link is the last, so the last
 // place always shows it, a toast or not. `scroll` is the arrows' key, or null.
+// Your card's (167) and the comparison's (173) link breaks only after a /,
+// ? or &, and the card scrolls no further than the window that ends on the
+// link, `max`.
 function cardPlaces(ctx, units, title, intro) {
   const { s, t, inner, room } = ctx;
   const head = [t.bold(t.fg('white', title)), ...para(t, intro, inner, 'muted'), ''];
+  const url = urlRows(t, COMMANDS_URL, inner);
   // Under an entry, the link keeps a blank above it.
-  const places = [...units, [...(units.length ? [''] : []), t.fg('text', C.cardLink), ...para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL))]];
+  const places = [...units, [...(units.length ? [''] : []), t.fg('text', C.cardLink), ...url]];
   const avail = room - head.length;
-  const from = places.flat().length <= avail ? 0 : Math.min(s.cardAt, places.length - 1);
   // The first place shown never opens on a blank: the link's goes there.
-  const shown = places[from][0] === '' ? places[from].slice(1) : [...places[from]];
+  const opening = (from) => (places[from][0] === '' ? places[from].slice(1) : [...places[from]]);
+  const fits = places.flat().length <= avail;
+  let max = places.length - 1;
+  if (fits) max = 0;
+  else while (max > 0 && placesTo(places, max - 1, avail, opening(max - 1).length) === places.length) max--;
+  const from = fits ? 0 : Math.min(s.cardAt, max);
+  const shown = opening(from);
   const k = placesTo(places, from, avail, shown.length);
   shown.push(...places.slice(from + 1, k).flat());
-  return { body: [...head, ...shown], scroll: from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null };
+  return { body: [...head, ...shown], scroll: from > 0 || k < places.length ? key(t.glyph.up, C.k.scroll) : null, max };
 }
 
 // The fewest columns the comparison gives what a command does beside it.
@@ -1767,7 +1817,7 @@ const OVERLAYS = {
   why(ctx) {
     const { s, t, inner } = ctx;
     return {
-      body: [t.bold(t.fg('white', C.why)), SPACER, ...beatOf(s).why.flatMap((w) => para(t, w, inner, 'text', { quote: true }))],
+      body: [t.bold(t.fg('white', wordsOf(s).why)), SPACER, ...beatOf(s).why.flatMap((w) => para(t, w, inner, 'text', { quote: true }))],
       keys: [key('w', C.k.close), key('q', C.k.close)],
     };
   },
@@ -1800,8 +1850,8 @@ const OVERLAYS = {
       const label = `${t.pill(pad(lessonLabel(e.lesson), 3), 'dimBg', 'dimText')}  `;
       return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
     });
-    const { body, scroll } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty);
-    return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)] };
+    const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty);
+    return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)], max };
   },
   // Recall, then compare: the lesson's own entries, whole as soon as space
   // asks. One lesson needs no pill, so what it does sits beside the command,
@@ -1815,14 +1865,14 @@ const OVERLAYS = {
     const units = entries.map((e) => (inner - col >= COMPARE_MIN
       ? hang(t.fg('code', pad(e.show, col)), para(t, e.does, inner - col, 'text', { quote: true }))
       : [t.fg('code', e.show), ...hang('   ', para(t, e.does, inner - 3, 'text', { quote: true }))]));
-    const { body, scroll } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
-    return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)] };
+    const { body, scroll, max } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
+    return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)], max };
   },
   page(ctx) {
     const { s, t, W, inner } = ctx;
     const step = s.view === 'step' ? stepOf(s) : null;
-    // A warm-up recalls an earlier lesson: its page is that lesson's.
-    const l = step?.part === 'Warm-up' ? lessonOf(s, step.from) : lessonOf(s);
+    // A warm-up recalls an earlier lesson or a level index: its page is that one.
+    const l = step?.part === 'Warm-up' ? recalledPage(s, step) : lessonOf(s);
     const anchor = step && step.part !== 'Warm-up' ? `#${step.part.toLowerCase().replace(/ /g, '-')}` : '';
     const url = `${l.url}${anchor}`;
     const stuck = l.content?.stuck ?? l.stuck;
@@ -1831,7 +1881,7 @@ const OVERLAYS = {
     // frame's whole width, from its margin.
     const read = l.content?.intro.read;
     return {
-      body: [t.bold(t.fg('white', C.pageTitle)), ...urlRows(t, url, W), SPACER,
+      body: [t.bold(t.fg('white', wordsOf(s).pageTitle)), ...urlRows(t, url, W), SPACER,
         t.fg('text', C.stuckLink), ...urlRows(t, stuck, W),
         ...(read ? [SPACER, ...goFurther(t, read, inner), ...urlRows(t, absolute(inline(read).find((r) => r.url).url), W)] : [])],
       keys: [key('p', C.k.close), key('q', C.k.close)],
