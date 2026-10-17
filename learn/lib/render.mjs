@@ -1036,8 +1036,7 @@ const VIEWS = {
     });
     const intro = [...sentence(t, checkOnlyWords(s, l), inner, 'text'), SPACER];
     // The page by name, a link where links work: p spells out its address.
-    const name = t.link(t.fg('key', C.pageLink[0]), l.url);
-    const page = [`${name}${t.fg('muted', C.pageLink[1])}`, SPACER];
+    const page = [`${t.link(t.fg('key', C.pageTitle), l.url)}${t.fg('muted', C.pageLink)}`, SPACER];
     // What the runs said beyond the marks: kept, like a step's status line.
     // A slow item stays unchecked until r runs it; once r has, a poll keeps
     // its result (flow), so the line goes for good.
@@ -1055,33 +1054,38 @@ const VIEWS = {
     if (folder.length) notes.push(SPACER, ...folder);
     // The card's text rows: the body's room less the blank above the card,
     // its two borders and its first blank. The blanks between its blocks
-    // give way to an item (fit drops them from the bottom), so the window
-    // leaves no row unused that the next item would fill.
+    // give way to the page's row and to an item, so the window leaves no
+    // row unused that the next item would fill.
     const room = ctx.roomUnder(head.length) - 4;
-    const blanks = (lead) => [...lead, ...notes].filter((r) => r === SPACER).length;
+    // The blanks that give way under `lead`: its own and the notes'. Fit
+    // drops spacers from the bottom, and card() merges none of these, as
+    // no two of them meet.
+    const givingWay = (lead) => [...lead, ...notes].filter((r) => r === SPACER).length;
     const rows = blocks.flat().length;
+    const fits = (lead) => lead.length + rows + notes.length <= room + givingWay(lead);
     let shown = blocks;
-    let above = intro.length + page.length + rows + notes.length <= room ? [...intro, ...page] : intro;
+    let above = fits([...intro, ...page]) ? [...intro, ...page] : intro;
     let more = [];
     let last = 0;
-    if (above.length + rows + notes.length > room + blanks(intro)) {
-      const avail = room + blanks(intro) - intro.length - notes.length - 1;
-      // The window from item `from`: the items that fit, and the sentence
-      // above them. One item taller than that room: the line, then the
-      // sentence, give way, and the next items take what they leave.
+    if (!fits(above)) {
+      const avail = room + givingWay(intro) - intro.length - notes.length - 1;
+      // The window from item `from`: the items that fit, the sentence above
+      // them, and whether the line shows. One item taller than that room:
+      // the line, then the sentence, give way, and the next items take what
+      // they leave.
       const windowAt = (from) => {
         const tall = blocks[from].length;
-        if (tall <= avail) return { k: placesTo(blocks, from, avail), lead: intro };
+        if (tall <= avail) return { k: placesTo(blocks, from, avail), lead: intro, line: true };
         const lead = tall > avail + 1 ? [] : intro;
-        return { k: placesTo(blocks, from, room + blanks(lead) - lead.length - notes.length), lead };
+        return { k: placesTo(blocks, from, room + givingWay(lead) - lead.length - notes.length), lead, line: false };
       };
       last = blocks.length - 1;
       while (last > 0 && windowAt(last - 1).k === blocks.length) last--;
       const from = Math.min(s.itemsAt, last);
-      const { k, lead } = windowAt(from);
+      const { k, lead, line } = windowAt(from);
       shown = blocks.slice(from, k);
       above = lead;
-      if (blocks[from].length <= avail) more = [t.fg('muted', k - from === 1 ? C.itemOf(from + 1, blocks.length) : C.itemsShown(from + 1, k, blocks.length))];
+      if (line) more = [t.fg('muted', k - from === 1 ? C.itemOf(from + 1, blocks.length) : C.itemsShown(from + 1, k, blocks.length))];
     }
     return {
       head,

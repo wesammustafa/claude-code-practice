@@ -537,32 +537,34 @@ test('the check-only card names the lesson page as link text and points to p for
   for (const { id } of PATH) {
     const d = checkOnly(id);
     const url = course.find((l) => l.id === id).url;
-    for (const size of [...SIZES, [100, 30]]) {
+    for (const size of [...SIZES, [60, 21], [100, 30]]) {
       for (const t of [FULL, ASCII]) {
         const raw = render(d.state, { cols: size[0], rows: size[1] }, t);
         const ls = raw.map((l) => strip(l).trimEnd());
         const where = `${id} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}\n${ls.join('\n')}`;
         assert.ok(!ls.some((l) => /https?:|github\.com/.test(l)), `a URL on the card: ${where}`);
-        const named = ls.findIndex((l) => /[│|] {2}\S/.test(l) && l.includes(C.pageLink[0]));
-        // The row and its blank give way only where they don't fit (as the
-        // URL did): the items scroll (the bar offers the arrows), or fewer
-        // than two rows are left blank under the card, above the blank over
-        // the key bar's rule.
+        const named = ls.findIndex((l) => /[│|] {2}\S/.test(l) && l.includes(C.pageTitle));
+        // The row gives way only where the items scroll (the bar offers the
+        // arrows) or the card has no row to give it: none left blank under
+        // the card, above the blank over the key bar's rule, and no blank
+        // between its blocks, which give way to it.
         if (named < 0) {
-          const unused = size[1] - 3 - ls.findLastIndex((l) => /^\s*(╰|\+-)/.test(l)) - 1;
-          assert.ok(ls.at(-1).includes(C.k.scroll) || unused < 2, `no page row: ${where}`);
+          const top = ls.findIndex((l) => /^\s*(╭|\+-)/.test(l));
+          const bottom = ls.findLastIndex((l) => /^\s*(╰|\+-)/.test(l));
+          const free = size[1] - 3 - bottom - 1 + ls.slice(top + 2, bottom).filter((l) => /^\s*[│|]$/.test(l)).length;
+          assert.ok(ls.at(-1).includes(C.k.scroll) || free === 0, `no page row: ${where}`);
           continue;
         }
-        assert.ok(ls[named].endsWith(C.pageLink.join('')), where);
-        if (t.caps.links) assert.ok(raw[named].includes(`\x1b]8;;${url}\x07`) && strip(raw[named]).includes(C.pageLink[0]), where);
+        assert.ok(ls[named].endsWith(C.pageTitle + C.pageLink), where);
+        if (t.caps.links) assert.ok(raw[named].includes(`\x1b]8;;${url}\x07`) && strip(raw[named]).includes(C.pageTitle), where);
         else assert.ok(!raw[named].includes('\x1b]8;;'), where);
       }
     }
     // Where every item fits with room to spare, the page row shows.
-    assert.ok(lines(d.state, [100, 50]).some((l) => l.includes(C.pageLink.join(''))), id);
+    assert.ok(lines(d.state, [100, 50]).some((l) => l.includes(C.pageTitle + C.pageLink)), id);
   }
   // The ticket's example: i-1 at 80x24 showed its URL on two rows.
-  assert.ok(lines(checkOnly('i-1').state, [80, 24]).some((l) => l.endsWith(`│  ${C.pageLink.join('')}`)));
+  assert.ok(lines(checkOnly('i-1').state, [80, 24]).some((l) => l.endsWith(`│  ${C.pageTitle}${C.pageLink}`)));
 });
 
 // A URL as p shows it: its rows, from the one that starts it, each only
