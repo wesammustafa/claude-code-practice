@@ -47,7 +47,7 @@ const samePose = (a, b) => Object.keys(a).every((k) => (typeof a[k] === 'number'
 // shows (null: the boot frame) and gives its pose at the frame's time
 // `at`; `fade`, where its pose jumped, the ease from the pose shown then;
 // `changed`, its last change; `gone()` is a frame with no room for it.
-// Frame times never go back, so neither does Pip.
+// main's frame times never go back, so neither does Pip.
 export function pipHost(made, state = 'working') {
   const pip = createPip({ state, at: made });
   // The last frame drawn with Pip, and Pip's last change (setState throws
@@ -205,20 +205,29 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // Drawing. Every dispatch asks for a frame, and one goes out per turn of the
   // event loop, so the events of one turn (a watcher's burst, keys in one
   // read) make one frame. No two frames go out less than 40 ms apart: the
-  // floor counts from the screen's last write, a drain's included. An
-  // event's frame inside the floor waits for it, or joins a frame already
-  // due by then. After each draw, nextChange and the rest set the one frame
-  // timer, or none, as a deadline: the frame's own time plus the wait, so
-  // render and write time do not stretch the next. Each effect's frames keep
-  // to the 40 ms grid from its own start (motion.mjs), Pip's from its last
-  // change; a key's frame is not held back to a grid. A deadline's frame is
-  // drawn for its time, or the time it is if later, and its write waits out
-  // the floor. Every time here is on `perf`, main's one clock: the event
-  // stamps, the frames, the screen's writes and Pip.
+  // floor counts from the screen's last write, a drain's included, or where
+  // that was a deadline's frame, from the moment it was due, so a late timer
+  // or a render quicker than the last holds no deadline's frame off its
+  // grid. An event's frame inside the floor waits for it, or joins a frame
+  // already due by then. After each draw, nextChange and the rest set the
+  // one frame timer, or none, as a deadline: the frame's own time plus the
+  // wait, so render and write time do not stretch the next. Each effect's
+  // frames keep to the 40 ms grid from its own start (motion.mjs), Pip's
+  // from its last change; a key's frame is not held back to a grid. A
+  // deadline's frame is drawn for its time, or the time it is if later, and
+  // its write waits out the floor. No frame is for a time before the last
+  // one's, though a timer can fire a little before its deadline. Every time
+  // here is on `perf`, main's one clock: the event stamps, the frames, the
+  // screen's writes and Pip.
   let drawAsked = false;
   let frameTimer = null;
   let dueAt = null;
-  const floor = () => TIMING.grid - (perf() - screen.wroteAt);
+  // The last deadline's frame written: the write's start, and when it was due.
+  let paced = null;
+  const since = () => (paced?.wroteAt === screen.wroteAt ? paced.due : screen.wroteAt);
+  const floor = (deadline) => TIMING.grid - (deadline === undefined ? perf() - screen.wroteAt : Math.max(perf(), deadline) - since());
+  // The last frame's time.
+  let drawnAt = -Infinity;
   function requestDraw() {
     if (drawAsked || closed) return;
     drawAsked = true;
@@ -256,7 +265,8 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     timers.clearTimeout(frameTimer);
     frameTimer = null;
     dueAt = null;
-    const at = deadline === undefined ? perf() : Math.max(perf(), deadline);
+    const at = Math.max(perf(), deadline ?? -Infinity, drawnAt);
+    drawnAt = at;
     const size = sizeNow();
     const clock = screen.motion ? { at } : REST;
     // The detailed Pip, where the screen has room for it: its pose and any
@@ -274,17 +284,20 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
       slot ? onGrid(at, pip.nextFrameIn(at, { ...gates, size: slot }), pip.changed) : null,
       slot && state ? greetFrameIn(state, at, { motion: screen.motion }) : null,
       fade ? Math.min(TIMING.grid - ((at - fade.at) % TIMING.grid), fade.at + fade.ms - at) : null].filter((w) => w !== null);
-    put(lines, waits.length ? at + Math.min(...waits) : null, deadline !== undefined);
+    put(lines, waits.length ? at + Math.min(...waits) : null, deadline);
   }
   // A frame's write, once the floor is out, then the timer for the next
-  // deadline. An event while it waits draws afresh. A deadline's frame
-  // (`timed`) that changes nothing leaves the screen's refresh to the next
-  // event's.
-  function put(lines, next, timed) {
+  // deadline. An event while it waits draws afresh. A deadline's frame (for
+  // `deadline`) that changes nothing leaves the screen's refresh to the next
+  // event's; one that writes was due no sooner than the floor let it be.
+  function put(lines, next, deadline) {
     if (closed) return;
     frameTimer = null;
-    if (floor() > 0) return later(() => put(lines, next, timed), floor());
-    screen.draw(lines, { repair: !timed });
+    const wait = floor(deadline);
+    if (wait > 0) return later(() => put(lines, next, deadline), wait);
+    const timed = deadline !== undefined;
+    const due = timed && Math.max(deadline, since() + TIMING.grid);
+    if (screen.draw(lines, { repair: !timed }) && timed) paced = { wroteAt: screen.wroteAt, due };
     if (next === null) return;
     dueAt = next;
     later(() => draw(next), Math.max(0, next - perf()));

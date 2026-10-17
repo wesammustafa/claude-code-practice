@@ -573,7 +573,8 @@ const MOTION_ENV = { ...CALM_ENV, LEARN_CALM: '' };
 // `depth`, `cols` and `rows` the terminal's colors and size. The clock reads
 // `from` at start. `slots` counts the times main measures Pip's slot. With
 // `lateMs` set, every timeout main sets fires that late, as a busy event
-// loop's can.
+// loop's can; with `earlyMs`, a wait of 1 ms or more fires that early, as
+// Node's can against performance.now().
 function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols, rows, from } = {}) {
   const dir = exportHead(root);
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
@@ -583,7 +584,7 @@ function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols,
   }
   const term = fakeTerminal({ depth, cols, rows });
   const clock = fakeClock(from);
-  const app = { dir, term, clock, exited: null, times: [], writeMs: 0, lateMs: 0, slots: 0 };
+  const app = { dir, term, clock, exited: null, times: [], writeMs: 0, lateMs: 0, earlyMs: 0, slots: 0 };
   // The wall clock steps by `ms`, as a wall clock can, and the monotonic one
   // (perf) does not. Step it only between clock.advance calls: settle and
   // until read Date.now.
@@ -601,7 +602,7 @@ function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols,
   };
   // When each frame from write `from` on went out.
   app.frameTimes = (from = 0) => app.times.slice(from).filter((_, i) => term.writes[from + i].startsWith('\x1b[?2026h'));
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, perf: clock.now, timers: { ...clock, setTimeout: (fn, ms) => clock.setTimeout(() => { clock.spend(app.lateMs); fn(); }, ms) }, pipSlot: (...a) => ((app.slots += 1), pipSlot(...a)), watch, askGit, signals, runCheck, exit: (code) => { app.exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, perf: clock.now, timers: { ...clock, setTimeout: (fn, ms) => clock.setTimeout(() => { clock.spend(app.lateMs); fn(); }, ms >= 1 ? ms - app.earlyMs : ms) }, pipSlot: (...a) => ((app.slots += 1), pipSlot(...a)), watch, askGit, signals, runCheck, exit: (code) => { app.exited = code; } });
   // Until fn() holds, moving the clock 40 ms at a time while the children run.
   app.settle = async (fn, ms = 8_000) => {
     const end = Date.now() + ms;
@@ -1596,6 +1597,57 @@ test('with every write taking 8 ms and every timer 3 ms late, each frame timer w
   } finally {
     app.close();
   }
+});
+
+// A timer can fire a little before its deadline, and the frame it draws is
+// for the deadline: a frame an event draws in between, at the clock's time,
+// is for no earlier time than that one. So Pip, whose lively window started
+// again at that frame's time as its ambient gate opened, never runs back.
+test('with every timer 0.5 ms early, a key in the half millisecond before the welcome\'s ambient gate opens draws a frame, and Pip does not run back', async () => {
+  const app = clockedRun({ ...MOTION_ENV, SSH_TTY: '/dev/pts/3' }, { askGit: quickGit, depth: 24, cols: 120, rows: 40, watch: () => ({ close() {} }) });
+  const { term, clock } = app;
+  try {
+    await toWelcome(app);
+    const opens = graceEnds(app);
+    app.earlyMs = 0.5;
+    await clock.advance(opens - 0.25 - clock.now());
+    const n = term.writes.length;
+    term.type('\x1b[B');
+    await turn();
+    await clock.advance(400);
+    assert.ok(term.writes.length > n, 'the key\'s frame');
+    assert.match(term.shows(), RASTER);
+  } finally {
+    app.close();
+  }
+});
+
+// A frame whose render takes less time than the one before is not held for
+// the floor: deadline frames count it from the last one's deadline, so with
+// every timer 1 ms late and each render 0 to 4 ms long, the greeting's
+// writes stay on its 40 ms grid from the screen's arrival, never more than
+// those 5 ms after a step, and it draws as many frames as with none.
+test('with every timer 1 ms late and renders of 0 to 4 ms, each of the detailed Pip\'s greeting frames goes out within 5 ms of its step on the 40 ms grid, as many as on time', async () => {
+  const greeting = async (late, renders) => {
+    const app = clockedRun(MOTION_ENV, { askGit: quickGit, depth: 24, cols: 120, rows: 40, watch: () => ({ close() {} }) });
+    const { term, clock } = app;
+    let k = 0;
+    Object.defineProperty(term.stdout, 'columns', { get: () => (clock.spend(renders[k++ % renders.length]), 120) });
+    try {
+      app.lateMs = late;
+      await toWelcome(app);
+      const arrived = app.frameTimes()[0];
+      await clock.advance(arrived + TIMING.greet - clock.now());
+      return app.frameTimes().filter((at) => at < arrived + TIMING.greet).map((at) => at - arrived);
+    } finally {
+      app.close();
+    }
+  };
+  const onTime = await greeting(0, [0]);
+  const late = await greeting(1, [0, 3, 1, 4, 0, 2, 4, 1, 3, 0, 2]);
+  assert.ok(onTime.length > 100, `${onTime.length} frames on time`);
+  assert.deepEqual(late.filter((at) => at % TIMING.grid > 5), [], 'writes off their step');
+  assert.equal(late.length, onTime.length);
 });
 
 // The detailed Pip's frames are its own: the 9x4 Pip it replaces asks for

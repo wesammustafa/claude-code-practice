@@ -374,6 +374,29 @@ test('the raster\'s cells: Pip\'s pixels two to a cell where it covers a quarter
   }
 });
 
+// Why a quarter (PIP_INK): Pip at rest, in each of the package's states and
+// with its eyes shut, inks about its own area, where any less inks the
+// outline's soft inner column too, and its mouth keeps its area to the
+// pixel, where a half thins it.
+test('the raster\'s ink threshold: Pip at rest inks within 15% of its own area, and its mouth its own to the pixel', () => {
+  const { cols, tall } = RASTER.standard;
+  const palette = { background: '#000000', outline: '#FF0000', eyes: '#FFFF00', mouth: '#FF00FF' };
+  const poses = [...['ready', 'working', 'success', 'retry', 'error'].map((state) => [state, restPose(state)]), ['shut', { ...restPose('ready'), left: 0, right: 0 }]];
+  for (const [label, pose] of poses) {
+    const px = rasterizePip(pose, { columns: cols, rows: tall, palette }).pixels;
+    let [area, inked, mouth, mouthInked] = [0, 0, 0, 0];
+    for (let at = 0; at < px.length; at += 3) {
+      area += px[at] / 255;
+      mouth += px[at + 2] / 255;
+      if (px[at] / 255 < PIP_INK) continue;
+      inked += 1;
+      if (px[at + 2] > px[at] / 2) mouthInked += 1;
+    }
+    assert.ok(inked >= area && inked <= 1.15 * area, `${label}: ${inked} pixels inked for an area of ${area.toFixed(1)}`);
+    assert.ok(mouthInked >= Math.round(mouth), `${label}: the mouth's ${mouthInked} pixels for an area of ${mouth.toFixed(1)}`);
+  }
+});
+
 // Breathing moves Pip's edges by fractions of a pixel: a pixel that comes
 // and goes with it is Pip's own color, never a dark speck on a light
 // terminal.

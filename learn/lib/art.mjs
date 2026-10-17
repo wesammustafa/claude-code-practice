@@ -128,7 +128,9 @@ export function pipShown({ pose, fade }, greetMs, at) {
 // in a code palette gives each pixel's cover and its mix of Pip's colors:
 // red is how much of it is Pip, green how much is gold, blue how much is
 // mouth, the rest outline. The terminal's own background shows where Pip
-// covers under a quarter of a pixel (PIP_INK); any other pixel is drawn in
+// covers under a quarter of a pixel (PIP_INK: any less inks the outline's
+// soft inner column too, 2 px thick and Pip about 1.7 times its area; a half
+// thins the mouth below its own); any other pixel is drawn in
 // Pip's own colors, unmixed with a backdrop, so an edge that breathing
 // moves is never a dark speck on a light terminal, and a shut eye still
 // shows. A cell with both halves background is a space, one ink half is `▀`
