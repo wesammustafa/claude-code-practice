@@ -1,9 +1,8 @@
 // When the screen moves: one-shot progress, the gates for ambient loops, and
 // the time until the next frame. Pure: it reads no clock and picks nothing at
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
-import { GIT } from './content.mjs';
 import { C } from './copy.mjs';
-import { beatOf, checkOnlyWords, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
+import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -27,7 +26,9 @@ export const TIMING = {
   // Where the detailed Pip's pose jumps, it eases from the pose it showed
   // (181): over `pipFade` for a key that ends its greeting or shuts its
   // ambient gate, over `pipBreathIn` as the gate opens and it breathes.
-  pipFade: 280, pipBreathIn: 800,
+  // Where the card face's mood changes, it passes from the face it showed
+  // to the new one over `mood`.
+  pipFade: 320, pipBreathIn: 800, mood: 80,
 };
 
 // The look marker's notches across the pulse line.
@@ -115,6 +116,11 @@ export const SHOTS = {
   // Pip's blink, an ambient loop's (TIMING.blink): through half-lids, shut,
   // and open again through them.
   blink: { every: 40, face: track([0, 'waking'], [40, 'shut'], [120, 'waking'], [160, null]) },
+  // The card face's mood changes (181): from the face it showed, its eyes
+  // pass through the half-lid, which no mood's face is, to the new mood's,
+  // whole by the end, over whatever one-shot plays. Its eyes and mouth
+  // only: `waking`'s, over that one-shot's pose.
+  mood: { every: 40, face: track([0, 'waking'], [80, null]) },
 };
 
 // The moments a face track changes the face, in ms from its start: its
@@ -249,16 +255,29 @@ const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 // only once the spinner turns.
 export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false, ms: Object.freeze({}) });
 
-// Since when a check or git child has run for the beat on screen while it is
-// `opening`, or for r on the check-only card: a child that started before
-// the status became `opening`, or before r, is not this run, and a file read
-// starts none. Its first tick is the first 40 ms boundary from its start
-// once it has run 150 ms, then one every 80 ms.
-const CHILD = ['check', ...GIT];
+// A check or git child's spinner (its start, flow.mjs's childSince): its
+// first tick is the first 40 ms boundary from its start once it has run
+// 150 ms, then one every 80 ms.
 const FIRST_TICK = Math.ceil(TIMING.spinnerFrom / TIMING.grid) * TIMING.grid;
-const checkingChild = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
-  || (s.view === 'checkonly' && s.checkOnlyRun?.lesson === s.lesson);
-const childSince = (s) => (checkingChild(s) && s.fx.run >= s.fx.check ? s.fx.run : undefined);
+
+// The card face's mood as it shows at `at` (cardMood's `mood`, with its
+// child's start `since`): checking only once the spinner turns.
+const moodShown = (mood, since, at) => (mood !== 'checking' || (since !== undefined && at - since >= FIRST_TICK) ? mood : 'rest');
+// When the face the card shows last changed mood, at or before `at`, on
+// this card (181): flow.mjs stamps each change of its mood, and the face
+// changes there if it showed another mood before; checking shows from its
+// spinner's first tick. Undefined where it never did.
+function moodChanged(s, at) {
+  const mood = cardMood(s);
+  if (!mood) return undefined;
+  const entered = Math.max(s.fx.view ?? NEVER, s.fx.open ?? NEVER);
+  const stamp = s.fx.mood;
+  const since = childSince(s);
+  const turned = mood === 'checking' && since !== undefined ? since + FIRST_TICK : NEVER;
+  const changed = stamp?.at > entered && stamp.at <= at && moodShown(stamp.was, stamp.since, stamp.at) !== moodShown(mood, since, stamp.at) ? stamp.at : NEVER;
+  const last = Math.max(changed, turned > entered && turned <= at ? turned : NEVER);
+  return last === NEVER ? undefined : last;
+}
 
 // When the latest sweep started: the watcher saw a file change, or a look's
 // result differed from the last. Only while the screen watches something,
@@ -324,7 +343,8 @@ export function greetFrameIn(s, at, caps) {
 // shuts its ambient gate or ends its greeting eases it out; the gate's
 // opening eases its breathing in. None across a screen change, with motion
 // off on either frame, with an overlay, or beside resume's y/n, where
-// nothing moves (the ease from its x is over before the letter acts).
+// nothing moves (main stops an ease from its x still running as the letter
+// acts).
 export function pipJump(s, at, shown, gates) {
   if (!s || !shown || !shown.gates.motion || !gates.motion || shown.view !== s.fx.view || s.overlay || s.confirmRestart) return null;
   const key = s.fx.key;
@@ -384,6 +404,9 @@ export function phases(s, at, caps) {
   // A blink as the gates open, then every 6 s.
   const blink = ambient && blinks(s) && blinkInto(s, at) < TIMING.blink;
   if (blink) ms.blink = blinkInto(s, at);
+  // The card face passing from one mood to the next.
+  const mood = moodChanged(s, at);
+  if (!still && oneShot(s, at, mood, TIMING.mood) < 1) ms.mood = at - mood;
   return {
     ...shots,
     spinner,
@@ -440,6 +463,11 @@ export function nextChange(s, at, caps) {
   }
   const since = childSince(s);
   if (since !== undefined) times.push(...spinsIn(at - since));
+  // The card face passing from one mood to the next: its moments. A mood
+  // changes on an event's frame, or as the spinner turns.
+  const mood = moodChanged(s, at);
+  const passing = !still && oneShot(s, at, mood, TIMING.mood) < 1 ? nextMoment(SHOTS.mood.face, TIMING.mood, at - mood) : null;
+  if (passing !== null) times.push(passing);
   // The moment ambient loops may start, on a screen that has one: the grace
   // and the key quiet both over. Once they run, each blink's moments.
   // The look marker moves only on a look, and the app's 1 s tick draws the

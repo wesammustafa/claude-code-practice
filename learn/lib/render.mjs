@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardMood, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -648,7 +648,9 @@ const PIP_ROOM = PIP_FACE + 3;
 // Pip's face in this frame, over the `mood` it rests in, as the track of
 // the one-shot that sets it and how far into it: sparks for a hop or a
 // cheer; away while the card enters, then landing with its eyes shut; on a
-// new "Not yet", a nod; on a file change, a glance; and its blink.
+// new "Not yet", a nod; on a file change, a glance; and its blink. Where
+// its mood just changed (phases' `ms.mood`), card() passes its eyes from
+// the half-lid into that face.
 function pipNow(ctx, shown) {
   // Checking, with motion: Pip wears its checking face once a child has
   // run 150 ms, and holds still.
@@ -675,7 +677,7 @@ function card(ctx, { tint, where, done, rows, mood }) {
   const grown = Math.round((fill * (1 + Math.floor(into(ctx, 'entrance') / SHOTS.entrance.every))) / 3);
   const top = !face ? left + t.fg(tint, t.glyph.rule.repeat(grown))
     : fill >= PIP_ROOM
-      ? `${left}${t.fg(tint, t.glyph.rule.repeat(fill - PIP_FACE - 2))}${pipFace(t, face.mood, face.face, face.ms)}${t.fg(tint, t.glyph.rule.repeat(2))}`
+      ? `${left}${t.fg(tint, t.glyph.rule.repeat(fill - PIP_FACE - 2))}${pipFace(t, face.mood, face.face, face.ms, ctx.ph.ms.mood)}${t.fg(tint, t.glyph.rule.repeat(2))}`
       : left + t.fg(tint, t.glyph.rule.repeat(fill));
   // Each row carries the rail, so a `…` cut inside the card keeps it.
   // A blank row that is part of a sentence, such as the Why line's, is the
@@ -1183,7 +1185,7 @@ const VIEWS = {
     }
     return {
       head,
-      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}${placeOf(s, t, null, 16) ? `, ${placeOf(s, t, null, 16)}` : ''}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: going ? 'checking' : checkOnlyMood(results) }),
+      body: card(ctx, { tint: 'muted', where: `${t.lead('terminal')}${C.where.terminal}${placeOf(s, t, null, 16) ? `, ${placeOf(s, t, null, 16)}` : ''}`, done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes], mood: cardMood(s) }),
       // A lesson that runs in a new copy with none given yet: f is the way on.
       keys: [folderOf(s) ? null : mainKey('f', C.k.giveFolder), shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, folderOf(s) ? key('r', C.k.checkNow) : null, key('p', C.k.page), key('m', C.k.map), folderOf(s) && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
       itemsMax: last,
@@ -1417,34 +1419,9 @@ function stepView(ctx) {
   const tint = done ? 'ok' : style.tint;
   return {
     head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
-    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows, mood: stepMood(s, beat, isLastBeat) }),
+    body: card(ctx, { tint, where, done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows, mood: cardMood(s) }),
     keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }),
   };
-}
-
-// Pip's face for what the card shows the app saw (design 2.2): the step's
-// last beat done or already done, as the cheer does (a beat before it rests,
-// as the hop does); `opening`, while the card says "Checking" (a check, git
-// or a file read); a check that could not run; a "Not yet", a `▲` git line,
-// a pick that wasn't right, the hint box or the "Stuck?" offer; else at rest.
-function stepMood(s, beat, isLastBeat) {
-  const st = s.beat;
-  if (['done', 'already'].includes(st.status)) return isLastBeat ? 'done' : 'rest';
-  if (st.status === 'opening') return 'checking';
-  if (st.status === 'broken') return 'broken';
-  const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && gitListed(s, beat).length > 0;
-  const wrong = ['wrong', 'stuck'].includes(st.feedback?.kind);
-  const stuck = st.idle && hintAvailable(s);
-  return st.status === 'fail' || gitLine || wrong || st.rung >= 0 || st.confirm || stuck ? 'worried' : 'rest';
-}
-
-// The check-only card, when r's run is not going: a check that could not
-// run, an item not passing yet.
-// Worried only where the card shows a failing mark: a slow item no run has
-// checked shows as not checked yet.
-function checkOnlyMood(results) {
-  if (results?.error) return 'broken';
-  return results?.items?.some((x) => !x.pass && !x.slow) ? 'worried' : 'rest';
 }
 
 // Chips in a beat share one width: room for the longest command, up to the

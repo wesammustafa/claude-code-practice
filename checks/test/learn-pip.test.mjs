@@ -629,8 +629,8 @@ test('the greeting eases on the same curve as Pip\'s crossfades', () => {
 
 // Any key ends the greeting at once (the app's one-shot rule), and the
 // detailed Pip eases out of it (181): from the pose the greeting showed as
-// the key came, which main hands as `fade`, to its rest rows by 280 ms on.
-test('a key ends the detailed Pip\'s greeting: Pip eases from the greeting\'s pose at the key, a new pose each 40 ms frame, to its rest rows from 280 ms after it', () => {
+// the key came, which main hands as `fade`, to its rest rows by 320 ms on.
+test('a key ends the detailed Pip\'s greeting: Pip eases from the greeting\'s pose at the key, a new pose each 40 ms frame, to its rest rows from 320 ms after it', () => {
   const t = theme({ ...CAPS.truecolor, motion: true });
   for (const [label, s] of [['welcome', driver().state], ['resume', screen('resume')]]) {
     const at = size(120, 40);
@@ -659,7 +659,7 @@ test('a key ends the detailed Pip\'s greeting: Pip eases from the greeting\'s po
 });
 
 // The moments the detailed Pip's pose would jump (181), and none other.
-test('pipJump: a key that shuts the ambient gate or ends the greeting eases Pip out over 280 ms, the gate opening eases its breathing in over 800 ms; none across an arrival, with motion off, at idle, under an overlay or beside resume\'s y/n', () => {
+test('pipJump: a key that shuts the ambient gate or ends the greeting eases Pip out over 320 ms, the gate opening eases its breathing in over 800 ms; none across an arrival, with motion off, at idle, under an overlay or beside resume\'s y/n', () => {
   const on = { motion: true, truecolor: true, remote: false };
   const gates = (s, at) => pipGates(s, at, on);
   const seen = (s, at) => ({ gates: gates(s, at), greet: greetStart(s, at, gates(s, at)), view: s.fx.view });
@@ -720,60 +720,66 @@ function drawsOf(epoch = 0) {
 }
 const POSE_KEYS = Object.keys(restPose('ready')).filter((k) => k !== 'state');
 const stepOf = (a, b, keys = POSE_KEYS) => Math.max(...keys.map((k) => Math.abs(a[k] - b[k])));
-// The largest step between frames `every` ms apart from `from` to `to`,
-// with state `stateAt(t)` on each.
-function largest(draw, stateAt, from, to, every = 40, keys = POSE_KEYS) {
+// Each property's largest step between frames `every` ms apart from `from`
+// to `to`, with state `stateAt(t)` on each, by property; `most` keeps the
+// larger of each with the steps already in it.
+function largest(draw, stateAt, from, to, every = 40, most = Object.fromEntries(POSE_KEYS.map((k) => [k, 0]))) {
   let prev = null;
-  let most = 0;
   for (let t = from; t <= to; t += every) {
     const pose = draw(stateAt(t), t);
-    if (prev) most = Math.max(most, stepOf(prev, pose, keys));
+    if (prev) for (const k of POSE_KEYS) most[k] = Math.max(most[k], Math.abs(prev[k] - pose[k]));
     prev = pose;
   }
   return most;
 }
+// Where the motion's own step for a property is near nothing, a frame may
+// step it this much: a hundredth of the range of its eyes' openness.
+const NEAR_STILL = 0.01;
+// Each property whose step goes past the motion's own for it.
+const beyond = (steps, own) => POSE_KEYS.filter((k) => steps[k] > Math.max(own[k], NEAR_STILL)).map((k) => `${k} ${steps[k].toFixed(4)}, its own ${own[k].toFixed(4)}`);
 
-test('the detailed Pip changes continuously: where a key ends its greeting or shuts its ambient gate mid-blink or mid-glance, and where the gate opens and it breathes, no property steps further in a 40 ms frame than the motion\'s own frames do', () => {
+test('the detailed Pip changes continuously: where a key ends its greeting or shuts its ambient gate mid-blink or mid-glance, and where the gate opens and it breathes, no property steps further in a 40 ms frame than the motion\'s own frames step it', () => {
   const welcome = driver().state;
   const start = welcome.fx.view;
   const opened = ambientOpened(welcome);
   const key = (at) => reduce(welcome, { type: 'key', name: 'down', now: at }).state;
   // A key at each moment of the greeting, 7 ms after a frame of it.
   const greeting = largest(drawsOf(), () => welcome, start, start + TIMING.greet);
-  let cut = 0;
+  let cut;
   let raw = 0;
   for (let ms = 40; ms < TIMING.greet; ms += 40) {
     const pressed = start + ms + 7;
     const keyed = key(pressed);
-    cut = Math.max(cut, largest(drawsOf(), (t) => (t < pressed ? welcome : keyed), start + ms, pressed + TIMING.pipFade + 80));
+    cut = largest(drawsOf(), (t) => (t < pressed ? welcome : keyed), start + ms, pressed + TIMING.pipFade + 80, 40, cut);
     raw = Math.max(raw, stepOf(drawsOf()(welcome, pressed), restPose('ready')));
   }
   assert.ok(raw > 0.9, `cut at once, Pip's greeting would jump ${raw}`);
-  assert.ok(cut <= greeting, `a key ends the greeting: ${cut} a frame, the greeting's own up to ${greeting}`);
+  assert.deepEqual(beyond(cut, greeting), [], 'a key ends the greeting');
   // A key at every moment of a blink and of a glance, the package's from
   // 4.2 s and 2.6 s after the gate opens, 7 ms apart.
   for (const [label, from, to] of [['a blink', 4_180, 4_420], ['a glance', 2_580, 4_100]]) {
     const own = largest(drawsOf(), () => welcome, opened, opened + to + 400);
-    let ended = 0;
+    let ended;
     let cutAt = 0;
     for (let ms = from; ms < to; ms += 7) {
       const pressed = opened + ms;
       const keyed = key(pressed);
       const last = opened + Math.floor(ms / 40) * 40;
-      ended = Math.max(ended, largest(drawsOf(), (t) => (t < pressed ? welcome : keyed), opened, pressed + TIMING.pipFade + 80));
+      ended = largest(drawsOf(), (t) => (t < pressed ? welcome : keyed), opened, pressed + TIMING.pipFade + 80, 40, ended);
       const draw = drawsOf();
       for (let t = opened; t <= last; t += 40) draw(welcome, t);
       cutAt = Math.max(cutAt, stepOf(draw(welcome, pressed), restPose('ready')));
     }
     assert.ok(cutAt > 0.5, `${label}: shut at once, Pip would jump ${cutAt}`);
-    assert.ok(ended <= own, `${label}: ${ended} a frame, the motion's own up to ${own}`);
+    assert.deepEqual(beyond(ended, own), [], label);
   }
-  // The gate opens: breathing eases in, each frame stepping no further
-  // than breathing's own 120 ms frame does, at every phase of its breath.
-  const breath = largest(drawsOf(), () => welcome, opened + 1_000, opened + 20_000, 120, ['lift']);
+  // The gate opens: breathing eases in, each 40 ms frame stepping each
+  // property no further than breathing's own 120 ms frame does, at every
+  // phase of its breath.
+  const breath = largest(drawsOf(), () => welcome, opened + 1_000, opened + 20_000, 120);
   for (let epoch = 0; epoch < 4_000; epoch += 330) {
     const eased = largest(drawsOf(epoch), () => welcome, opened - 200, opened + TIMING.pipBreathIn + 200, 40);
-    assert.ok(eased <= breath, `breathing ${epoch} ms into its cycle: ${eased} a frame, its own ${breath} each 120 ms`);
+    assert.deepEqual(beyond(eased, breath), [], `breathing ${epoch} ms into its cycle`);
   }
 });
 
@@ -793,6 +799,44 @@ test('main\'s pipHost: an ease still running when the screen changes stops there
   const pose = draw(arrived, pressed + 73);
   assert.equal(host.fade, null, 'the ease stops at the new screen');
   assert.deepEqual(pipShown({ pose, fade: host.fade }, Infinity, pressed + 73), pose);
+});
+
+// Nothing moves beside resume's y/n: an ease from a key still running as
+// the y/n comes up stops there, and Pip shows its own pose at once.
+test('main\'s pipHost: an ease still running as resume\'s y/n comes up stops there', () => {
+  const resume = screen('resume');
+  const start = resume.fx.view;
+  const host = pipHost(start, 'ready');
+  const draw = (s, at) => host.pose(s, at, pipGates(s, at, ON_TRUECOLOR));
+  for (let at = start; at <= start + 1_000; at += 40) draw(resume, at);
+  const pressed = start + 1_007;
+  const up = reduce(resume, { type: 'key', name: 'up', now: pressed }).state;
+  draw(up, pressed + 33);
+  assert.ok(host.fade, 'the key eases Pip out');
+  const asked = { ...up, confirmRestart: true };
+  const at = pressed + 73;
+  assert.ok(at < host.fade.at + host.fade.ms, 'the ease still running');
+  const pose = draw(asked, at);
+  assert.equal(host.fade, null, 'the ease stops beside the y/n');
+  assert.deepEqual(pipShown({ pose, fade: host.fade }, Infinity, at), pose);
+});
+
+// Pip's next frame (main's pipHost.frameIn) is on the 40 ms grid from its
+// last change: the first step at or after its own next moment, never one
+// before it that shows nothing new; and a frame drawn late, or between
+// steps, does not push its next tick a step on.
+test('main\'s pipHost: Pip\'s next frame is the first step of its grid at or after its own next moment, and a late frame keeps its ticks on the grid', () => {
+  const host = pipHost(0, 'ready');
+  const pip = createPip({ state: 'ready', at: 0 });
+  const still = { motion: true, ambient: true, breathing: false, size: 'standard' };
+  // Its glance holds until 3910 ms, between the steps at 3880 and 3920.
+  assert.equal(pip.nextFrameIn(3_840, still), 70);
+  assert.deepEqual(pip.pose(3_880, still), pip.pose(3_870, still), 'the step before the moment shows nothing new');
+  for (const at of [3_841, 3_870, 3_879, 3_880, 3_900]) assert.equal(at + host.frameIn(at, still), 3_920, `from ${at} ms`);
+  // Breathing ticks every 120 ms from the step, however late the frame.
+  const breathing = { ...still, breathing: true };
+  for (const at of [1_200, 1_201, 1_215, 1_239]) assert.equal(at + host.frameIn(at, breathing), 1_320, `breathing, from ${at} ms`);
+  assert.equal(host.frameIn(1_000, { ...still, motion: false }), null, 'none with motion off');
 });
 
 test('words never move in the detailed Pip\'s greeting: every 40 ms frame fits the window, and from the moment the rest of the screen is still only the raster\'s cells differ from the rest frame', () => {

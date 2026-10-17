@@ -27,18 +27,30 @@ const FRAME = {
 // Broken draws as rest, since the package's ASCII error face is checking's.
 const ASCII_STATE = { ...STATE, broken: STATE.rest };
 const over = (mood, frame) => ({ ...restPose(STATE[mood]), ...MOOD[mood], ...FRAME[frame] });
-// Pip's pose `ms` into `face`: a FRAME name, none for the mood's own face,
-// or a track of [ms, frame] keyframes (motion.mjs's SHOTS), each frame over
-// the mood and each value interpolated linearly between the keyframes
-// either side, so only the package's glyphs step (181).
-function poseOf(t, mood, face, ms = 0) {
-  if (!t.unicode) return restPose(ASCII_STATE[mood]);
+// `a` moved `u` of the way to `b`, each number linearly.
+const mix = (a, b, u) => Object.fromEntries(Object.entries(b).map(([key, v]) => [key, typeof v === 'number' ? a[key] + (v - a[key]) * u : v]));
+// Where `ms` is in a face (a FRAME name, none for the mood's own face, or a
+// track of [ms, frame] keyframes, motion.mjs's SHOTS): the keyframes' frames
+// either side, and how far from the one to the other.
+function trackAt(face, ms) {
   const keys = Array.isArray(face) ? face : [[0, face ?? null]];
   const k = keys.findIndex(([at]) => at > ms);
   const [[from, a], [to, b]] = k > 0 ? [keys[k - 1], keys[k]] : [keys.at(k), keys.at(k)];
-  const [p, q] = [over(mood, a), over(mood, b)];
-  const u = to > from ? (ms - from) / (to - from) : 0;
-  return Object.fromEntries(Object.entries(q).map(([key, v]) => [key, typeof v === 'number' ? p[key] + (v - p[key]) * u : v]));
+  return [a, b, to > from ? (ms - from) / (to - from) : 0];
+}
+// Pip's pose `ms` into `face`, each frame over the mood and each value
+// interpolated linearly between the keyframes either side, so only the
+// package's glyphs step (181). `moodMs`: how far into SHOTS.mood, where the
+// mood changed, which sets its eyes and mouth from `waking`'s over that
+// pose, then eases them into it.
+function poseOf(t, mood, face, ms = 0, moodMs) {
+  if (!t.unicode) return restPose(ASCII_STATE[mood]);
+  const [a, b, u] = trackAt(face, ms);
+  const pose = mix(over(mood, a), over(mood, b), u);
+  if (moodMs === undefined) return pose;
+  const [lidA, lidB, v] = trackAt(SHOTS.mood.face, moodMs);
+  const lids = (lidA ? 1 - v : 0) + (lidB ? v : 0);
+  return mix(pose, { ...pose, ...FRAME.waking }, lids);
 }
 
 // Each cell's color, by its place: o the outline, e the eyes, antenna and
@@ -186,9 +198,11 @@ export function pipRaster(pose, size) {
 // from the big Pip's happy, focus and party. A one-shot's `face`, `ms` in,
 // is a pose over that face: eyes shut, a glance, or a hop's or cheer's
 // sparks, which one row has no antenna for, on its sides: `+[●‿●]+`.
+// `moodMs`, how far into a change of its mood, passes its eyes through
+// the half-lid.
 export const PIP_FACE = 7;
-export function pipFace(t, mood, face, ms) {
-  const pose = poseOf(t, mood, face, ms);
+export function pipFace(t, mood, face, ms, moodMs) {
+  const pose = poseOf(t, mood, face, ms, moodMs);
   const [row] = renderPip(pose, { size: 'compact', depth: 1, unicode: t.unicode });
   return ink(t, pose.spark > 0.5 ? `+${row.slice(1, -1)}+` : row, 'eoemeoe');
 }
