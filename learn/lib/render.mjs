@@ -92,12 +92,9 @@ export function render(s, size, t, clock = REST, pip = null) {
 function screenOf(s, size, t, clock, raster) {
   const { cols, rows } = size;
   if (cols < MIN.cols || rows < MIN.rows) return { out: small(cols, rows), spare: -1 };
-  const f = frameCtx(s, size, t, clock, raster);
+  const { f, view } = viewOf(s, size, t, clock, raster);
   const { ctx, W, M, top } = f;
-  const view = VIEWS[s.view](ctx);
   const room = () => ctx.roomUnder(view.head.length);
-  // The rows an overlay has under the view's header and its blank.
-  ctx.room = room() - 1;
   const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
   const body = overlay?.body ?? view.body;
   const keys = overlay?.keys ?? view.keys;
@@ -122,6 +119,16 @@ function screenOf(s, size, t, clock, raster) {
   while (out.length < rows - 2 - f.gap.length - f.toast.length) out.push('');
   out.push(...f.toast, ...f.gap, pulseLine(ctx), keybar(t, keys, W, s.held?.name));
   return { out: out.map(placed(t, M, cols)), spare };
+}
+
+// The frame and its view, with the rows an overlay has under the view's
+// header and its blank (ctx.room): what screenOf draws, and what cardMax
+// measures.
+function viewOf(s, size, t, clock, raster) {
+  const f = frameCtx(s, size, t, clock, raster);
+  const view = VIEWS[s.view](f.ctx);
+  f.ctx.room = f.ctx.roomUnder(view.head.length) - 1;
+  return { f, view };
 }
 
 // The big Pip's screens, each with the mood its 9x4 Pip rests in.
@@ -204,10 +211,7 @@ export function itemsMax(s, size, t) {
 export function cardMax(s, size, t) {
   if (s.overlay !== 'card') return null;
   if (size.cols < MIN.cols || size.rows < MIN.rows) return 0;
-  const { ctx } = frameCtx(s, size, t, REST);
-  // The overlay's room, as screenOf gives it.
-  ctx.room = ctx.roomUnder(VIEWS[s.view](ctx).head.length) - 1;
-  return OVERLAYS.card(ctx).max;
+  return OVERLAYS.card(viewOf(s, size, t, REST).f.ctx).max;
 }
 
 // Every frame's card width, its left margin, and the blank above it on a
@@ -1679,12 +1683,12 @@ function placesTo(places, from, avail, first = places[from].length) {
 // room, it shows whole places from s.cardAt down, one a press of the
 // arrows: each entry is a place, and the link is the last, so the last
 // place always shows it, a toast or not. `scroll` is the arrows' key, or null.
-// `whole` is your card's (167): its link breaks only after a /, ? or &, and
-// it scrolls no further than the window that ends on the link, `max`.
-function cardPlaces(ctx, units, title, intro, whole = false) {
+// `toLink` is your card's (167): its link breaks only after a /, ? or &,
+// and it scrolls no further than the window that ends on the link, `max`.
+function cardPlaces(ctx, units, title, intro, { toLink = false } = {}) {
   const { s, t, inner, room } = ctx;
   const head = [t.bold(t.fg('white', title)), ...para(t, intro, inner, 'muted'), ''];
-  const url = whole ? urlRows(t, COMMANDS_URL, inner) : para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL));
+  const url = toLink ? urlRows(t, COMMANDS_URL, inner) : para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL));
   // Under an entry, the link keeps a blank above it.
   const places = [...units, [...(units.length ? [''] : []), t.fg('text', C.cardLink), ...url]];
   const avail = room - head.length;
@@ -1693,7 +1697,7 @@ function cardPlaces(ctx, units, title, intro, whole = false) {
   const fits = places.flat().length <= avail;
   let max = places.length - 1;
   if (fits) max = 0;
-  else if (whole) while (max > 0 && placesTo(places, max - 1, avail, opening(max - 1).length) === places.length) max--;
+  else if (toLink) while (max > 0 && placesTo(places, max - 1, avail, opening(max - 1).length) === places.length) max--;
   const from = fits ? 0 : Math.min(s.cardAt, max);
   const shown = opening(from);
   const k = placesTo(places, from, avail, shown.length);
@@ -1786,7 +1790,7 @@ const OVERLAYS = {
       const label = `${t.pill(pad(lessonLabel(e.lesson), 3), 'dimBg', 'dimText')}  `;
       return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
     });
-    const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty, true);
+    const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty, { toLink: true });
     return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)], max };
   },
   // Recall, then compare: the lesson's own entries, whole as soon as space

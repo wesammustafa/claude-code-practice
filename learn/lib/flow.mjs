@@ -187,6 +187,9 @@ export const recallOf = (s) => cardOf(s).filter((e) => e.lesson === s.lesson);
 // then the Commands by level link, the last (render.mjs); the intro's notes
 // one place a note.
 const SCROLLED = { card: cardOf, compare: recallOf, notes: (s) => introNotes(s).slice(1) };
+// One place a press of the arrows, from 0 to `max`: a place past `max`, as
+// before a resize, counts as `max`, so up moves at once.
+const arrowed = (at, max, name) => Math.max(0, Math.min(max, Math.min(at, max) + (name === 'down' ? 1 : -1)));
 // Where the next screen's enter goes: the next lesson, or null for the map.
 export const nextLessonOf = (s) => {
   const id = contentOf(s)?.next;
@@ -1234,7 +1237,7 @@ function onKey(s, ev, effects) {
     // cardMax): where it fits, they move nothing.
     else if (SCROLLED[s.overlay] && (name === 'up' || name === 'down')) {
       const max = ev.cardMax ?? SCROLLED[s.overlay](s).length;
-      s.cardAt = Math.max(0, Math.min(max, Math.min(s.cardAt, max) + (name === 'down' ? 1 : -1)));
+      s.cardAt = arrowed(s.cardAt, max, name);
     }
     return;
   }
@@ -1501,7 +1504,7 @@ const VIEWS = {
     // where every item fits, they move nothing.
     if (name === 'up' || name === 'down') {
       const max = itemsMax ?? lessonOf(s).items.length - 1;
-      s.itemsAt = Math.max(0, Math.min(max, Math.min(s.itemsAt, max) + (name === 'down' ? 1 : -1)));
+      s.itemsAt = arrowed(s.itemsAt, max, name);
       return true;
     }
     if (name === 'r' && watching(s)) {

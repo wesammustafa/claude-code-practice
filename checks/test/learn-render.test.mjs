@@ -2836,17 +2836,28 @@ test('your card spells the Commands by level link out whole, breaking it only af
 });
 
 test('the arrows move your card only where it scrolls: while it fits, they move nothing', () => {
-  const size = [80, 24];
-  const saved = { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W6', beat: 0, done: ['W1', 'W2', 'W3', 'W4', 'W5'] } } };
-  const d = driver({ saved });
-  d.key('enter');
-  d.key('c');
-  const before = cardText(d);
-  assert.ok(before.join('').includes(COMMANDS_BY_LEVEL), before.join('\n'));
-  assert.doesNotMatch(before.at(-1), /scroll/, 'the card fits');
-  for (let i = 0; i < 5; i++) cardArrow(d, 'down', size);
-  assert.equal(d.state.cardAt, 0, 'nothing to scroll: the arrows move nothing');
-  assert.deepEqual(cardText(d), before);
+  // The empty card, and one entry: claude --version.
+  const cards = [{ format: 1, welcomed: true, lessons: {} },
+    { format: 1, welcomed: true, lessons: { 'b-1': { step: 'W3', beat: 0, done: ['W1', 'W2'] } } }];
+  for (const saved of cards) {
+    for (const caps of [CAPS.full, CAPS.ascii]) {
+      const t = theme(caps);
+      for (const size of SHORT) {
+        const d = driver({ saved });
+        d.key('enter');
+        d.key('c');
+        const card = () => render(d.state, { cols: size[0], rows: size[1] }, t).map((l) => strip(l).trim());
+        const before = card();
+        const at = `${size.join('x')}${t.unicode ? '' : ' (ASCII)'}, ${Object.keys(saved.lessons).length ? 'B1' : 'empty'}\n${before.join('\n')}`;
+        assert.ok(before.join('').includes(COMMANDS_BY_LEVEL), at);
+        assert.equal(before.some((l) => /^B1\s+claude --version$/.test(l)), Object.keys(saved.lessons).length > 0, at);
+        assert.doesNotMatch(before.at(-1), /scroll/, `the card fits: ${at}`);
+        for (let i = 0; i < 5; i++) cardArrow(d, 'down', size, t);
+        assert.equal(d.state.cardAt, 0, `nothing to scroll: the arrows move nothing: ${at}`);
+        assert.deepEqual(card(), before, at);
+      }
+    }
+  }
 });
 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
