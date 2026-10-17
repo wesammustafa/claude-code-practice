@@ -12,7 +12,7 @@ import { width } from './text.mjs';
 const STATE = { happy: 'ready', focus: 'working', party: 'success', rest: 'ready', checking: 'working', worried: 'retry', done: 'success', broken: 'error' };
 // Worried keeps the package's asymmetric retry: its right eye half shut.
 const MOOD = { worried: { right: 0.6 } };
-// A one-shot's `frame`, over the mood: eyes shut, waking or awake, with a
+// A one-shot's frame, over the mood: eyes shut, waking or awake, with a
 // smile whatever the mood's mouth (a shut eye over a flat mouth would read
 // as one rule); a glance toward the other window, which is the greeting's
 // look right too, and its look left or up (176); a cheer's happy eyes and
@@ -26,9 +26,20 @@ const FRAME = {
 // ASCII Pip is still, with three faces: at rest, checking, and done.
 // Broken draws as rest, since the package's ASCII error face is checking's.
 const ASCII_STATE = { ...STATE, broken: STATE.rest };
-const poseOf = (t, mood, frame) => (t.unicode
-  ? { ...restPose(STATE[mood]), ...MOOD[mood], ...FRAME[frame] }
-  : restPose(ASCII_STATE[mood]));
+const over = (mood, frame) => ({ ...restPose(STATE[mood]), ...MOOD[mood], ...FRAME[frame] });
+// Pip's pose `ms` into `face`: a FRAME name, none for the mood's own face,
+// or a track of [ms, frame] keyframes (motion.mjs's SHOTS), each frame over
+// the mood and each value interpolated linearly between the keyframes
+// either side, so only the package's glyphs step (181).
+function poseOf(t, mood, face, ms = 0) {
+  if (!t.unicode) return restPose(ASCII_STATE[mood]);
+  const keys = Array.isArray(face) ? face : [[0, face ?? null]];
+  const k = keys.findIndex(([at]) => at > ms);
+  const [[from, a], [to, b]] = k > 0 ? [keys[k - 1], keys[k]] : [keys.at(k), keys.at(k)];
+  const [p, q] = [over(mood, a), over(mood, b)];
+  const u = to > from ? (ms - from) / (to - from) : 0;
+  return Object.fromEntries(Object.entries(q).map(([key, v]) => [key, typeof v === 'number' ? p[key] + (v - p[key]) * u : v]));
+}
 
 // Each cell's color, by its place: o the outline, e the eyes, antenna and
 // sparks, m the mouth. A run of one color takes one code; a blank, none.
@@ -46,12 +57,12 @@ function ink(t, row, places) {
 }
 
 // The big Pip, 4 rows of 9 cells: its antenna, its head (the antenna's foot
-// in `┴`), its face, its chin. A one-shot's `frame` sets its eyes and
-// smile: shut, waking or awake, or, to cheer, happy with sparks beside the
-// antenna. ASCII Pip is still.
-export function pip(t, mood = 'happy', frame) {
+// in `┴`), its face, its chin. A one-shot's `face`, `ms` in, sets its eyes
+// and smile: shut, waking or awake, or, to cheer, happy with sparks beside
+// the antenna. ASCII Pip is still.
+export function pip(t, mood = 'happy', face, ms) {
   const places = ['eeeeeeeee', t.unicode ? 'ooooeoooo' : 'ooooooooo', 'o  eme  o', 'ooooooooo'];
-  return renderPip(poseOf(t, mood, frame), { size: 'glyph', depth: 1, unicode: t.unicode }).map((row, i) => ink(t, row, places[i]));
+  return renderPip(poseOf(t, mood, face, ms), { size: 'glyph', depth: 1, unicode: t.unicode }).map((row, i) => ink(t, row, places[i]));
 }
 
 // The detailed Pip, the package's half-cell raster at its standard size,
@@ -173,14 +184,14 @@ export function pipRaster(pose, size) {
 
 // Pip's small face for a card's top border, 7 cells: ` [●‿●] `. Its moods
 // name what the card shows (rest, checking, worried, done, broken), apart
-// from the big Pip's happy, focus and party. A one-shot's `frame` is a pose
-// over that face: eyes shut, a glance, or a hop's or cheer's sparks, which
-// one row has no antenna for, on its sides: `+[●‿●]+`.
+// from the big Pip's happy, focus and party. A one-shot's `face`, `ms` in,
+// is a pose over that face: eyes shut, a glance, or a hop's or cheer's
+// sparks, which one row has no antenna for, on its sides: `+[●‿●]+`.
 export const PIP_FACE = 7;
-export function pipFace(t, mood, frame) {
-  const pose = poseOf(t, mood, frame);
-  const [face] = renderPip(pose, { size: 'compact', depth: 1, unicode: t.unicode });
-  return ink(t, pose.spark > 0.5 ? `+${face.slice(1, -1)}+` : face, 'eoemeoe');
+export function pipFace(t, mood, face, ms) {
+  const pose = poseOf(t, mood, face, ms);
+  const [row] = renderPip(pose, { size: 'compact', depth: 1, unicode: t.unicode });
+  return ink(t, pose.spark > 0.5 ? `+${row.slice(1, -1)}+` : row, 'eoemeoe');
 }
 
 const FONT = {

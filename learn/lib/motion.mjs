@@ -33,28 +33,41 @@ export const TIMING = {
 // The look marker's notches across the pulse line.
 export const NOTCHES = 12;
 
+// A face track from its steps, [ms, frame] each, frame an art.mjs FRAME
+// name or null for the mood's own face: each frame holds until one grid
+// step before the next, so a frame drawn on the 40 ms grid shows one
+// exactly, and Pip passes from one to the next between (181).
+const track = (...steps) => steps.flatMap(([ms, frame], k) => {
+  const next = steps[k + 1]?.[0];
+  return next === undefined || next - TIMING.grid <= ms ? [[ms, frame]] : [[ms, frame], [next - TIMING.grid, frame]];
+});
+
 // The moments inside each one-shot (design 2.3 and 4.3), under the same names
 // as its TIMING entry, which it rests at: `every`, how often its frame may
 // change, where the tests sample it, and the moments it changes at, in ms
-// from its start.
+// from its start. `face`: the 9x4 Pip's or the card face's keyframes,
+// [ms, frame], interpolated between and drawn through the package's glyphs;
+// a one-shot that moves only Pip's face asks for frames at its moments.
 export const SHOTS = {
   // The top rule grows from the pill, a third a frame, until Pip lands at
-  // `land`; the trail's new stop is hollow until then, then a ring.
-  entrance: { every: 40, land: 80 },
+  // `land`, its eyes shut, and opens them through half-lids; the trail's
+  // new stop is hollow until then, then a ring.
+  entrance: { every: 40, land: 80, face: track([80, 'shut'], [120, 'waking'], [160, null]) },
   // The line's mark is hollow until `pop`; Pip opens both eyes at the
-  // learner from `nod` to the end, then wears its worried face again.
-  notYet: { every: 80, pop: 80, nod: 160 },
-  hop: { every: 240 },
-  cheer: { every: 360 },
+  // learner from 160 ms to the end, then wears its worried face again.
+  notYet: { every: 80, pop: 80, face: track([0, null], [160, 'awake'], [360, null]) },
+  hop: { every: 240, face: track([0, 'sparks']) },
+  cheer: { every: 360, face: track([0, 'sparks']) },
   // The stop is a spark until `pop`, when its link half fills; by `fill`
   // the link and the progress rule are whole. Each command without a tick
   // gets one, a `tick` apart. From `strokes` the check mark draws a stroke
   // every `stroke`, then the sparks.
   stepDone: { every: 40, pop: 120, fill: 240, tick: 120, strokes: 320, stroke: 80 },
-  // Pip's eyes are shut until `open`, and the banner wipes in until `whole`,
-  // when Pip wears its focus face. Then the arrow fills a third every `fill`
-  // and its head and the new star land at `head`.
-  levelUp: { every: 40, open: 240, whole: 480, fill: 80, head: 720 },
+  // Pip's eyes are shut, then open through half-lids by 240 ms, and the
+  // banner wipes in until `whole`, when Pip wears its focus face. Then the
+  // arrow fills a third every `fill` and its head and the new star land at
+  // `head`.
+  levelUp: { every: 40, whole: 480, fill: 80, head: 720, face: track([0, 'shut'], [200, 'waking'], [240, 'awake'], [480, null]) },
   // The confetti changes every `fall`: from 24 rows it falls across its row
   // and the blank under it, below 24 it appears `first` glyphs, then `more`
   // at a time. Pip cheers with sparks, and COMPLETE stamps in, until `whole`.
@@ -67,12 +80,12 @@ export const SHOTS = {
   // crosses the arrow, a cell every `cell`. Pip wakes in its greeting.
   welcome: { every: 80, fuse: 80, cup: 320, pulse: 320, cell: 80 },
   // Pip's greeting on the welcome and resume (176). On the welcome the 9x4
-  // Pip's eyes open at `waking` and are awake at `awake` (the boot frame's
-  // wake-up too); on resume it starts awake. It looks left at `left`, right
-  // at `right` and up at `up`; from `wave` its eyes are happy and its
-  // antenna row sparks every other `swing`, until `back`; it blinks from
-  // `blink` to `open`, and is awake to the end. It plays once per opening
-  // of the app (flow.mjs stamps fx.greet).
+  // Pip wakes, `wake` (the boot frame's wake-up too); on resume it starts
+  // awake. Then, `face`, it looks left, passes the centre, looks right and
+  // up; from 1840 ms its eyes are happy and its antenna row sparks every
+  // other 320 ms; it blinks through half-lids, and is awake to the end
+  // (greetFace). It plays once per opening of the app (flow.mjs stamps
+  // fx.greet).
   // The detailed Pip's, `raster`, a frame every `every`: its eyes are wide
   // and its antenna flicks once until `wide`; then its eyes ease happy by
   // `glad`, and its antenna waves, a swing every `swing`, whole by `waved`.
@@ -81,21 +94,44 @@ export const SHOTS = {
   // `again`, and ease happy again by the second hop. From `back` all of it
   // eases back to the pose, which it reaches at the end.
   greet: {
-    every: 80, waking: 80, awake: 160, left: 640, right: 1_040, up: 1_440, wave: 1_840, swing: 320, back: 3_760, blink: 4_240, open: 4_560,
+    every: 40,
+    wake: track([0, 'shut'], [80, 'waking'], [160, null]),
+    face: track([0, null], [640, 'lookLeft'], [1_000, null], [1_040, 'glance'], [1_440, 'lookUp'],
+      [1_840, 'cheer'], [2_160, 'glad'], [2_480, 'cheer'], [2_800, 'glad'], [3_120, 'cheer'], [3_440, 'glad'], [3_760, null],
+      [4_240, 'waking'], [4_280, 'shut'], [4_600, 'waking'], [4_640, null]),
     raster: { every: 40, wide: 300, glad: 700, waved: 800, swing: 1_100, hops: [700, 3_300], hop: 450, open: 1_200, look: 1_500, up: 2_500, again: 3_000, back: 4_500 },
   },
   // On the complete screen, after the cheer and once the rest is still,
-  // Pip looks left from `left`, back from `back` and right from `right`,
-  // with its happy eyes between and at the end (176).
-  lookAround: { every: 400, left: 1_200, back: 1_600, right: 2_000 },
+  // Pip looks left, back and right, with its happy eyes between and at the
+  // end (176).
+  lookAround: { every: 400, face: track([0, null], [1_200, 'lookLeft'], [1_600, null], [2_000, 'glance'], [2_400, null]) },
   // On the check-only card, the mark of an item that starts passing is
   // hollow until `pop`, then a ring, then the check mark.
   itemPass: { every: 80, pop: 80 },
   // One segment crosses the pulse line, a fifth of the way each frame.
   sweep: { every: 80 },
   // Pip looks toward the other window, then back: one change each way.
-  glance: { every: 1_200 },
+  glance: { every: 1_200, face: track([0, 'glance']) },
+  // Pip's blink, an ambient loop's (TIMING.blink): through half-lids, shut,
+  // and open again through them.
+  blink: { every: 40, face: track([0, 'waking'], [40, 'shut'], [120, 'waking'], [160, null]) },
 };
+
+// The moments a face track changes the face, in ms from its start: its
+// first named frame, each change of frame, and `end` where it does not end
+// on the mood's own face. Between them a frame on the grid shows the same
+// face (181).
+export function faceMoments(face, end) {
+  const out = face.filter(([, frame], k) => frame !== (k ? face[k - 1][1] : null)).map(([ms]) => ms);
+  return face.at(-1)[1] === null ? out : [...out, end];
+}
+
+// The 9x4 Pip's greeting track on `view`: on the welcome it wakes first.
+const GREET_FACE = {
+  welcome: [...SHOTS.greet.wake, ...SHOTS.greet.face.filter(([ms]) => ms > SHOTS.greet.wake.at(-1)[0])],
+  resume: SHOTS.greet.face,
+};
+export const greetFace = (view) => GREET_FACE[view] ?? GREET_FACE.resume;
 
 // One-shot progress 0..1; 1 once a later key arrived.
 export function oneShot(s, at, start, ms) {
@@ -202,8 +238,8 @@ function quietFrom(s) {
 // opens them too, at no new moment of these.)
 export const ambientOpened = (s) => quietFrom(s);
 
-// How far into the blink cycle `at` is: shut for the first 160 ms of every
-// 6 s from the moment the gates opened.
+// How far into the blink cycle `at` is: blinking for the first 160 ms of
+// every 6 s from the moment the gates opened.
 const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
 
 // What every moving part draws at rest, and while frozen: each one-shot at
@@ -317,20 +353,19 @@ function spinsIn(ran) {
 
 // The boot frame (162): git's first questions at start, asked at `since`.
 // It goes up on the spinner's first tick, once they have run 150 ms, with
-// Pip's eyes shut, and Pip wakes as on the welcome. Without motion it is the
-// rest frame: Pip awake, no spinner.
+// Pip's eyes shut, and Pip wakes as on the welcome: `ms.wake`, how far into
+// SHOTS.greet.wake. Without motion it is the rest frame: Pip awake, no
+// spinner.
 export const BOOT_FROM = FIRST_TICK;
 export function bootPhases(since, at, caps) {
   if (!caps?.motion || at === Infinity) return REST_PHASES;
-  const woke = at - since - BOOT_FROM;
-  const eyes = woke < SHOTS.greet.waking ? 'shut' : woke < SHOTS.greet.awake ? 'waking' : undefined;
-  return { ...REST_PHASES, ...spun(at - since), eyes };
+  return { ...REST_PHASES, ...spun(at - since), ms: { wake: at - since - BOOT_FROM } };
 }
 // Milliseconds until the boot frame next differs, or null without motion.
 export function bootChange(since, at, caps) {
   if (!caps?.motion) return null;
   const woke = at - since - BOOT_FROM;
-  return Math.min(...spinsIn(at - since), ...[SHOTS.greet.waking, SHOTS.greet.awake].filter((ms) => ms > woke).map((ms) => ms - woke));
+  return Math.min(...spinsIn(at - since), ...faceMoments(SHOTS.greet.wake, Infinity).filter((ms) => ms > woke).map((ms) => ms - woke));
 }
 
 // What each moving part draws at `at`; the rest phases when motion is off.
@@ -369,6 +404,22 @@ function shotFrameIn(s, at, part, start, every) {
   return Math.min(every - ((at - start) % every), start + TIMING[part] - at);
 }
 
+// Milliseconds from `e` into `face` until its next moment, or null.
+const nextMoment = (face, end, e) => {
+  const next = faceMoments(face, end).find((ms) => ms > e);
+  return next === undefined ? null : next - e;
+};
+
+// The one-shots that move only Pip's face, each with its track on `s`.
+const FACE_ONLY = { greet: (s) => greetFace(s.view), lookAround: () => SHOTS.lookAround.face, glance: () => SHOTS.glance.face, hop: () => SHOTS.hop.face, cheer: () => SHOTS.cheer.face };
+
+// One of them still playing from `start`: milliseconds until its face next
+// changes; null once it will not, it is over or a key ended it.
+function faceFrameIn(s, at, part, start) {
+  if (oneShot(s, at, start, TIMING[part]) >= 1) return null;
+  return nextMoment(FACE_ONLY[part](s), TIMING[part], at - start);
+}
+
 // Milliseconds until the screen next differs, or null. Null under calm,
 // with an overlay, at idle unless a child runs, and when nothing moves and
 // no deadline waits.
@@ -376,24 +427,25 @@ export function nextChange(s, at, caps) {
   if (!caps?.motion || s.overlay) return null;
   const still = idle(s, at);
   const times = [];
-  // A one-shot still playing: its next frame, or its end.
+  // A one-shot still playing: its next frame, or its end; one that moves
+  // only Pip's face, the next moment its face changes.
   if (!still) {
     for (const [part, start] of Object.entries(shotStarts(s))) {
-      const next = shotFrameIn(s, at, part, start, SHOTS[part].every);
+      const next = FACE_ONLY[part] ? faceFrameIn(s, at, part, start) : shotFrameIn(s, at, part, start, SHOTS[part].every);
       if (next !== null) times.push(next);
     }
   }
   const since = childSince(s);
   if (since !== undefined) times.push(...spinsIn(at - since));
   // The moment ambient loops may start, on a screen that has one: the grace
-  // and the key quiet both over. Once they run, each blink's start and end.
+  // and the key quiet both over. Once they run, each blink's moments.
   // The look marker moves only on a look, and the app's 1 s tick draws the
   // first idle frame, where it stops.
   const quiet = quietFrom(s);
   if (!still && AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
   if (!still && ambientAllowed(s, at) && blinks(s)) {
     const e = blinkInto(s, at);
-    times.push(e < TIMING.blink ? TIMING.blink - e : TIMING.blinkEvery - e);
+    times.push(nextMoment(SHOTS.blink.face, TIMING.blink, e) ?? TIMING.blinkEvery - e);
   }
   return times.length ? Math.min(...times) : null;
 }

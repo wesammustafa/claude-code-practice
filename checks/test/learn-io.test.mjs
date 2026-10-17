@@ -15,7 +15,7 @@ import { PATH, SLOW } from '../../learn/lib/content.mjs';
 import { DEFER_MS, IDLE_MS } from '../../learn/lib/flow.mjs';
 import { keyParser } from '../../learn/lib/keys.mjs';
 import { main } from '../../learn/lib/main.mjs';
-import { REST, SHOTS, TIMING } from '../../learn/lib/motion.mjs';
+import { faceMoments, greetFace, REST, SHOTS, TIMING } from '../../learn/lib/motion.mjs';
 import { MOTION, restPose } from '../../learn/lib/pip/pip.mjs';
 import { pipSlot, render } from '../../learn/lib/render.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
@@ -1231,31 +1231,42 @@ test('the detailed Pip on main\'s one timer: a raster screen asks for Pip\'s fra
 });
 
 // Pip's greeting (176) on resume, which moves nothing else: from the
-// screen's arrival, the detailed Pip's frames come every 40 ms and the 9x4
-// Pip's at least as often as its poses change (every 80 ms at most), until
-// 5 s after it arrived; then none. Git and the first look answer at once.
-test('the greeting on main\'s one timer: the detailed Pip asks for a frame every 40 ms, the 9x4 Pip every 80 ms, until 5 s after the screen arrived, then none; a resize, during it or after, plays nothing again', async () => {
-  for (const [depth, every] of [[24, 40], [8, 80]]) {
+// screen's arrival, the detailed Pip's frames come every 40 ms until 5 s
+// after it arrived, and the 9x4 Pip's exactly at the moments its face
+// changes (181), each a new frame, the last before the 5 s; then none. Git
+// and the first look answer at once.
+test('the greeting on main\'s one timer: the detailed Pip asks for a frame every 40 ms until 5 s after the screen arrived, the 9x4 Pip only at the moments its face changes, each a new frame; then none; a resize, during it or after, plays nothing again', async () => {
+  const moments = faceMoments(greetFace('resume'), TIMING.greet);
+  for (const depth of [24, 8]) {
     const app = clockedRun(MOTION_ENV, { saved: RESUME, depth, askGit: quickGit, runCheck: async () => ({ items: [] }) });
     const { term, clock } = app;
     try {
       await toResume(app);
       assert.equal(RASTER.test(term.shows()), depth === 24, `depth ${depth}`);
       const arrived = app.frameTimes()[0];
-      const ends = arrived + TIMING.greet;
+      const ends = arrived + (depth === 24 ? TIMING.greet : moments.at(-1));
+      const fired = [];
       let resized = false;
       while (clock.now() < ends) {
-        if (!resized && clock.now() >= arrived + 2_000) {
+        const timers = app.frameTimers();
+        assert.equal(timers.length, 1, `depth ${depth}: one frame timer at +${clock.now() - arrived} ms`);
+        assert.ok(timers[0].ms > 0 && (depth === 8 || timers[0].ms <= TIMING.grid), `depth ${depth}: next frame in ${timers[0].ms} ms at +${clock.now() - arrived} ms`);
+        // At 2 s a resize, between two frames: it draws its own, and the
+        // timer waits for the same next frame.
+        if (!resized && clock.now() + timers[0].ms > arrived + 2_000) {
+          await clock.advance(arrived + 2_000 - clock.now());
           term.stdout.emit('resize');
           resized = true;
           await turn();
+          continue;
         }
-        const timers = app.frameTimers();
-        assert.equal(timers.length, 1, `depth ${depth}: one frame timer at +${clock.now() - arrived} ms`);
-        assert.ok(timers[0].ms > 0 && timers[0].ms <= every, `depth ${depth}: next frame in ${timers[0].ms} ms at +${clock.now() - arrived} ms`);
+        const shown = term.shows();
         await clock.advance(timers[0].ms);
+        fired.push(clock.now() - arrived);
+        if (depth === 8) assert.notEqual(term.shows(), shown, `depth 8: a new frame at +${clock.now() - arrived} ms`);
       }
-      assert.equal(clock.now(), ends, `depth ${depth}: a frame at the greeting's end`);
+      if (depth === 8) assert.deepEqual(fired, moments, 'depth 8: a frame at each moment Pip\'s face changes, and no other');
+      assert.equal(clock.now(), ends, `depth ${depth}: a frame at the greeting's ${depth === 24 ? 'end' : 'last change'}`);
       assert.deepEqual(app.frameTimers(), [], `depth ${depth}: none after it`);
       const still = term.shows();
       term.stdout.emit('resize');
