@@ -2,7 +2,7 @@
   ●━━●━━●──○──○──○──○   ◇──◇──◇   ☆──☆                                step 3 of 12
   ━━━━━━━━━━━━━───────────────────────────────────────────────────────────────────
 
-  ╭─  💻 in your other terminal  ──────────────────────────────────────── (●‿●) ──
+  ╭─  💻 in your other terminal  ──────────────────────────────────────── [●‿●] ──
   │
   │  Save the version
   │  Why: "the version, because features and defaults change between releases;"

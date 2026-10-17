@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
-import { render } from '../../learn/lib/render.mjs';
+import { bootFrame, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
@@ -68,6 +68,8 @@ test('each color mode draws only what it can show', () => {
     for (const c of codes(none)) for (const p of c.split(';')) assert.ok(['0', '1', '22', '7', '27', ''].includes(p), `${label} without color uses SGR ${c}`);
     const sixteen = render(state, { cols: 100, rows: 30 }, theme(CAPS.sixteen)).join('\n');
     assert.doesNotMatch(sixteen, /38;5|48;5/, `${label} in 16 colors uses a 256-color code`);
+    const truecolor = render(state, { cols: 100, rows: 30 }, theme({ ...CAPS.full, depth: 24 })).join('\n');
+    assert.doesNotMatch(truecolor, /38;2|48;2/, `${label} on a truecolor terminal uses a truecolor code`);
     const ascii = render(state, { cols: 100, rows: 30 }, theme(CAPS.ascii)).map(strip).join('\n');
     assert.doesNotMatch(ascii, /[^\x00-\x7f]/, `${label} in ASCII mode draws ${ascii.match(/[^\x00-\x7f]/)?.[0]}`);
   }
@@ -128,8 +130,8 @@ test('every label on a colored block reaches 4.5:1 contrast, and marks on a dark
   for (const [bg, fg] of pills) assert.ok(ratio(bg, fg) >= 4.5, `${fg} on ${bg}: ${ratio(bg, fg).toFixed(2)}:1`);
   // A dark terminal background, like the screenshots': xterm's 233.
   COLORS.darkBg = [233, 30];
-  // Pip's face on the card border is in accent, key, gold and challenge.
-  for (const token of ['faint', 'muted', 'text', 'code', 'key', 'ok', 'warn', 'guided', 'hinted', 'challenge', 'accent', 'gold']) {
+  // Pip is in its own three: its outline, its eyes and its mouth.
+  for (const token of ['faint', 'muted', 'text', 'code', 'key', 'ok', 'warn', 'guided', 'hinted', 'challenge', 'accent', 'gold', 'pipOutline', 'pipEyes', 'pipMouth']) {
     assert.ok(ratio(token, 'darkBg') >= 3, `${token} on a dark background: ${ratio(token, 'darkBg').toFixed(2)}:1`);
   }
   delete COLORS.darkBg;
@@ -1229,11 +1231,11 @@ test('the welcome fits at 60x20 and 80x24: nothing cut, Pip and both windows on 
       const show = `\n${lines.join('\n')}`;
       assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where} drops lines${show}`);
       assert.ok(!lines.some(widthCut(t, cols)), `${where} cuts a line${show}`);
-      // Words read past Pip's ASCII face, which sits beside them.
-      const text = flatText(lines.map((l) => l.replace(/^\s*[|+](-{7}| o {3}o |  \\_\/  )[|+]/, '')).join(''));
+      // Words read past ASCII Pip, which sits beside them.
+      const text = flatText(lines.map((l) => l.replace(/^\s*(o {4}|[|+](-{3}\+-{3}|-{7}|  o_o  )[|+])/, '')).join(''));
       for (const word of words) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is not whole${show}`);
       // Pip's face, and the two windows side by side.
-      assert.ok(lines.some((l) => l.includes(t.unicode ? '●   ●' : 'o   o')), `${where}: no Pip${show}`);
+      assert.ok(lines.some((l) => l.includes(t.unicode ? '│  ●‿●  │' : '|  o_o  |')), `${where}: no Pip${show}`);
       assert.ok(lines.some((l) => l.includes(C.thisWindow) && l.includes(C.otherWindow)), `${where}: the windows are not side by side${show}`);
     }
   }
@@ -1242,13 +1244,47 @@ test('the welcome fits at 60x20 and 80x24: nothing cut, Pip and both windows on 
   assert.ok(flatText(broken.join('')).includes(flatText(C.gitBroken('spawn git ENOENT'))), broken.join('\n'));
 });
 
+// Pip's antenna is its first row: text beside it starts on Pip's face row,
+// or as low as Pip's four rows still hold it, and beside the antenna only
+// when it needs all four, so Pip's block keeps its rows.
+test('the text beside the big Pip starts on its face row where Pip\'s four rows hold it; longer text keeps today\'s rows', () => {
+  const t = theme(CAPS.full);
+  const at = (lines, text) => lines.map(strip).find((l) => l.includes(text));
+  const face = '│  ●‿●  │';
+  // One row: the boot's line. Two: the resume at 80 columns.
+  assert.match(at(bootFrame(0, { cols: 80, rows: 24 }, t), C.askingGit), new RegExp(`^ {3}${face} {3}${C.askingGit}$`));
+  const resume = screens.find(([l]) => l === 'resume')[1];
+  assert.ok(at(render(resume, { cols: 80, rows: 24 }, t), C.welcomeBack).includes(`${face}   👋 ${C.welcomeBack}`));
+  // Longer text starts higher rather than add a row: three rows (the
+  // welcome at 80 columns) beside the head's top, four (at 60 columns)
+  // beside the antenna, as today's rule placed them. This pins that
+  // trade, not the face row, until the owner chooses between the two.
+  const welcome = (cols) => render(driver().state, { cols, rows: 24 }, t).map(strip);
+  const hi = (lines) => lines.findIndex((l) => l.includes(`👋 ${C.hi('Sam').split(' ').slice(0, 2).join(' ')}`));
+  const pipTop = (lines) => lines.findIndex((l) => /^ {3} {4}● {4}/.test(l));
+  assert.equal(hi(welcome(80)) - pipTop(welcome(80)), 1, welcome(80).join('\n'));
+  assert.match(welcome(80)[pipTop(welcome(80))], /^ {3} {4}● {4}$/);
+  assert.equal(hi(welcome(60)) - pipTop(welcome(60)), 0, welcome(60).join('\n'));
+});
+
+test('the word beside the big Pip, where no banner is drawn, sits on its face row: LEVEL UP and COMPLETE in ASCII', () => {
+  const t = theme(CAPS.ascii);
+  for (const [label, face, word] of [['level up hinted', 'o-o', C.levelUp], ['complete', '^_^', C.complete]]) {
+    const s = screens.find(([l]) => l === label)[1];
+    for (const [cols, rows] of SHORT) {
+      const lines = render(s, { cols, rows }, t).map((l) => strip(l).trimEnd());
+      assert.ok(lines.includes(`   |  ${face}  |    ${word}`), `${label} at ${cols}x${rows}\n${lines.join('\n')}`);
+    }
+  }
+});
+
 test('decoration gives way below 24 rows only, after the spacers: the confetti, then Pip and the banner', () => {
   const t = theme(CAPS.full);
   const complete = screens.find(([l]) => l === 'complete')[1];
   // A three-row toast at 60x20.
   const toast = { kind: 'save', message: 'EACCES: permission denied, open .practice/learn.json for writing' };
   const confetti = (lines) => lines.some((l) => l.trim().startsWith('✦     ·'));
-  const face = (lines) => lines.some((l) => l.includes('★   ★'));
+  const face = (lines) => lines.some((l) => l.includes('│  ^‿^  │'));
   const at = (state, cols, rows) => render(state, { cols, rows }, t).map(strip);
   // With room, everything shows; a toast at 60x20 takes the spacers, then the confetti.
   assert.ok(confetti(at(complete, 60, 20)) && face(at(complete, 60, 20)));
@@ -1259,8 +1295,8 @@ test('decoration gives way below 24 rows only, after the spacers: the confetti, 
   assert.ok(confetti(typical) && face(typical), typical.join('\n'));
   // The welcome with a git error: Pip gives way at 60x20, and stays at 80x24.
   const broken = driver({ facts: { gitError: 'spawn git ENOENT' } }).state;
-  assert.ok(!at(broken, 60, 20).some((l) => l.includes('●   ●')), at(broken, 60, 20).join('\n'));
-  assert.ok(at(broken, 80, 24).some((l) => l.includes('●   ●')));
+  assert.ok(!at(broken, 60, 20).some((l) => l.includes('│  ●‿●  │')), at(broken, 60, 20).join('\n'));
+  assert.ok(at(broken, 80, 24).some((l) => l.includes('│  ●‿●  │')));
   for (const word of [C.hi('Sam'), C.pip1, C.pip2]) assert.ok(flatText(at(broken, 60, 20).join('')).includes(flatText(word)), word);
 });
 
@@ -2297,8 +2333,8 @@ test('a held main letter: y on the y/n prompt draws its pill inverse in color, a
 });
 
 // Pip on the card's top border: a still face for what the app saw (design 2.2).
-const FACES = { rest: ' (●‿●) ', checking: ' (◓─◓) ', worried: ' (◒‿◒) ', done: ' (★‿★) ', broken: ' (◒─◒) ' };
-const ASCII_FACES = { rest: ' (o_o) ', checking: ' (o.o) ', worried: ' (o_o) ', done: '\\(^_^)/', broken: ' (o_o) ' };
+const FACES = { rest: ' [●‿●] ', checking: ' [◒─◒] ', worried: ' [●‿◒] ', done: ' [^‿^] ', broken: ' [●─●] ' };
+const ASCII_FACES = { rest: ' [o_o] ', checking: ' [o-o] ', worried: ' [o_o] ', done: ' [^_^] ', broken: ' [o_o] ' };
 const facesOf = (t) => (t.unicode ? FACES : ASCII_FACES);
 // The face at the end of the card's top border; null on a card without
 // Pip, undefined on a screen with no card.
@@ -2347,12 +2383,58 @@ test('Pip shows only where the top border leaves 10 cells of rule: an ASCII done
   // Each column more gives the rule one more cell: 9 at 63, 10 at 64.
   assert.equal(pipOn(at(63), t), null);
   assert.equal(pipOn(at(64), t), ASCII_FACES.done);
-  assert.match(cardTop(at(64)), /DONE {2}-\\\(\^_\^\)\/--$/);
+  assert.match(cardTop(at(64)), /DONE {2}- \[\^_\^\] --$/);
   // The face takes rule cells: the border keeps the card's width.
   for (const cols of [60, 63, 64]) assert.equal(width(cardTop(at(cols))), cols - 2);
 });
 
 const cards = (all) => all.filter(([, s]) => ['step', 'checkonly'].includes(s.view) && !s.overlay);
+
+// A row's cells with the foreground code each is drawn in ('' for none).
+const inks = (line) => {
+  let fg = '';
+  const out = [];
+  for (const part of line.split(/(\x1b\[[0-9;]*m)/)) {
+    const m = part.match(/^\x1b\[([0-9;]*)m$/);
+    if (!m) out.push(...graphemes(part).map((g) => [g, fg]));
+    else if (/^(38;5;\d+|3[0-7]|9[0-7])$/.test(m[1])) fg = m[1];
+    else if (['39', '0', ''].includes(m[1])) fg = '';
+  }
+  return out;
+};
+
+test('Pip\'s face is in Pip\'s own colors: the outline purple, the eyes yellow, the mouth white, in 256 and in 16 colors, and in 256 on a truecolor terminal', () => {
+  const s = screens.find(([l]) => l === 'W3 waiting')[1];
+  const truecolor = { ...CAPS.full, depth: 24 };
+  for (const [caps, [outline, eyes, mouth]] of [[CAPS.full, ['38;5;177', '38;5;221', '38;5;255']], [CAPS.sixteen, ['95', '93', '97']], [truecolor, ['38;5;177', '38;5;221', '38;5;255']]]) {
+    const t = theme(caps);
+    const top = render(s, { cols: 80, rows: 24 }, t).find((l) => strip(l).trimEnd().endsWith(`${FACES.rest}──`));
+    assert.doesNotMatch(top, /[34]8;2;/, `depth ${caps.depth}: the card face in truecolor`);
+    assert.deepEqual(inks(top).slice(-9, -2).filter(([g]) => g !== ' '), [['[', outline], ['●', eyes], ['‿', mouth], ['●', eyes], [']', outline]]);
+    // The big Pip: the antenna and its foot in the eyes' yellow.
+    const lines = render(driver().state, { cols: 80, rows: 24 }, t);
+    const at = lines.findIndex((l) => strip(l).includes('╭───┴───╮'));
+    assert.doesNotMatch(lines.join('\n'), /[34]8;2;/, `depth ${caps.depth}: the welcome in truecolor`);
+    const big = lines.slice(at - 1, at + 3).map((l) => inks(l).slice(3, 12).filter(([g]) => g !== ' '));
+    assert.deepEqual(big, [
+      [['●', eyes]],
+      [...[...'╭───'].map((g) => [g, outline]), ['┴', eyes], ...[...'───╮'].map((g) => [g, outline])],
+      [['│', outline], ['●', eyes], ['‿', mouth], ['●', eyes], ['│', outline]],
+      [...'╰───────╯'].map((g) => [g, outline]),
+    ]);
+    // Sparks in the eyes' yellow too: the card's hop and the big Pip's cheer.
+    const moving = theme({ ...caps, motion: true, calm: false });
+    const hop = screens.find(([l]) => l === 'C check')[1];
+    const hopTop = render(hop, { cols: 80, rows: 24 }, moving, { at: hop.fx.pass })[4];
+    assert.doesNotMatch(hopTop, /[34]8;2;/, `depth ${caps.depth}: the hop in truecolor`);
+    assert.deepEqual(inks(hopTop).slice(-9, -2).filter(([g]) => g === '+'), [['+', eyes], ['+', eyes]]);
+    const complete = screens.find(([l]) => l === 'complete')[1];
+    const cheering = render(complete, { cols: 80, rows: 24 }, moving, { at: complete.fx.view });
+    assert.doesNotMatch(cheering.join('\n'), /[34]8;2;/, `depth ${caps.depth}: the cheer in truecolor`);
+    const cheer = cheering.find((l) => strip(l).trim() === '+  ●  +');
+    assert.deepEqual(inks(cheer).filter(([g]) => g !== ' '), [['+', eyes], ['●', eyes], ['+', eyes]]);
+  }
+});
 
 test('Pip is on every step and check-only card of every lesson at 60x20 and 80x24, in one-cell glyphs that are not emoji, and no overlay shows it', async () => {
   const all = [...screens, ...await lessonWalks()];
@@ -2388,7 +2470,7 @@ test('Pip tells the truth: the checking face only while the status is opening, o
   }
 });
 
-test('Pip tells the truth: the star only on the step\'s last beat done or already done, as the cheer; a beat before it rests, as the hop', async () => {
+test('Pip tells the truth: the done face only on the step\'s last beat done or already done, as the cheer; a beat before it rests, as the hop', async () => {
   const all = cards([...screens, ...await lessonWalks()]);
   const t = theme(CAPS.full);
   let mid = 0;

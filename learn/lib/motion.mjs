@@ -35,8 +35,8 @@ export const SHOTS = {
   // The top rule grows from the pill, a third a frame, until Pip lands at
   // `land`; the trail's new stop is hollow until then, then a ring.
   entrance: { every: 40, land: 80 },
-  // The line's mark is hollow until `pop`; Pip looks at the learner from
-  // `nod` to the end, then back down.
+  // The line's mark is hollow until `pop`; Pip opens both eyes at the
+  // learner from `nod` to the end, then wears its worried face again.
   notYet: { every: 80, pop: 80, nod: 160 },
   hop: { every: 240 },
   cheer: { every: 360 },
@@ -51,7 +51,7 @@ export const SHOTS = {
   levelUp: { every: 40, open: 240, whole: 480, fill: 80, head: 720 },
   // The confetti changes every `fall`: from 24 rows it falls across its row
   // and the blank under it, below 24 it appears `first` glyphs, then `more`
-  // at a time. Pip's arms are up, and COMPLETE stamps in, until `whole`.
+  // at a time. Pip cheers with sparks, and COMPLETE stamps in, until `whole`.
   // The ticks appear in turn from `ticks` to `ticksBy`, each on the 40 ms
   // grid, so with five the gaps are 80 and 40 ms in turn. From `light` one
   // light runs the whole trail by the last frame before the end.
@@ -87,7 +87,7 @@ const AMBIENT = ['welcome', 'step', 'checkonly'];
 // overlay stops the spinner, its seconds and the bounce: they show a child
 // that is still running (for at most 150 s an item).
 const idle = (s, at) => Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
-const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
+export const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
 
 // The words of the newest text: on a step card a "Not yet" line or feedback
 // that came after the card opened, else the card itself; on the welcome and
@@ -126,6 +126,18 @@ export function ambientAllowed(s, at) {
   return at >= quietFrom(s) && !answering(s);
 }
 
+// The detailed Pip's three gates for its controller at `at` (s null on the
+// boot frame), the same for its pose and its next frame in one draw. No
+// motion with the screen's motion off (calm, NO_COLOR, plain, TERM=dumb, a
+// tripped write budget), with an overlay or at idle; its ambient life
+// (blinks, glances, twitches) only where ambientAllowed says; breathing, a
+// redraw every 120 ms, only on a local truecolor terminal.
+export function pipGates(s, at, { motion, truecolor, remote }) {
+  const moving = motion && !(s && frozen(s, at));
+  const ambient = moving && Boolean(s) && ambientAllowed(s, at);
+  return { motion: moving, ambient, breathing: ambient && truecolor && !remote };
+}
+
 // Where the look marker stands: from the left, one notch on for each look
 // that landed once it may show, round again after the last; null before the
 // first. flow.mjs counts the looks since the newest stamp that holds it back
@@ -140,8 +152,8 @@ function lookNotch(s) {
 }
 
 // Where Pip blinks: the welcome, and a step card that watches nothing and
-// is not its step's done (Pip wears its star there). ambientAllowed keeps it
-// from a card with something to answer.
+// is not its step's done (Pip wears its done face there). ambientAllowed
+// keeps it from a card with something to answer.
 function blinks(s) {
   if (s.view === 'welcome') return true;
   if (s.view !== 'step' || !s.beat || watching(s)) return false;
