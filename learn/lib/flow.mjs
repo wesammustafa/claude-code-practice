@@ -424,8 +424,9 @@ export function rungsOf(s) {
   const st = s.beat;
   const rungs = [];
   let bottom = [];
-  const hideRuns = tierOf(s) !== 'guided' && authoredTier(s) === 'guided';
-  const runs = beat.lines.filter((l) => l.key === 'run').map((l) => ({ text: l.text, win: l.win }));
+  const hideRuns = hidesRuns(s);
+  // A hidden code block waits there whole, as the card would show it.
+  const runs = beat.lines.filter((l) => ['run', 'code'].includes(l.key)).map((l) => (l.key === 'code' ? l : { text: l.text, win: l.win }));
   if (hintStatus(st) === 'fail' && st.fail?.item) {
     const ladder = lesson.ladder.find((l) => l.item === st.fail.item);
     const narrow = ladder?.narrow.find((n) => st.fail.hint.includes(n.part));
@@ -438,6 +439,22 @@ export function rungsOf(s) {
   if (!bottom.length) bottom = [...(hideRuns ? runs : []), ...beat.bottom];
   if (bottom.length) rungs.push({ kind: 'bottom', lines: bottom });
   return rungs;
+}
+
+// A GUIDED step met with less help: its run lines and code block leave the
+// card for the bottom rung.
+export const hidesRuns = (s) => tierOf(s) !== 'guided' && authoredTier(s) === 'guided';
+
+// The beat's code block where k copies it: in a terminal that takes OSC 52,
+// while the block is on screen, on the card or in the open bottom rung.
+export function copyable(s) {
+  const code = beatOf(s).lines.find((l) => l.key === 'code');
+  if (!code || !s.facts.clipboard) return null;
+  if (!hidesRuns(s)) return code;
+  const st = s.beat;
+  if (['done', 'already'].includes(st.status) || st.rung < 0 || st.confirm) return null;
+  const rung = rungsOf(s)[st.rung];
+  return rung?.kind === 'bottom' && rung.lines.includes(code) ? code : null;
 }
 
 // What the learner tries before h opens a hint at CHALLENGE: r on a beat the
@@ -1357,6 +1374,15 @@ const VIEWS = {
     if (name === 'b') return back(s, effects), true;
     if (name === 'w' && beat.why.length) {
       s.overlay = 'why';
+      return true;
+    }
+    // k: main asks the terminal to copy the beat's code block, all of it, or
+    // the Windows line that stands in for it there.
+    const code = name === 'k' && copyable(s);
+    if (code) {
+      const text = (s.facts.win32 && code.win) || code.text;
+      effects.push({ type: 'copy', text });
+      s.toast = { kind: 'copied', lines: text.split('\n').length, until: s.now + TOAST_MS };
       return true;
     }
     if (name === 'r') {

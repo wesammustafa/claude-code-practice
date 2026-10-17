@@ -21,9 +21,19 @@ export function capabilities(stream = process.stdout, env = process.env, platfor
   // clickable where the terminal is known to support them.
   const links = !plain && Boolean(env.WT_SESSION || env.TERM_PROGRAM === 'iTerm.app' || env.TERM_PROGRAM === 'vscode' || env.TERM_PROGRAM === 'WezTerm' || env.KITTY_WINDOW_ID || env.VTE_VERSION);
   const motion = tty && depth > 1 && unicode && !plain && !calm && env.TERM !== 'dumb';
+  // OSC 52, which puts text on the clipboard: only in terminals that write
+  // it there by default (kitty, WezTerm, Ghostty, Alacritty, Windows
+  // Terminal), and not through tmux or screen, which keep it to themselves
+  // unless set up to pass it on. Terminal.app ignores it, and iTerm2 asks
+  // for a setting first, so neither is listed.
+  const clipboard = tty && !plain && env.TERM !== 'dumb' && !env.TMUX && !env.STY
+    && Boolean(env.KITTY_WINDOW_ID || env.TERM_PROGRAM === 'WezTerm' || env.TERM_PROGRAM === 'ghostty' || env.ALACRITTY_WINDOW_ID || env.WT_SESSION);
   // Over SSH or in a Codespace: a frame crosses the network, so the detailed
   // Pip does not breathe there.
   const codespace = env.CODESPACES === 'true';
   const remote = Boolean(env.SSH_CONNECTION || env.SSH_TTY || codespace);
-  return { tty, depth, unicode, links, motion, calm, remote, win32: platform === 'win32', codespace };
+  return { tty, depth, unicode, links, motion, calm, clipboard, remote, win32: platform === 'win32', codespace };
 }
+
+// The bytes that ask the terminal to put `text` on the clipboard.
+export const osc52 = (text) => `\x1b]52;c;${Buffer.from(text).toString('base64')}\x07`;

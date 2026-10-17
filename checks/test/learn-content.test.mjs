@@ -11,7 +11,7 @@ import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
-import { DEMO_B2, DEMO_I1, root } from './learn-drive.mjs';
+import { DEMO_B2, DEMO_I1, root, withCode } from './learn-drive.mjs';
 
 const dir = join(root, 'learn', 'lessons');
 const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
@@ -684,4 +684,72 @@ test('every match and no-match regex compiles and holds no code span', () => {
   assert.equal(regexProblems(withVerify('match CLAUDE.md ^@(docs')).length, 1);
   assert.match(regexProblems(withVerify('no-match SKILL.md `TODO`'))[0], /a code span/);
   assert.deepEqual(regexProblems(withVerify('match CLAUDE.md ^@docs/.+\\.md$')), []);
+});
+
+// ---- code blocks (ticket 90) --------------------------------------------------
+// The hooks page's Your turn skeleton, from its first line to its case block:
+// indented lines and a blank line, as the page has them.
+const SKELETON = ['#!/bin/bash', 'INPUT=$(cat)', 'FILE_PATH=$(echo "$INPUT" | jq -r \'.tool_input.file_path // empty\')', 'FILE_PATH="${FILE_PATH//\\\\//}"', 'NAME=$(basename "$FILE_PATH")', '', 'case "/$FILE_PATH" in', '  */package-lock.json | */.git/*)'];
+const fenced = (lines, info = 'bash') => [`\`\`\`${info}`, ...lines, '```'];
+const codeOf = (lines) => parseLesson(withCode(lines), 'b-2.md').steps[0].beats[0].lines.find((l) => l.key === 'code');
+
+test('a beat holds one fenced block from the page, its lines kept as they are', () => {
+  const code = codeOf(['- code: point 3', ...fenced(SKELETON)]);
+  assert.deepEqual(code.lines, SKELETON);
+  // The lines after the block are the beat's again.
+  const l = parseLesson(withCode(['- code: point 1', ...fenced(['ls']), '- note: "The page says so."']), 'b-2.md');
+  assert.deepEqual(l.steps[0].beats[0].lines.map((x) => x.key), ['code', 'note']);
+});
+
+test('a code block is closed and not empty, one to a beat', () => {
+  const bad = [
+    [['- code: point 1', '```bash', 'ls'], /b-2\.md:\d+: a code block with no closing fence/],
+    [['- code: point 1', '```bash', '```'], /b-2\.md:\d+: an empty code block/],
+    [['- code: point 1', '```bash', '', '```'], /an empty code block/],
+    [['- code: point 1', '- note: "x"'], /a code line with no fenced block under it/],
+    [['- code: point 1', ...fenced(['ls']), '- code: point 1', ...fenced(['pwd'])], /a second code block on one beat/],
+    // A closing fence is as long as the opening one, at least: a shorter one
+    // is the block's own line.
+    [['- code: point 1', '````markdown', '```', 'ls'], /a code block with no closing fence/],
+  ];
+  for (const [lines, error] of bad) assert.throws(() => codeOf(lines), error, lines.join('\n'));
+  assert.deepEqual(codeOf(['- code: point 1', '````markdown', '```bash', 'ls', '```', '````']).lines, ['```bash', 'ls', '```']);
+});
+
+// The whole skeleton: 17 lines.
+const SKELETON_ALL = [...SKELETON, '    echo "Blocked: $FILE_PATH is protected" >&2', '    exit 2', '    ;;', 'esac', '', '# TODO: block a file named .env, or .env. followed by anything except example', '# TODO: block any file inside a secrets/ folder', '', 'exit 0'];
+
+test('a beat shows at most 8 lines of code, with a pointer on the line it explains; a longer block shows a window of it on each beat', () => {
+  const whole = codeOf(['- code: point 3', ...fenced(SKELETON)]);
+  assert.deepEqual([whole.from, whole.to, whole.point], [1, 8, 3]);
+  const part = codeOf(['- code: lines 9-16 point 10', ...fenced(SKELETON_ALL)]);
+  assert.deepEqual([part.from, part.to, part.point, part.lines.length], [9, 16, 10, 17]);
+  const bad = [
+    // 17 lines with no window: a beat would show all of them.
+    [['- code: point 3', ...fenced(SKELETON_ALL)], /b-2\.md:\d+: this beat shows 17 lines of code; a beat shows at most 8: name the lines it shows, as lines 1-8/],
+    [['- code: lines 1-9 point 3', ...fenced(SKELETON_ALL)], /this beat shows 9 lines of code; a beat shows at most 8/],
+    [['- code: lines 9-16', ...fenced(SKELETON_ALL)], /a code line is \[lines <first>-<last>\] point <line>/],
+    [['- code: lines 9-16 point 3', ...fenced(SKELETON_ALL)], /point 3 is not a line this beat shows \(9 to 16\)/],
+    [['- code: lines 12-18 point 12', ...fenced(SKELETON_ALL)], /lines 12-18: the block has 17 lines/],
+    [['- code: lines 5-4 point 4', ...fenced(SKELETON_ALL)], /lines 5-4: the block has 17 lines/],
+    [['- code: point 0', ...fenced(['ls'])], /point 0 is not a line this beat shows \(1 to 1\)/],
+    [['- code: the loop', ...fenced(['ls'])], /a code line is \[lines <first>-<last>\] point <line>/],
+  ];
+  for (const [lines, error] of bad) assert.throws(() => codeOf(lines), error, lines[0]);
+});
+
+test('a code block shows on a do, ask or self beat, and names no folder a run line would fill in', () => {
+  const asKind = (kind, lines) => withCode(lines).replace('- where: shell\n- beat: do\n', `- where: shell\n- beat: ${kind}\n`);
+  for (const kind of ['predict', 'type']) {
+    assert.throws(() => parseLesson(asKind(kind, ['- code: point 1', ...fenced(['ls'])]), 'b-2.md'), new RegExp(`b-2\\.md:\\d+: a code block on a ${kind} beat`), kind);
+  }
+  for (const line of ['cd <your practice copy>', 'git -C <your repo> status']) {
+    assert.throws(() => codeOf(['- code: point 1', ...fenced(['ls', line])]), /a code block that names <your practice copy> or <your repo>/, line);
+  }
+});
+
+// Until ticket 91 teaches the guide's quote check the block format, no
+// shipped lesson uses one: 91 removes this test.
+test('no lesson file holds a code block before the guide checks them', () => {
+  for (const f of files) assert.doesNotMatch(readFileSync(join(dir, f), 'utf8'), /^- code: /m, f);
 });

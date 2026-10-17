@@ -3,7 +3,7 @@
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
 import { GIT } from './content.mjs';
 import { C } from './copy.mjs';
-import { beatOf, checkOnlyWords, GRACE_MAX_MS, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
+import { beatOf, checkOnlyWords, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -106,7 +106,10 @@ function newestWords(s) {
     return words(st.feedback?.because ?? '');
   }
   const beat = beatOf(s);
-  return words([stepOf(s).title, ...beat.lines.map((l) => l.text), beat.ask ?? '', ...beat.options.map((o) => o.text)].join(' '));
+  // A code block counts the lines the card shows: its window, the Windows
+  // line in its place, or nothing where it waits behind h.
+  const shown = (l) => (l.key !== 'code' ? l.text : hidesRuns(s) ? '' : (s.facts.win32 && l.win) || l.lines.slice(l.from - 1, l.to).join(' '));
+  return words([stepOf(s).title, ...beat.lines.map(shown), beat.ask ?? '', ...beat.options.map((o) => o.text)].join(' '));
 }
 
 // Reading that needs an answer: a question with its options, a typed
