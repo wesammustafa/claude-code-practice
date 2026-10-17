@@ -46,9 +46,9 @@ function firstOf(text) {
   return line === undefined ? null : oneRow(line);
 }
 
-// What a file is, to tell whether it changed (verify.mjs stampOf reads it):
-// its time, its size and the start of its SHA-1. A fresh beat keeps the
-// stamp its step opened with.
+// What a file is, to tell whether it changed (verify.mjs stampOf builds it
+// with this; grewFrom reads it back): its time, its size and the start of
+// its SHA-1. A fresh beat keeps the stamp its step opened with.
 const sha = (buf) => createHash('sha1').update(buf).digest('hex').slice(0, 12);
 export const stampFor = (mtimeMs, buf) => `${Math.trunc(mtimeMs)}:${buf.length}:${sha(buf)}`;
 
@@ -56,13 +56,13 @@ export const stampFor = (mtimeMs, buf) => `${Math.trunc(mtimeMs)}:${buf.length}:
 // what it held then is the start of `buf`. 0 when it was rewritten, or the
 // stamp holds nothing (no file then).
 export function grewFrom(stamp, buf) {
-  const m = (stamp ?? '').match(/^\d+:(\d+):([0-9a-f]{12})$/);
-  const size = m ? Number(m[1]) : 0;
-  return size && size <= buf.length && sha(buf.subarray(0, size)) === m[2] ? size : 0;
+  const [, size, hash] = (stamp ?? '').split(':');
+  const n = Number(size);
+  return n > 0 && n <= buf.length && sha(buf.subarray(0, n)) === hash ? n : 0;
 }
 
 // The lines a match reads: all of them, or past the file's first `from`
-// bytes only the lines this attempt wrote or added to.
+// bytes only the lines written or added to since the stamp.
 function linesOf(buf, text, from) {
   const lines = text.split(/\r?\n/);
   if (!from) return lines;
@@ -96,7 +96,8 @@ const shown = (v) => oneRow(typeof v === 'string' ? v : JSON.stringify(v));
 
 // Whether `buf` (null: no file) passes a reading beat's verify, with the
 // evidence a pass shows or the not-yet line a miss gets. A fresh match reads
-// only what was added past `from` (grewFrom).
+// only what was added past `from` (grewFrom); a no-match reads the whole file
+// when nothing was added, so a line it forbids that is still there counts.
 export function judge(verify, buf, from = 0) {
   const { path } = verify;
   if (!buf) return { pass: false, hint: verify.kind === 'file' ? C.fileEmpty(path) : C.noFile(path) };
@@ -113,7 +114,7 @@ export function judge(verify, buf, from = 0) {
   }
   if (verify.kind === 'match' || verify.kind === 'no-match') {
     const re = new RegExp(verify.regex);
-    const hit = linesOf(buf, text, from).find((l) => re.test(l));
+    const hit = linesOf(buf, text, verify.kind === 'no-match' && from === buf.length ? 0 : from).find((l) => re.test(l));
     const line = hit === undefined ? null : oneRow(hit);
     if (verify.kind === 'match') return line === null ? { pass: false, hint: from ? C.noNewLine(path) : C.noLine(path) } : { pass: true, evidence: line };
     return line === null ? { pass: true, evidence: null } : { pass: false, hint: C.stillHas(path, line) };

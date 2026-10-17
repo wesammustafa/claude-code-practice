@@ -877,16 +877,23 @@ function checkOnlyDone(s, ev, effects) {
   effects.push({ type: 'save' });
 }
 
+// Where a fresh beat's file `ev.read` starts being new (holds.mjs grewFrom):
+// past what it held at its stamp (saved, so a restart reads it too) when it
+// only grew, else 0. With no stamp yet, this read is the one decide stamps,
+// so the first answer is judged as every later one is.
+function readFrom(s, ev) {
+  if (!beatOf(s).verify.fresh || !ev.read) return 0;
+  return grewFrom(s.progress[s.lesson].stamps[answerKey(s)] ?? ev.stamp, ev.read);
+}
+
 // A file the beat reads itself, by what it holds now (holds.mjs): `read`
 // is its bytes, null when it isn't there. A fresh match on a file that only
-// grew since its stamp (saved, so a restart reads it too) reads what was
-// added; a rewritten one is read whole.
+// grew reads what was added; a rewritten one is read whole.
 function onFile(s, ev, effects, rRuns) {
   if (rRuns || s.view !== 'step' || !s.beat) return;
   const v = beatOf(s).verify;
   if (!READS.has(v.kind) || ev.path !== v.path || ['done', 'already'].includes(s.beat.status)) return;
-  const grew = v.fresh && ev.read && (v.kind === 'match' || v.kind === 'no-match');
-  const r = judge(v, ev.read, grew ? grewFrom(s.progress[s.lesson].stamps[answerKey(s)], ev.read) : 0);
+  const r = judge(v, ev.read, readFrom(s, ev));
   decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
 }
 
@@ -1157,7 +1164,7 @@ function stampFx(prev, s, ev) {
   // the tree also differs when another path is staged.
   const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && answersGit(w, ev));
   if (looked) {
-    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read) : ev.files ? [ev.paths, ev.staged] : ev.paths);
+    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read, readFrom(prev, ev)) : ev.files ? [ev.paths, ev.staged] : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;
     if (fx.changed) fx.changedAt = t;
     fx.seen = seen;

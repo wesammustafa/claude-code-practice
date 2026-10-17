@@ -5,9 +5,8 @@ import assert from 'node:assert/strict';
 import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
+import { stampFor } from '../../learn/lib/holds.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
-import { stampOf } from '../../learn/lib/verify.mjs';
-import { repo, withRepo } from './helpers.mjs';
 import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
@@ -1971,12 +1970,8 @@ test('json, match and no-match take fresh and fresh since: what an earlier step 
 });
 
 // A file holding `text` as main reads it: its bytes and its stamp. The same
-// text is the same file, left as it was.
-const reads = new Map();
-const asRead = (text) => {
-  if (!reads.has(text)) reads.set(text, withRepo(() => repo({ 'f.txt': text }), (dir) => ({ read: Buffer.from(text), stamp: stampOf(dir, 'f.txt') })));
-  return reads.get(text);
-};
+// text is the same file, left as it was, unless saved again at `mtime`.
+const asRead = (text, mtime = 1000) => ({ read: Buffer.from(text), stamp: stampFor(mtime, Buffer.from(text)) });
 const LOG = '.practice/i-2-loaded.txt';
 
 test('fresh match on a log that only grew: a line an earlier attempt left passes nothing until this attempt appends one, and the evidence is that line', () => {
@@ -1989,7 +1984,7 @@ test('fresh match on a log that only grew: a line an earlier attempt left passes
   };
   assert.equal(look(old).status, 'waiting');
   const started = `${old}session started\n`;
-  assert.notEqual(look(started).status, 'done', 'the new session wrote its first line');
+  assert.equal(look(started).status, 'waiting', 'the new session wrote its first line');
   const done = look(`${started}loaded: .claude/rules/style.md\n`);
   assert.equal(done.status, 'done');
   assert.equal(done.evidence, 'loaded: .claude/rules/style.md');
@@ -2041,12 +2036,43 @@ test('fresh since a step on a log that only grew: what was added since that step
     assert.equal(stepOf(d.state).id, 'Y1');
     for (const e of d.effects.filter((x) => x.type === 'stamp' && !(x.key in d.state.progress['b-2'].stamps))) d.send({ type: 'stamp', key: e.key, stamp: asRead(grown).stamp });
     d.send({ type: 'file', path: LOG, ...asRead(grown) });
-    return d.state.beat;
+    return d;
   };
-  const since = onY1('fresh since W1');
+  const since = onY1('fresh since W1').state.beat;
   assert.equal(since.status, 'already', 'the line came before Y1 opened');
   assert.equal(since.evidence, 'loaded: .claude/rules/style.md');
-  assert.notEqual(onY1('fresh').status, 'done', 'Y1 opened on the grown log: nothing added since');
+  const plain = onY1('fresh');
+  assert.equal(plain.state.beat.status, 'waiting', 'Y1 opened on the grown log: nothing added since');
+  const later = `${grown}session ended\n`;
+  assert.equal(tryNow(plain, LOG, later, asRead(later).stamp).fail.hint, '.practice/i-2-loaded.txt has no new line like that yet.');
+});
+
+test('fresh match before its stamp lands: the read that sets the stamp is judged as every later one, and a look that turns done differs', () => {
+  const old = 'loaded: CLAUDE.md\n';
+  // No stamp saved: the first read is the step's opening.
+  const d = onReading(`match ${LOG} ^loaded: fresh`);
+  d.send({ type: 'file', path: LOG, ...asRead(old) });
+  assert.equal(d.state.beat.status, 'waiting');
+  assert.equal(d.state.beat.baseline, '.practice/i-2-loaded.txt has no new line like that yet.');
+  const started = `${old}session started\n`;
+  d.send({ type: 'file', path: LOG, ...asRead(started) });
+  assert.equal(d.state.beat.status, 'waiting', 'a line that does not match is no "not yet"');
+  assert.equal(d.state.fx.changed, false);
+  d.send({ type: 'file', path: LOG, ...asRead(`${started}loaded: .claude/rules/style.md\n`) });
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.beat.evidence, 'loaded: .claude/rules/style.md');
+  assert.equal(d.state.fx.changed, true, 'the look reads what the beat reads');
+});
+
+test('fresh no-match on a file saved with the same bytes: the line it forbids still counts', () => {
+  const path = '.claude/settings.json';
+  const kept = 'deny: rm\n';
+  const d = onReading(`no-match ${path} ^deny: fresh`, { stamps: { 'Y1.0': asRead(kept).stamp } });
+  d.send({ type: 'file', path, ...asRead(kept) });
+  assert.equal(d.state.beat.status, 'waiting');
+  const touched = tryNow(d, path, kept, asRead(kept, 2000).stamp);
+  assert.equal(touched.status, 'fail');
+  assert.equal(touched.fail.hint, '.claude/settings.json still has: deny: rm');
 });
 
 test('match: done once a line matches, front matter included, and the evidence is that line', () => {

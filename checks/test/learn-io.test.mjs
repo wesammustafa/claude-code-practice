@@ -21,7 +21,8 @@ import { pipSlot, render } from '../../learn/lib/render.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
-import { childEnv, gitStatus, ITEM_LIMIT, owing, probeFolder, runCheck, singleFlight } from '../../learn/lib/verify.mjs';
+import { childEnv, gitStatus, ITEM_LIMIT, owing, probeFolder, runCheck, singleFlight, stampOf } from '../../learn/lib/verify.mjs';
+import { grewFrom } from '../../learn/lib/holds.mjs';
 import { judgeGit, listedUnder } from '../../learn/lib/status.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
@@ -99,6 +100,16 @@ test('for every lesson the child and npm run check agree, item by item', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a stamp stampOf takes on disk reads back in grewFrom: the bytes a file held, when it only grew since', () => {
+  withRepo(() => repo({ 'log.txt': 'loaded: CLAUDE.md\n' }), (dir) => {
+    const stamp = stampOf(dir, 'log.txt');
+    assert.equal(grewFrom(stamp, Buffer.from('loaded: CLAUDE.md\nsession started\n')), 18);
+    assert.equal(grewFrom(stamp, Buffer.from('loaded: CLAUDE.md\n')), 18, 'the same bytes: nothing added');
+    assert.equal(grewFrom(stamp, Buffer.from('loaded: AGENTS.md\nsession started\n')), 0, 'rewritten');
+    assert.equal(grewFrom(stampOf(dir, 'gone.txt'), Buffer.from('x\n')), 0, 'no file then');
+  });
 });
 
 test('the check child writes {"running": n} to stderr before each item it runs, and stdout stays one line of JSON', () => {
