@@ -56,6 +56,19 @@ export const C = {
   warmup: (n, level) => `Warm-up from ${level ? `${level} lesson` : 'lesson'} ${n}`,
   warmupIndex: (level) => `Warm-up from the ${level} ${TERMS.levelIndex}`,
   warmupWhy: "A warm-up brings back an earlier lesson from memory. A wrong answer is fine: you see the lesson's words at once.",
+  // A warm-up from a level index quotes that page, not a lesson (ticket
+  // 178): these take the place of the words of the same name around it.
+  fromIndex: {
+    warmupWhy: `A warm-up asks one question from memory. A wrong answer is fine: you see the ${TERMS.levelIndex}'s words at once.`,
+    why: `Why this matters, in the ${TERMS.levelIndex}'s words:`,
+    trueOfElse: `That's true of something else. The ${TERMS.levelIndex} says:`,
+    theAnswer: `The answer, in the ${TERMS.levelIndex}'s words:`,
+    fixFirst: `That's the fix, in the ${TERMS.levelIndex}'s words:`,
+    stillStuck: `Still stuck? Press p for the ${TERMS.levelIndex} and the Stuck link.`,
+    codeMore: `More lines are on the ${TERMS.levelIndex}: press p.`,
+    codeWide: (dots) => `A line that ends in ${dots} goes on past the edge: press p for the ${TERMS.levelIndex}.`,
+    pageTitle: `The ${TERMS.levelIndex}`,
+  },
   warmups: (n) => `${n} warm-up${n === 1 ? '' : 's'} first`,
   done: 'DONE',
   doneWhen: 'Done when ',

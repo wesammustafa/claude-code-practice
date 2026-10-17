@@ -553,7 +553,9 @@ function pairOff(id, l) {
   const off = [];
   const [r1, r2] = l.warmup;
   if (!r1) return off;
-  // A pool that recalls only one lesson has no lags to mix.
+  // A pool that recalls only one lesson has no lags to mix. A level index
+  // counts as a source of its own (ticket 178): R1 from a lesson and R2 from
+  // an index mix two.
   if (r2 && new Set(l.warmup.map((w) => w.from)).size > 1 && r1.from === r2.from) off.push(`${id}: R1 and R2 both come from ${r1.from}`);
   // Where the pool holds a skill this lesson reuses, R1 is one, so a missed
   // warm-up eases a step here.
@@ -605,16 +607,16 @@ const NO_LATER_WARMUP = {
   'save-version': 'only the capstone asks it, and no Beginner lesson comes after the capstone',
 };
 
-// The skills a question in `lessons` (in PATH order) can mark missed that no
-// later lesson's pool recalls.
-function closureGaps(lessons) {
+// The skills a question in `contents` (in PATH order) can mark missed that
+// no later lesson's pool recalls.
+function closureGaps(contents) {
   // The first lesson whose questions can mark each skill missed. A level
   // index warm-up recalls a level, not a lesson's skill (ticket 178).
   const first = new Map();
-  lessons.forEach((c, i) => {
+  contents.forEach((c, i) => {
     for (const s of c ? allSteps(c).filter((x) => !indexLevel(x.from)) : []) for (const b of s.beats) if (marksMissed(b) && !first.has(b.skill ?? s.skill)) first.set(b.skill ?? s.skill, i);
   });
-  return [...first].filter(([skill, i]) => !lessons.slice(i + 1).some((c) => c?.warmup.some((w) => w.skill === skill))).map(([skill]) => skill);
+  return [...first].filter(([skill, i]) => !contents.slice(i + 1).some((c) => c?.warmup.some((w) => w.skill === skill))).map(([skill]) => skill);
 }
 
 test('warm-ups: a skill a question can mark missed comes back in a later lesson\'s pool', () => {

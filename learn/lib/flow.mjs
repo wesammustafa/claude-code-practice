@@ -2,7 +2,7 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
-import { GIT, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
+import { GIT, indexLevel, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
 import { evidenceOf, judge } from './holds.mjs';
 import { cleanListed, eachFile, judgeGit, needsChange } from './status.mjs';
@@ -681,12 +681,13 @@ function back(s, effects) {
 // learner missed before come first, then skills whose help hasn't faded for
 // them (no step finished on it in an earlier lesson, and not recalled), then
 // the rest, each in the file's order. While the pool has other skills, no
-// two questions ask the same one.
+// two questions ask the same one. A level index warm-up recalls a level, no
+// step's skill (ticket 178), so it ranks with the rest unless it was missed.
 export function pickWarmups(s, id = s.lesson) {
   const h = history(s);
   const idx = s.course.findIndex((l) => l.id === id);
   const met = (skill) => h.recalled.has(skill) || s.course.some((_, k) => k < idx && h.steps.has(`${k} ${skill}`));
-  const rank = (w) => (s.missed.includes(w.skill) ? 0 : met(w.skill) ? 2 : 1);
+  const rank = (w) => (s.missed.includes(w.skill) ? 0 : indexLevel(w.from) || met(w.skill) ? 2 : 1);
   const ranked = [...contentOf(s, id).warmup].sort((a, b) => rank(a) - rank(b));
   const picked = [];
   for (const w of ranked) if (picked.length < WARMUPS && !picked.some((x) => x.skill === w.skill)) picked.push(w);

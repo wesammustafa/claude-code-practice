@@ -1434,6 +1434,18 @@ test('fading counts only what this learner did: warm-ups ask missed skills, then
   assert.equal(stepOf(none.state).part, 'Warm-up');
 });
 
+// Ticket 178: a level index warm-up recalls a level, not a skill a step
+// practises, so no fading ranks it ahead: it keeps its place in the file
+// unless its skill was missed. i-1's R1 commit (b-5), R2 when-to-use (index).
+test('fading counts only what this learner did: a level index warm-up keeps its place in the file unless its skill was missed', () => {
+  const lessons = course.map((l) => (l.id === 'i-1' ? { ...l, content: parseLesson(DEMO_I1_INDEX, 'i-1.md') } : l));
+  const at = (saved) => driver({ course: lessons, saved: { format: 1, welcomed: true, ...saved } }).state;
+  const before = finishedBefore('i-1', lessons);
+  assert.deepEqual(pickWarmups(at({ lessons: before }), 'i-1'), ['R1', 'R2'], 'every earlier lesson done');
+  assert.deepEqual(pickWarmups(at({}), 'i-1'), ['R1', 'R2'], 'nothing done');
+  assert.deepEqual(pickWarmups(at({ lessons: before, missed: ['when-to-use'] }), 'i-1'), ['R2', 'R1'], 'its skill missed');
+});
+
 test('fading counts only what this learner did: with no misses and every skill met, b-3 asks plan-mode and status', () => {
   const d = fresh('b-3');
   const warm = d.state.progress['b-3'].warm;

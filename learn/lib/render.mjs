@@ -82,6 +82,13 @@ function recalledPage(s, step) {
   return level ? { url: indexUrl(level), stuck: lessonOf(s).stuck } : lessonOf(s, step.from);
 }
 
+// The app's words around a quote: a level index warm-up's name the index.
+const INDEX_WORDS = { ...C, ...C.fromIndex };
+function wordsOf(s) {
+  const step = s.view === 'step' && s.beat ? stepOf(s) : null;
+  return step?.part === 'Warm-up' && indexLevel(step.from) ? INDEX_WORDS : C;
+}
+
 // The lesson page a quote's relative links point into: set for each frame.
 let pageUrl = '';
 
@@ -469,11 +476,11 @@ function chip(t, cmd, where, w) {
 // page. A line wider than its room breaks at a space, its next rows at its
 // indent under the wrap mark; a word wider than a whole row is cut, never
 // broken across rows, and a row under the block says where the rest is.
-function codeRows(t, code, w) {
+function codeRows(t, code, w, words = C) {
   const digits = String(code.to).length;
   const room = Math.max(10, w - digits - 5);
   const dots = t.glyph.ellipsis;
-  const more = t.fg('muted', `${dots} ${C.codeMore}`);
+  const more = t.fg('muted', `${dots} ${words.codeMore}`);
   let wide = false;
   const rows = code.lines.slice(code.from - 1, code.to).flatMap((line, k) => {
     const n = code.from + k;
@@ -502,7 +509,7 @@ function codeRows(t, code, w) {
       return n === code.point ? { keep: true, text: row } : { text: row, whole, more, far };
     });
   });
-  if (wide) rows.push(...para(t, C.codeWide(dots), w, 'muted').map((text) => ({ text, more, far: Infinity })));
+  if (wide) rows.push(...para(t, words.codeWide(dots), w, 'muted').map((text) => ({ text, more, far: Infinity })));
   return rows;
 }
 // A row after `prefix`, a code row's page mark too.
@@ -1272,6 +1279,7 @@ function stepView(ctx) {
   const isLastBeat = s.pos.beat === step.beats.length - 1;
   const hideRuns = tier !== 'guided' && authored === 'guided';
   const inlineBottom = tier === 'guided' && authored !== 'guided';
+  const words = wordsOf(s);
   const rows = [t.bold(t.fg('white', beat.kind === 'type' && step.part === 'Check' ? C.lastQuestion : step.title))];
   if (step.part === 'Warm-up') {
     // A warm-up from another level names that level; one from a level's
@@ -1279,7 +1287,7 @@ function stepView(ctx) {
     const index = indexLevel(step.from);
     const other = levelOf(s, step.from) !== levelOf(s);
     rows.push(t.fg('muted', index ? C.warmupIndex(C.levels[index]) : C.warmup(lessonNumber(s, step.from), other ? levelName(s, step.from) : null)));
-    if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, C.warmupWhy, inner, 'muted')));
+    if (firstWarmupOfLevel(s)) rows.push(...optional(para(t, words.warmupWhy, inner, 'muted')));
   }
   // At GUIDED the beat's reason, in the page's words, sits under the title;
   // a learner who knows the idea has it behind w.
@@ -1317,7 +1325,7 @@ function stepView(ctx) {
       } else if (l.key === 'code') {
         if (hideRuns) return;
         if (i > 0) rows.push(SPACER);
-        rows.push(...(t.caps.win32 && l.win ? chip(t, l.win, beat.where, chipWidth(ctx, beat)) : codeRows(t, l, inner)));
+        rows.push(...(t.caps.win32 && l.win ? chip(t, l.win, beat.where, chipWidth(ctx, beat)) : codeRows(t, l, inner, words)));
         if (i < beat.lines.length - 1) rows.push(SPACER);
       } else if (l.key === 'goal') {
         rows.push(...(tier === 'challenge' ? led(t, 'goal', l.text, inner, 'white') : para(t, l.text, inner, 'white')));
@@ -1453,6 +1461,7 @@ function spinning(ctx, lines) {
 function footerRows(ctx, { beat, content, isLastBeat }) {
   const { s, t, inner } = ctx;
   const st = s.beat;
+  const words = wordsOf(s);
   const rows = [];
   const quoted = (text, color = 'text') => para(t, text, inner - 2, color, { quote: true });
   const stepNumber = (id) => stepsOf(s).findIndex((x) => x.id === id) + 1;
@@ -1520,14 +1529,14 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
       rows.push(t.bold(t.fg('ok', `${t.glyph.check} ${C.right}`)));
       if (beat.reveal) rows.push(...quoted(beat.reveal));
     } else if (f?.kind === 'revealed') {
-      rows.push(t.fg('ok', C.theAnswer));
+      rows.push(t.fg('ok', words.theAnswer));
       if (beat.reveal) rows.push(...quoted(beat.reveal));
       else rows.push(t.fg('text', C.theAnswerIs(st.answer.index + 1)));
     } else if (f) {
       rows.push(t.fg('ok', f.kind === 'other' ? C.otherFine : `${t.glyph.check} ${C.answered}`));
       if (f.because) rows.push(...quoted(f.because));
       if (beat.reveal) rows.push(...quoted(beat.reveal));
-      if (f.kind === 'other' && !f.because) rows.push(...para(t, C.stillStuck, inner, 'muted'));
+      if (f.kind === 'other' && !f.because) rows.push(...para(t, words.stillStuck, inner, 'muted'));
     }
   } else if (st.status === 'waiting' && st.slowWait) {
     rows.push(...para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted'));
@@ -1555,12 +1564,12 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     if (f.kind === 'wrong') {
       const box = [];
       if (f.because) {
-        box.push(...para(t, `**${C.notQuite}** ${C.trueOfElse}`, inner - 2, 'text'), ...quoted(f.because));
+        box.push(...para(t, `**${C.notQuite}** ${words.trueOfElse}`, inner - 2, 'text'), ...quoted(f.because));
         if (f.point) box.push(`${t.lead('hint')}${t.fg('text', C.lookFor)} ${para(t, f.point, inner - 14, 'warn', { quote: true })[0]}`);
       } else if (f.hint) box.push(`${t.bold(t.fg('warn', C.notQuite))}`, ...quoted(f.hint));
       else box.push(...para(t, `**${C.notQuite}** ${C.lookAgain}`, inner - 2, 'text'));
       rows.push(...hintBox(t, box));
-    } else if (f.kind === 'stuck') rows.push(...hintBox(t, [...para(t, C.fixFirst, inner - 2, 'warn'), ...quoted(f.because), ...para(t, C.fixThenPick, inner - 2, 'muted')]));
+    } else if (f.kind === 'stuck') rows.push(...hintBox(t, [...para(t, words.fixFirst, inner - 2, 'warn'), ...quoted(f.because), ...para(t, C.fixThenPick, inner - 2, 'muted')]));
   }
 
   // The hint box: one rung at a time, the y/n before the exact command.
@@ -1575,7 +1584,7 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
       else if (r.kind === 'check') box.push(t.fg('muted', C.checkSays), ...para(t, r.text, hw, 'text'));
       else if (r.kind === 'quote') box.push(...para(t, r.text, hw, 'warn', { quote: true }));
       else box.push(...r.lines.flatMap((b) => {
-        if (b.key === 'code' && !(t.caps.win32 && b.win)) return codeRows(t, b, hw);
+        if (b.key === 'code' && !(t.caps.win32 && b.win)) return codeRows(t, b, hw, words);
         const text = (t.caps.win32 && b.win) || withRoot(b.text, s.facts.root, t.caps.win32, folderOf(s));
         return text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat), hw));
       }));
@@ -1743,7 +1752,7 @@ const OVERLAYS = {
   why(ctx) {
     const { s, t, inner } = ctx;
     return {
-      body: [t.bold(t.fg('white', C.why)), SPACER, ...beatOf(s).why.flatMap((w) => para(t, w, inner, 'text', { quote: true }))],
+      body: [t.bold(t.fg('white', wordsOf(s).why)), SPACER, ...beatOf(s).why.flatMap((w) => para(t, w, inner, 'text', { quote: true }))],
       keys: [key('w', C.k.close), key('q', C.k.close)],
     };
   },
@@ -1807,7 +1816,7 @@ const OVERLAYS = {
     // frame's whole width, from its margin.
     const read = l.content?.intro.read;
     return {
-      body: [t.bold(t.fg('white', C.pageTitle)), ...urlRows(t, url, W), SPACER,
+      body: [t.bold(t.fg('white', wordsOf(s).pageTitle)), ...urlRows(t, url, W), SPACER,
         t.fg('text', C.stuckLink), ...urlRows(t, stuck, W),
         ...(read ? [SPACER, ...goFurther(t, read, inner), ...urlRows(t, absolute(inline(read).find((r) => r.url).url), W)] : [])],
       keys: [key('p', C.k.close), key('q', C.k.close)],
