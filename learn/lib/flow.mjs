@@ -1235,9 +1235,9 @@ function onKey(s, ev, effects) {
       return VIEWS.next(s, ev, effects);
     }
     if (['escape', 'enter', 'q', '?', 'p', 'w', 'c', 'n'].includes(name) || (s.overlay === 'compare' && name === 'space')) s.overlay = null;
-    // The arrows: one place a press. On your card, no further than it can
-    // scroll at the window's size, which main sends with the key (render's
-    // cardMax): where it fits, they move nothing.
+    // The arrows: one place a press. On your card and the comparison, no
+    // further than it can scroll at the window's size, which main sends with
+    // the key (render's cardMax): where it fits, they move nothing.
     else if (SCROLLED[s.overlay] && (name === 'up' || name === 'down')) {
       const max = ev.cardMax ?? SCROLLED[s.overlay](s).length;
       s.cardAt = arrowed(s.cardAt, max, name);

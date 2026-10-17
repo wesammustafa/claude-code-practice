@@ -206,14 +206,14 @@ export function itemsMax(s, size, t) {
   return VIEWS.checkonly(frameCtx(s, size, t, REST).ctx).itemsMax;
 }
 
-// How far your card (the c overlay) can scroll in this window: the first
-// place of the window that ends on the Commands by level link, 0 where the
-// card fits, null where the card is not up. main sends it with each key, as
-// itemsMax.
+// How far your card (the c overlay), or the comparison (173), can scroll in
+// this window: the first place of the window that ends on the Commands by
+// level link, 0 where it fits, null where neither is up. main sends it with
+// each key, as itemsMax.
 export function cardMax(s, size, t) {
-  if (s.overlay !== 'card') return null;
+  if (s.overlay !== 'card' && s.overlay !== 'compare') return null;
   if (size.cols < MIN.cols || size.rows < MIN.rows) return 0;
-  return OVERLAYS.card(viewOf(s, size, t, REST).f.ctx).max;
+  return OVERLAYS[s.overlay](viewOf(s, size, t, REST).f.ctx).max;
 }
 
 // Every frame's card width, its left margin, and the blank above it on a
@@ -1470,6 +1470,9 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   const warnMark = into(ctx, 'notYet') < SHOTS.notYet.pop ? t.glyph.warnPop : t.glyph.warnMark;
   // Room for text beside the burst.
   const room = inner - (t.unicode ? 21 : 7);
+  // What the file holds, in `max` columns: on two lines when one is too long.
+  const holds = (max) => (width(`${beat.evidence} holds ${st.evidence}`) <= max ? [`${t.fg('code', beat.evidence)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
+    : [t.fg('code', cut(beat.evidence, max, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, max - 6, t.unicode ? '…' : '.'))}`]);
   const celebrate = (lines) => {
     const count = s.session + (firstPass(s) ? 1 : 0);
     // The check mark draws in strokes, then the sparks.
@@ -1485,9 +1488,13 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
   else if (st.status === 'broken') rows.push(...para(t, `${t.lead('broken')}${C.broken(st.error)}`, inner, 'bad'));
   else if (st.status === 'already') {
     if (st.codespace) rows.push(...para(t, `${t.lead('verified')}"${beat.codespace}"`, inner, 'ok'));
-    // git status, not a check, passed a beat that needs it to list
-    // something: what changed, as a pass shows it.
-    else if (needsChange(beat.verify)) rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'), ...(st.evidence ? para(t, st.evidence, inner, 'text') : []));
+    // No check ran: git status passed a beat that needs it to list
+    // something, or the app read the file itself. What it saw, as a pass
+    // shows it: what changed, or what the file holds.
+    else if (needsChange(beat.verify) || READS.has(beat.verify.kind)) {
+      rows.push(...para(t, `${t.lead('verified')}${C.alreadyDone}`, inner, 'ok'),
+        ...(!st.evidence ? [] : READS.has(beat.verify.kind) ? holds(inner) : para(t, st.evidence, inner, 'text')));
+    }
     else rows.push(...para(t, `${t.lead('verified')}${beat.verify.all ? C.alreadyCheck : C.already}`, inner, 'ok'));
   }
   if (beat.verify.all && ['done', 'already'].includes(st.status) && s.checks[s.lesson]?.items) {
@@ -1501,11 +1508,8 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
     rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
       ...para(t, C.runItToo(dir ? `${C.where.terminal}, ${C.inCopy}` : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
   } else if (st.status === 'done' && looksAtFile(beat)) {
-    // What the file holds, beside the burst; on two lines when one is too long.
-    const one = `${beat.evidence} holds ${st.evidence}`;
-    const ev = !showsEvidence(s, beat, isLastBeat) ? []
-      : width(one) <= room ? [`${t.fg('code', beat.evidence)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
-        : [t.fg('code', cut(beat.evidence, room, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, room - 6, t.unicode ? '…' : '.'))}`];
+    // What the file holds, beside the burst.
+    const ev = showsEvidence(s, beat, isLastBeat) ? holds(room) : [];
     if (isLastBeat) celebrate(ev.length ? ev : para(t, C.beatDone, room, 'text'));
     else rows.push(lead(t, 'verified', t.fg('ok', C.beatDone)));
   } else if (st.status === 'done' && beat.verify.kind === 'git-clean') {
@@ -1604,9 +1608,11 @@ const gitListed = (s, beat) => cleanListed(beat.verify, s.git?.paths ?? []);
 
 // A beat whose check is about a file: a check item, or the file read here.
 const looksAtFile = (beat) => beat.verify.kind === 'check' || READS.has(beat.verify.kind);
-// Whether a done beat's footer draws the evidence line: what the file holds.
-const showsEvidence = (s, beat, isLastBeat) => isLastBeat && s.beat.status === 'done' && looksAtFile(beat)
-  && Boolean(beat.evidence && s.beat.evidence) && !(beat.verify.all && s.checks[s.lesson]?.items);
+// Whether the footer draws the evidence line, what the file holds: a done
+// beat's beside the burst, and a reading beat's already done (173).
+const showsEvidence = (s, beat, isLastBeat) => looksAtFile(beat) && Boolean(beat.evidence && s.beat.evidence)
+  && (s.beat.status === 'done' ? isLastBeat && !(beat.verify.all && s.checks[s.lesson]?.items)
+    : s.beat.status === 'already' && !s.beat.codespace && READS.has(beat.verify.kind));
 
 // The first clause of a check's FAIL message: what is wrong, before how to fix it.
 export function diagnosis(hint) {
@@ -1685,12 +1691,13 @@ function placesTo(places, from, avail, first = places[from].length) {
 // room, it shows whole places from s.cardAt down, one a press of the
 // arrows: each entry is a place, and the link is the last, so the last
 // place always shows it, a toast or not. `scroll` is the arrows' key, or null.
-// `toLink` is your card's (167): its link breaks only after a /, ? or &,
-// and it scrolls no further than the window that ends on the link, `max`.
-function cardPlaces(ctx, units, title, intro, { toLink = false } = {}) {
+// Your card's (167) and the comparison's (173) link breaks only after a /,
+// ? or &, and the card scrolls no further than the window that ends on the
+// link, `max`.
+function cardPlaces(ctx, units, title, intro) {
   const { s, t, inner, room } = ctx;
   const head = [t.bold(t.fg('white', title)), ...para(t, intro, inner, 'muted'), ''];
-  const url = toLink ? urlRows(t, COMMANDS_URL, inner) : para(t, COMMANDS_URL, inner, 'key').map((x) => t.link(x, COMMANDS_URL));
+  const url = urlRows(t, COMMANDS_URL, inner);
   // Under an entry, the link keeps a blank above it.
   const places = [...units, [...(units.length ? [''] : []), t.fg('text', C.cardLink), ...url]];
   const avail = room - head.length;
@@ -1699,7 +1706,7 @@ function cardPlaces(ctx, units, title, intro, { toLink = false } = {}) {
   const fits = places.flat().length <= avail;
   let max = places.length - 1;
   if (fits) max = 0;
-  else if (toLink) while (max > 0 && placesTo(places, max - 1, avail, opening(max - 1).length) === places.length) max--;
+  else while (max > 0 && placesTo(places, max - 1, avail, opening(max - 1).length) === places.length) max--;
   const from = fits ? 0 : Math.min(s.cardAt, max);
   const shown = opening(from);
   const k = placesTo(places, from, avail, shown.length);
@@ -1792,7 +1799,7 @@ const OVERLAYS = {
       const label = `${t.pill(pad(lessonLabel(e.lesson), 3), 'dimBg', 'dimText')}  `;
       return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
     });
-    const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty, { toLink: true });
+    const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty);
     return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)], max };
   },
   // Recall, then compare: the lesson's own entries, whole as soon as space
@@ -1807,8 +1814,8 @@ const OVERLAYS = {
     const units = entries.map((e) => (inner - col >= COMPARE_MIN
       ? hang(t.fg('code', pad(e.show, col)), para(t, e.does, inner - col, 'text', { quote: true }))
       : [t.fg('code', e.show), ...hang('   ', para(t, e.does, inner - 3, 'text', { quote: true }))]));
-    const { body, scroll } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
-    return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)] };
+    const { body, scroll, max } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
+    return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)], max };
   },
   page(ctx) {
     const { s, t, W, inner } = ctx;
