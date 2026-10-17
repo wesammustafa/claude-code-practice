@@ -124,6 +124,13 @@ export function parseLesson(text, file = 'lesson') {
   // whatever its level's work folder is, or `new copy`, the copy of the
   // template the page has the learner make, which the app asks for.
   if ('folder' in fm.fields && !['copy', 'new copy'].includes(fm.fields.folder)) throw new Error(`${file}: folder is copy or new copy, not ${fm.fields.folder}`);
+  // `worked: copy` runs the lesson's Worked example steps (W) in the
+  // practice copy, while its Your turn steps, its Check and its
+  // prerequisites stay in the level's work folder (ticket 183), as a page
+  // says "In your practice copy:" over its Worked example. A pinned folder
+  // already places every step, so the two never go together.
+  if ('worked' in fm.fields && fm.fields.worked !== 'copy') throw new Error(`${file}: worked is copy, not ${fm.fields.worked}`);
+  if ('worked' in fm.fields && 'folder' in fm.fields) throw new Error(`${file}: worked: copy with folder: ${fm.fields.folder}, which already places every step`);
   const lesson = { ...fm.fields, intro: { can: [] }, warmup: [], steps: [], ladder: [], card: [] };
   const cardLines = [];
   const needLines = [];
@@ -453,6 +460,9 @@ export function loadCourse(root, path = PATH) {
     // A prerequisite comes from a lesson this course puts first.
     const late = content?.requires.find((r) => !path.slice(0, at).some((p) => p.id === r.lesson));
     if (late) throw new Error(`learn/lessons/${entry.id}.md: requires ${late.lesson}, no lesson before ${entry.id} here`);
+    // A lesson its PATH entry pins, with no folder of its own, places every
+    // step there: its Worked example can't move (ticket 183).
+    if (content?.worked && !content.folder && (entry.folder || entry.newCopy)) throw new Error(`learn/lessons/${entry.id}.md: worked: copy, but ${entry.id} runs every step in ${entry.newCopy ? 'its new copy' : 'the practice copy'}`);
     const check = checks[entry.id];
     return {
       ...entry,

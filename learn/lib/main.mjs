@@ -11,7 +11,7 @@ import { pipShown } from './art.mjs';
 import { capabilities, osc52 } from './caps.mjs';
 import { loadCourse } from './content.mjs';
 import { C } from './copy.mjs';
-import { contentOf, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
+import { contentOf, folderHere, folderKey, folderOf, initialState, introAsks, levelKey, reduce, stepsOf, watching } from './flow.mjs';
 import { keyParser } from './keys.mjs';
 import { ambientOpened, BOOT_FROM, bootChange, greetFrameIn, greetStart, nextChange, pipGates, pipJump, REST, TIMING } from './motion.mjs';
 import { createPip } from './pip/pip.mjs';
@@ -488,7 +488,9 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
 
   // The copy is always watched: its .practice/ decides whether progress
   // saves. The lesson's work folder, where it is another, is watched too,
-  // armed again whenever the lesson on screen moves to another folder.
+  // armed again whenever the lesson on screen moves to another folder, or
+  // the step on screen does: a Worked example that runs in the copy
+  // (ticket 183) is watched there alone.
   const changed = () => {
     if (closed || perf() - lastSave < 400) return;
     const practiceDir = existsSync(join(root, '.practice'));
@@ -515,7 +517,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   }
   watcher = watch(root, changed);
   function watchWork() {
-    const dir = folderOf(state) ?? root;
+    const dir = folderHere(state) ?? root;
     if (closed || dir === work.dir) return;
     work.watcher?.close();
     work = { dir, watcher: dir === root ? null : watch(dir, changed) };
@@ -548,7 +550,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const steps = stepsOf(state);
     const n = steps.findIndex((s) => s.id === p.step) + 1;
     // Progress stays in the copy: from a work folder elsewhere, say where.
-    if (folderOf(state) !== root) return C.savedAtCopy(lessonLabel(state.lesson), n, steps.length, root);
+    if (folderHere(state) !== root) return C.savedAtCopy(lessonLabel(state.lesson), n, steps.length, root);
     return C.savedAt(lessonLabel(state.lesson), n, steps.length);
   }
 
