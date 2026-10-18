@@ -120,12 +120,11 @@ needs: [jq python3]
 - goal: "Your copy of the practice template, with no uncommitted changes"
 - hint: "If `git status --porcelain` lists files, commit them or set them aside with `git stash push --include-untracked`."
 - beat: do
-- verify: check 0
-- watching: your last commit
+- verify: self
+- done-label: it's saved
 - goal: "**A skill** that runs the link checker on a folder and explains each broken link."
 - hint: "It runs by name and loads on its own when someone asks to check links ([lesson 1](01-first-skill.md))."
 - hint: "The brief is in `capstone/intermediate-brief.md` in your practice copy"
-- hint: "The check reads what you commit"
 
 ### T2 | The task step 2 of 7 | Project memory and a test rule
 - tier: challenge
@@ -138,11 +137,10 @@ needs: [jq python3]
 - say: Done when CLAUDE.md holds the import.
 - hint: "A committed `CLAUDE.md` imports a file with `@path`, and the file exists."
 - beat: do
-- verify: check 8
-- watching: your last commit
+- verify: self
+- done-label: it's saved
 - goal: "testing conventions live in a rule in `.claude/rules/` scoped to the files under `test/`"
 - hint: "A committed rule in `.claude/rules/` is scoped with `paths:`, and every scoped rule matches a file in the repository."
-- hint: "The check reads what you commit"
 
 ### T3 | The task step 3 of 7 | Team settings
 - tier: challenge
@@ -172,29 +170,26 @@ needs: [jq python3]
 - skill: write-hook
 - where: editor
 - beat: do
-- verify: json .claude/settings.json hooks.PreToolUse
+- verify: json .claude/settings.json hooks.PreToolUse fresh
 - goal: "**A hook** that blocks Claude's Edit and Write tools inside `samples/`, and only there: the tests depend on those exact files ([lesson 5](05-hooks.md))."
 - say: Done when the shared settings file registers a hook.
 - hint: "A committed, executable `PreToolUse` hook for Edit and Write blocks `samples/` and nothing else."
 - beat: do
 - where: terminal
-- verify: check 1
-- watching: your last commit
-- say: Commit the script and the settings file when they're ready.
+- verify: self
+- done-label: it's written
+- say: Write the script the settings file runs, and make it executable.
 - hint: "A committed, executable `PreToolUse` hook for Edit and Write blocks `samples/` and nothing else."
-- hint: "The check reads what you commit"
 
 ### T5 | The task step 5 of 7 | A reviewer subagent
 - tier: challenge
 - skill: write-subagent
 - where: editor
 - beat: do
-- verify: check 2
-- watching: your last commit
+- verify: self
+- done-label: it's saved
 - goal: "**A reviewer subagent** with read-only tools ([lesson 6](06-subagents.md))."
-- say: Commit it when it's ready.
 - hint: "A committed reviewer subagent has only read-only tools."
-- hint: "The check reads what you commit"
 
 ### T6 | The task step 6 of 7 | A pinned browser server
 - tier: challenge
@@ -242,10 +237,9 @@ needs: [jq python3]
 - skill: approve-mcp
 - safety: mcp-approval
 - ask: Guess: if the session asks you to approve the project's MCP server, what do you do?
-- right: Check it's the version you pinned, then approve
-- option: Approve it at once, since it came from git
+- right: Approve it, then use one of its tools
 - option: Decline it, so its tools stay off
-- reveal: "The committed `.mcp.json` runs chrome-devtools-mcp at an exact version, with usage statistics, CrUX lookups and update checks off."
+- reveal: "Then, in a session, try each part: run the skill by name, ask Claude to edit a file in `samples/` with its Edit tool, delegate a review, approve the MCP server and use one of its tools."
 - beat: do
 - where: terminal
 - skill: start
