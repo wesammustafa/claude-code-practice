@@ -81,9 +81,10 @@ function exactEverywhere(look) {
   return taken;
 }
 // A lesson opened from the map with nothing done, played to its end.
-// `first(d)` plays the first warm-up, where given.
-function fromMap(id, look, first) {
-  const d = watched(driver({ course, saved: { format: 1, welcomed: true, lessons: {} } }), look);
+// `first(d)` plays the first warm-up, where given; it plays only on a skill
+// in `missed`, the skills missed before (194).
+function fromMap(id, look, first, missed = []) {
+  const d = watched(driver({ course, saved: { format: 1, welcomed: true, missed, lessons: {} } }), look);
   d.key('m');
   while (course[d.state.mapCursor].id !== id) d.key('down');
   d.key('enter');
@@ -96,7 +97,7 @@ const b4FromMap = (look) => fromMap('b-4', look);
 // b-2 from the map, R1 (start) answered right the first time.
 const b2Recalled = (look) => fromMap('b-2', look, (d) => {
   assert.deepEqual([stepOf(d.state).id, stepOf(d.state).skill], ['R1', 'start']);
-});
+}, ['start']);
 // b-3 from the map, R1 (plan-mode) typed wrong twice: the ease waits past
 // W1, GUIDED on a first meeting, for Y1.
 const b3Missed = (look) => fromMap('b-3', look, (d) => {
@@ -106,7 +107,7 @@ const b3Missed = (look) => fromMap('b-3', look, (d) => {
     d.key('enter');
   }
   assert.deepEqual(d.state.eased, ['plan-mode']);
-});
+}, ['plan-mode']);
 
 test('in order, with no hints: every tier equals the course plan', () => {
   const met = new Set();
