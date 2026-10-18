@@ -16,7 +16,7 @@ export const scenarios = [
   { item: 1, name: 'no snapshot after the edits', files: { '.practice/b-2-plan.txt': 'src/config.js\n' } },
   {
     item: 1,
-    name: 'a snapshot after the edits that lists nothing',
+    name: 'a snapshot saved before Claude changed any file (190)',
     files: { '.practice/b-2-plan.txt': 'src/config.js\n', '.practice/b-2-after.txt': '' },
   },
   {
