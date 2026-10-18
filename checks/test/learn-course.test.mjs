@@ -645,8 +645,12 @@ test('the check-only card names the lesson page as link text and points to p for
         else assert.ok(!raw[named].includes('\x1b]8;;'), where);
       }
     }
-    // Where every item fits with room to spare, the page row shows.
-    assert.ok(lines(d.state, [100, 50]).some((l) => l.includes(C.pageTitle + C.pageLink)), id);
+    // Where every item fits with room to spare, the page row shows: in the
+    // frame's box (191), 40 rows in a taller window, every lesson's items
+    // but a-capstone's 13, which scroll there as at 100x40.
+    const roomy = lines(d.state, [100, 50]);
+    if (id === 'a-capstone') assert.ok(roomy.findLast(Boolean).includes(C.k.scroll), id);
+    else assert.ok(roomy.some((l) => l.includes(C.pageTitle + C.pageLink)), id);
   }
   // The ticket's example: i-1 at 80x24 showed its URL on two rows.
   assert.ok(lines(checkOnly('i-1').state, [80, 24]).some((l) => l.endsWith(`│  ${C.pageTitle}${C.pageLink}`)));
@@ -723,14 +727,21 @@ test('p spells out each URL whole: a long one breaks only after a /, ? or &, on 
 // item's rows, read from a window tall enough for every item: a mark row
 // and the rows under it, indented past the mark.
 const MARK = /^\s*[│|] {2}(○|✔|▲|◉|o|\[x\]|!|@) /;
+// An item's rows depend on the width alone. A window no taller than the
+// frame's box (191) can scroll a long list: each window from item k shows
+// item k first, and the last window shows the rest.
 const itemHeights = (state, cols, t) => {
-  const ls = lines(state, [cols, 200], t);
-  const marks = ls.flatMap((l, i) => (MARK.test(l) ? [i] : []));
-  return marks.map((i) => {
-    let n = 1;
-    while (/^\s*[│|] {4}\S/.test(ls[i + n])) n++;
-    return n;
-  });
+  const heightsFrom = (k) => {
+    const ls = lines({ ...state, itemsAt: k }, [cols, 200], t);
+    const marks = ls.flatMap((l, i) => (MARK.test(l) ? [i] : []));
+    return marks.map((i) => {
+      let n = 1;
+      while (/^\s*[│|] {4}\S/.test(ls[i + n])) n++;
+      return n;
+    });
+  };
+  const max = itemsMax(state, { cols, rows: 200 }, t);
+  return [...Array.from({ length: max }, (_, k) => heightsFrom(k)[0]), ...heightsFrom(max)];
 };
 
 test('the check-only card\'s item window fills its room: no window leaves rows unused that the next whole item would fill', () => {
