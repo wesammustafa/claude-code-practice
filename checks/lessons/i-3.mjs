@@ -43,7 +43,9 @@ export const items = [
       const hint = 'Stage a small change, run `/changelog`, and commit the change with the entry it writes.';
       if (text === null) return `There is no committed CHANGELOG.md. ${hint}`;
       const lines = text.split(/\r?\n/);
-      const at = lines.findIndex((l) => /^##\s+Unreleased\b/i.test(l.trim()));
+      // Keep a Changelog writes the heading `## [Unreleased]`: a learner's own
+      // changelog may already hold it, and the entry goes under it.
+      const at = lines.findIndex((l) => /^##\s+(\[Unreleased\]|Unreleased\b)/i.test(l.trim()));
       if (at === -1) return `CHANGELOG.md has no \`## Unreleased\` heading. ${hint}`;
       const next = lines.slice(at + 1).findIndex((l) => /^#{1,2}\s/.test(l));
       const section = lines.slice(at + 1, next === -1 ? undefined : at + 1 + next);

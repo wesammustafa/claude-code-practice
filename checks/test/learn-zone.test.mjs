@@ -64,7 +64,9 @@ function exactCommand(d) {
 }
 
 // The learners. Each starts afresh and calls `look` after every event.
-const finale = (s) => s.lesson === 'b-capstone' && s.view === 'complete';
+// The end of the last lesson with a lesson file.
+const last = course.filter((l) => l.content).at(-1).id;
+const finale = (s) => s.lesson === last && s.view === 'complete';
 // Every lesson in order, needing no help.
 function inOrder(look) {
   playUntil(watched(driver({ course }), look), finale);

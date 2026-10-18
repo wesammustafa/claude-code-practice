@@ -5,14 +5,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseLesson } from '../../learn/lib/content.mjs';
+import { parseLesson, WORK_LEVELS } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { bootFrame, cardMax, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -317,6 +317,10 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
   }
 });
 
+// The end of the last lesson with a lesson file: a play stops there.
+const lastWithFile = allCourse.filter((l) => l.content).at(-1).id;
+const atTheEnd = (s) => s.lesson === lastWithFile && s.view === 'complete';
+
 // Every step a real bottom rung eases, in a real play from that rung on, with
 // and without less help: the "more help" line wraps whole, even where a 60x20
 // card is taller than the window (b-2 Y3 under less help, a Check card after a
@@ -353,7 +357,7 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
           d.key('enter');
           bottomRung(d);
           if (!d.state.eased.length) continue;
-          playUntil(d, (s) => s.beat?.eased || (s.lesson === 'b-capstone' && s.view === 'complete'));
+          playUntil(d, (s) => s.beat?.eased || atTheEnd(s));
           if (d.state.view !== 'step') continue;
           const where = `${d.state.lesson} ${stepOf(d.state).id}${lessHelp ? ' (less help)' : ''}`;
           if (landed.has(where)) continue;
@@ -391,7 +395,7 @@ test('a missed warm-up: the "more help" line wraps whole where its ease lands', 
       d.key(beatOf(d.state).kind === 'type' ? 'enter' : 's');
       assert.equal(d.state.beat.revealed, true, `${lesson.id} ${w.id}`);
       assert.ok(d.state.eased.includes(w.skill), `${lesson.id} ${w.id} eases ${w.skill}`);
-      playUntil(d, (s) => s.beat?.eased || (s.lesson === 'b-capstone' && s.view === 'complete'));
+      playUntil(d, (s) => s.beat?.eased || atTheEnd(s));
       if (d.state.view !== 'step') continue;
       easedLineWhole(d, `${d.state.lesson} ${stepOf(d.state).id} from ${lesson.id} ${w.id}`, whole);
     }
@@ -524,7 +528,8 @@ test('the next screen counts the questions in the steps this learner finished', 
 const HANDOVER = 'You did every task without the exact command.';
 const playedTo = (id, saved = finishedBefore(id)) => {
   const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: saved } });
-  // Every Beginner lesson done: the map opens at the next level.
+  // A lesson finished already: the app opens on a later one, or on the map.
+  if (d.state.view !== 'map' && d.state.lesson !== id) d.key('m');
   if (d.state.view === 'map') mapTo(d, id);
   playUntil(d, (s) => s.view === 'next' && s.lesson === id);
   return d;
@@ -747,6 +752,8 @@ test('the invitation gives way whole before any teaching line is cut, and never 
   for (const [capName, caps] of Object.entries(CAPS)) {
     const t = theme(caps);
     for (const [cols, rows] of SHORT) {
+      // Up to an 8-row toast at 60 columns: there BC's Next up row (its next
+      // is i-1) gives way too, and no teaching line is cut.
       for (let n = 0; n <= 8; n++) {
         const toast = n ? { kind: 'save', message: `EACCES: permission denied, open ${'/home/sam/claude-code-practice'.repeat(n)}/.practice/learn.json` } : null;
         for (const [label, state] of [['handover', shown], ['no handover', hidden]]) {
@@ -900,8 +907,11 @@ test('spacers drop one at a time from the bottom, and the map\'s lesson rows sta
 });
 
 // Each lesson's intro, complete and next screens, played on the path.
+// After a later level's first lesson, the learner has answered its folder
+// question there: the practice copy.
+const foldersBefore = (l) => (WORK_LEVELS.includes(l.level) && allCourse.find((x) => x.level === l.level) !== l ? { folders: { [l.level]: FACTS.root } } : {});
 const endScreens = () => allCourse.filter((l) => l.content).flatMap((l) => {
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id), ...foldersBefore(l) } });
   assert.equal(d.state.view, 'intro', l.id);
   const intro = d.state;
   playUntil(d, (s) => s.view === 'complete' && s.lesson === l.id);
@@ -942,9 +952,13 @@ test('every intro opens with its Why line, in the page\'s words, at 60x20 and 80
       for (const [cols, rows] of SHORT) {
         const lines = render(state, { cols, rows }, t).map(strip);
         const where = `${label} at ${cols}x${rows} (${capName})\n${lines.join('\n')}`;
-        // The header's three rows, its blank, then the Why line.
-        assert.ok(lines[4].trimStart().startsWith(`${C.whyLead} "`), where);
-        assert.ok(flatText(lines.slice(4, 6).join('')).startsWith(flatText(`Why ${why}`)), where);
+        // The header's three rows, its blank, then the Why line. At 60x20 a
+        // taller intro may give up that blank: the folder question on a
+        // level's first, or i-4's three can lines, take it.
+        const at = lines[3].trim() ? 3 : 4;
+        assert.ok(at === 4 || cols === 60, where);
+        assert.ok(lines[at].trimStart().startsWith(`${C.whyLead} "`), where);
+        assert.ok(flatText(lines.slice(at, at + 2).join('')).startsWith(flatText(`Why ${why}`)), where);
         // At 80x24 the staircase keeps its rows; at 60x20 it is one row.
         const tiers = stairs(render(state, { cols: 120, rows: 40 }, t).map(strip)).length;
         assert.equal(stairs(lines).length, cols === 80 ? tiers : 0, where);
@@ -1481,6 +1495,8 @@ test('no line is cut by width anywhere in a row at 60x20 or 80x24, apart from th
       lines.forEach((l, i) => {
         if (!l.includes('…') || i === head || l.trim() === '…' || /^\s*│  …$/.test(l) || (state.beat?.status === 'opening' && /│  Checking\b.*…$/.test(l) && width(l) < cols - 1)) return;
         if (state.view === 'map' && /^\s*[❯ ] [✔○] /.test(l)) return;
+        // A code block's window marks the lines it leaves out (ticket 90).
+        if (l.trim().endsWith(`… ${C.codeMore}`)) return;
         if (/ holds |^\s*│ .*\S…$/.test(l) && state.beat?.status === 'done') return;
         assert.fail(`${label} at ${cols}x${rows}, row ${i + 1}: ${l}\n${lines.join('\n')}`);
       });
@@ -1682,7 +1698,8 @@ for (const [level, name] of [['intermediate', 'Intermediate'], ['beginner', 'Beg
 // and in Windows Terminal.
 test('a Windows note is never cut: on Windows at 60x20 and 80x24 the whole note is on every screen of its step', async () => {
   const { course } = await import('./learn-drive.mjs');
-  const notes = course.filter((l) => l.content).flatMap((l) => readFileSync(join(root, 'learn', 'lessons', `${l.id}.md`), 'utf8').split('\n')
+  // A beat's notes: an intro's own (i-1's) shows on the intro.
+  const notes = course.filter((l) => l.content).flatMap((l) => readFileSync(join(root, 'learn', 'lessons', `${l.id}.md`), 'utf8').replace(/^## intro\n[\s\S]*?\n(?=## )/m, '').split('\n')
     .flatMap((line) => line.match(/^- win-note: "(.*)"$/)?.slice(1) ?? []));
   assert.equal(notes.length, 3, notes.join('\n'));
   const all = (await lessonWalks()).filter(([, s]) => s.view === 'step' && s.beat && beatOf(s).winNote);
@@ -1901,8 +1918,15 @@ test('b-3 opened from the map with nothing done shows W1 (plan-mode) at GUIDED w
 const WHY_DROPS = {
   '60x20': ['W3 waiting', 'W3 not yet', 'W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 confirm', 'W3 bottom', 'W3 done', 'W5 wrong', 'W5 revealed',
     'W3 broken', 'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom', 'b-5 W4.0 checking, hint open',
+    // Intermediate's Worked examples: a code block or a two-row command
+    // takes the room.
+    'i-1 W1.1 open', 'i-1 W3.0 open', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done', 'i-3 W4.0 waiting',
+    'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W4.0 hint 1', 'i-4 W4.0 done',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
     'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)', 'b-5 W4.0 checking, hint open (skipped)',
+    'i-1 W1.1 open (skipped)', 'i-1 W3.0 open (skipped)', 'i-2 W1.0 hint 1 (skipped)', 'i-2 W2.0 open (skipped)', 'i-2 W2.0 waiting (skipped)',
+    'i-2 W3.0 open (skipped)', 'i-2 W3.0 waiting (skipped)', 'i-2 W3.0 done (skipped)', 'i-3 W4.0 waiting (skipped)', 'i-3 W4.0 done (skipped)',
+    'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)',
     'W3 opening', 'b-3 W1.2 bottom (skipped)'],
   '80x24': ['W3 hint 2'],
 };
@@ -2018,8 +2042,12 @@ test('the next screen ends the lesson with 📖 Go further and the page\'s line:
 
 // Where the recall row (152) takes Go further's room, and why. Go further
 // is optional: p shows it whole there too.
+const NOTCH = 'its Next up title wraps to two rows, "A notch harder" to two, and its Go further line would take three';
 const GO_FURTHER_GIVES = {
   'b-2 next at 60x20': 'its Next up title wraps to two rows and its Go further line to three, so no spacer is left for the recall row',
+  'i-1 next at 60x20': NOTCH,
+  'i-2 next at 60x20': NOTCH,
+  'i-3 next at 60x20': NOTCH,
 };
 
 test('every next screen but a capstone\'s shows its Go further line whole at 60x20 and 80x24, in every mode', () => {
@@ -2035,7 +2063,7 @@ test('every next screen but a capstone\'s shows its Go further line whole at 60x
         const at = lines.findIndex((l) => l.trimStart().startsWith(flag));
         if (`${label} at ${cols}x${rows}` in GO_FURTHER_GIVES) {
           assert.equal(at, -1, where);
-          assert.ok(lines.some((l) => l.trim() === C.recallAsk('B2')), where);
+          assert.ok(lines.some((l) => l.trim() === C.recallAsk(label.replace(/^([a-z])-(\d+) next$/, (_, a, n) => `${a.toUpperCase()}${n}`))), where);
           gave.add(`${label} at ${cols}x${rows}`);
           continue;
         }
@@ -2115,6 +2143,10 @@ const URLS = {
   'b-3': 'https://code.claude.com/docs/en/common-workflows',
   'b-4': 'https://code.claude.com/docs/en/context-window',
   'b-5': 'https://code.claude.com/docs/en/best-practices#write-an-effective-claude-md',
+  'i-1': 'https://code.claude.com/docs/en/skills',
+  'i-2': 'https://code.claude.com/docs/en/claude-directory',
+  'i-3': 'https://claude.com/blog/claude-model-and-effort-level-in-claude-code',
+  'i-4': 'https://www.anthropic.com/engineering/claude-code-sandboxing',
 };
 
 test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
@@ -2929,16 +2961,29 @@ test('the arrows move your card only where it scrolls: while it fits, they move 
 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
-const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC' };
+const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];
 
+// The rows from `at` that spell `show`, broken at its spaces, or 0.
+const showRows = (lines, at, show) => {
+  for (let n = 1, said = lines[at]; at + n <= lines.length && said.length <= show.length; said += ` ${lines[at + n]}`, n++) if (said === show) return n;
+  return 0;
+};
 // What the comparison on screen says each command does: the rows from its
-// command, beside it, to the closing quote. Undefined where it is not shown.
+// command, beside it, to the closing quote, or from the row under it where
+// a command leaves its quote no room beside it (a long command on rows of
+// its own). Undefined where it is not shown.
 const compared = (lines, show) => {
   const k = lines.findIndex((l) => l.startsWith(`${show}   `) && l.slice(show.length).trimStart().startsWith('"'));
-  if (k < 0) return undefined;
+  if (k < 0) {
+    const u = lines.findIndex((_, j) => showRows(lines, j, show) && lines[j + showRows(lines, j, show)]?.startsWith('"'));
+    if (u < 0) return undefined;
+    const from = u + showRows(lines, u, show);
+    const end = lines.findIndex((l, j) => j >= from && l.endsWith('"'));
+    return end < 0 ? undefined : lines.slice(from, end + 1).join(' ');
+  }
   const end = lines.findIndex((l, j) => j >= k && l.endsWith('"'));
   return [lines[k].slice(show.length).trimStart(), ...lines.slice(k + 1, end + 1)].join(' ');
 };
@@ -3027,7 +3072,7 @@ const comparePlaces = (d, cols, rows) => {
   return out;
 };
 
-test('every lesson\'s comparison fits at 60x20 and 80x24, and shows each of its entries whole, beside its command', () => {
+test('every lesson\'s comparison fits at 60x20 and 80x24, and shows each of its entries whole, beside its command or under it', () => {
   for (const id of Object.keys(RECALL)) {
     const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
     playUntil(d, (s) => s.view === 'next' && s.lesson === id);
@@ -3071,6 +3116,25 @@ test('a command too long to leave its quote room beside it puts the quote under 
     assert.ok(lines[k + 1].startsWith('"'), where);
     // The rest are under it the same way, each whole.
     for (const { show } of rest) assert.ok(places.flat().includes(show), `${show}: ${where}`);
+  }
+});
+
+test('a command wider than a row breaks at its spaces, on the card and in the comparison, and is never cut', () => {
+  // 75 columns, as i-3's card has one: wider than a 60-column frame's card.
+  const long = "git show HEAD:.claude/skills/changelog/SKILL.md | grep -E '^(model|effort):'";
+  const lessons = allCourse.map((l) => (l.id === 'b-4' ? { ...l, content: { ...l.content, card: l.content.card.map((e, k) => (k ? e : { ...e, show: long })) } } : l));
+  const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
+  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-4');
+  for (const [view, open] of [['compare', 'space'], ['card', 'c']]) {
+    d.key(open);
+    assert.equal(d.state.overlay, view);
+    for (const cols of [60, 80]) {
+      const lines = render(d.state, { cols, rows: 60 }, theme(CAPS.full)).map((l) => strip(l).trim());
+      const where = `${view} at ${cols} columns\n${lines.join('\n')}`;
+      assert.ok(!lines.some((l) => l.endsWith('…')), `a row is cut: ${where}`);
+      assert.ok(lines.join(' ').includes(long), where);
+    }
+    d.key(open);
   }
 });
 

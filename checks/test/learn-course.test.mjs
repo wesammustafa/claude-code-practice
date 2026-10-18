@@ -133,6 +133,9 @@ test('the check-only view of every lesson fits at 60x20 and 80x24, and the arrow
 
 // Every Beginner lesson finished, the way a learner leaves them.
 const beginnerDone = () => finishedBefore('i-1');
+// Every lesson before Advanced complete: Beginner and Intermediate. Advanced
+// has no lesson file yet, so its lessons show their checks.
+const throughIntermediate = () => ({ ...finishedBefore('a-1'), ...Object.fromEntries(PATH.filter((p) => p.level === 'intermediate').map((p) => [p.id, { complete: true }])) });
 const mapRow = (ls, label) => ls.find((l) => new RegExp(`^\\s*[❯ ] [✔○] +${label} `).test(l)) ?? '';
 
 test('a check-only lesson is complete once a full check passes, slow items included: saved, counted, and the map\'s next marker moves on', () => {
@@ -165,30 +168,30 @@ test('a check-only lesson is complete once a full check passes, slow items inclu
 });
 
 test('a check-only lesson with no slow item is complete on any result where every item passes, and the next marker moves to the lesson after it', () => {
-  const d = checkOnly('i-1', course, beginnerDone());
-  assert.match(mapRow(lines((d.key('m'), d.state), [80, 24]), 'I1'), /next/);
+  const d = checkOnly('a-1', course, throughIntermediate());
+  assert.match(mapRow(lines((d.key('m'), d.state), [80, 24]), 'A1'), /next/);
   d.key('m');
   assert.equal(d.state.view, 'checkonly');
-  d.send(result('i-1', () => true));
-  assert.equal(d.state.progress['i-1'].complete, true);
+  d.send(result('a-1', () => true));
+  assert.equal(d.state.progress['a-1'].complete, true);
   d.key('m');
   const ls = lines(d.state, [80, 24]);
-  assert.match(mapRow(ls, 'I1'), /done/, ls.join('\n'));
-  assert.match(mapRow(ls, 'I2'), /next/, ls.join('\n'));
+  assert.match(mapRow(ls, 'A1'), /done/, ls.join('\n'));
+  assert.match(mapRow(ls, 'A2'), /next/, ls.join('\n'));
   // The app opens on the next lesson's map row after a restart.
   const again = driver({ course, saved: snapshot(d.state) });
-  assert.deepEqual([again.state.view, again.state.course[again.state.mapCursor].id], ['map', 'i-2']);
+  assert.deepEqual([again.state.view, again.state.course[again.state.mapCursor].id], ['map', 'a-2']);
 });
 
 // The tier marks a mix bar draws, in Unicode.
 const TIER_MARKS = /[●◆★]/;
 
 test('a lesson with no lesson file shows no tier bar on the map, and a page with no bar has no legend or footer about them', () => {
-  const d = checkOnly('i-1', course, beginnerDone());
+  const d = checkOnly('a-1', course, throughIntermediate());
   d.key('m');
   for (const size of SIZES) {
     const ls = lines(d.state, size);
-    const rows = ['I1', 'I2', 'I3'].map((label) => mapRow(ls, label));
+    const rows = ['A1', 'A2', 'A3'].map((label) => mapRow(ls, label));
     for (const row of rows) assert.doesNotMatch(row, TIER_MARKS, `${size.join('x')}\n${ls.join('\n')}`);
     // With no bar on the page, nothing explains bars or the help they show.
     assert.ok(!ls.some((l) => l.includes(C.help) || l.includes(C.tierHelp.guided)), `${size.join('x')}\n${ls.join('\n')}`);
@@ -205,22 +208,28 @@ test('a lesson with no lesson file shows no tier bar on the map, and a page with
   assert.doesNotMatch(mapRow(lines(none.state, [80, 24]), 'B2'), TIER_MARKS);
 });
 
-test('next may name the next level\'s first lesson: the next screen offers it, with no tier bar or "a notch harder", and enter opens its check', () => {
-  const text = readFileSync(join(root, 'learn', 'lessons', 'b-capstone.md'), 'utf8').replace(/^---\n/, '---\nnext: i-1\n');
-  const lessons = course.map((l) => (l.id === 'b-capstone' ? { ...l, content: parseLesson(text, 'b-capstone.md') } : l));
-  const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-capstone') } });
-  playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-capstone');
-  for (const size of SIZES) {
-    const ls = lines(d.state, size);
-    const where = `${size.join('x')}\n${ls.join('\n')}`;
-    assert.match(ls.at(-1), /enter +start I1/, where);
-    const up = ls.findIndex((l) => l.includes(C.nextUp));
-    assert.ok(up > 0 && ls[up].includes('I1'), where);
-    assert.ok(!ls.some((l) => l.includes(C.notchHarder.slice(0, 15))), where);
-    assert.doesNotMatch(ls.slice(up).join('\n'), TIER_MARKS, where);
+// The Beginner capstone names i-1 as next. Help fades within a level, and
+// i-1 opens its level with more help than the capstone gives (ticket 85), so
+// the next screen shows neither i-1's bar nor "a notch harder", with i-1's
+// lesson file or without one.
+test('next may name the next level\'s first lesson: the next screen offers it, with no tier bar or "a notch harder", and enter opens it, or its check where it has no lesson file', () => {
+  assert.equal(parseLesson(readFileSync(join(root, 'learn', 'lessons', 'b-capstone.md'), 'utf8'), 'b-capstone.md').next, 'i-1');
+  const noI1 = course.map((l) => (l.id === 'i-1' ? { ...l, content: null } : l));
+  for (const [lessons, opens] of [[course, 'intro'], [noI1, 'checkonly']]) {
+    const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-capstone') } });
+    playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-capstone');
+    for (const size of SIZES) {
+      const ls = lines(d.state, size);
+      const where = `${opens}: ${size.join('x')}\n${ls.join('\n')}`;
+      assert.match(ls.at(-1), /enter +start I1/, where);
+      const up = ls.findIndex((l) => l.includes(C.nextUp));
+      assert.ok(up > 0 && ls[up].includes('I1'), where);
+      assert.ok(!ls.some((l) => l.includes(C.notchHarder.slice(0, 15))), where);
+      assert.doesNotMatch(ls.slice(up).join('\n'), TIER_MARKS, where);
+    }
+    d.key('enter');
+    assert.deepEqual([d.state.view, d.state.lesson], [opens, 'i-1']);
   }
-  d.key('enter');
-  assert.deepEqual([d.state.view, d.state.lesson], ['checkonly', 'i-1']);
 });
 
 test('a-5 and a-capstone run in a new copy of the template: PATH says so, and in the practice copy their view says so and runs no check', async () => {
@@ -247,20 +256,26 @@ test('a-5 and a-capstone run in a new copy of the template: PATH says so, and in
 });
 
 test('a learner who starts at Intermediate or Advanced reaches its first lesson from the map in two keys', () => {
-  for (const [keys, id] of [[['right', 'enter'], 'i-1'], [['left', 'enter'], 'a-1']]) {
+  // i-1 opens on its intro, a-1, with no lesson file yet, on its check.
+  for (const [keys, id, view] of [[['right', 'enter'], 'i-1', 'intro'], [['left', 'enter'], 'a-1', 'checkonly']]) {
     // A new learner: the app opens on the first lesson with a lesson file.
     const d = driver({ course });
     d.key('enter');
     assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'b-1']);
     d.key('m');
     for (const k of keys) d.key(k);
-    assert.deepEqual([d.state.view, d.state.lesson], ['checkonly', id], keys.join(' '));
+    assert.deepEqual([d.state.view, d.state.lesson], [view, id], keys.join(' '));
   }
-  // Every Beginner lesson done: the app opens on the map at the next level's first lesson.
+  // Every Beginner lesson done: the app opens on the next level's first
+  // lesson, on its intro since it has a lesson file.
   const done = driver({ course, saved: { format: 1, welcomed: true, lessons: beginnerDone() } });
-  assert.deepEqual([done.state.view, done.state.course[done.state.mapCursor].id], ['map', 'i-1']);
-  done.key('enter');
-  assert.deepEqual([done.state.view, done.state.lesson], ['checkonly', 'i-1']);
+  assert.deepEqual([done.state.view, done.state.lesson], ['intro', 'i-1']);
+  // Every lesson before Advanced done: the app opens on the map at a-1,
+  // which has no lesson file, and enter shows its check.
+  const advanced = driver({ course, saved: { format: 1, welcomed: true, lessons: throughIntermediate() } });
+  assert.deepEqual([advanced.state.view, advanced.state.course[advanced.state.mapCursor].id], ['map', 'a-1']);
+  advanced.key('enter');
+  assert.deepEqual([advanced.state.view, advanced.state.lesson], ['checkonly', 'a-1']);
 });
 
 const MOVING = theme({ tty: true, depth: 8, unicode: true, links: true, win32: false, motion: true });
@@ -289,16 +304,16 @@ test('the check-only card has Pip on its top border, at rest, in every lesson, a
 });
 
 test('an item\'s mark pops ○ ◉ ✔ as a poll finds it passing; nothing else on the card moves, and the rest frame is the calm one', () => {
-  const d = checkOnly('i-1', course, beginnerDone());
-  d.send(result('i-1', (i) => i === 0));
+  const d = checkOnly('a-1', course, throughIntermediate());
+  d.send(result('a-1', (i) => i === 0));
   // Long after the card opened: its entrance and reading grace are over.
   d.send({ type: 'tick', wait: 30_000 });
-  const poll = d.send(result('i-1', (i) => i <= 1)) && d.now;
+  const poll = d.send(result('a-1', (i) => i <= 1)) && d.now;
   const frame = (ms) => render(d.state, { cols: 80, rows: 24 }, MOVING, { at: poll + ms }).map(strip);
   const rest = render(d.state, { cols: 80, rows: 24 }, MOVING).map(strip);
   assert.deepEqual(rest, render(d.state, { cols: 80, rows: 24 }, FULL).map(strip), 'the rest frame is the calm frame');
   const row = (ls, text) => ls.find((l) => l.includes(text)) ?? '';
-  const [first, second, third] = lessons['i-1'].items.map((it) => flat(it.text).slice(0, 30));
+  const [first, second, third] = lessons['a-1'].items.map((it) => flat(it.text).slice(0, 30));
   const markOf = (ls, text) => row(ls, text).match(/[│|] +(\S)/)?.[1];
   assert.deepEqual([0, 40, 80, 120, 160, 200].map((ms) => markOf(frame(ms), second)), ['○', '○', '◉', '◉', '✔', '✔']);
   for (const ms of [0, 40, 80, 120, 160]) {
@@ -314,9 +329,9 @@ test('an item\'s mark pops ○ ◉ ✔ as a poll finds it passing; nothing else 
     });
   }
   // The first look pops nothing: the app saw no item fail before it.
-  const fresh = checkOnly('i-1', course, beginnerDone());
+  const fresh = checkOnly('a-1', course, throughIntermediate());
   fresh.send({ type: 'tick', wait: 30_000 });
-  fresh.send(result('i-1', () => true));
+  fresh.send(result('a-1', () => true));
   assert.equal(markOf(render(fresh.state, { cols: 80, rows: 24 }, MOVING, { at: fresh.now }).map(strip), first), '✔');
 });
 

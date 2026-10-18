@@ -1896,20 +1896,30 @@ test('recall, then compare: a command typed into this window does not act, on th
   }
 });
 
-test('recall, then compare: escape goes back, the capstone\'s enter opens the map, and a lesson with nothing on the card asks nothing', () => {
+test('recall, then compare: escape goes back, the capstone\'s enter goes on as its next screen does, and a lesson with nothing on the card asks nothing', () => {
   const d = onNext('b-4');
   d.key('space');
   d.key('escape');
   assert.equal(d.state.overlay, null);
   assert.equal(d.state.view, 'next');
   assert.equal(d.state.lesson, 'b-4');
-  // After the last lesson, enter from the comparison opens the map, as from the next screen.
+  // From the comparison, enter goes where the next screen's does: the
+  // Beginner capstone's to i-1, its next.
   const cap = onNext('b-capstone');
   cap.key('space');
   assert.equal(cap.state.overlay, 'compare');
   cap.key('enter');
   assert.equal(cap.state.overlay, null);
-  assert.equal(cap.state.view, 'map');
+  assert.deepEqual([cap.state.view, cap.state.lesson], ['intro', 'i-1']);
+  // After a lesson with no next, it opens the map, as from the next screen.
+  const last = course.map((l) => (l.id === 'b-capstone' ? { ...l, content: { ...l.content, next: undefined } } : l));
+  const end = driver({ course: last, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-capstone', last) } });
+  playUntil(end, (s) => s.view === 'next' && s.lesson === 'b-capstone');
+  end.key('space');
+  assert.equal(end.state.overlay, 'compare');
+  end.key('enter');
+  assert.equal(end.state.overlay, null);
+  assert.equal(end.state.view, 'map');
   // With no entry of this lesson's on the card, space does nothing.
   const bare = course.map((l) => (l.id === 'b-4' ? { ...l, content: { ...l.content, card: [] } } : l));
   const e = driver({ course: bare, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
