@@ -1275,6 +1275,10 @@ function stampFx(prev, s, ev) {
   // glance started (motion.mjs) is an older one's, and a save's burst of
   // changes chains several.
   if (ev.type === 'activity' && w) Object.assign(fx, { activityWas: fx.activity === undefined ? [] : [...(fx.activityWas ?? []), fx.activity].slice(-ACTIVITY_KEPT), activity: t });
+  // The first of them since the card's newest words (its view, open or text
+  // stamp): it ends their reading grace there, and Pip's ambient life counts
+  // from that moment however many follow (motion.mjs's lifeFrom, 189).
+  if (ev.type === 'activity' && w && !(fx.activityFirst > Math.max(fx.view ?? -Infinity, fx.open ?? -Infinity, fx.text ?? -Infinity))) fx.activityFirst = t;
   // On the check-only card, the items a result finds passing that the
   // result before it, for the same lesson, found not passing or left out.
   if (ev.type === 'check' && s.view === 'checkonly' && ev.lesson === s.lesson) {

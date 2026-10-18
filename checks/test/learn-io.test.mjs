@@ -1123,12 +1123,18 @@ test('no leaking timers: a frame timer only while something will change; none in
     assert.equal(grace.length, 1, 'the entrance is over, and the reading grace still runs: its end is a deadline');
     assert.ok(grace[0].ms > 1_000, `on its own timer, not the next 1 s tick (${grace[0].ms} ms)`);
     // W3 watches its file: from here its look marker moves only when a poll's
-    // result lands, so no frame timer waits, before a look or after one.
+    // result lands, so no frame timer waits for it, before a look or after
+    // one. One waits for Pip's next blink or look to the side (189).
+    const pipNext = (why) => {
+      const timers = app.frameTimers();
+      assert.equal(timers.length, 1, why);
+      assert.ok(timers[0].ms > 0 && timers[0].ms <= TIMING.blinkEvery, `${why}: in ${timers[0].ms} ms`);
+    };
     await clock.advance(21_000);
-    assert.deepEqual(app.frameTimers(), [], 'the entrance and the reading grace are over');
+    pipNext('the entrance and the reading grace are over');
     const pulse = () => term.shows().split('\n').at(-2) ?? '';
     assert.ok(await app.settle(() => pulse().includes('━━━')), `the marker:\n${term.shows()}`);
-    assert.deepEqual(app.frameTimers(), [], 'the marker shows, and waits for the next look');
+    pipNext('the marker shows, and waits for the next look');
     await clock.advance(IDLE_MS);
     assert.deepEqual(app.frameTimers(), [], 'idle');
     await afterQ(app);
@@ -1157,6 +1163,55 @@ test('a still card blinks on one frame timer once the gates open, and has none a
     await afterQ(app);
   } finally {
     app.close();
+  }
+});
+
+// What Pip's life on a card that watches costs on the wire (189, design
+// 4.7): step 3, which watches .practice/version.txt, from 25 s after it
+// opened, each 5 s for 40 s, at 80x24 and 120x40. Its file is read every
+// 2 s and the marker steps on each look; between, Pip blinks every 6 s and
+// looks to one side every 18 s, a one-row frame where its face changes.
+// The ceiling is about 1.3 times the most measured, as for the detailed
+// Pip (181); the 10 s repair frame is in it.
+const WATCHED_CEILING = 11_000;
+test('a card that watches: Pip\'s blinks and looks to the side add only one-row frames where its face changes, and the bytes per 5 s stay under a ceiling', async () => {
+  for (const [cols, rows] of [[80, 24], [120, 40]]) {
+    const app = clockedRun(MOTION_ENV, { cols, rows, watch: () => ({ close() {} }) });
+    const { term, clock } = app;
+    const inWindow = (from, to) => term.writes.filter((_, i) => app.times[i] >= from && app.times[i] < to);
+    try {
+      assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+      await app.toWaiting();
+      const opened = clock.now();
+      // The clock in steps, with a moment for each file read to land.
+      const run = async (ms, step = 200) => {
+        for (let k = 0; k < ms / step; k++) {
+          await clock.advance(step);
+          await new Promise((r) => setTimeout(r, 1));
+        }
+      };
+      await run(25_000);
+      const top = () => term.shows().split('\n').find((l) => l.includes('╭─')) ?? '';
+      const faces = new Set();
+      const windows = [];
+      for (let k = 0; k < 8; k++) {
+        const from = opened + 25_000 + k * 5_000;
+        for (let n = 0; n < 5_000 / TIMING.grid; n++) {
+          await run(TIMING.grid, TIMING.grid);
+          faces.add(top().match(/(\S+) ──$/)?.[1]);
+        }
+        const writes = inWindow(from, from + 5_000);
+        windows.push({ bytes: writes.reduce((n, w) => n + Buffer.byteLength(w), 0), frames: writes.length });
+      }
+      const where = `${cols}x${rows}: ${JSON.stringify(windows)}`;
+      // Pip lives: shut eyes and a look each way showed in the 40 s.
+      for (const face of ['[─‿─]', '[◑‿◑]', '[◐‿◐]']) assert.ok(faces.has(face), `${where}: no ${face} in ${[...faces]}`);
+      // At most 3 looks at the file, a blink's 4 frames and a look's 2 in
+      // any 5 s, and the 10 s repair frame.
+      for (const w of windows) assert.ok(w.bytes > 0 && w.bytes <= WATCHED_CEILING && w.frames <= 10, where);
+    } finally {
+      app.close();
+    }
   }
 });
 

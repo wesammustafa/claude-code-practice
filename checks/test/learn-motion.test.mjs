@@ -19,7 +19,7 @@ import { openScreen } from '../../learn/lib/screen.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { repo, withRepo } from './helpers.mjs';
-import { allScreens, b1Item, course, driver, finishedBefore, gitLists, lessonScreens, onReading, playUntil, root } from './learn-drive.mjs';
+import { allScreens, b1Item, course, driver, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root } from './learn-drive.mjs';
 import { fakeClock, fakeOut, screenModel } from './learn-term.mjs';
 
 // A terminal that can show everything: a TTY with 256 colors.
@@ -171,7 +171,8 @@ test('with motion off (calm, NO_COLOR, LEARN_PLAIN, no Unicode, TERM=dumb), a fr
 // The times a screen's frames can change: each one-shot that plays on it,
 // at every one of its frames from its start (design 4.3); a running child's
 // first ticks, its seconds and its slower ticks; and a blink as ambient loops
-// may first draw, at each of its moments. Where loops follow the one-shots,
+// may first draw, at each of its moments, and on a card that watches the
+// first two looks to the side, at theirs (189). Where loops follow the one-shots,
 // each one-shot's end too, so the frames sampled are the frames drawn. The
 // rest frame the rest-equals-calm test covers.
 const timesOf = new Map();
@@ -182,6 +183,9 @@ function frameTimes(s) {
   if (phases(s, s.fx.run + 160, ON).spinner !== null) loops.push(...[160, 240, 3_000, 10_000, 10_240, 149_990].map((ms) => s.fx.run + ms));
   const open = gatesOpen(s);
   if (open !== null && phases(s, open, ON).blink) loops.push(...faceMoments(SHOTS.blink.face, TIMING.blink).map((ms) => open + ms));
+  for (const [part, from] of [['peekRight', TIMING.peekFrom], ['peekLeft', TIMING.peekFrom + TIMING.peekEvery]]) {
+    if (open !== null && phases(s, open + from, ON).peek) loops.push(...faceMoments(SHOTS[part].face, TIMING.peek).map((ms) => open + from + ms));
+  }
   for (const [part, start] of Object.entries(shotStarts(s))) {
     if (start === undefined) continue;
     for (let ms = 0; ms < TIMING[part]; ms += SHOTS[part].every) times.add(start + ms);
@@ -466,6 +470,7 @@ test('the timing table is design 4.3\'s, and no one-shot lasts over 1.2 s but Pi
     grid: 40, tick: 80, slowTick: 240, slowAfter: 10_000,
     entrance: 160, notYet: 360, hop: 240, cheer: 360, stepDone: 560, levelUp: 800, complete: 1_200, welcome: 480, itemPass: 160, greet: 5_000, lookAround: 2_400,
     spinnerFrom: 150, elapsedFrom: 3_000, sweep: 400, glance: 1_200, blink: 160, blinkEvery: 6_000,
+    peek: 800, peekFrom: 9_000, peekEvery: 18_000,
     perWord: 400, graceMin: 3_000, graceMax: 20_000, keyQuiet: 4_000,
     pipFade: 320, pipBreathIn: 800, mood: 80,
   };
@@ -612,7 +617,7 @@ test('screens with no ambient part never allow one, and ask for no frame once th
 
 const ON = { motion: true };
 const OFF = { motion: false, calm: true };
-const RESTING = { entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false, ms: {} };
+const RESTING = { entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false, peek: false, ms: {} };
 
 test('phases: the rest phases with motion off, at rest and under an overlay', () => {
   const { d, t } = opened('W3');
@@ -804,6 +809,8 @@ const frameAt = (s, start, ms, [cols, rows] = [80, 24]) => render(s, { cols, row
 const restOf = (s, [cols, rows] = [80, 24]) => render(s, { cols, rows }, MOVING, REST).map((l) => strip(l).trimEnd());
 // Rows `from` to `to`, numbered from 1 as the mockups number them.
 const rowsOf = (lines, from, to = from) => lines.slice(from - 1, to);
+// A frame without its 5th row, where a card's top border holds Pip's face.
+const notPip = (lines) => lines.filter((_, i) => i !== 4);
 
 test('the welcome: Pip wakes, the fuse runs along the path, one pulse crosses the arrow, then it rests', () => {
   const d = driver();
@@ -921,7 +928,7 @@ const TRACKS = {
 };
 
 test('every face track has its keyframes on the 40 ms grid, in order, and a change of frame takes exactly one grid step', () => {
-  assert.deepEqual(Object.keys(TRACKS).sort(), ['blink', 'cheer', 'entrance', 'glance', 'greet', 'greet resume', 'greet wake', 'greet welcome', 'hop', 'levelUp', 'lookAround', 'notYet']);
+  assert.deepEqual(Object.keys(TRACKS).sort(), ['blink', 'cheer', 'entrance', 'glance', 'greet', 'greet resume', 'greet wake', 'greet welcome', 'hop', 'levelUp', 'lookAround', 'notYet', 'peekLeft', 'peekRight']);
   for (const [part, face] of Object.entries(TRACKS)) {
     assert.ok(face.length > 0, part);
     face.forEach(([ms, frame], k) => {
@@ -947,6 +954,10 @@ const FACE_SHOTS = [
   ['a hop', SHOTS.hop.face, TIMING.hop, CARD_MOODS, pipFace],
   ['a cheer', SHOTS.cheer.face, TIMING.cheer, CARD_MOODS, pipFace],
   ['a card\'s blink', SHOTS.blink.face, TIMING.blink, CARD_MOODS, pipFace],
+  // A look to the side plays only on a card that watches, never while a
+  // child runs, so never over checking or done (189).
+  ['a look toward the other window', SHOTS.peekRight.face, TIMING.peek, ['rest', 'worried', 'broken'], pipFace],
+  ['a look away from it', SHOTS.peekLeft.face, TIMING.peek, ['rest', 'worried', 'broken'], pipFace],
 ];
 
 test('a face-only one-shot changes the face on the 40 ms grid exactly at its moments, over every mood it plays over: no frame it asks for is the one before, and no change waits for another frame', () => {
@@ -1604,8 +1615,9 @@ test('the look marker: after the reading grace, one notch on the pulse line for 
     const now = look();
     notches.push(frameAt(d.state, now, 0).at(-2));
     small.push(frameAt(d.state, now, 0, [60, 20]).at(-2));
-    // One frame per real result: nothing moves until the next.
-    for (const ms of [40, 1_000, 1_960]) assert.deepEqual(frameAt(d.state, now, ms), frameAt(d.state, now, 0), `look ${k + 1}, +${ms} ms`);
+    // One frame per real result: the marker holds until the next. Only Pip
+    // lives between (189), on the card's top border.
+    for (const ms of [40, 1_000, 1_960]) assert.deepEqual(notPip(frameAt(d.state, now, ms)), notPip(frameAt(d.state, now, 0)), `look ${k + 1}, +${ms} ms`);
   }
   assert.deepEqual(notches.slice(0, 3), [pulse(0, 3), pulse(7, 3), pulse(13, 3)], 'design 2.3, looks 1 to 3');
   assert.deepEqual(small.slice(0, 3), [pulse(0, 3, 56), pulse(5, 3, 56), pulse(10, 3, 56)], 'design 2.4, row 19');
@@ -1641,9 +1653,14 @@ test('the look marker hides for 4 s after a key, stops at idle as "Stuck?" appea
   assert.equal(frameAt(quiet, idleAt, -1).at(-2), pulse(7, 3));
   assert.equal(frameAt(quiet, idleAt, 0).at(-2), PLAIN);
   // No frame timer waits for it: the marker moves only on a look, and the
-  // app's 1 s tick, which brings the "Stuck?" line, draws its stop.
-  assert.equal(nextChange(quiet, quiet.now + 10, ON), null, 'between looks');
-  assert.equal(nextChange(quiet, idleAt - 10, ON), null, 'just before idle');
+  // app's 1 s tick, which brings the "Stuck?" line, draws its stop. Between
+  // looks a frame waits only for Pip's next blink or look to the side (189),
+  // and none for one at idle.
+  const wait = nextChange(quiet, quiet.now + 10, ON);
+  assert.deepEqual(notPip(frameAt(quiet, quiet.now + 10, wait)), notPip(frameAt(quiet, quiet.now + 10, 0)), 'between looks');
+  assert.notEqual(frameAt(quiet, quiet.now + 10, wait)[4], frameAt(quiet, quiet.now + 10, wait - 1)[4], 'Pip\'s next moment');
+  const last = nextChange(quiet, idleAt - 10, ON);
+  assert.ok(last === null || last < 10, `just before idle: ${last}`);
   d.send({ type: 'tick', wait: idleAt - d.now });
   look(100);
   assert.equal(d.state.beat.idle, true);
@@ -1827,7 +1844,7 @@ const gateOpens = (s) => {
 // A blink passes through half-lids each way (181): ◒ on its first frame,
 // ─ from 40 ms, ◒ at 120 ms and open at 160 ms. Off the grid its eyes are
 // part way, as the package's glyphs draw them: still ─ at 90 ms.
-test('Pip\'s blink: 160 ms every 6 s once the gates open, through half-lids each way, on the welcome and on a card with nothing to answer or watch, until idle', () => {
+test('Pip\'s blink: 160 ms every 6 s once the gates open, through half-lids each way, on the welcome and on a card with nothing to answer, watched or not, until idle', () => {
   const s = screen('W4 sign in');
   assert.equal(beatOfVerify(s), 'self');
   const q = gateOpens(s);
@@ -1851,14 +1868,288 @@ test('Pip\'s blink: 160 ms every 6 s once the gates open, through half-lids each
   assert.match(frameAt(w, wq, 40)[6], /│ {2}─‿─ {2}│/);
   assert.match(frameAt(w, wq, 120)[6], /│ {2}◒‿◒ {2}│/);
   assert.match(frameAt(w, wq, 160)[6], /│ {2}●‿● {2}│/);
-  // Not where the card watches something, has a question, or Pip wears its
-  // done face; and never in the rest frame.
-  for (const label of ['W3 waiting', 'W5', 'W3 done', 'Y4 live dirty']) {
+  // Not where the card has a question or Pip wears its done face; and never
+  // in the rest frame. A card that watches blinks too (189), below.
+  for (const label of ['W5', 'W3 done']) {
     const x = screen(label);
     const xq = gatesOpen(x) ?? x.now + 30_000;
     for (const ms of [0, 80, 6_000, 6_080]) assert.equal(frameAt(x, xq, ms)[4], restOf(x)[4], `${label}, +${ms} ms`);
   }
   assert.equal(restOf(s)[4].slice(-9, -2), ' [●‿●] ');
+});
+
+// Pip's life on a card that watches (189): the card's top border, wherever
+// the size puts it, Pip's face at its end, and the frame without that row.
+const borderRow = (lines) => lines.findIndex((l) => l.includes('╭─'));
+const cardFaceOf = (lines) => lines[borderRow(lines)].match(/(\S+) ──$/)?.[1];
+const withoutBorder = (lines) => lines.filter((_, i) => i !== borderRow(lines));
+const WATCHED = ['W3 waiting', 'W3 not yet', 'Y4 live dirty', 'W7 git dirty'];
+
+// From the moment the gates open: a blink every 6 s through half-lids; a
+// look toward the other window at 9 s, away from it at 27 s, toward it again
+// at 45 s, each 800 ms, back to the face Pip rests in.
+const LIFE = [[0, '[◒‿◒]'], [40, '[─‿─]'], [120, '[◒‿◒]'], [160, null], [6_000, '[◒‿◒]'], [6_160, null],
+  [9_000, '[◑‿◑]'], [9_760, '[◑‿◑]'], [9_800, null], [12_000, '[◒‿◒]'], [12_160, null],
+  [27_000, '[◐‿◐]'], [27_760, '[◐‿◐]'], [27_800, null], [45_000, '[◑‿◑]'], [45_800, null]];
+
+test('a card that watches: Pip blinks every 6 s and looks to one side and back every 18 s from 9 s, toward the other window and away in turn, never with a blink, at 60x20, 80x24 and 120x40; nothing else moves', () => {
+  for (const label of WATCHED) {
+    const s = screen(label);
+    assert.ok(watching(s) && !isDone(s.beat), label);
+    const q = ambientOpened(s);
+    assert.deepEqual([ambientAllowed(s, q - 1), ambientAllowed(s, q)], [false, true], `${label}: the gates open`);
+    for (const size of [[60, 20], [80, 24], [120, 40]]) {
+      const where = `${label} at ${size.join('x')}`;
+      const own = cardFaceOf(restOf(s, size));
+      const f = (ms) => frameAt(s, q, ms, size);
+      // The frame before the gates open shows Pip as at rest, with the
+      // look marker where the screen has it.
+      const still = f(-40);
+      assert.equal(cardFaceOf(still), own, `${where}, before the gates open`);
+      for (const [ms, face] of LIFE) {
+        const frame = f(ms);
+        assert.equal(cardFaceOf(frame), face ?? own, `${where}, +${ms} ms`);
+        // Words, the pulse line and everything but Pip hold still.
+        assert.deepEqual(withoutBorder(frame), withoutBorder(still), `${where}, +${ms} ms`);
+      }
+    }
+    // Never a blink and a look at once, and a look at most once in 15 s.
+    const looks = [];
+    for (let ms = 0; ms < 60_000; ms += TIMING.grid) {
+      const p = phases(s, q + ms, ON);
+      assert.ok(!(p.blink && p.peek), `${label}, +${ms} ms`);
+      if (p.peek && !phases(s, q + ms - TIMING.grid, ON).peek) looks.push(ms);
+    }
+    assert.deepEqual(looks, [9_000, 27_000, 45_000], label);
+  }
+});
+
+test('a card that watches: the frame timer asks for exactly the 40 ms grid steps where Pip\'s face changes, and none between', () => {
+  // A file and git, at rest and worried.
+  for (const label of ['W3 waiting', 'Y4 live dirty']) {
+    const s = screen(label);
+    const q = ambientOpened(s);
+    const face = (at) => cardFaceOf(frameAt(s, at, 0));
+    const changes = [];
+    for (let ms = TIMING.grid; ms < 40_000; ms += TIMING.grid) if (face(q + ms) !== face(q + ms - TIMING.grid)) changes.push(ms);
+    const asked = [];
+    for (let at = q; ;) {
+      const wait = nextChange(s, at, ON);
+      if (wait === null || at + wait >= q + 40_000) break;
+      at += wait;
+      asked.push(at - q);
+    }
+    assert.deepEqual(asked, changes, label);
+    // In 40 s: the first blink's last 3 frames (its first is the frame
+    // that opens the gates), 6 more blinks of 4 frames, and 2 looks of 2.
+    assert.equal(asked.length, 3 + 6 * 4 + 2 * 2, label);
+  }
+});
+
+test('Pip\'s life on a card that watches keeps every gate: the reading grace, a key\'s 4 s quiet, the hint box, an overlay, idle at 120 s, and a running check', () => {
+  const lives = (x, at) => {
+    const p = phases(x, at, ON);
+    return p.blink || p.peek;
+  };
+  const s = screen('W3 waiting');
+  const q = ambientOpened(s);
+  // The reading grace: nothing until the gates open.
+  for (let at = s.now; at < q; at += TIMING.grid) assert.equal(lives(s, at), false, `+${at - s.now} ms, reading`);
+  // A key 500 ms before the first look: none for 4 s, then the cycle again
+  // from the quiet's end, its first blink at once.
+  const key = q + 8_500;
+  const keyed = reduce(s, { type: 'key', name: 'down', now: key }).state;
+  assert.equal(ambientOpened(keyed), key + TIMING.keyQuiet);
+  for (let at = key; at < key + TIMING.keyQuiet; at += TIMING.grid) assert.equal(lives(keyed, at), false, `+${at - key} ms after the key`);
+  assert.equal(phases(keyed, key + TIMING.keyQuiet, ON).blink, true);
+  assert.equal(phases(keyed, key + TIMING.keyQuiet + TIMING.peekFrom, ON).peek, true);
+  assert.deepEqual(notPip(frameAt(keyed, key, 600)), notPip(frameAt(keyed, key, 0)), 'the look it would have made');
+  assert.equal(frameAt(keyed, key, 600)[4], frameAt(keyed, key, 0)[4]);
+  // The hint box, and an overlay: still, and no frame waits for Pip.
+  const hinted = screen('W3 hint 1');
+  assert.ok(watching(hinted) && hinted.beat.rung === 0);
+  const { d: o } = watchedW3();
+  o.key('w');
+  assert.equal(o.state.overlay, 'why');
+  const overlaid = o.state;
+  for (const [what, x] of [['the hint box', hinted], ['an overlay', overlaid]]) {
+    const from = ambientOpened(x) + 1_000;
+    for (let at = from; at < from + 40_000; at += TIMING.grid) assert.equal(lives(x, at), false, `${what}, +${at - from} ms`);
+    assert.equal(nextChange(x, from, ON), null, what);
+  }
+  // Idle, 120 s with no key and no file activity: Pip stops, and no frame
+  // timer waits for a blink or a look at idle; the app's 1 s tick draws it.
+  const idleAt = s.lastActivity + IDLE_MS;
+  for (let at = idleAt; at < idleAt + 40_000; at += TIMING.grid) assert.equal(lives(s, at), false, `idle, +${at - idleAt} ms`);
+  assert.equal(nextChange(s, idleAt, ON), null, 'idle');
+  for (let at = idleAt - 20_000; at < idleAt; at += 120) {
+    const wait = nextChange(s, at, ON);
+    assert.ok(wait === null || at + wait < idleAt, `${idleAt - at} ms before idle, a frame in ${wait} ms`);
+  }
+  // A check running past the key's quiet and the reading grace: the
+  // checking face and the spinner own the card; Pip neither blinks nor looks.
+  const { d, run } = checkingW3();
+  const busy = d.state;
+  assert.ok(ambientAllowed(busy, run + 25_000), 'the gates are open');
+  for (let at = run + 25_000; at < run + 65_000; at += TIMING.grid) assert.equal(lives(busy, at), false, `checking, +${at - run} ms`);
+  for (const ms of [25_000, 34_000, 34_400, 37_000]) assert.equal(cardFaceOf(frameAt(busy, run, ms)), '[◒─◒]', `checking, +${ms} ms`);
+  for (const ms of [25_000, 34_000]) assert.ok(nextChange(busy, run + ms, ON) <= TIMING.slowTick, 'only the spinner\'s ticks');
+});
+
+test('a file change on a card that watches: its glance and the sweep take over from Pip\'s look to the side, which never moves the pulse line', () => {
+  const s = screen('W3 waiting');
+  const q = ambientOpened(s);
+  const line = (x, at) => frameAt(x, at, 0).at(-2);
+  // A look to the side moves Pip alone: the pulse line holds.
+  for (const ms of [9_000, 9_400, 27_000, 27_400]) assert.equal(line(s, q + ms), line(s, q + 8_000), `+${ms} ms`);
+  assert.equal(cardFaceOf(frameAt(s, q, 27_200)), '[◐‿◐]');
+  // A file change 200 ms into the look away: Pip looks toward the other
+  // window at once, for 1.2 s, as one sweep crosses the pulse line.
+  const act = q + 27_200;
+  const changed = reduce(s, { type: 'activity', now: act }).state;
+  assert.deepEqual([0, 160, 320].map((ms) => line(changed, act + ms)), [pulse(0, 8), pulse(27, 8), pulse(54, 8)], 'the sweep');
+  for (const ms of [0, 40, 400, 600, 1_160]) assert.equal(cardFaceOf(frameAt(changed, act, ms)), '[◑‿◑]', `the glance, +${ms} ms`);
+  // A look to the side that the file change's glance holds: the glance
+  // shows, and the sweep's segment is the file change's alone.
+  const during = reduce(s, { type: 'activity', now: q + 8_900 }).state;
+  for (const ms of [100, 500]) assert.equal(cardFaceOf(frameAt(during, q + 8_900, ms)), '[◑‿◑]');
+  assert.equal(line(during, q + 8_900 + TIMING.sweep), line(during, q + 8_900 + 1_000), 'after the sweep, the line holds');
+});
+
+// Pip's blinks and looks to the side as they start, between `from` and
+// `to`: [ms from `q`, part]. Pip's life is a function of time alone, so a
+// scan on the 40 ms grid from `q` finds each on its first frame.
+const lifeStarts = (x, q, from, to) => {
+  const out = [];
+  let was;
+  for (let ms = from; ms < to; ms += TIMING.grid) {
+    const p = phases(x, q + ms, ON);
+    const part = ['blink', 'peekRight', 'peekLeft'].find((k) => p.ms[k] !== undefined);
+    if (part && part !== was) out.push([ms, part]);
+    was = part;
+  }
+  return out;
+};
+
+test('a file change never moves Pip\'s blinks or looks to the side: each stays on the cycle from the moment the gates opened, so looks start at least 15 s apart, toward the other window and away in turn', () => {
+  for (const label of WATCHED) {
+    const s = screen(label);
+    const q = ambientOpened(s);
+    for (let off = 0; off <= 36_000; off += 400) {
+      const changed = reduce(s, { type: 'activity', now: q + off }).state;
+      const where = `${label}, a file change at +${off} ms`;
+      // Before the change Pip lived on the card as it was; from it, on the
+      // card with the change seen.
+      const starts = [...lifeStarts(s, q, 0, off), ...lifeStarts(changed, q, off, off + 40_000)];
+      const looks = starts.filter(([, part]) => part !== 'blink');
+      for (const [ms, part] of starts) {
+        if (part === 'blink') assert.equal(ms % TIMING.blinkEvery, 0, `${where}: a blink at +${ms} ms`);
+        else {
+          const n = (ms - TIMING.peekFrom) / TIMING.peekEvery;
+          assert.ok(Number.isInteger(n) && part === (n % 2 ? 'peekLeft' : 'peekRight'), `${where}: ${part} at +${ms} ms`);
+        }
+      }
+      looks.slice(1).forEach(([ms], k) => assert.ok(ms - looks[k][0] >= 15_000, `${where}: looks at +${looks[k][0]} and +${ms} ms`));
+    }
+  }
+});
+
+// The card face's eyes, as a class: Pip's own face, half-lids, shut, or
+// looking toward the other window or away from it.
+const eyesOf = (face, own) => (face === own ? 'own' : { '◒': 'half', '─': 'shut', '◑': 'right', '◐': 'left' }[[...face][1]] ?? face);
+// The changes of face Pip makes through another: a blink passes half-lids,
+// and every look passes Pip's own face, the centre.
+const STEPS = new Set(['own>half', 'half>own', 'half>shut', 'shut>half', 'own>right', 'right>own', 'own>left', 'left>own']);
+
+test('after a file change\'s glance Pip never jumps: its eyes pass the centre before a look to either side, and half-lids before a blink, wherever the change lands in a blink or a look, at 80x24', () => {
+  for (const label of ['W3 waiting', 'Y4 live dirty']) {
+    const s = screen(label);
+    const q = ambientOpened(s);
+    const own = cardFaceOf(restOf(s));
+    // File changes on each 40 ms step from 1.4 s before a blink, the look
+    // toward the other window and the look away until each is over.
+    for (const [life, length] of [[24_000, TIMING.blink], [TIMING.peekFrom, TIMING.peek], [TIMING.peekFrom + TIMING.peekEvery, TIMING.peek]]) {
+      for (let off = life - 1_400; off <= life + length; off += TIMING.grid) {
+        const act = q + off;
+        const changed = reduce(s, { type: 'activity', now: act }).state;
+        // The change's own frame turns Pip toward the other window at once.
+        assert.equal(cardFaceOf(frameAt(changed, act, 0)), '[◑‿◑]', `${label}, a change at +${off} ms`);
+        let was = '[◑‿◑]';
+        for (let ms = TIMING.grid; ms <= TIMING.glance + 1_200; ms += TIMING.grid) {
+          const face = cardFaceOf(frameAt(changed, act, ms));
+          const step = `${eyesOf(was, own)}>${eyesOf(face, own)}`;
+          assert.ok(face === was || STEPS.has(step), `${label}, a change at +${off} ms: ${was} to ${face} at +${ms} ms`);
+          was = face;
+        }
+      }
+    }
+  }
+});
+
+test('a file change on a card that watches: while its glance shows, the frame timer asks for no blink or look it covers, only the frames that change', () => {
+  // Just before a blink, before and during a look toward the other window,
+  // and just before the look away.
+  for (const [label, offs] of [['W3 waiting', [5_880, 8_880, 9_480, 17_480, 26_480]], ['Y4 live dirty', [5_880, 8_880, 9_480]], ['W7 git dirty', [8_880, 9_480]]]) {
+    const s = screen(label);
+    const q = ambientOpened(s);
+    for (const off of offs) {
+      const act = q + off;
+      const x = reduce(s, { type: 'activity', now: act }).state;
+      const frame = (ms) => frameAt(x, act, ms).join('\n');
+      const changes = [];
+      for (let ms = TIMING.grid; ms < 3_000; ms += TIMING.grid) if (frame(ms) !== frame(ms - TIMING.grid)) changes.push(ms);
+      const asked = [];
+      for (let at = act; ;) {
+        const wait = nextChange(x, at, ON);
+        if (wait === null || at + wait >= act + 3_000) break;
+        at += wait;
+        asked.push(at - act);
+      }
+      assert.deepEqual(asked, changes, `${label}, a file change at +${off} ms`);
+    }
+  }
+});
+
+// The check-only card, its lesson's folder watched: the map, then a lesson
+// with no steps in the app; a-7 has an item that runs only on r.
+function checkOnlyCard(id = 'a-7') {
+  const d = driver();
+  d.key('enter');
+  d.key('m');
+  mapTo(d, id);
+  at(d, { type: 'key', name: 'enter' });
+  assert.deepEqual([d.state.view, d.state.lesson], ['checkonly', id]);
+  return d;
+}
+
+test('the check-only card, which watches its lesson\'s check while the learner follows the lesson page: Pip blinks and looks to the side as on a step card that watches, at 60x20, 80x24 and 120x40, and holds still while r\'s run goes', () => {
+  const d = checkOnlyCard();
+  const s = d.state;
+  assert.ok(watching(s)?.check, 'it watches its lesson\'s check');
+  const q = ambientOpened(s);
+  for (const size of [[60, 20], [80, 24], [120, 40]]) {
+    const where = `${size.join('x')}`;
+    const own = cardFaceOf(restOf(s, size));
+    const still = frameAt(s, q, -40, size);
+    assert.equal(cardFaceOf(still), own, `${where}, before the gates open`);
+    for (const [ms, face] of LIFE) {
+      const frame = frameAt(s, q, ms, size);
+      assert.equal(cardFaceOf(frame), face ?? own, `${where}, +${ms} ms`);
+      assert.deepEqual(withoutBorder(frame), withoutBorder(still), `${where}, +${ms} ms`);
+    }
+  }
+  // r runs the check: the checking face and the spinner own the card, and
+  // no frame waits for a blink or a look.
+  d.send({ type: 'tick', wait: q + 30_000 - d.now });
+  d.key('r');
+  assert.ok(d.state.checkOnlyRun, 'r runs the check');
+  const run = at(d, { type: 'run-start' }).now;
+  const busy = d.state;
+  for (let t = run + TIMING.keyQuiet; t < run + 40_000; t += TIMING.grid) {
+    const p = phases(busy, t, ON);
+    assert.ok(!p.blink && !p.peek, `r's run, +${t - run} ms`);
+  }
+  for (const ms of [5_000, 14_000]) assert.ok(nextChange(busy, run + ms, ON) <= TIMING.slowTick, 'only the spinner\'s ticks');
 });
 
 test('no ambient loop on any screen beside a question, its options, a typed answer, the hint box or an overlay, however long it waits', () => {
@@ -1870,14 +2161,14 @@ test('no ambient loop on any screen beside a question, its options, a typed answ
     for (const x of [s, changedToo]) {
       for (const ms of [5_000, 21_000, 25_000, 60_000]) {
         const p = phases(x, x.now + ms, ON);
-        assert.deepEqual([p.ambient, p.look, p.blink], [false, null, false], `${label}, +${ms} ms`);
+        assert.deepEqual([p.ambient, p.look, p.blink, p.peek], [false, null, false, false], `${label}, +${ms} ms`);
         if (ms === 25_000) assert.equal(frameAt(x, x.now, ms).at(-2), restOf(x).at(-2), `${label}, +${ms} ms`);
       }
     }
   }
 });
 
-test('Pip tells the truth: the checking face only while the card says "Checking", and a glance only where a file change was seen', () => {
+test('Pip tells the truth: the checking face only while the card says "Checking", and a glance only where a file change was seen or, on a card that watches, as its look to the side', () => {
   let checking = 0;
   for (const [cols, rows] of SIZES) {
     for (const [label, s] of screens) {
@@ -1889,7 +2180,9 @@ test('Pip tells the truth: the checking face only while the card says "Checking"
           checking += 1;
           assert.equal(s.beat?.status, 'opening', where);
         }
-        if (pip.includes('[◑‿◑]')) assert.ok(s.fx.activity !== undefined && watching(s), where);
+        // On a card that watches, Pip also looks that way now and then
+        // (189), as its look to the side.
+        if (pip.includes('[◑‿◑]')) assert.ok(watching(s) && (s.fx.activity !== undefined || phases(s, times[k], ON).peek), where);
       });
     }
   }
