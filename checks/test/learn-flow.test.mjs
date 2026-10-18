@@ -2,7 +2,7 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { asStarted, backOffered, beatOf, DEFER_MS, HINT_LOCK_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { GIT, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { stampFor } from '../../learn/lib/holds.mjs';
@@ -2353,4 +2353,168 @@ test('playUntil plays through every git kind', () => {
     const d = onReading(verify);
     playUntil(d, (s) => stepOf(s)?.id === 'C');
   }
+});
+
+// ---- ways out when a check keeps failing for an earlier reason (ticket 192) --
+const AFTER = '.practice/b-2-after.txt';
+const b2Item = course.find((l) => l.id === 'b-2').items[1];
+const afterSays = (hint) => [{ index: 1, text: b2Item, pass: false, hint }];
+// b-2 on W7's last beat, the after snapshot, with the steps before it done
+// and their fresh stamps saved.
+const W7_STAMPS = { 'W6.1': 'S1', 'W6.2': 'S2', 'W7.4': 'S3' };
+const onAfter = (extra = {}) => {
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-2'), 'b-2': { step: 'W7', beat: 4, warm: ['R1', 'R2'], done: ['R1', 'R2', 'W1', 'W2', 'W3', 'W4', 'W5', 'W6'], stamps: { ...W7_STAMPS }, ...extra } } } });
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat], ['W7', 4]);
+  return d;
+};
+// A result for the after item: its message, and the after file's state.
+const says = (d, hint, stamp, extra = {}) => {
+  d.send({ type: 'check', lesson: 'b-2', items: afterSays(hint), path: AFTER, stamp, ...extra });
+  return d.state.beat;
+};
+// The first answer, then a FAIL on screen.
+const failing = (d) => {
+  says(d, 'After Claude finishes the edits, run it.', '');
+  assert.equal(says(d, 'It lists no changed file yet.', 'a').status, 'fail');
+  return d;
+};
+
+test('the same answer after a redo: the note follows the second identical FAIL with the file changed between them (192)', () => {
+  const d = failing(onAfter());
+  assert.equal(Boolean(d.state.beat.same), false, 'never at the first FAIL');
+  assert.equal(Boolean(says(d, 'It lists no changed file yet.', 'a').same), false, 'a poll with the file as it was is no redo');
+  d.key('r');
+  assert.equal(Boolean(says(d, 'It lists no changed file yet.', 'a', { asked: d.state.beat.asked }).same), false, 'nor is r on the same file');
+  assert.equal(says(d, 'It lists no changed file yet.', 'b').same, true, 'saved again, and the check says the same');
+  assert.equal(d.state.beat.status, 'fail');
+  assert.equal(says(d, 'It lists no changed file yet.', 'c').same, true, 'it stays while the check says the same');
+  assert.equal(Boolean(says(d, 'Changed but not in the plan: src/a.js.', 'd').same), false, 'a new message takes it away');
+  assert.equal(Boolean(says(d, 'Changed but not in the plan: src/a.js.', 'e').same), false, 'once a beat visit');
+  // A new visit of the beat starts over.
+  d.key('b');
+  d.key('space');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat], ['W7', 4]);
+  failing(d);
+  assert.equal(says(d, 'It lists no changed file yet.', 'b').same, true);
+});
+
+test('the same answer after a redo: not when the message changes, nor before a FAIL is on screen, nor with no file state (192)', () => {
+  const d = failing(onAfter());
+  assert.equal(Boolean(says(d, 'Changed but not in the plan: src/a.js.', 'b').same), false);
+  // The first answer repeated with the file changed is still no "not yet",
+  // so no note either: the learner never saw it.
+  const quiet = onAfter();
+  says(quiet, 'It lists no changed file yet.', '');
+  assert.equal(says(quiet, 'It lists no changed file yet.', 'a').status, 'waiting');
+  assert.equal(Boolean(quiet.state.beat.same), false);
+  // A check beat that names no evidence file can't tell a redo from a poll.
+  const b1 = at('W3');
+  b1.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  b1.key('r');
+  b1.send({ type: 'check', lesson: 'b-1', items: [missing], asked: b1.state.beat.asked });
+  b1.send({ type: 'check', lesson: 'b-1', items: [missing] });
+  assert.deepEqual([b1.state.beat.status, Boolean(b1.state.beat.same)], ['fail', false]);
+});
+
+test('the same answer after a redo: on a beat that reads its file too, with no back line to offer (192)', () => {
+  const path = '.practice/b-2-plan.txt';
+  const d = onReading(`match ${path} ^src/`);
+  assert.equal(tryNow(d, path, null, '').fail.hint, `${path} is not there yet.`);
+  d.send({ type: 'file', path, read: null, stamp: '' });
+  assert.equal(Boolean(d.state.beat.same), false, 'still not there: nothing was redone');
+  d.send({ type: 'file', path, read: Buffer.from(''), stamp: 'x1' });
+  assert.equal(Boolean(d.state.beat.same), false, 'a new message');
+  d.send({ type: 'file', path, read: Buffer.from('lib/a.js\n'), stamp: 'x2' });
+  assert.equal(d.state.beat.fail.hint, `${path} has no line like that yet.`);
+  assert.equal(d.state.beat.same, true);
+  assert.equal(backOffered(d.state), null, 'the demo lesson names no step to go back to');
+  const before = { ...d.state.pos };
+  d.key('e');
+  assert.deepEqual(d.state.pos, before, 'e does nothing where nothing is offered');
+});
+
+test('the back key: the note offers the step b-2\'s ladder names, and e goes there with every tick kept (192)', () => {
+  const d = failing(onAfter());
+  assert.equal(backOffered(d.state), null, 'not before the note');
+  d.key('e');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat], ['W7', 4], 'e does nothing before it is offered');
+  says(d, 'It lists no changed file yet.', 'b');
+  const back = backOffered(d.state);
+  assert.deepEqual([back.step, back.at, back.title, back.quoted], ['W2', 3, 'Switch to plan mode', false]);
+  const done = [...d.state.progress['b-2'].done];
+  const from = d.effects.length;
+  d.key('e');
+  assert.equal(d.state.view, 'step');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos], ['W2', { step: 3, beat: 0 }]);
+  assert.deepEqual(d.state.progress['b-2'].done, done, 'every done tick stays');
+  assert.equal(d.state.progress['b-2'].step, 'W2', 'the place is saved there');
+  assert.deepEqual(d.state.progress['b-2'].stamps, {}, 'the fresh checks from W2 on lose their stamps');
+  const out = d.effects.slice(from);
+  assert.ok(out.some((e) => e.type === 'save'));
+  assert.ok(out.every((e) => ['later', 'save', 'stamp', 'check', 'file', 'git'].includes(e.type)), 'the app touches no file: every .practice/ file stays');
+});
+
+test('the back key: the hint ladder\'s last rung offers it too, and only from the part it names (192)', () => {
+  const d = failing(onAfter());
+  assert.equal(d.state.beat.rung, -1);
+  for (let i = 0; i < 6 && !d.state.beat.confirm; i++) {
+    d.key('h');
+    if (!d.state.beat.confirm) assert.equal(backOffered(d.state), null, `rung ${d.state.beat.rung} is not the last`);
+    d.send({ type: 'tick', wait: HINT_LOCK_MS + 100 });
+  }
+  assert.equal(backOffered(d.state), null, 'not on the y/n');
+  d.key('y');
+  assert.equal(d.state.beat.rung, rungsOf(d.state).length - 1);
+  assert.equal(backOffered(d.state)?.step, 'W2');
+  d.key('e');
+  assert.equal(stepOf(d.state).id, 'W2');
+  // Your turn redoes the example on its own: the after item's back line
+  // names a Worked example step, so Y5 offers none.
+  const y5 = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-2'), 'b-2': { step: 'Y5', beat: 3, warm: ['R1', 'R2'], stamps: { 'Y5.3': 'S' } } } } });
+  y5.key('enter');
+  failing(y5);
+  assert.equal(says(y5, 'It lists no changed file yet.', 'b').same, true);
+  assert.equal(backOffered(y5.state), null);
+});
+
+test('the back key: with the note up, the y/n offers no e and e waits for its answer (192)', () => {
+  const d = failing(onAfter());
+  says(d, 'It lists no changed file yet.', 'b');
+  assert.equal(backOffered(d.state)?.step, 'W2', 'the note offers it');
+  for (let i = 0; i < 6 && !d.state.beat.confirm; i++) {
+    d.key('h');
+    d.send({ type: 'tick', wait: HINT_LOCK_MS + 100 });
+  }
+  assert.equal(d.state.beat.confirm, true);
+  assert.equal(d.state.beat.same, true, 'the note is still up');
+  assert.equal(backOffered(d.state), null, 'not on the y/n');
+  d.key('e');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat, d.state.beat.confirm], ['W7', 4, true], 'e does nothing on the y/n');
+  d.key('n');
+  assert.equal(backOffered(d.state)?.step, 'W2', 'after n the note offers it again');
+  d.key('e');
+  assert.equal(stepOf(d.state).id, 'W2');
+});
+
+test('the back key: the steps from there on check again as they are met, and a quit mid-way resumes there (192)', () => {
+  const d = failing(onAfter());
+  says(d, 'It lists no changed file yet.', 'b');
+  d.key('e');
+  playUntil(d, atStep('W4'));
+  const r = reopen(d);
+  assert.equal(stepOf(r.state).id, 'W4', 'the quit mid-way resumes where the learner was');
+  assert.deepEqual(r.state.progress['b-2'].stamps, {});
+  assert.deepEqual(r.state.progress['b-2'].done, ['R1', 'R2', 'W1', 'W2', 'W3', 'W4', 'W5', 'W6']);
+  playUntil(r, (s) => s.view === 'step' && stepOf(s).id === 'W6' && s.pos.beat === 1);
+  // W6 stamps its snapshot again as it opens, so the one the first pass
+  // saved counts for nothing: the check waits for a new save.
+  const stamp = r.effects.find((e) => e.type === 'stamp' && e.key === 'W6.1');
+  assert.deepEqual(stamp, { type: 'stamp', key: 'W6.1', path: '.practice/b-2-before.txt', dir: FACTS.root });
+  r.send({ type: 'stamp', key: 'W6.1', stamp: 'OLD', dir: FACTS.root });
+  const pass = [{ index: 0, text: course.find((l) => l.id === 'b-2').items[0], pass: true, hint: '' }];
+  r.send({ type: 'check', lesson: 'b-2', items: pass, path: '.practice/b-2-before.txt', stamp: 'OLD' });
+  assert.deepEqual([r.state.beat.status, r.state.beat.stale], ['waiting', true], 'the snapshot from before the back waits');
+  r.send({ type: 'check', lesson: 'b-2', items: pass, path: '.practice/b-2-before.txt', stamp: 'NEW' });
+  assert.equal(r.state.beat.status, 'done', 'a new snapshot passes');
 });

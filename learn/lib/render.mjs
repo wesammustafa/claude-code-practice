@@ -6,7 +6,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -133,7 +133,7 @@ function screenOf(s, size, t, clock, raster) {
   const overlay = s.overlay ? OVERLAYS[s.overlay](ctx) : null;
   const body = overlay?.body ?? view.body;
   const keys = overlay?.keys ?? view.keys;
-  const spare = room() - 1 - body.reduce((n, r) => n + (r?.block ? r.rows.length : 1), 0);
+  const spare = room() - 1 - heightOf(body);
   // The blank under the header is the body's first spacer, so it goes last.
   const more = t.fg('muted', t.glyph.ellipsis);
   let lines = fit([SPACER, ...body], room(), rows < 24, more);
@@ -155,6 +155,9 @@ function screenOf(s, size, t, clock, raster) {
   out.push(...f.toast, ...f.gap, pulseLine(ctx), keybar(t, keys, W, s.held?.name));
   return { out: out.map(placed(t, M, cols)), spare };
 }
+
+// A body's rows, each block's counted whole.
+const heightOf = (body) => body.reduce((n, r) => n + (r?.block ? r.rows.length : 1), 0);
 
 // The frame and its view, with the rows an overlay has under the view's
 // header and its blank (ctx.room): what screenOf draws, and what cardMax
@@ -442,7 +445,7 @@ function absolute(url) {
 
 // The keys that fit in `w` columns: a low key (c card) gives way first, then
 // a key's long label to its short one (none, for the map's arrows), then the
-// optional keys go from the right; q always stays.
+// optional keys go from the right; q, and a key that `stays`, always stay.
 // The `held` letter, waiting DEFER_MS to act, draws pressed: inverse.
 function keybar(t, keys, w = Infinity, held = null) {
   const draw = (list, short) => list.map((k) => {
@@ -459,7 +462,7 @@ function keybar(t, keys, w = Infinity, held = null) {
   // The low keys are gone before any label shortens.
   list = high;
   while (width(draw(list, true)) > w) {
-    const drop = list.findLastIndex((k) => !k.main && k.key !== 'q' && k.key !== 'ctrl+c');
+    const drop = list.findLastIndex((k) => !k.main && !k.stays && k.key !== 'q' && k.key !== 'ctrl+c');
     if (drop < 0) break;
     list = list.filter((_, i) => i !== drop);
   }
@@ -1442,20 +1445,32 @@ function stepView(ctx) {
     if (beat.kind === 'predict' && !st.answer) rows.push(SPACER, ...para(t, C.anyAnswer, inner, 'muted'));
   }
 
-  const footer = footerRows(ctx, { beat, content, isLastBeat });
-  // Feedback, the hint box and the eased line: none of them drops.
-  if (footer.length) rows.push(SPACER, ...kept(footer));
+  // Feedback, the hint box, the eased line and the same-answer note: none
+  // of them drops.
+  const withFooter = (note) => {
+    const footer = footerRows(ctx, { beat, content, isLastBeat, note });
+    return footer.length ? [...rows, SPACER, ...kept(footer)] : rows;
+  };
 
   const whereKey = beat.kind === 'do' ? beat.where : beat.kind;
   const whereEmoji = { terminal: 'terminal', claude: 'claude', shell: 'terminal', editor: 'editor', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
   // A terminal or Claude Code names its folder where that isn't the copy.
   const place = ['terminal', 'claude', 'shell'].includes(whereKey) ? placeOf(s, t, beat, 16) : null;
   const tint = done ? 'ok' : style.tint;
-  return {
-    head: lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length)),
-    body: card(ctx, { tint, ...whereOf(t, whereEmoji, C.where[whereKey], place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows }),
-    keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }),
-  };
+  const head = lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length));
+  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, C.where[whereKey], place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows: withFooter(note) });
+  let body = cardWith(null);
+  // The same-answer note (ticket 192) takes the rows the screen pads with,
+  // and the row of a "Press h" line the key bar repeats, and no more: the
+  // first form that leaves the card no taller than its room, or than it
+  // was, so nothing above the note gives way or moves.
+  const notes = sameNotes(ctx);
+  if (notes.length) {
+    const most = Math.max(ctx.roomUnder(head.length) - 1, heightOf(body));
+    const tries = notes.flatMap((r) => [{ rows: r, press: true }, { rows: r, press: false }]);
+    body = tries.map(cardWith).find((b) => heightOf(b) <= most) ?? cardWith(tries.at(-1));
+  }
+  return { head, body, keys: stepKeys(ctx, { beat, step, content, done, isLastBeat }) };
 }
 
 // Chips in a beat share one width: room for the longest command, up to the
@@ -1501,7 +1516,7 @@ function spinning(ctx, lines) {
   return [...lines.slice(0, -1), `${lines.at(-1)} ${spin}${secs}`];
 }
 
-function footerRows(ctx, { beat, content, isLastBeat }) {
+function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
   const { s, t, inner } = ctx;
   const st = s.beat;
   const words = wordsOf(s);
@@ -1636,15 +1651,57 @@ function footerRows(ctx, { beat, content, isLastBeat }) {
         return text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat, r.lines), hw));
       }));
       const more = st.rung < rungs.length - 1;
+      // The last rung offers the earlier step a back line names, with its
+      // why (ticket 192). It stays when the same-answer note comes, so the
+      // offer never jumps below the note.
+      const back = !more && backOffered(s);
+      if (back) box.push(...backRows(ctx, back, hw));
       const pad3 = ' '.repeat(Math.max(3, width(t.lead('hint'))));
       const lines = box.map((x, i) => prefixed(i ? pad3 : `${t.lead('hint')}${' '.repeat(Math.max(0, 3 - width(t.lead('hint'))))}`, x));
-      if (more) lines.push(`   ${t.fg('muted', C.pressHAgain)}`);
+      // A note that needs its row takes the place of this line: the key
+      // bar still names h.
+      if (more && note?.press !== false) lines.push(`   ${t.fg('muted', C.pressHAgain)}`);
       rows.push(...hintBox(t, lines));
-    } else if (hintStatus(st) === 'fail' && hintAvailable(s)) rows.push(...para(t, C.pressH, inner - 2, 'muted').map((x) => `  ${x}`));
+    } else if (hintStatus(st) === 'fail' && hintAvailable(s)) rows.push(...(note?.press === false ? [] : para(t, C.pressH, inner - 2, 'muted').map((x) => `  ${x}`)));
     else if (st.idle && hintAvailable(s)) rows.push(t.fg('warn', C.stuckOffer));
   }
   if (st.eased && !['done', 'already'].includes(st.status) && s.pos.beat === 0) rows.push(...para(t, C.eased, inner, 'muted'));
+  // The same answer after a redo (ticket 192), in the form stepView chose:
+  // last, so no line above it moves as it comes.
+  if (note) rows.push(...note.rows);
   return rows;
+}
+
+// e's offer: the step it goes back to, by its number and title, then the
+// back line's why.
+function backRows(ctx, back, w) {
+  const { t } = ctx;
+  return [...para(t, C.goBack(back.at + 1, back.title), w, 'text'), ...para(t, back.text, w, 'muted', { quote: back.quoted })];
+}
+
+// The same-answer note's forms, longest first (ticket 192), or none where
+// it doesn't show. stepView takes the first that fits in the rows the screen
+// has free, so the note's coming moves no line already on screen. Its offer
+// is e's only where e works: never on the y/n, and not twice where the last
+// rung already offers it with its why, where the note can give way whole.
+// A short form leaves the why to that rung, one h away.
+function sameNotes(ctx) {
+  const { s, t, inner } = ctx;
+  const st = s.beat;
+  if (!st.same || hintStatus(st) !== 'fail') return [];
+  const full = para(t, C.sameAnswer, inner, 'warn');
+  const short = para(t, C.sameShort, inner, 'warn');
+  const back = backOffered(s);
+  if (st.confirm || (back && st.rung === rungsOf(s).length - 1)) return [[SPACER, ...full], full, short, ...(back ? [[]] : [])];
+  if (!back) {
+    const stuck = para(t, wordsOf(s).stillStuck, inner, 'muted');
+    return [[SPACER, ...full, ...stuck], [...full, ...stuck], full, short];
+  }
+  const n = back.at + 1;
+  const offer = backRows(ctx, back, inner);
+  const to = para(t, C.goBackTo(n, back.title), inner, 'text');
+  return [[SPACER, ...full, ...offer], [...full, ...offer], [...short, ...offer], [...full, ...to], [...short, ...to],
+    para(t, C.sameBack(n, back.title), inner, 'warn'), para(t, C.sameBack(n), inner, 'warn')];
 }
 
 // What git status lists that a git-clean beat counts.
@@ -1695,18 +1752,21 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   if (beat.kind === 'type') return [key('enter', C.k.answer), key('esc', C.k.clear), key('ctrl+c', C.k.quit)];
   const hint = hintAvailable(s) ? key('h', st.rung >= 0 ? C.k.moreHelp : hintStatus(st) === 'fail' ? C.k.help : C.k.hint) : null;
   const why = beat.why.length ? key('w', C.k.why) : null;
+  // e comes in before q, so the keys already on the bar keep their places,
+  // and it stays when a narrow bar drops keys: the note names it (192).
+  const earlier = backOffered(s) ? { ...key('e', C.k.earlier), short: C.k.earlierShort, stays: true } : null;
   if (beat.ask && !st.answer) {
-    return [key(t.glyph.up, C.k.choose), key('enter', C.k.answer), st.wrongs.length && beat.kind !== 'predict' ? key('s', C.k.showAnswer) : null, hint, why, copy, key('q', C.k.quit)];
+    return [key(t.glyph.up, C.k.choose), key('enter', C.k.answer), st.wrongs.length && beat.kind !== 'predict' ? key('s', C.k.showAnswer) : null, hint, why, copy, earlier, key('q', C.k.quit)];
   }
   const v = beat.verify.kind;
   if (v === 'self' || v === 'none' || beat.kind === 'self' || (v === 'git-clean' && beat.doneLabel)) {
     const k = v === 'none' ? 'enter' : 'space';
     // A done-label git beat at CHALLENGE: r is the try that opens h, so offer it.
     const r = !hint && tier === 'challenge' && tryFirst(s) === 'r' && !st.unlocked && rungsOf(s).length ? key('r', C.k.checkNow) : null;
-    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, copy, key('m', C.k.map), card, key('q', C.k.quit)];
+    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, copy, key('m', C.k.map), card, earlier, key('q', C.k.quit)];
   }
   const r = hintStatus(st) === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
-  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), copy, card, key('q', C.k.quit)];
+  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), copy, card, earlier, key('q', C.k.quit)];
 }
 // The next screen's enter: the next lesson, or the map after the last.
 const nextKey = (s) => {

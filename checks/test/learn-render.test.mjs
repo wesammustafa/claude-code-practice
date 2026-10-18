@@ -3652,3 +3652,104 @@ test('a ladder bottom that stands in for a beat\'s commands gets a chip as wide 
   const at60 = render(d.state, { cols: 60, rows: 20 }, theme(CAPS.full)).map(strip);
   assert.ok(at60.some((l) => l.includes(long)), `the command is on one row at 60x20:\n${at60.join('\n')}`);
 });
+
+// 192: the same-answer note on b-2's after snapshot, with the real FAIL
+// message 190 wrote, with no hint open, on each rung of the hint ladder and
+// on its y/n. The note takes only the rows the screen pads with, and the
+// row of a "Press h" line the key bar repeats: at 60x20 and 80x24 no row
+// above it moves and nothing more is cut, every look shows the same words,
+// the offer is e's only where e works, and the last rung keeps its own.
+test('the same-answer note: no row above it moves, nothing cut, the same words in every look, e offered only where it works (192)', async () => {
+  const { lessons } = await import('../lessons/index.mjs');
+  const { openRepo } = await import('../repo.mjs');
+  const { repo, withRepo, write } = await import('./helpers.mjs');
+  const item = lessons['b-2'].items[1];
+  const hint = withRepo(() => repo(), (dir) => {
+    write(dir, { '.practice/b-2-plan.txt': 'src/config.js\n', '.practice/b-2-after.txt': '' });
+    return item.check(openRepo(dir));
+  });
+  assert.match(hint, /lists no changed file yet/);
+  const path = '.practice/b-2-after.txt';
+  const says = (d, h, stamp) => d.send({ type: 'check', lesson: 'b-2', items: [{ index: 1, text: item.text, pass: false, hint: h }], path, stamp });
+  // On the after snapshot with the FAIL on screen, h pressed `presses` times
+  // (then y, where `yes`): the note comes with the next identical FAIL.
+  const onAfter = (presses, yes = false) => {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-2'), 'b-2': { step: 'W7', beat: 4, warm: ['R1', 'R2'], done: [], stamps: { 'W7.4': 'S' } } } } });
+    d.key('enter');
+    says(d, 'After Claude finishes the edits, run it.', '');
+    says(d, hint, 'a');
+    for (let i = 0; i < presses; i++) {
+      d.send({ type: 'key', name: 'h', ch: 'h', wait: 3_000 });
+      d.send({ type: 'flush', wait: 400 });
+    }
+    if (yes) d.key('y');
+    return d;
+  };
+  const cases = [];
+  for (let presses = 0; presses < 8; presses++) {
+    const d = onAfter(presses);
+    if (!d.state.beat.confirm) {
+      cases.push([d.state.beat.rung < 0 ? 'no hint' : `rung ${d.state.beat.rung + 1}`, () => onAfter(presses)]);
+      continue;
+    }
+    cases.push(['the y/n', () => onAfter(presses)], ['the last rung', () => onAfter(presses, true)]);
+    break;
+  }
+  assert.ok(cases.length >= 5, cases.map(([l]) => l).join(', '));
+  const offer = flatText(C.goBack(4, 'Switch to plan mode'));
+  const why = flatText('The edits this step saves come from the plan you make there.');
+  const cutRows = (lines, cols) => lines.filter((l) => /^([│|]\s+)?(…|\.\.\.)$/.test(l.trim()) || (l.endsWith('…') && width(l) === cols - 1)).length;
+  for (const [label, make] of cases) {
+    const d = make();
+    const last = label === 'the last rung';
+    if (last) assert.equal(d.state.beat.rung, rungsOf(d.state).length - 1);
+    const sizes = [[60, 20], [80, 24]];
+    const before = Object.entries(CAPS).flatMap(([capName, caps]) => sizes.map(([cols, rows]) => [capName, cols, rows, render(d.state, { cols, rows }, theme(caps)).map(strip)]));
+    says(d, hint, 'b');
+    assert.equal(d.state.beat.same, true, label);
+    const noteWords = {};
+    for (const [capName, cols, rows, was] of before) {
+      const t = theme(CAPS[capName]);
+      const now = render(d.state, { cols, rows }, t).map(strip);
+      const where = `${label} at ${cols}x${rows} (${capName})\nbefore:\n${was.join('\n')}\nafter:\n${now.join('\n')}`;
+      assert.equal(now.length, rows, where);
+      for (const l of now) assert.ok(width(l) <= cols - 1, `a line is too wide: ${where}`);
+      // Every row above the note, and above the "Press h" line it may take
+      // the place of, stays where it was.
+      const bottom = was.findIndex(cardBottom(t));
+      const press = was.findIndex((l) => l.includes(C.pressH) || l.includes(C.pressHAgain));
+      const end = press >= 0 ? press : bottom;
+      assert.ok(end > 0 && bottom > 0, where);
+      assert.deepEqual(now.slice(0, end), was.slice(0, end), `a row above the note moved: ${where}`);
+      assert.equal(cutRows(now, cols), cutRows(was, cols), `the note cut a line: ${where}`);
+      const nowBottom = now.findIndex(cardBottom(t));
+      assert.ok(nowBottom >= end, `the card's bottom border is gone: ${where}`);
+      // The note's words, after the "Press h" line where it stays.
+      let note = flatText(now.slice(end, nowBottom).join(''));
+      for (const p of [C.pressH, C.pressHAgain].map(flatText)) if (note.startsWith(p)) note = note.slice(p.length);
+      noteWords[`${cols}x${rows}`] ??= note;
+      assert.equal(note, noteWords[`${cols}x${rows}`], `the note's words differ in ${capName}: ${where}`);
+      const text = flatText(now.join(''));
+      const keys = now.at(-1);
+      if (label === 'the y/n') {
+        // On the y/n e does nothing, so nothing offers it.
+        assert.ok(!text.includes('Presse'), `the y/n offers e: ${where}`);
+        assert.doesNotMatch(keys, /\be earlier/, where);
+      } else {
+        assert.ok(text.includes('Presse'), `nothing offers e: ${where}`);
+        assert.match(keys, /\be earlier\b/, `the key bar doesn't name e: ${where}`);
+      }
+      if (last) {
+        // The last rung keeps its offer, with the why, where it was.
+        assert.equal(text.split(offer).length, 2, `the offer shows once: ${where}`);
+        assert.ok(text.includes(why), `the why is gone: ${where}`);
+      } else assert.match(note, /^(Youredidthisstep|Sameansweragain)/, `the note is not on screen: ${where}`);
+      // Where the window has the room, the note is whole, with the why.
+      if (cols === 80 && label === 'no hint') {
+        for (const w of [C.sameAnswer, C.goBack(4, 'Switch to plan mode'), 'The edits this step saves come from the plan you make there.']) assert.ok(note.includes(flatText(w)), `"${w}" is not whole: ${where}`);
+      }
+      // The keys already on the bar keep their places: e comes in before q.
+      if (cols === 80) assert.ok(keys.startsWith(was.at(-1).replace(/\s+q quit$/, '')), `the key bar moved: ${where}`);
+    }
+  }
+});
