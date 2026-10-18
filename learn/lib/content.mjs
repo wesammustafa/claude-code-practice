@@ -29,7 +29,7 @@ export const BEAT_KEYS = {
   say: false, ask: false, other: false, decoy: false, 'reveal-at': false, recall: false, accept: false, code: false,
   goal: true, do: true, run: true, win: true, expect: true, note: true, rule: true, after: true, why: true,
   codespace: true, 'win-note': true, hint: true, bottom: true, because: true, point: true, reveal: true, self: true,
-  right: null, wrong: null, option: null, stuck: null,
+  right: null, wrong: null, option: null, stuck: null, back: null,
 };
 // `why`: why the lesson matters; `payoff`: the one `can` line the intro and
 // complete screens flag as what the lesson builds to; `read`: one line of
@@ -42,7 +42,11 @@ export const BEAT_KEYS = {
 // only where the lesson runs in its level's work folder and that folder is
 // not the practice copy (ticket 179).
 export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, read: true, need: true, 'win-note': true, 'need-repo': true };
-export const LADDER_KEYS = { hint: true, bottom: true, win: true };
+// `back`, on a ladder block or a beat (ticket 192): where the step's state
+// comes from, as `- back: <step id> <why>`, the why a quote of the page or
+// the app's own words. A check that keeps answering the same sends the
+// learner back there.
+export const LADDER_KEYS = { hint: true, bottom: true, win: true, back: null };
 // The card (the c overlay): each entry a `skill` line in the app's words,
 // then the page's command (`show`) and what it does (`does`). An entry shows
 // once the learner finished a step on its skill.
@@ -201,6 +205,11 @@ export function parseLesson(text, file = 'lesson') {
     if (section === 'ladder') {
       if (!rung) fail(i, 'a ladder line before its heading');
       if (!(key in LADDER_KEYS)) fail(i, `unknown ladder key ${key}`);
+      if (key === 'back') {
+        if (rung.back) fail(i, 'a second back line in one ladder block');
+        rung.back = backLine(raw, i, fail);
+        continue;
+      }
       if (!v.quoted) fail(i, `${key} must be a quote of the lesson`);
       if (key === 'hint') rung.hints.push(v.text);
       else if (key === 'bottom') rung.bottom.push({ text: v.text });
@@ -255,6 +264,10 @@ export function parseLesson(text, file = 'lesson') {
       if (point < from || point > to) fail(i, `point ${point} is not a line this beat shows (${from} to ${to})`);
       beat.lines.push({ key: 'code', text: block.join('\n'), quoted: true, lines: block, from, to, point });
       i = end;
+    } else if (key === 'back') {
+      if (step.part === 'Warm-up') fail(i, 'a back line on a warm-up: only a lesson step goes back to an earlier one');
+      if (beat.back) fail(i, 'a second back line on one beat');
+      beat.back = backLine(raw, i, fail);
     } else if (key === 'tick') {
       const last = beat.lines.at(-1);
       if (last?.key !== 'run') fail(i, 'a tick line with no run line above it');
@@ -293,7 +306,39 @@ export function parseLesson(text, file = 'lesson') {
       if (b.lines.some((l) => l.doneWhen) && b.verify.kind !== 'check' && !READS.has(b.verify.kind)) throw new Error(`${file}:${b.line}: a "Done when" say line needs a check beat or a beat that reads a file`);
     }
   }
+  backsOf(lesson, file);
   return lesson;
+}
+
+// `back: <step id> <why>` (ticket 192): the step, then why its state is
+// where this one's comes from, quoted from the page or in the app's words.
+function backLine(raw, n, fail) {
+  const m = raw.match(/^(\S+) (\S.*)$/);
+  if (!m) fail(n, "a back line is a step id, then why: a quote of the page or the app's own words");
+  return { step: m[1], ...value(m[2].trim()), line: n + 1 };
+}
+
+// Each back line goes to an earlier step of this lesson: on a beat, before
+// the beat's own step; in a ladder block, before the first step that checks
+// its item, so every step that shows the item's FAIL is after it. A back to
+// another lesson, to a step this lesson doesn't have, or to the step itself
+// or one after it is an error, naming its line.
+function backsOf(lesson, file) {
+  const ids = lesson.steps.map((s) => s.id);
+  const check = (back, from, what) => {
+    const at = `${file}:${back.line}`;
+    if (/^[a-z]+-/.test(back.step)) throw new Error(`${at}: back ${back.step} names another lesson: a back goes to a step of this lesson`);
+    if (!ids.includes(back.step)) throw new Error(`${at}: back ${back.step}: this lesson has no step ${back.step}`);
+    if (from !== null && ids.indexOf(back.step) >= from) throw new Error(`${at}: back ${back.step} is not before ${what}`);
+  };
+  lesson.steps.forEach((s, k) => s.beats.forEach((b) => b.back && check(b.back, k, `step ${s.id}, the step it goes back from`)));
+  const items = checks[lesson.lesson]?.items ?? [];
+  for (const rung of lesson.ladder) {
+    if (!rung.back) continue;
+    const item = items.findIndex((it) => it.text === rung.item);
+    const first = item < 0 ? -1 : lesson.steps.findIndex((s) => s.beats.some((b) => b.verify.kind === 'check' && (b.verify.all || b.verify.items.includes(item))));
+    check(rung.back, first < 0 ? null : first, `step ${lesson.steps[first]?.id}, the first step that checks this item`);
+  }
 }
 
 // A front matter list: an inline or block list, or one item alone.

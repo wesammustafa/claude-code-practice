@@ -777,3 +777,59 @@ test('a code block shows on a do, ask or self beat, and names no folder a run li
   }
 });
 
+
+// ---- back lines (ticket 192) --------------------------------------------------
+// `- back: <step id> <why>` on a ladder block or a beat: where the step's
+// state comes from. b-2's after item is its one use so far; 195 and 196 add
+// the rest with each level's rework.
+const B2 = readFileSync(join(dir, 'b-2.md'), 'utf8');
+const B2_BACK = '- back: W2 The edits this step saves come from the plan you make there.\n';
+const withBack = (line, text = B2) => parseLesson(text.replace(B2_BACK, line), 'b-2.md');
+
+test('back lines: b-2\'s after item goes back to the step that switches to plan mode, before the step that asks for the change', () => {
+  assert.ok(B2.includes(B2_BACK));
+  const rung = parsed['b-2'].ladder.find((r) => r.item === lessons['b-2'].items[1].text);
+  assert.deepEqual([rung.back.step, rung.back.quoted], ['W2', false]);
+  const steps = parsed['b-2'].steps.map((s) => s.id);
+  assert.equal(steps[steps.indexOf('W2') + 1], 'W3');
+  assert.ok(parsed['b-2'].steps.find((s) => s.id === 'W3').beats[0].lines.some((l) => l.key === 'goal' && /Ask for the change/.test(l.text)));
+});
+
+test('back lines: a later step, a step the lesson lacks, another lesson, a warm-up or a second line fails, naming its line', () => {
+  const bad = [
+    ['- back: W8 why\n', /b-2\.md:\d+: back W8 is not before step W7, the first step that checks this item/],
+    ['- back: W7 why\n', /back W7 is not before step W7/],
+    ['- back: Y1 why\n', /back Y1 is not before step W7/],
+    ['- back: W9 why\n', /b-2\.md:\d+: back W9: this lesson has no step W9/],
+    ['- back: R1 why\n', /this lesson has no step R1/],
+    ['- back: b-1 W2 why\n', /b-2\.md:\d+: back b-1 names another lesson/],
+    ['- back: b-1.W2 why\n', /back b-1\.W2 names another lesson/],
+    ['- back: W2\n', /b-2\.md:\d+: a back line is a step id, then why/],
+    [`${B2_BACK}${B2_BACK}`, /a second back line in one ladder block/],
+  ];
+  for (const [line, error] of bad) assert.throws(() => withBack(line), error, line);
+  // On a beat: before the beat's own step.
+  const onY5 = (line) => withBack(B2_BACK, B2.replace('- after: "Stop before committing.', `${line}- after: "Stop before committing.`));
+  assert.equal(onY5('- back: Y1 Your turn starts over here.\n').steps.find((s) => s.id === 'Y5').beats[3].back.step, 'Y1');
+  assert.throws(() => onY5('- back: Y5 why\n'), /back Y5 is not before step Y5, the step it goes back from/);
+  assert.throws(() => onY5('- back: C why\n'), /back C is not before step Y5/);
+  assert.throws(() => onY5('- back: Y1 one\n- back: Y2 two\n'), /a second back line on one beat/);
+  assert.throws(() => withBack(B2_BACK, B2.replace('- from: b-1\n- where: claude\n- beat: ask\n- ask: When the trust dialog', '- from: b-1\n- where: claude\n- beat: ask\n- back: W1 why\n- ask: When the trust dialog')), /a back line on a warm-up/);
+  // A quote parses as one.
+  const { step, text, quoted } = withBack('- back: W2 "It can\'t edit your files until you approve the plan"\n').ladder[1].back;
+  assert.deepEqual({ step, text, quoted }, { step: 'W2', text: "It can't edit your files until you approve the plan", quoted: true });
+});
+
+// The guide's quote check (lesson-quotes) compares a `- key: "…"` line whose
+// whole value is a quote, so the quote after a back line's step id is one it
+// doesn't read yet: until it does, a back line's why is the app's own words,
+// which name no command or code.
+test('back lines: each why is the app\'s own words until the guide\'s quote check reads them, and names no command', () => {
+  for (const [id, l] of Object.entries(parsed)) {
+    const backs = [...l.ladder.map((r) => r.back), ...l.steps.flatMap((s) => s.beats.map((b) => b.back))].filter(Boolean);
+    for (const back of backs) {
+      assert.equal(back.quoted, false, `${id}:${back.line}: a back line quotes the page before the guide's quote check reads it`);
+      assert.doesNotMatch(back.text, /`|(^|\s)\/[a-z]/, `${id}:${back.line}: "${back.text}" names a command`);
+    }
+  }
+});

@@ -492,6 +492,47 @@ export function rungsOf(s) {
   return rungs;
 }
 
+// Where the step's state comes from (ticket 192): the earlier step a `back`
+// line names, with its place in play order and its title. The beat's own
+// line first; else the ladder block's for the item that FAILs, from a step
+// of the part it names, as a Your turn or the Check redoes the Worked
+// example on its own. Null where there is none, or none before this step.
+export function backTo(s) {
+  if (s.view !== 'step' || !s.beat || isDone(s.beat)) return null;
+  const st = s.beat;
+  const steps = stepsOf(s);
+  const item = hintStatus(st) === 'fail' ? st.fail?.item : null;
+  const ladder = item ? contentOf(s).ladder.find((l) => l.item === item)?.back : null;
+  const part = (back) => steps.find((x) => x.id === back?.step)?.part === stepOf(s).part;
+  const back = beatOf(s).back ?? (part(ladder) ? ladder : null);
+  const at = back ? steps.findIndex((x) => x.id === back.step) : -1;
+  return at >= 0 && at < s.pos.step ? { ...back, at, title: steps[at].title } : null;
+}
+// Where e goes back offers it: on the same-answer note, or on the hint
+// ladder's last rung while it is open.
+export function backOffered(s) {
+  const back = backTo(s);
+  const st = s.beat;
+  if (!back || st.confirm) return null;
+  const note = st.same && hintStatus(st) === 'fail';
+  return note || (st.rung >= 0 && st.rung === rungsOf(s).length - 1) ? back : null;
+}
+
+// e: back to the step a back line names. Every saved file and done tick
+// stays; the fresh checks stamped there or later lose their stamps, so each
+// takes a new one as its step opens again and waits for new work.
+function goBack(s, back, effects) {
+  const p = s.progress[s.lesson];
+  const steps = stepsOf(s);
+  const opensAt = (key) => {
+    const id = key.slice(0, key.lastIndexOf('.'));
+    const beat = steps.find((x) => x.id === id)?.beats[Number(key.slice(key.lastIndexOf('.') + 1))];
+    return steps.findIndex((x) => x.id === (beat?.verify.since ?? id));
+  };
+  p.stamps = Object.fromEntries(Object.entries(p.stamps).filter(([k]) => opensAt(k) < back.at));
+  openStep(s, back.at, effects);
+}
+
 // A GUIDED step met with less help: its run lines and code block leave the
 // card for the bottom rung.
 export const hidesRuns = (s) => tierOf(s) !== 'guided' && authoredTier(s) === 'guided';
@@ -894,7 +935,7 @@ function onCheck(s, ev, effects, rRuns) {
       return;
     }
     if (st.baseline === undefined) st.baseline = null;
-    Object.assign(st, { status: 'waiting', slowWait: true, fail: null, error: null, rung: -1, confirm: false, explicit: false });
+    Object.assign(st, { status: 'waiting', slowWait: true, fail: null, error: null, rung: -1, confirm: false, explicit: false, same: false });
     return;
   }
   st.slowWait = false;
@@ -962,6 +1003,14 @@ function decide(s, ev, effects, failing) {
   const explicit = st.explicit;
   st.explicit = false;
   st.error = null;
+  // The same FAIL message as the result before, with the watched file
+  // changed between them: the learner redid the step and the check says the
+  // same, so the cause is likely earlier (ticket 192). Only a result that
+  // carries its file's state (`stamp`) tells a redo from a poll or an r.
+  const stamp = typeof ev.stamp === 'string' ? ev.stamp : null;
+  const redone = Boolean(failing) && stamp !== null && st.last?.hint === failing.hint && st.last.stamp !== null && st.last.stamp !== stamp;
+  st.last = failing ? { hint: failing.hint, stamp } : null;
+  if (!failing) st.same = false;
   if (!failing && stale) {
     if (st.baseline === undefined) st.baseline = null;
     st.status = 'waiting';
@@ -988,10 +1037,18 @@ function decide(s, ev, effects, failing) {
   }
   // Once a fail is on screen it follows the check; before that, a fail that
   // only repeats the first answer means nothing changed yet.
-  if (st.status === 'fail' || failing.hint !== st.baseline || explicit) {
+  const shown = hintStatus(st) === 'fail';
+  if (shown || failing.hint !== st.baseline || explicit) {
     if (st.fail?.hint !== failing.hint) {
       st.rung = -1;
       st.confirm = false;
+      st.same = false;
+    }
+    // The note follows a FAIL the learner saw, never the first one on
+    // screen, and shows once a beat visit: after it goes, it stays gone.
+    if (redone && shown && !st.sameShown) {
+      st.same = true;
+      st.sameShown = true;
     }
     st.status = 'fail';
     st.fail = failing;
@@ -1246,7 +1303,7 @@ function stampFx(prev, s, ev) {
     const notYet = st.status === 'fail' && (was.status !== 'fail' || !sameJson(st.fail, was.fail));
     const rung = st.rung >= 0 && st.rung !== was.rung;
     const feedback = Boolean(st.feedback) && !sameJson(st.feedback, was.feedback);
-    if (notYet || rung || feedback || (st.revealed && !was.revealed)) fx.text = t;
+    if (notYet || rung || feedback || (st.revealed && !was.revealed) || (st.same && !was.same)) fx.text = t;
     if (isDone(st) && !isDone(was)) {
       // A pass: the beat on screen turned done by a result or a right
       // answer, not by a guess or a shown answer.
@@ -1509,6 +1566,8 @@ const VIEWS = {
       return true;
     }
     if (name === 'b') return back(s, effects), true;
+    const earlier = name === 'e' && backOffered(s);
+    if (earlier) return goBack(s, earlier, effects), true;
     if (name === 'w' && beat.why.length) {
       s.overlay = 'why';
       return true;
