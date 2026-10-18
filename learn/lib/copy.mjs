@@ -111,6 +111,16 @@ export const C = {
   pressHAgain: 'Press h again for more help.',
   checkSays: 'The check says:',
   showExact: 'Show the exact command? y / n',
+  // A check that answers the same after the learner redid the step (ticket
+  // 192). The app can't see why, so it points earlier, and to the step a
+  // lesson's back line names, which e goes back to.
+  sameAnswer: 'You redid this step and the check says the same, so the cause is likely in an earlier step.',
+  goBack: (n, title) => `Press e to go back to step ${n}: ${title}. Your files and ticks stay.`,
+  // The note's shorter forms, for a window with fewer spare rows: the note
+  // takes only the rows the screen has free, so nothing on it moves.
+  sameShort: 'Same answer again: the cause is likely earlier.',
+  goBackTo: (n, title) => `Press e to go back to step ${n}: ${title}.`,
+  sameBack: (n, title) => (title ? `Same answer again. Press e to go back to step ${n}: ${title}.` : `Same answer again. Press e to go back to step ${n}.`),
   stuckOffer: 'Stuck? Press h for a hint.',
   broken: (error) => `The check could not run: ${error}. This isn't your work. Press r to try again.`,
   gitFailAfter: 'Press r to look again.',
@@ -309,6 +319,6 @@ export const C = {
     bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
     useIt: 'use it', cancel: 'cancel', folder: 'folder', giveFolder: 'give its folder',
     continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', scroll: 'scroll', level: 'level', card: 'card', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
-    copy: 'copy',
+    copy: 'copy', earlier: 'earlier step', earlierShort: 'earlier',
   },
 };
