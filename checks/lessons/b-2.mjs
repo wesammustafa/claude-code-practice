@@ -26,7 +26,13 @@ export const items = [
       const plan = repo.read('.practice/b-2-plan.txt');
       const after = repo.read('.practice/b-2-after.txt');
       if (plan === null || !plan.trim()) return 'Write the files the plan will change into `.practice/b-2-plan.txt`, one path per line, before you approve.';
-      if (after === null || !statusPaths(after).length) return 'After Claude finishes the edits, run `git status --porcelain > .practice/b-2-after.txt`.';
+      if (after === null) return 'After Claude finishes the edits, run `git status --porcelain > .practice/b-2-after.txt`.';
+      // An empty snapshot is git seeing no edit yet, not a missing save: the
+      // learner ran the command, so repeating it reads as stuck (190). It
+      // keeps step 7's "or No" so it never says to approve every request,
+      // and stays five lines in a 60x20 hint box so the card keeps its Goal
+      // and border.
+      if (!statusPaths(after).length) return '`.practice/b-2-after.txt` lists no changed file yet. Approve the plan (Yes, manually approve edits), then read each request: plain Yes, or No if it does more than the plan needs. Once `git status` lists changes, save it again.';
       const planned = planPaths(plan, repo.dir);
       const extra = statusPaths(after).filter((path) => !inPlan(planned, path));
       if (extra.length) return `Changed but not in the plan: ${extra.join(', ')}. Compare the plan you approved with what Claude changed.`;
