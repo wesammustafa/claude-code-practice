@@ -55,11 +55,15 @@ export const C = {
   where: { terminal: 'in your other terminal', claude: 'in Claude Code', shell: 'in a third terminal', editor: 'in your editor', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
   warmup: (n, level) => `Warm-up from ${level ? `${level} lesson` : 'lesson'} ${n}`,
   warmupIndex: (level) => `Warm-up from the ${level} ${TERMS.levelIndex}`,
-  warmupWhy: "A warm-up brings back an earlier lesson from memory. A wrong answer is fine: you see the lesson's words at once.",
+  // A wrong pick shows its because at once, but a typed warm-up with no hint
+  // (Intermediate's, 137) shows the lesson's words only after a second try,
+  // and since 194 this line goes on whichever warm-up a learner meets first:
+  // so "follow", not "at once".
+  warmupWhy: "A warm-up brings back an earlier lesson from memory. A wrong answer is fine: the lesson's words follow.",
   // A warm-up from a level index quotes that page, not a lesson (ticket
   // 178): these take the place of the words of the same name around it.
   fromIndex: {
-    warmupWhy: `A warm-up asks one question from memory. A wrong answer is fine: you see the ${TERMS.levelIndex}'s words at once.`,
+    warmupWhy: `A warm-up asks one question from memory. A wrong answer is fine: the ${TERMS.levelIndex}'s words follow.`,
     why: `Why this matters, in the ${TERMS.levelIndex}'s words:`,
     trueOfElse: `That's true of something else. The ${TERMS.levelIndex} says:`,
     theAnswer: `The answer, in the ${TERMS.levelIndex}'s words:`,

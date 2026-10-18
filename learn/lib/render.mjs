@@ -5,7 +5,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet, WARMUPS,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -890,7 +890,8 @@ const VIEWS = {
     const { s, t, W } = ctx;
     const content = contentOf(s);
     const asking = asksFolder(s);
-    const warmups = Math.min(WARMUPS, content.warmup.length);
+    // The warm-up the play will ask, if any: one on a missed skill (194).
+    const warmups = pickWarmups(s).length;
     // The climb is the lesson's own steps: warm-ups are recall, not new help.
     const steps = stepsOf(s);
     const m = mix(tiersOf(asStarted(s)).filter((_, i) => steps[i].part !== 'Warm-up'));
@@ -1310,10 +1311,13 @@ function mixBar(ctx, lesson, cells) {
 
 // ---- the step card -----------------------------------------------------------
 // The level's first warm-up: the first step a lesson plays, on a warm-up,
-// in the first lesson of its level that has warm-ups. It comes from the
-// content and the step's place alone: nothing is saved.
+// when no other lesson of its level played one. Since 194 a lesson plays a
+// warm-up only on a missed skill, so the level's first lesson with a pool
+// may play none and the learner meets their first warm-up later: the play
+// decides, not the content. Each lesson's saved `warm`, which it already
+// kept, says what it played, so the save gains nothing.
 const firstWarmupOfLevel = (s) => s.pos.step === 0
-  && levelLessons(s, levelOf(s)).find((l) => l.content?.warmup.length)?.id === s.lesson;
+  && !levelLessons(s, levelOf(s)).some((l) => l.id !== s.lesson && s.progress[l.id]?.warm.length);
 
 function stepView(ctx) {
   const { s, t, inner } = ctx;

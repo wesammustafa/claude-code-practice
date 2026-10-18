@@ -62,7 +62,8 @@ const has = (lines, text) => lines.some((l) => l.includes(text));
 
 test('lesson numbers count within a level: i-2 is lesson 2, and its warm-ups from b-1 name Beginner', () => {
   const course = threeLevels({ 'i-2': I2 });
-  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: doneBefore(course, 'i-2') } });
+  // status missed before, so R1 (from b-1) plays (194).
+  const d = driver({ course, saved: { format: 1, welcomed: true, missed: ['status'], lessons: doneBefore(course, 'i-2') } });
   assert.equal(d.state.view, 'intro');
   assert.equal(d.state.lesson, 'i-2');
   // The level's first intro in the app asks where to practise (ticket 86): this practice copy.
@@ -79,7 +80,7 @@ test('lesson numbers count within a level: i-2 is lesson 2, and its warm-ups fro
 
 test('a warm-up from its own level names no level: b-2\'s from b-1 says "Warm-up from lesson 1"', () => {
   const course = threeLevels();
-  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: doneBefore(course, 'b-2') } });
+  const d = driver({ course, saved: { format: 1, welcomed: true, missed: ['start'], lessons: doneBefore(course, 'b-2') } });
   d.key('enter');
   assert.equal(stepOf(d.state).part, 'Warm-up');
   assert.ok(has(screen(d.state), 'Warm-up from lesson 1'), screen(d.state).join('\n'));
