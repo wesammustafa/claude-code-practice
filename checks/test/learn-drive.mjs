@@ -2,7 +2,7 @@
 // the check's real FAIL messages, so tests can look at every screen.
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadCourse, parseLesson } from '../../learn/lib/content.mjs';
+import { loadCourse, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { beatOf, DEFER_MS, hintAvailable, IDLE_MS, initialState, lessonOf, reduce, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
 import { versionSaved } from '../lessons/b-1.mjs';
 import { openRepo } from '../repo.mjs';
@@ -28,8 +28,8 @@ export const b1Only = course.map((l) => (l.id === 'b-1' ? l : { ...l, content: n
 export const courseWith = (texts) => b1Only.map((l) => (texts[l.id] ? { ...l, content: parseLesson(texts[l.id], `${l.id}.md`) } : l));
 
 // The course of all three levels, with made-up content files for some
-// lessons, { id: text }. The Intermediate and Advanced lessons have no lesson
-// file yet, so they are check-only unless `texts` gives one content.
+// lessons, { id: text }, in place of their own. A lesson with no lesson file
+// yet (i-5 on, today) is check-only unless `texts` gives it content.
 export const threeLevels = (texts = {}) => course.map((l) => (texts[l.id] ? { ...l, content: parseLesson(texts[l.id], `${l.id}.md`) } : l));
 
 // A made-up lesson 2 with what lesson 1 doesn't have: three warm-ups, a
@@ -255,10 +255,75 @@ export function mapTo(d, id) {
   if (d.state.course[d.state.mapCursor].id !== id) throw new Error(`mapTo: the map's cursor never reached ${id}`);
 }
 
+// A line that a lesson's match regex matches, built from the regex itself:
+// its first branch of every group, one of every class or wildcard, a
+// quantified part once. Enough for the plain regexes lesson files hold
+// (app words, no lookaround or backreference); a test fails loudly where one
+// is beyond it.
+export function lineFor(regex) {
+  const ESCAPES = { s: ' ', S: 'x', w: 'x', W: '-', d: '1', D: 'x', b: '' };
+  let i = 0;
+  const branch = () => {
+    let out = '';
+    while (i < regex.length && regex[i] !== '|' && regex[i] !== ')') {
+      const c = regex[i++];
+      let part;
+      if (c === '^' || c === '$') part = '';
+      else if (c === '\\') {
+        part = ESCAPES[regex[i]] ?? regex[i];
+        i++;
+      }
+      else if (c === '.') part = 'x';
+      else if (c === '[') {
+        const end = regex.indexOf(']', i + 1);
+        const set = regex.slice(i, end);
+        i = end + 1;
+        part = set[0] === '\\' ? (ESCAPES[set[1]] ?? set[1]) : set[0];
+      } else if (c === '(') {
+        if (regex.startsWith('?:', i)) i += 2;
+        part = branch();
+        while (regex[i] === '|') {
+          i++;
+          branch();
+        }
+        i++;
+      } else part = c;
+      const q = regex[i];
+      if (q === '*' || q === '?') {
+        i++;
+        part = '';
+      } else if (q === '+') i++;
+      if (regex[i] === '?') i++;
+      out += part;
+    }
+    return out;
+  };
+  const line = branch();
+  if (!new RegExp(regex).test(line)) throw new Error(`lineFor: no line made for /${regex}/ (made "${line}")`);
+  return line;
+}
+
+// A JSON file that holds the key path a json beat reads, with its value
+// (text, as the beat compares it) or any value: an array at each index part.
+export function jsonFor(key, value) {
+  if (!key) return '{}';
+  const parts = key.split('.');
+  const make = (k) => {
+    if (k === parts.length) return value ?? 'x';
+    const inner = make(k + 1);
+    if (!/^\d+$/.test(parts[k])) return { [parts[k]]: inner };
+    return [...Array.from({ length: Number(parts[k]) }, () => 'x'), inner];
+  };
+  return JSON.stringify(make(0));
+}
+
+// What a file holds once the step's work is done, for a beat that reads it.
+const readsRight = (v) => (v.kind === 'json' ? jsonFor(v.key, v.value) : v.kind === 'match' ? `${lineFor(v.regex)}\n` : v.kind === 'no-match' ? 'a line\n' : 'src/config.js');
+
 // Plays on as a learner who needs no help, until `stop(state)` holds: the
 // right pick, the answer typed, every check failing once then passing, a
-// clean tree or the change git status should list, enter past every
-// level-up and lesson end.
+// file that reads wrong once then right, a clean tree or the change git
+// status should list, enter past every level-up and lesson end.
 export function playUntil(d, stop) {
   for (let i = 0; i < 2_000 && !stop(d.state); i++) {
     const s = d.state;
@@ -281,6 +346,15 @@ export function playUntil(d, stop) {
     } else if (v.kind === 'file') {
       d.send({ type: 'file', path: v.path, read: null, stamp: 'a' });
       d.send({ type: 'file', path: v.path, read: Buffer.from('src/config.js'), stamp: 'b' });
+    } else if (v.kind === 'json') {
+      d.send({ type: 'file', path: v.path, read: Buffer.from('{'), stamp: 'a' });
+      d.send({ type: 'file', path: v.path, read: Buffer.from(jsonFor(v.key, v.value)), stamp: 'b' });
+    } else if (v.kind === 'match') {
+      d.send({ type: 'file', path: v.path, read: null, stamp: 'a' });
+      d.send({ type: 'file', path: v.path, read: Buffer.from(`${lineFor(v.regex)}\n`), stamp: 'b' });
+    } else if (v.kind === 'no-match') {
+      d.send({ type: 'file', path: v.path, read: Buffer.from(`${lineFor(v.regex)}\n`), stamp: 'a' });
+      d.send({ type: 'file', path: v.path, read: Buffer.from('a line\n'), stamp: 'b' });
     } else if (v.kind === 'git-clean') {
       if (beat.doneLabel) d.key('space');
       d.send(v.paths ? gitLists([]) : { type: 'git', paths: [] });
@@ -448,11 +522,12 @@ export function lessonScreens(id, lessons = course, { skipped = false, folders =
       }
       d.send({ type: 'check', lesson: id, items: items.map((it) => ({ ...it, pass: true, hint: '' })), read: Buffer.from('a line of evidence'), path: beat.evidence ?? null, stamp: 'c' });
       out.push([`${at} done`, d.state]);
-    } else if (v.kind === 'file') {
-      d.send({ type: 'file', path: v.path, read: null, stamp: '' });
+    } else if (READS.has(v.kind)) {
+      // A file kind: not there yet, then as the step's work leaves it.
+      d.send({ type: 'file', path: v.path, read: v.kind === 'no-match' ? Buffer.from(`${lineFor(v.regex)}\n`) : null, stamp: '' });
       out.push([`${at} waiting`, d.state]);
       climb(d, at, out);
-      d.send({ type: 'file', path: v.path, read: Buffer.from('src/config.js'), stamp: 'x' });
+      d.send({ type: 'file', path: v.path, read: Buffer.from(readsRight(v)), stamp: 'x' });
       out.push([`${at} done`, d.state]);
     } else if (v.kind === 'git-clean') {
       const lists = (paths) => (v.paths ? gitLists(paths.map((p) => `${v.paths[0].replace(/\/+$/, '')}/${p}`)) : { type: 'git', paths });

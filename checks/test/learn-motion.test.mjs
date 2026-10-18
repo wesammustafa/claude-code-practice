@@ -8,6 +8,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pip, pipFace } from '../../learn/lib/art.mjs';
 import { capabilities } from '../../learn/lib/caps.mjs';
+import { READS } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { beatOf, DEFER_MS, IDLE_MS, isDone, reduce, stepOf, tierOf, watching } from '../../learn/lib/flow.mjs';
 import { ambientAllowed, ambientOpened, BOOT_FROM, bootChange, faceMoments, greetFace, greetFrameIn, nextChange, oneShot, phases, pipGates, REST, SHOTS, shotStarts, TIMING } from '../../learn/lib/motion.mjs';
@@ -1920,7 +1921,8 @@ test('elapsed seconds: on a slow check, from 3 s of the real child start, in 1 s
   // so does the rest of the frame: every "Checking" card, not the sample
   // the frame tests above draw.
   const at60 = (s, ms) => render(s, { cols: 60, rows: 20 }, MOVING, { at: s.fx.run + ms }).map(strip);
-  const spinning = still.filter(([, x]) => x.view === 'step' && x.beat?.status === 'opening' && beatOfVerify(x) !== 'file');
+  // A beat that reads a file runs no child, so it counts no seconds.
+  const spinning = still.filter(([, x]) => x.view === 'step' && x.beat?.status === 'opening' && !READS.has(beatOfVerify(x)));
   assert.ok(spinning.length > 20, String(spinning.length));
   for (const [label, s] of spinning) {
     const moving = reduce(s, { type: 'run-start', now: s.now + 200 }).state;

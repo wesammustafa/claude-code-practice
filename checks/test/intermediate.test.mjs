@@ -253,6 +253,18 @@ test('i-3 says a routine task does not need a larger model or a higher effort', 
   }
 });
 
+test('i-3 accepts the Keep a Changelog heading `## [Unreleased]`, and needs an entry under it too', () => {
+  withRepo(effortRepo({ changelog: '# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Report broken links in headings.\n\n## [1.0.0] - 2026-10-01\n' }), (dir) => {
+    const { code, out } = check(['i-3', '--dir', dir]);
+    assert.equal(code, 0, out);
+  });
+  withRepo(effortRepo({ changelog: '# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-10-01\n\n- First release.\n' }), (dir) => {
+    const { code, out } = check(['i-3', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /`## Unreleased` in CHANGELOG\.md has no entry/);
+  });
+});
+
 test('i-3 fails without a committed changelog entry under Unreleased', () => {
   for (const changelog of [null, '## Unreleased\n\n']) {
     withRepo(effortRepo({ changelog }), (dir) => {
