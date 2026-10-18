@@ -44,7 +44,8 @@ const repeat = (rows, alt) => ({ block: 'repeat', rows, alt });
 const decor = (rows, alt = []) => ({ block: 'decor', rows, alt });
 // Kept notes that give way to `alt`, kept too, after optional teaching and
 // before any teaching row is cut, at any size: the intro's notes before the
-// learner starts, whose short form hands them to a key.
+// learner starts, whose short form hands them to a key, and the next
+// screen's Next up, whose `alt` is empty.
 const notes = (rows, alt) => ({ block: 'notes', rows, alt });
 
 // A lesson's title on one row, its code spans as plain text: a-4's is
@@ -701,6 +702,9 @@ const canMark = (t, payoff, mark) => {
 };
 // Lines after a prefix, the rest indented under the first.
 const hang = (prefix, rows) => rows.map((x, i) => `${i ? ' '.repeat(width(prefix)) : prefix}${x}`);
+// A command on a card, on as many rows as `w` needs: broken at its spaces,
+// or anywhere in a word wider than a row, and never cut.
+const commandRows = (t, command, w) => wrapRuns([{ text: command }], w).map((line) => t.fg('code', line.map((r) => r.text).join('')));
 // A `can` line wrapped to `w` after its mark, the rest under its first word;
 // `blank`, with no mark yet.
 const canLine = (t, text, payoff, mark, w, blank = false) => {
@@ -1041,11 +1045,14 @@ const VIEWS = {
     if (nextLesson) {
       const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
       const mixed = `   ${mixBar(ctx, nextLesson, BAR)}  `;
-      body.push(SPACER, ...hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x))));
+      const upRows = hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x)));
       // Its climb beside "A notch harder", where it has a lesson file to
       // climb. Help fades within a level: the first lesson of the next may
       // start with more help, so neither the bar nor the line shows there.
-      if (nextLesson.content && levelOf(s, nextLesson.id) === levelOf(s)) body.push(...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
+      if (nextLesson.content && levelOf(s, nextLesson.id) === levelOf(s)) upRows.push(...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
+      // After the optional rows and before any teaching row is cut, Next up
+      // gives way whole: the key bar's enter still names the lesson.
+      body.push(SPACER, notes(upRows, []));
     }
     body.push(SPACER, ...para(t, C.savedBreak, W, 'muted'));
     return {
@@ -1811,7 +1818,7 @@ const OVERLAYS = {
     // What it does hangs under the command, past the lesson's pill.
     const units = cardOf(s).map((e) => {
       const label = `${t.pill(pad(lessonLabel(e.lesson), 3), 'dimBg', 'dimText')}  `;
-      return [`${label}${t.fg('code', e.show)}`, ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
+      return [...hang(label, commandRows(t, e.show, inner - width(label))), ...hang(' '.repeat(width(label)), para(t, e.does, inner - width(label), 'text', { quote: true }))];
     });
     const { body, scroll, max } = cardPlaces(ctx, units, C.cardTitle, units.length ? C.cardIntro : C.cardEmpty);
     return { body, keys: [scroll, key('c', C.k.close), key('q', C.k.close)], max };
@@ -1827,7 +1834,7 @@ const OVERLAYS = {
     const col = Math.max(0, ...entries.map((e) => width(e.show))) + 3;
     const units = entries.map((e) => (inner - col >= COMPARE_MIN
       ? hang(t.fg('code', pad(e.show, col)), para(t, e.does, inner - col, 'text', { quote: true }))
-      : [t.fg('code', e.show), ...hang('   ', para(t, e.does, inner - 3, 'text', { quote: true }))]));
+      : [...commandRows(t, e.show, inner), ...hang('   ', para(t, e.does, inner - 3, 'text', { quote: true }))]));
     const { body, scroll, max } = cardPlaces(ctx, units, C.compareTitle(lessonLabel(s.lesson)), C.compareIntro);
     return { body, keys: [nextKey(s), scroll, key('space', C.k.close), key('q', C.k.close)], max };
   },

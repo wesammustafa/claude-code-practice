@@ -536,10 +536,13 @@ test('every lesson file\'s intro fits at 60x20 and 80x24 with everything it need
     const repo = content.intro['need-repo'] && label.endsWith('saved') ? [content.intro['need-repo']] : [];
     const notes = [...content.needs.map((n) => n.quote), ...(content.intro['win-note'] ? [content.intro['win-note']] : []), ...repo];
     for (const t of MODES) {
+      // The Windows note draws where the terminal is native Windows's, as a
+      // beat's does.
+      const shown = notes.filter((n) => n !== content.intro['win-note'] || t.caps.win32);
       for (const [cols, size] of SIZES) {
         const text = flat(render(d.state, { cols, rows: size }, t).map(strip));
         if (text.includes(C.notesShort)) continue;
-        for (const n of notes) assert.ok(text.includes(words(n)), `${label} at ${cols}x${size}: "${n}" is not whole\n${text}`);
+        for (const n of shown) assert.ok(text.includes(words(n)), `${label} at ${cols}x${size}: "${n}" is not whole\n${text}`);
       }
     }
     const all = notesOf(d, WIN);

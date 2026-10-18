@@ -6,6 +6,7 @@ source-commit: 0c55f9e
 stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
 page: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/beginner/capstone.md
 stuck: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/issues/new?template=lesson-feedback.yml&lesson=b-capstone
+next: i-1
 badge: Beginner
 ---
 

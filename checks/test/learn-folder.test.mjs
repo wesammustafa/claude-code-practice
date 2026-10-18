@@ -61,7 +61,9 @@ test('saved state: FORMAT stays 1, and a learn.json today\'s app wrote loads wit
 
 // ---- the reducer ---------------------------------------------------------------
 const COPY = FACTS.root;
-const withI1 = () => threeLevels({ 'i-1': DEMO_I1 });
+// The course with DEMO_I1 as i-1, and i-5 shown through its check, the
+// level's check-only lesson in these tests, whether or not it has a file.
+const withI1 = () => threeLevels({ 'i-1': DEMO_I1 }).map((l) => (l.id === 'i-5' ? { ...l, content: null } : l));
 // A learner past Beginner, on i-1's intro, with these folders saved.
 const atI1 = (folders, course = withI1()) => driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore('i-1', course), ...(folders ? { folders } : {}) } });
 const lastOf = (effects, type) => effects.filter((e) => e.type === type).at(-1);
@@ -93,7 +95,7 @@ test('a saved work folder is where its level\'s checks run; Beginner stays in th
   playUntil(b, (s) => s.view === 'step' && beatOf(s).verify.kind === 'check');
   assert.equal(lastOf(b.effects, 'check').dir, COPY);
   // A check-only lesson of each later level: its own level's folder.
-  for (const [id, dir] of [['i-2', MINE], ['a-1', '/home/sam/code/other']]) {
+  for (const [id, dir] of [['i-5', MINE], ['a-1', '/home/sam/code/other']]) {
     const c = driver({ course: withI1(), saved: { format: 1, welcomed: true, lessons: {}, folders } });
     c.key('m');
     mapTo(c, id);
@@ -332,10 +334,10 @@ test('when the work folder isn\'t the copy, the header names it on every lesson 
   // A check-only lesson of the level names it too.
   const c = atI1({ intermediate: MINE });
   c.key('m');
-  mapTo(c, 'i-2');
+  mapTo(c, 'i-5');
   c.key('enter');
   for (const size of SIZES) assert.ok(has(headOf(screen(c.state, size)), C.inFolder('my-app')), screen(c.state, size).join('\n'));
-  fitsAll(c.state, 'i-2 check-only');
+  fitsAll(c.state, 'i-5 check-only');
 });
 
 test('every line that sends the learner to another terminal says which folder: the card\'s place, the check-only card\'s and the stray-command note', () => {
@@ -361,7 +363,7 @@ test('every line that sends the learner to another terminal says which folder: t
   // A check-only card: its place is the work folder, or the copy for i-capstone, pinned there.
   const c = atI1({ intermediate: MINE });
   c.key('m');
-  mapTo(c, 'i-2');
+  mapTo(c, 'i-5');
   c.key('enter');
   assert.ok(has(screen(c.state), `${C.where.terminal}, ${C.inFolder('my-app')}`), screen(c.state).join('\n'));
   c.key('m');
@@ -471,7 +473,7 @@ test('f is on the map\'s bar where it fits and in ?, and the bar still fits at 6
 });
 
 test('f on a check-only card changes its level\'s folder; i-capstone, pinned to the copy, has no f', () => {
-  const d = mapAt('i-2');
+  const d = mapAt('i-5');
   d.key('enter');
   assert.match(screen(d.state, [80, 24]).at(-1), /f folder/);
   d.key('f');
@@ -644,7 +646,7 @@ test('a lesson file of a-5 asks for its new copy at its intro, with that answer 
 
 test('switching folders: what the old folder\'s check found goes, a run still out for it decides nothing, and the next look is in the new one', () => {
   const OTHER = '/home/sam/code/other-app';
-  const d = mapAt('i-2', { intermediate: MINE });
+  const d = mapAt('i-5', { intermediate: MINE });
   d.key('enter');
   assert.equal(lastOf(d.effects, 'check').dir, MINE);
   const items = lessonOf(d.state).items.map((text, index) => ({ index, text, pass: true, hint: '' }));
@@ -652,17 +654,17 @@ test('switching folders: what the old folder\'s check found goes, a run still ou
   typeIn(d, OTHER);
   d.send({ type: 'key', name: 'enter', wait: 40 });
   // MINE's run lands while the prompt waits: it is still the folder.
-  d.send({ type: 'check', lesson: 'i-2', items: items.map((it) => ({ ...it, pass: false, hint: 'no' })), dir: MINE });
-  assert.ok(d.state.checks['i-2']);
+  d.send({ type: 'check', lesson: 'i-5', items: items.map((it) => ({ ...it, pass: false, hint: 'no' })), dir: MINE });
+  assert.ok(d.state.checks['i-5']);
   answer(d, { path: OTHER });
-  assert.equal(d.state.checks['i-2'], undefined, 'the old folder\'s marks go');
+  assert.equal(d.state.checks['i-5'], undefined, 'the old folder\'s marks go');
   assert.equal(lastOf(d.effects, 'check').dir, OTHER);
   // A run of MINE that was still out lands now: it would complete the lesson there.
-  d.send({ type: 'check', lesson: 'i-2', items, dir: MINE });
-  assert.equal(d.state.progress['i-2'].complete, false);
-  assert.equal(d.state.checks['i-2'], undefined);
-  d.send({ type: 'check', lesson: 'i-2', items, dir: OTHER });
-  assert.equal(d.state.progress['i-2'].complete, true);
+  d.send({ type: 'check', lesson: 'i-5', items, dir: MINE });
+  assert.equal(d.state.progress['i-5'].complete, false);
+  assert.equal(d.state.checks['i-5'], undefined);
+  d.send({ type: 'check', lesson: 'i-5', items, dir: OTHER });
+  assert.equal(d.state.progress['i-5'].complete, true);
   assert.ok(has(headOf(screen(d.state)), C.inFolder('other-app')));
 });
 
@@ -1445,7 +1447,9 @@ test('worked: copy keeps each step in its own folder through back and forward, a
   assert.deepEqual(x.effects.filter((e) => e.type === 'stamp').map((e) => [e.key, e.dir]), [['W1.0', COPY], ['Y1.0', MINE]]);
   // A finished lesson played again: the same.
   const again = atWorked({ intermediate: MINE }, { 'i-1': { complete: true, done: ['W1', 'W2', 'W3', 'Y1', 'Y2', 'Y3', 'C'] } });
-  assert.equal(again.state.view, 'map');
+  // The app opens on the lesson after it, i-2.
+  assert.deepEqual([again.state.view, again.state.lesson], ['intro', 'i-2']);
+  again.key('m');
   mapTo(again, 'i-1');
   again.key('enter');
   assert.equal(again.state.view, 'intro');

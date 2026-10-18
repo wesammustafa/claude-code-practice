@@ -598,11 +598,9 @@ const MISSABLE = new Set(['right', 'wrong', 'decoy']);
 const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'predict' && b.options.some((o) => MISSABLE.has(o.kind)));
 // Skills a question can mark missed that no later lesson's pool recalls, each
 // with its reason.
-const LATER = 'returns in i-1 or i-2 (ticket 85)';
 const NO_LATER_WARMUP = {
-  compact: LATER,
-  resume: LATER,
-  commit: LATER,
+  'probe-guard': 'returns in i-5\'s pool, whose lesson file is ticket 95\'s',
+  'settings-scope': 'returns in i-7\'s pool, whose lesson file is ticket 95\'s',
   clear: 'only b-5\'s pool asks it, so only the capstone\'s could recall it, and D12 gives the capstone two: memory and rewind',
   'save-version': 'only the capstone asks it, and no Beginner lesson comes after the capstone',
 };
@@ -777,8 +775,3 @@ test('a code block shows on a do, ask or self beat, and names no folder a run li
   }
 });
 
-// Until ticket 91 teaches the guide's quote check the block format, no
-// shipped lesson uses one: 91 removes this test.
-test('no lesson file holds a code block before the guide checks them', () => {
-  for (const f of files) assert.doesNotMatch(readFileSync(join(dir, f), 'utf8'), /^- code: /m, f);
-});
