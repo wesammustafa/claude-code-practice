@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { asStarted, beatOf, DEFER_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
-import { parseLesson } from '../../learn/lib/content.mjs';
+import { GIT, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { stampFor } from '../../learn/lib/holds.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
@@ -811,7 +811,8 @@ test('h at CHALLENGE: every beat waits for a try only where a try can show', () 
         d.key('enter');
         const where = `${l.id} ${step.id}.${b}`;
         if (tierOf(d.state) !== 'challenge' || beat.kind === 'type' || !rungsOf(d.state).length || ['done', 'already'].includes(d.state.beat.status)) return;
-        const watched = ['check', 'file', 'git-clean'].includes(beat.verify.kind);
+        // What the app looks at: a check, git status or a file it reads.
+        const watched = beat.verify.kind === 'check' || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind);
         const scored = Boolean(beat.ask) && beat.kind !== 'predict' && beat.options.some((o) => ['wrong', 'decoy'].includes(o.kind));
         d.key('h');
         if (watched || scored) {
@@ -1405,13 +1406,13 @@ test('fading counts only what this learner did: on the path every Beginner lesso
     const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
     assert.deepEqual(ownTiers(d.state, l.id), l.content.steps.map((x) => x.tier), l.id);
     // With nothing done, every lesson after the first gives more help somewhere,
-    // and the capstone none.
+    // and a capstone none.
     const none = driver({ course, saved: { format: 1, welcomed: true } });
     const rank = (t) => ['guided', 'hinted', 'challenge'].indexOf(t);
     const skipped = ownTiers(none.state, l.id);
     const authored = l.content.steps.map((x) => x.tier);
     skipped.forEach((t, i) => assert.ok(rank(t) <= rank(authored[i]), `${l.id} ${l.content.steps[i].id}`));
-    if (l.id === 'b-1' || l.id === 'b-capstone') assert.deepEqual(skipped, authored, l.id);
+    if (l.id === 'b-1' || l.id.endsWith('capstone')) assert.deepEqual(skipped, authored, l.id);
     else assert.notDeepEqual(skipped, authored, l.id);
   }
 });

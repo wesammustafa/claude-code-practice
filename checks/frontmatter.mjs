@@ -1,8 +1,9 @@
 // The YAML frontmatter of a skill or subagent file, read without a YAML
 // library. It covers what those files use: `key: value` lines, quoted
 // values, folded and literal blocks (`key: >-`), and lists written as
-// `[a, b]` or as `- item` lines, and plain values that continue on indented
-// lines. Comments, whole-line or after a value, and blank lines are skipped.
+// `[a, b]` or as `- item` lines, indented or not, and plain values that
+// continue on indented lines. Comments, whole-line or after a value, and
+// blank lines are skipped.
 // Returns null when the file doesn't start with a --- line.
 const unquote = (value) => value.replace(/^(['"])(.*)\1$/, '$2');
 
@@ -43,7 +44,8 @@ export function frontmatter(text) {
       fields[key] = block ? '' : uncomment(value) === '' ? [] : scalar(value);
       continue;
     }
-    if (!key || !/^\s/.test(line)) continue;
+    const item = !block && !plain && Array.isArray(fields[key]) && /^-\s+/.test(line);
+    if (!key || (!/^\s/.test(line) && !item)) continue;
     if (block) {
       block.lines.push(line.trim());
       fields[key] = block.lines.join(block.folded ? ' ' : '\n').replace(/\s+$/, '');

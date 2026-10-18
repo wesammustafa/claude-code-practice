@@ -8,6 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GUIDE, indexLevel, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
+import { TYPED_MAX } from '../../learn/lib/flow.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
@@ -124,6 +125,7 @@ test('the first GUIDED Worked example step on each skill has a why line on a bea
 // A page step split in two: the second step keeps the page step's number.
 const SPLIT = {
   'b-5 W2': 'Q10: page step 1 splits so /init comes in a GUIDED step after Claude Code starts at CHALLENGE',
+  'i-8 W2': 'page step 1 ("In a session in your repository") splits as b-5\'s does, so i-8 opens on starting Claude Code at CHALLENGE, not on its GUIDED install',
 };
 
 test('steps are numbered as on the page, one part after the other', () => {
@@ -367,6 +369,8 @@ test('questions: one right answer, a reason for every wrong one, real files in d
         if (b.kind === 'type') {
           assert.ok(b.accept.length, `${where}: no accepted answer`);
           for (const a of b.accept) assert.ok(quotesOf(step).includes(a), `${where}: ${a} is in no quote`);
+          // The answer row takes TYPED_MAX characters: a longer answer can't be typed whole.
+          for (const a of b.accept) assert.ok(a.length <= TYPED_MAX, `${where}: ${a} is longer than ${TYPED_MAX} characters`);
           assert.ok(b.reveal, `${where}: no reveal`);
           continue;
         }
@@ -599,8 +603,6 @@ const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'p
 // Skills a question can mark missed that no later lesson's pool recalls, each
 // with its reason.
 const NO_LATER_WARMUP = {
-  'probe-guard': 'returns in i-5\'s pool, whose lesson file is ticket 95\'s',
-  'settings-scope': 'returns in i-7\'s pool, whose lesson file is ticket 95\'s',
   clear: 'only b-5\'s pool asks it, so only the capstone\'s could recall it, and D12 gives the capstone two: memory and rewind',
   'save-version': 'only the capstone asks it, and no Beginner lesson comes after the capstone',
 };

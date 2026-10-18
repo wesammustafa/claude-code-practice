@@ -810,7 +810,9 @@ function noteRows(ctx, w) {
 // lesson starts with less help than the one before. Help fades within a
 // level, and a later level's first lesson may start with more help than the
 // capstone before it, so both show only on the course's first level, and
-// only where a lesson file climbs.
+// only where a lesson file climbs. Intermediate has no copy of its own: with
+// all nine lesson files, i-4, i-7 and i-8 give more help than the lesson two
+// before them, so "each stop a little harder" would not hold there.
 const lessHelpOn = (s, lessons) => lessons[0] === s.course[0] && lessons.some((l) => l.content);
 
 const VIEWS = {
