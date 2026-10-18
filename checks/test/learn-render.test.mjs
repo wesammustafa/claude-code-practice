@@ -711,11 +711,12 @@ test('the invitation shows on the capstone\'s next screen only: no other screen 
   assert.deepEqual(over.map(([, s]) => s.overlay ?? s.view), ['page', 'card', 'compare', 'help', 'map']);
   const all = [...await everyScreen(), ...endScreens(), ...over];
   const shows = all.filter(([, state]) => flatText(render(state, { cols: 100, rows: 40 }, t).map(strip).join('')).includes(flatText(INVITE)));
-  assert.deepEqual(shows.map(([label]) => label), ['b-capstone next']);
+  assert.deepEqual(shows.map(([label]) => label), ['b-capstone next', 'i-capstone next']);
 });
 
 test('each level\'s capstone gets the invitation: an Intermediate capstone\'s next screen shows it, and its lessons\' do not', () => {
-  // The Beginner plays, renamed into a later level: only Beginner exists today.
+  // The Beginner plays, renamed into a later level: a capstone with a lesson
+  // after it, which i-capstone has none of until a-1 has a lesson file.
   const as = (state, id, next) => ({
     ...state,
     lesson: id,
@@ -1440,14 +1441,26 @@ test('a `…` cut inside a card keeps the rail: every row between the card\'s bo
 // step screens' count from growing unseen.
 const CUT_AT_60X20 = {
   full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4',
+    // Intermediate's long hints and code blocks at 60x20.
+    'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y3.0 hint 1',
+    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1', 'i-7 Y3.0 hint 1', 'i-7 C.0 hint 1',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
-    'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)'],
+    'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
+    'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.1 hint 1 (skipped)',
+    'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
+    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)', 'i-7 C.0 hint 1 (skipped)'],
   ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-3 W6.2 hint 1', 'b-4 W5.4 hint 1',
     'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
-    'b-capstone T3.1 hint 1', 'b-capstone T6.1 hint 1', 'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W6.2 hint 1 (skipped)', 'b-4 W4.2 hint 1 (skipped)',
+    'b-capstone T3.1 hint 1', 'b-capstone T6.1 hint 1',
+    'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y2.0 hint 1', 'i-6 Y3.0 hint 1',
+    'i-6 C.0 hint 1', 'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1', 'i-7 Y3.0 hint 1', 'i-7 C.0 hint 1',
+    'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W6.2 hint 1 (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
-    'b-capstone T1.2 hint 1 (skipped)', 'b-capstone T3.1 hint 1 (skipped)', 'b-capstone T6.1 hint 1 (skipped)'],
+    'b-capstone T1.2 hint 1 (skipped)', 'b-capstone T3.1 hint 1 (skipped)', 'b-capstone T6.1 hint 1 (skipped)',
+    'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.1 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)',
+    'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)', 'i-6 C.0 hint 1 (skipped)',
+    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)', 'i-7 Y3.0 hint 1 (skipped)', 'i-7 C.0 hint 1 (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
@@ -1497,6 +1510,11 @@ test('no line is cut by width anywhere in a row at 60x20 or 80x24, apart from th
         if (state.view === 'map' && /^\s*[❯ ] [✔○] /.test(l)) return;
         // A code block's window marks the lines it leaves out (ticket 90).
         if (l.trim().endsWith(`… ${C.codeMore}`)) return;
+        // A code line with a word wider than any row is cut at the row's end,
+        // and a row under the block says the page has the rest (ticket 90).
+        const sent = flatText(lines.join(' '));
+        if (/^\s*│ +\S? +(\d+|↳) /.test(l) && (sent.includes(flatText(C.codeWide('…'))) || sent.includes(flatText(C.codeMore)))) return;
+        if (l.includes(C.codeWide('…').slice(0, C.codeWide('…').indexOf('…') + 1))) return;
         if (/ holds |^\s*│ .*\S…$/.test(l) && state.beat?.status === 'done') return;
         assert.fail(`${label} at ${cols}x${rows}, row ${i + 1}: ${l}\n${lines.join('\n')}`);
       });
@@ -1921,19 +1939,25 @@ const WHY_DROPS = {
     // Intermediate's Worked examples: a code block or a two-row command
     // takes the room.
     'i-1 W1.1 open', 'i-1 W3.0 open', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done', 'i-3 W4.0 waiting',
-    'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W4.0 hint 1', 'i-4 W4.0 done',
+    'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-7 W3.0 wrong', 'i-7 W3.0 answered', 'i-8 W3.0 hint 1',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
     'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)', 'b-5 W4.0 checking, hint open (skipped)',
     'i-1 W1.1 open (skipped)', 'i-1 W3.0 open (skipped)', 'i-2 W1.0 hint 1 (skipped)', 'i-2 W2.0 open (skipped)', 'i-2 W2.0 waiting (skipped)',
     'i-2 W3.0 open (skipped)', 'i-2 W3.0 waiting (skipped)', 'i-2 W3.0 done (skipped)', 'i-3 W4.0 waiting (skipped)', 'i-3 W4.0 done (skipped)',
     'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)',
+    'i-5 W2.0 open (skipped)', 'i-5 W2.0 waiting (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.0 done (skipped)',
+    'i-5 W2.1 open (skipped)', 'i-5 W2.1 waiting (skipped)', 'i-5 W2.1 hint 1 (skipped)', 'i-5 W2.1 done (skipped)', 'i-7 W3.0 wrong (skipped)',
+    'i-7 W3.0 answered (skipped)', 'i-8 W3.0 hint 1 (skipped)',
     'W3 opening', 'b-3 W1.2 bottom (skipped)'],
-  '80x24': ['W3 hint 2'],
+  // i-5 W2 met at GUIDED: its code block's long pointed line takes four rows.
+  '80x24': ['W3 hint 2', 'i-5 W2.0 open (skipped)', 'i-5 W2.0 waiting (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.0 done (skipped)',
+    'i-5 W2.1 open (skipped)', 'i-5 W2.1 waiting (skipped)', 'i-5 W2.1 hint 1 (skipped)', 'i-5 W2.1 done (skipped)'],
 };
 // Below 80 columns the key bar keeps its main keys first (spec 3.1), so `w`
 // gives way only where the whole bar is wider than the window: a wrong
-// answer's bar with "s show answer".
-const NO_W_KEY = ['W5 wrong at 60x20 (full)', 'W5 wrong at 60x20 (ascii)'];
+// answer's bar with "s show answer", as on i-7 W3's.
+const NO_W_KEY = ['W5 wrong at 60x20 (full)', 'i-7 W3.0 wrong at 60x20 (full)', 'i-7 W3.0 wrong (skipped) at 60x20 (full)',
+  'W5 wrong at 60x20 (ascii)', 'i-7 W3.0 wrong at 60x20 (ascii)', 'i-7 W3.0 wrong (skipped) at 60x20 (ascii)'];
 
 test('the Why line is an optional row: it drops whole before any teaching line is cut, and w why stays in the key bar', async () => {
   const all = (await everyScreen()).filter(([, s]) => s.view === 'step' && !s.overlay && tierOf(s) === 'guided' && ['do', 'ask'].includes(beatOf(s).kind) && beatOf(s).why.length);
@@ -2043,11 +2067,16 @@ test('the next screen ends the lesson with 📖 Go further and the page\'s line:
 // Where the recall row (152) takes Go further's room, and why. Go further
 // is optional: p shows it whole there too.
 const NOTCH = 'its Next up title wraps to two rows, "A notch harder" to two, and its Go further line would take three';
+const NOTCH_ONE = '"A notch harder" wraps to two rows, and its Go further line would take three';
 const GO_FURTHER_GIVES = {
   'b-2 next at 60x20': 'its Next up title wraps to two rows and its Go further line to three, so no spacer is left for the recall row',
   'i-1 next at 60x20': NOTCH,
   'i-2 next at 60x20': NOTCH,
   'i-3 next at 60x20': NOTCH,
+  'i-4 next at 60x20': NOTCH_ONE,
+  'i-6 next at 60x20': NOTCH_ONE,
+  'i-7 next at 60x20': NOTCH_ONE,
+  'i-8 next at 60x20': NOTCH_ONE,
 };
 
 test('every next screen but a capstone\'s shows its Go further line whole at 60x20 and 80x24, in every mode', () => {
@@ -2147,6 +2176,10 @@ const URLS = {
   'i-2': 'https://code.claude.com/docs/en/claude-directory',
   'i-3': 'https://claude.com/blog/claude-model-and-effort-level-in-claude-code',
   'i-4': 'https://www.anthropic.com/engineering/claude-code-sandboxing',
+  'i-5': 'https://code.claude.com/docs/en/hooks',
+  'i-6': 'https://code.claude.com/docs/en/sub-agents',
+  'i-7': 'https://code.claude.com/docs/en/mcp-quickstart',
+  'i-8': 'https://code.claude.com/docs/en/plugins/anthropic-marketplaces',
 };
 
 test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
@@ -2961,14 +2994,21 @@ test('the arrows move your card only where it scrolls: while it fits, they move 
 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
-const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4' };
+const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4',
+  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];
 
-// The rows from `at` that spell `show`, broken at its spaces, or 0.
+// The rows from `at` that spell `show`, broken at its spaces or, in a word
+// wider than a row, inside it, or 0.
 const showRows = (lines, at, show) => {
-  for (let n = 1, said = lines[at]; at + n <= lines.length && said.length <= show.length; said += ` ${lines[at + n]}`, n++) if (said === show) return n;
+  let said = lines[at];
+  for (let n = 1; at + n <= lines.length && show.startsWith(said); n++) {
+    if (said === show) return n;
+    const next = lines[at + n] ?? '';
+    said = show.startsWith(`${said} ${next}`) ? `${said} ${next}` : `${said}${next}`;
+  }
   return 0;
 };
 // What the comparison on screen says each command does: the rows from its

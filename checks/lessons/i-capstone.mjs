@@ -91,4 +91,25 @@ const sandbox = {
   },
 };
 
-export const items = [skill, hook, reviewer, mcp[0], plugins[0], scopes[0], sandbox, memory[0], memory[1], testsPass, nothingUncommitted];
+// An item reused from a lesson sends the learner back to that lesson's page
+// when its file is missing or lacks what the lesson adds; here the capstone
+// asks for it. Each swap is a [from, to] pair of message text. The wrapper
+// shows the reused check's source, so the tests that read a check's code
+// (its ways to fail, and whether it starts a process) still read that check.
+function asCapstone(item, ...swaps) {
+  const check = (repo) => {
+    const outcome = item.check(repo);
+    return typeof outcome === 'string' ? swaps.reduce((text, [from, to]) => text.replace(from, to), outcome) : outcome;
+  };
+  check.toString = () => item.check.toString();
+  return { ...item, check };
+}
+
+const pinnedServer = asCapstone(mcp[0],
+  ['Save the partial file from the lesson\'s Your turn there.', 'Write the one the capstone asks for there, as in lesson 7.'],
+  ['Add it under `mcpServers`, as in the lesson.', 'Add it under `mcpServers`, as in lesson 7.']);
+const setupPlugin = asCapstone(plugins[0], ['Add the `enabledPlugins` entry from the lesson and commit it.', 'Add the `enabledPlugins` entry the capstone asks for and commit it, as in lesson 8.']);
+const teamRules = asCapstone(scopes[0], ['Save the partial file from the lesson\'s Your turn there.', 'Write the team settings the capstone asks for there, as in lesson 4.']);
+const imports = asCapstone(memory[0], ['Commit the one you organize in this lesson.', 'Commit the one the capstone asks for, as in lesson 2.']);
+
+export const items = [skill, hook, reviewer, pinnedServer, setupPlugin, teamRules, sandbox, imports, memory[1], testsPass, nothingUncommitted];

@@ -43,3 +43,20 @@ for (const id of ids) {
     }
   });
 }
+
+// A capstone item reused from a lesson, and reworded for the capstone,
+// shows that lesson item's code, so the count above, and the SLOW scan in
+// learn-io.test.mjs, read the check that runs.
+test('a capstone item reused from a lesson shows the lesson item\'s code', () => {
+  const ids = Object.keys(lessons);
+  for (const id of ids.filter((x) => x.endsWith('-capstone'))) {
+    for (const [index, item] of lessons[id].items.entries()) {
+      for (const other of ids.filter((x) => x !== id)) {
+        const same = lessons[other].items.find((it) => it.text === item.text);
+        if (same) assert.equal(item.check.toString(), same.check.toString(), `${id} item ${index} comes from ${other}`);
+      }
+    }
+  }
+  const total = lessons['i-capstone'].items.reduce((n, item) => n + failReturns(item.check), 0);
+  assert.equal(total, 36);
+});

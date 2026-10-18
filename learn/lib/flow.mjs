@@ -840,6 +840,9 @@ function reveal(s, effects) {
   effects.push({ type: 'save' });
 }
 
+// The most a typed answer holds: a lesson's accepted answers fit in it.
+export const TYPED_MAX = 40;
+
 // Case, spaces, a leading slash and the + or - between keys don't matter, and
 // Escape is Esc.
 export const normalize = (text) => text.trim().toLowerCase().replace(/[+\-\s]+/g, '').replace(/^\//, '').replace(/^escape$/, 'esc');
@@ -1155,7 +1158,7 @@ export function reduce(prev, ev) {
       if (s.overlay === 'folder') {
         if (!s.folderAsk.asked) Object.assign(s.folderAsk, { typed: (s.folderAsk.typed + ev.text.replace(/[\r\n].*$/s, '')).slice(0, PATH_MAX), missing: null, isCopy: false });
       } else if (s.view === 'step' && s.beat && beatOf(s).kind === 'type' && s.beat.status !== 'done') {
-        s.beat.typed = (s.beat.typed + ev.text.replace(/[\r\n].*$/s, '')).slice(0, 40);
+        s.beat.typed = (s.beat.typed + ev.text.replace(/[\r\n].*$/s, '')).slice(0, TYPED_MAX);
       } else onPaste(s);
       break;
     case 'key':
@@ -1343,7 +1346,7 @@ function onKey(s, ev, effects) {
     if (name === 'enter') return submitTyped(s, effects);
     if (name === 'backspace') s.beat.typed = s.beat.typed.slice(0, -1);
     else if (name === 'escape') s.beat.typed = '';
-    else if (ch && ch >= ' ' && s.beat.typed.length < 40) s.beat.typed += ch;
+    else if (ch && ch >= ' ' && s.beat.typed.length < TYPED_MAX) s.beat.typed += ch;
     return;
   }
   if (s.overlay === 'folder') return folderKeyPress(s, ev, effects);
