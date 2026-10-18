@@ -21,6 +21,10 @@ export const TIMING = {
   spinnerFrom: 150, elapsedFrom: 3_000,
   // A file change: the sweep and Pip's glance. Pip's blink, every 6 s.
   sweep: 400, glance: 1_200, blink: 160, blinkEvery: 6_000,
+  // On a card that watches, Pip's look to one side and back (189): 800 ms,
+  // the first 9 s after the gates open, then one every 18 s, so at most one
+  // every 15 s and each 3 s from the nearest blink.
+  peek: 800, peekFrom: 9_000, peekEvery: 18_000,
   // The reading grace: 400 ms a word of the newest text, 3 s to 20 s; and
   // the quiet after a key.
   perWord: 400, graceMin: 3_000, graceMax: GRACE_MAX_MS, keyQuiet: 4_000,
@@ -122,6 +126,12 @@ export const SHOTS = {
   // Pip's blink, an ambient loop's (TIMING.blink): through half-lids, shut,
   // and open again through them.
   blink: { every: 40, face: track([0, 'waking'], [40, 'shut'], [120, 'waking'], [160, null]) },
+  // On a card that watches, Pip's ambient look (TIMING.peek, 189): toward
+  // the other window, the next time away from it, and back to the face it
+  // rests in, which is the centre; one change each way, its eyes open. It
+  // is a look the app did not make, so the pulse line shows nothing for it.
+  peekRight: { every: 40, face: track([0, 'glance'], [TIMING.peek, null]) },
+  peekLeft: { every: 40, face: track([0, 'lookLeft'], [TIMING.peek, null]) },
 };
 
 // The moments a face track changes the face, in ms from its start: its
@@ -150,7 +160,8 @@ const NEVER = -Infinity;
 const words = (text) => (text.match(/\S+/g) ?? []).length;
 
 // The screens with an ambient part: Pip's blink on the welcome and on a card
-// with nothing to answer or watch, the look marker while a card watches.
+// with nothing to answer; the look marker while a card watches, and there
+// Pip's blink and look to the side too, the check-only card's included (189).
 const AMBIENT = ['welcome', 'step', 'checkonly'];
 
 // An overlay, or idle: no one-shot and no ambient loop moves. Only an
@@ -186,11 +197,12 @@ function newestWords(s) {
 // answer, the y/n before the exact command, or the hint box.
 const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat) && (Boolean(beatOf(s).ask) || s.beat.rung >= 0 || s.beat.confirm);
 
-// Whether ambient loops (look marker, blink) may draw: not during the reading
-// grace (400 ms a word of the newest text, 3 s to 20 s, ended by an activity
-// stamp), not within 4 s of a key, not at idle, not with an overlay, not
-// beside a question, options, a typed answer or the hint box. The spinner and
-// bounce never ask it: they follow the running child, and stop for an overlay.
+// Whether ambient loops (look marker, blink, Pip's look to the side) may
+// draw: not during the reading grace (400 ms a word of the newest text, 3 s
+// to 20 s, ended by an activity stamp), not within 4 s of a key, not at
+// idle, not with an overlay, not beside a question, options, a typed answer
+// or the hint box. The spinner and bounce never ask it: they follow the
+// running child, and stop for an overlay.
 export function ambientAllowed(s, at) {
   if (!AMBIENT.includes(s.view) || frozen(s, at)) return false;
   return at >= quietFrom(s) && !answering(s);
@@ -221,23 +233,47 @@ function lookNotch(s) {
   return n > 0 ? (n - 1) % NOTCHES : null;
 }
 
-// Where Pip blinks: the welcome, and a step card that watches nothing and
-// is not its step's done (Pip wears its done face there). ambientAllowed
-// keeps it from a card with something to answer.
+// Where Pip blinks: the welcome, the check-only card, and a step card that
+// is not its step's done (Pip wears its done face there). Since 189 a card
+// that watches blinks too, as Pip watches the learner work; a step card
+// watches only while its beat is not done, and the check-only card while
+// its lesson has a folder, where the learner follows the lesson page in
+// the other window. ambientAllowed keeps it from a card with something to
+// answer, and childAt from r's run.
 function blinks(s) {
-  if (s.view === 'welcome') return true;
-  if (s.view !== 'step' || !s.beat || watching(s)) return false;
+  if (s.view === 'welcome' || s.view === 'checkonly') return true;
+  if (s.view !== 'step' || !s.beat) return false;
   return !(isDone(s.beat) && s.pos.beat === stepOf(s).beats.length - 1);
 }
+// Where Pip also looks to the side now and then (189): a step card whose
+// beat watches a file, the check or git, and the check-only card that
+// watches its lesson's check.
+const peeks = (s) => ['step', 'checkonly'].includes(s.view) && Boolean(watching(s));
 
 // When the reading grace and the quiet after the last key are both over.
 // flow.mjs counts the marker's looks from the newest stamp this reads, and
 // keeps 20 s of them: the key quiet is shorter than the longest grace.
 function quietFrom(s) {
   const fx = s.fx;
-  const newest = Math.max(fx.view ?? NEVER, fx.open ?? NEVER, fx.text ?? NEVER);
-  const grace = fx.activity > newest ? NEVER : newest + Math.min(TIMING.graceMax, Math.max(TIMING.graceMin, newestWords(s) * TIMING.perWord));
+  const grace = fx.activity > newestStamp(fx) ? NEVER : graceEnd(s);
   return Math.max(grace, (fx.key ?? NEVER) + TIMING.keyQuiet);
+}
+const newestStamp = (fx) => Math.max(fx.view ?? NEVER, fx.open ?? NEVER, fx.text ?? NEVER);
+// Where the reading grace of the newest text ends, with no file change.
+const graceEnd = (s) => newestStamp(s.fx) + Math.min(TIMING.graceMax, Math.max(TIMING.graceMin, newestWords(s) * TIMING.perWord));
+
+// Where Pip's ambient life counts from (189): the moment the gates opened on
+// this card, which a later file change never moves. quietFrom drops the
+// reading grace once a file changes, so its moment jumps back to the end of
+// the key quiet, seconds before the change; counted from there, the blinks
+// and looks would shift mid-card, and a look could follow the last one 8 s
+// later. The life counts instead from the grace's end, or from the
+// first file change since the newest words where that ended it sooner
+// (flow.mjs stamps it), and from the key quiet's end where that is later.
+function lifeFrom(s) {
+  const fx = s.fx;
+  const cut = fx.activityFirst > newestStamp(fx) ? fx.activityFirst : Infinity;
+  return Math.max(Math.min(graceEnd(s), cut), (fx.key ?? NEVER) + TIMING.keyQuiet);
 }
 
 // When a screen's ambient gates last opened, or will: the end of the
@@ -245,16 +281,87 @@ function quietFrom(s) {
 // opens them too, at no new moment of these.)
 export const ambientOpened = (s) => quietFrom(s);
 
-// How far into the blink cycle `at` is: blinking for the first 160 ms of
-// every 6 s from the moment the gates opened.
-const blinkInto = (s, at) => (at - quietFrom(s)) % TIMING.blinkEvery;
+// Pip's ambient life, from lifeFrom (189): a blink for the first 160 ms of
+// every 6 s, the first as the gates open; and on a card that watches, a
+// look to the side, the first at 9 s, toward the other window, then every
+// 18 s, away from it and toward it in turn. Each: its part (by `n`, its
+// count from the first), how long it lasts, its first start and how often
+// it comes after, and where it plays. Its moments are a function of time
+// alone.
+const LIVES = [
+  { part: () => 'blink', ms: TIMING.blink, from: 0, every: TIMING.blinkEvery, on: blinks },
+  { part: (n) => (n % 2 ? 'peekLeft' : 'peekRight'), ms: TIMING.peek, from: TIMING.peekFrom, every: TIMING.peekEvery, on: peeks },
+];
+
+// The start of the file change's glance (shotStarts') that shows at `at` or
+// showed last before it, or undefined.
+function glanceBy(s, at) {
+  const latest = shotStarts(s).glance;
+  return latest <= at ? latest : shotStarts(s, at).glance;
+}
+
+// Whether a blink or look from `start`, `ms` long, meets the glance from `g`
+// or starts the moment it ends: that glance covers it, so it is skipped
+// whole. Played on after the glance, Pip's eyes would jump from the glance
+// straight to the other side or to shut lids; skipped, they rest at the
+// centre at least one frame before the next blink or look starts (189).
+const covered = (g, start, ms) => g !== undefined && g < start + ms && start <= g + TIMING.glance;
+
+// Pip's ambient life on the card or the welcome at `at`, its gates apart:
+// a blink, or on a card that watches a look to the side, with how far
+// into it; null between, and for one a glance covers. The two never meet:
+// a look starts 3 s after a blink and is over 2.2 s before the next.
+function lifeAt(s, at) {
+  const from = lifeFrom(s);
+  if (!Number.isFinite(from) || at < from) return null;
+  for (const life of LIVES) {
+    if (!life.on(s) || at - from < life.from) continue;
+    const n = Math.floor((at - from - life.from) / life.every);
+    const start = from + life.from + n * life.every;
+    if (at - start < life.ms) return covered(glanceBy(s, at), start, life.ms) ? null : { part: life.part(n), ms: at - start };
+  }
+  return null;
+}
+
+// Milliseconds from `at` until Pip's ambient life next changes its face:
+// the next moment of the blink or look that plays, or the start of the
+// next one. One a glance covers asks for no frame: the glance's face shows
+// over it (189).
+function lifeIn(s, at) {
+  const from = lifeFrom(s);
+  if (!Number.isFinite(from)) return null;
+  const g = glanceBy(s, at);
+  const next = [];
+  for (const life of LIVES) {
+    if (!life.on(s)) continue;
+    // Later ones than the one `at` is in, past any the glance covers.
+    for (let n = Math.max(0, Math.floor((at - from - life.from) / life.every)); ; n++) {
+      const start = from + life.from + n * life.every;
+      if (covered(g, start, life.ms)) continue;
+      const moment = faceMoments(SHOTS[life.part(n)].face, life.ms).map((ms) => start + ms).find((t) => t > at);
+      if (moment !== undefined) {
+        next.push(moment - at);
+        break;
+      }
+    }
+  }
+  return next.length ? Math.min(...next) : null;
+}
+
+// Whether a check or git child runs at `m` (childSince's): its spinner and
+// the checking face own that time, so Pip's blink and look wait (189).
+const childAt = (s, m) => {
+  const since = childSince(s);
+  return since !== undefined && m >= since;
+};
+
 
 // What every moving part draws at rest, and while frozen: each one-shot at
 // its end (1), no spinner, no seconds, no ambient loop: no look marker
-// (`look`, its notch) and no blink, so nothing in `ms`. `checking`: Pip
-// wears its checking face whenever the card says "Checking"; with motion,
-// only once the spinner turns.
-export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false, ms: Object.freeze({}) });
+// (`look`, its notch), no blink and no look to the side (`peek`), so
+// nothing in `ms`. `checking`: Pip wears its checking face whenever the
+// card says "Checking"; with motion, only once the spinner turns.
+export const REST_PHASES = Object.freeze({ entrance: 1, notYet: 1, hop: 1, cheer: 1, stepDone: 1, levelUp: 1, complete: 1, welcome: 1, itemPass: 1, greet: 1, lookAround: 1, sweep: 1, glance: 1, spinner: null, elapsed: null, checking: true, ambient: false, look: null, blink: false, peek: false, ms: Object.freeze({}) });
 
 // A check or git child's spinner (its start, flow.mjs's childSince): its
 // first tick is the first 40 ms boundary from its start once it has run
@@ -286,9 +393,10 @@ function moodChanged(s, at) {
 // the one-shot that sets it, its track and how far into it (`part`, `face`,
 // `ms`), or none. Sparks for a hop or a cheer; away while the card enters
 // (null), then landing with its eyes shut; on a new "Not yet", a nod; on a
-// file change, a glance, unless a check runs; and its blink. Checking, with
-// motion: its checking face once a child has run 150 ms, and it holds
-// still.
+// file change, a glance, unless a check runs; and its ambient life, a
+// blink or, on a card that watches, a look to the side, which a file
+// change's glance takes over from. Checking, with motion: its checking
+// face once a child has run 150 ms, and it holds still.
 function faceWith(shown, ph) {
   const mood = shown === 'checking' && !ph.checking ? 'rest' : shown;
   const playing = (part) => ph.ms[part] !== undefined;
@@ -299,20 +407,19 @@ function faceWith(shown, ph) {
   if ((ph.ms.entrance ?? Infinity) < SHOTS.entrance.land) return null;
   if (playing('entrance')) return shot('entrance');
   if (playing('glance') && mood !== 'checking') return shot('glance');
-  return playing('blink') ? shot('blink') : { mood };
+  const life = ['blink', 'peekRight', 'peekLeft'].find(playing);
+  return life ? shot(life) : { mood };
 }
 
 // The card face as it showed at `m`, over the mood it showed then (`was`):
 // the one-shots that started before `m` and still played, the glance from
-// the file change before `m`, and a blink.
+// the file change before `m`, and a blink or a look to the side.
 function faceThen(s, m, was) {
   const ms = {};
   if (!idle(s, m)) {
     for (const [part, start] of Object.entries(shotStarts(s, m))) if (start < m && oneShot(s, m, start, TIMING[part]) < 1) ms[part] = m - start;
-    const since = childSince(s);
-    const spinning = since !== undefined && m - since >= FIRST_TICK;
-    const blinked = blinkInto(s, m);
-    if (!spinning && ambientAllowed(s, m) && blinks(s) && blinked > 0 && blinked < TIMING.blink) ms.blink = blinked;
+    const life = !childAt(s, m) && ambientAllowed(s, m) ? lifeAt(s, m) : null;
+    if (life && life.ms > 0) ms[life.part] = life.ms;
   }
   return faceWith(was, { ms, checking: true });
 }
@@ -484,9 +591,11 @@ export function phases(s, at, caps) {
   const ms = Object.fromEntries(starts.filter(([part]) => shots[part] < 1).map(([part, start]) => [part, Math.max(0, at - start)]));
   // While a child runs, its bounce holds the pulse line: no ambient loop.
   const ambient = !still && spinner === null && ambientAllowed(s, at);
-  // A blink as the gates open, then every 6 s.
-  const blink = ambient && blinks(s) && blinkInto(s, at) < TIMING.blink;
-  if (blink) ms.blink = blinkInto(s, at);
+  // A blink as the gates open, then every 6 s; on a card that watches, a
+  // look to the side between (189). None while a child runs, before its
+  // spinner turns too.
+  const life = ambient && !childAt(s, at) ? lifeAt(s, at) : null;
+  if (life) ms[life.part] = life.ms;
   // The card face passing from the face it showed as its mood changed.
   const passage = moodPassage(s, at, faceWith(cardMood(s), { ms, checking: spinner !== null }));
   if (passage) ms.mood = at - passage.at;
@@ -497,7 +606,8 @@ export function phases(s, at, caps) {
     checking: spinner !== null,
     ambient,
     look: ambient && shots.sweep === 1 ? lookNotch(s) : null,
-    blink,
+    blink: life?.part === 'blink',
+    peek: Boolean(life) && life.part !== 'blink',
     ms,
   };
 }
@@ -562,14 +672,14 @@ export function nextChange(s, at, caps) {
     if (step !== undefined) times.push(step - at);
   }
   // The moment ambient loops may start, on a screen that has one: the grace
-  // and the key quiet both over. Once they run, each blink's moments.
-  // The look marker moves only on a look, and the app's 1 s tick draws the
-  // first idle frame, where it stops.
+  // and the key quiet both over. Once they run, each blink's moments, and
+  // on a card that watches each look to the side's (189), none while a
+  // child runs, none for one a glance covers, and none at idle. The look
+  // marker moves only on a look, and the app's 1 s tick draws the first
+  // idle frame, where it stops.
   const quiet = quietFrom(s);
   if (!still && AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
-  if (!still && !caps.raster && ambientAllowed(s, at) && blinks(s)) {
-    const e = blinkInto(s, at);
-    times.push(nextMoment(SHOTS.blink.face, TIMING.blink, e) ?? TIMING.blinkEvery - e);
-  }
+  const life = !still && !caps.raster && ambientAllowed(s, at) && !childAt(s, at) ? lifeIn(s, at) : null;
+  if (life !== null && at + life < s.lastActivity + IDLE_MS) times.push(life);
   return times.length ? Math.min(...times) : null;
 }
