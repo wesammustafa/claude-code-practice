@@ -217,10 +217,33 @@ test('b-2 accepts a plan path written as the full path into the repository', () 
   }
 });
 
-test('b-2 fails when nothing was recorded after approving', () => {
+test('b-2 asks for the after snapshot when it is missing', () => {
+  const { '.practice/b-2-after.txt': _, ...unsaved } = planned;
+  const dir = repo(unsaved);
+  try {
+    const { code, out } = check(['b-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /After Claude finishes the edits, run `git status --porcelain > \.practice\/b-2-after\.txt`\./);
+    assert.doesNotMatch(out, /lists no changed file yet/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// 190: the Learner saved the snapshot before approving any edit, so git saw
+// nothing. Asking them to run the same command again reads as stuck.
+test('b-2 says the after snapshot lists no changed file yet, and what to do first', () => {
   const dir = repo({ ...planned, '.practice/b-2-after.txt': '' });
   try {
-    assert.equal(check(['b-2', '--dir', dir]).code, 1);
+    const { code, out } = check(['b-2', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.practice\/b-2-after\.txt` lists no changed file yet\./);
+    assert.match(out, /Approve the plan \(Yes, manually approve edits\)/);
+    // Step 7's whole rule: read each request, and No where a command does
+    // more than the plan needs, never Yes to every request.
+    assert.match(out, /read each request: plain Yes, or No if it does more than the plan needs\./);
+    assert.match(out, /Once `git status` lists changes, save it again\./);
+    assert.doesNotMatch(out, /After Claude finishes the edits/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
