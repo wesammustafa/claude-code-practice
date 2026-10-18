@@ -1432,6 +1432,54 @@ test('a `…` cut inside a card keeps the rail: every row between the card\'s bo
   }
 });
 
+// 190: the screens above feed placeholder hints, so a long real FAIL message
+// slips past them. Each of b-2's real messages, at its "The check says:" rung
+// on every beat that checks its item, keeps at 60x20 the card's title and
+// Goal, every hint-box row and the bottom border; only a command row folds.
+test('b-2\'s real FAIL messages at "The check says:" keep the card\'s title, Goal, hint box and border at 60x20 (190)', async () => {
+  const { lessons } = await import('../lessons/index.mjs');
+  const { openRepo } = await import('../repo.mjs');
+  const { commit, repo, withRepo, write } = await import('./helpers.mjs');
+  const { scenarios } = await import('./ladders/b-2.mjs');
+  const t = theme(CAPS.full);
+  const box = `${t.glyph.rail}  ${t.glyph.bar}`;
+  const l = allCourse.find((x) => x.id === 'b-2');
+  let seen = 0;
+  for (const sc of scenarios) {
+    const hint = withRepo(() => repo(), (dir) => {
+      if (sc.files) write(dir, sc.files);
+      if (sc.setup) sc.setup(dir, { write, commit });
+      return lessons['b-2'].items[sc.item].check(openRepo(dir));
+    });
+    for (const step of l.content.steps) step.beats.forEach((beat, b) => {
+      const v = beat.verify;
+      if (v.kind !== 'check' || !(v.all || v.items.includes(sc.item))) return;
+      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-2'), 'b-2': { step: step.id, beat: b, warm: [], levels: ['hinted', 'challenge'] } } } });
+      d.key('enter');
+      const items = (v.all ? l.items.map((_, i) => i) : v.items).map((index) => ({ index, text: l.items[index], pass: index !== sc.item, hint: index === sc.item ? hint : '' }));
+      d.send({ type: 'check', lesson: 'b-2', items, path: beat.evidence ?? null, stamp: 'a' });
+      d.key('r');
+      d.send({ type: 'check', lesson: 'b-2', items, path: beat.evidence ?? null, stamp: 'b', asked: d.state.beat.asked });
+      for (let i = 0; i < 4 && rungsOf(d.state)[d.state.beat.rung]?.kind !== 'check'; i++) {
+        d.send({ type: 'key', name: 'h', ch: 'h', wait: 3_000 });
+        d.send({ type: 'flush', wait: 400 });
+      }
+      const where = `b-2 ${step.id}.${b}, ${sc.name}`;
+      assert.equal(rungsOf(d.state)[d.state.beat.rung]?.kind, 'check', where);
+      seen++;
+      const tall = render(d.state, { cols: 60, rows: 80 }, t).map(strip);
+      const lines = render(d.state, { cols: 60, rows: 20 }, t).map(strip);
+      const show = `\n${lines.join('\n')}`;
+      const text = flatText(lines.join(''));
+      const goal = beat.lines.find((x) => x.key === 'goal');
+      for (const word of [step.title, goal?.text].filter(Boolean)) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is gone${show}`);
+      for (const row of tall.filter((x) => x.includes(box))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
+      assert.ok(lines.some(cardBottom(t)), `${where}: the card's bottom border is gone${show}`);
+    });
+  }
+  assert.ok(seen >= 15, `${seen} screens`);
+});
+
 // The step screens a 60x20 window still cuts with a `…`: a hint box or
 // feedback that leaves the card's teaching no room, and in ASCII on Windows
 // b-1 C.0 hint 2 and capstone T1.2, where the Windows note never drops
