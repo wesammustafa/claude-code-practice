@@ -1073,6 +1073,60 @@ test('resize: one full frame that clears the screen, at the new size', async () 
   }
 });
 
+// The frame's box (191): 40 rows at most, centered in a taller window, so
+// at 120x60 it is rows 11 to 50 (1-based), its key bar on row 50.
+test('a tall window: the box is drawn centered, a resize redraws it centered, and the 40 ms frames rewrite only changed rows inside it, the blank rows around it only in a full frame', async () => {
+  const app = clockedRun(MOTION_ENV, { cols: 120, rows: 60, watch: () => ({ close() {} }) });
+  const { term, clock } = app;
+  const boxed = (where, header = /LEARN/) => {
+    const shown = term.model.lines();
+    assert.deepEqual([...shown.slice(0, 10), ...shown.slice(50)].filter(Boolean), [], `${where}: blank around the box\n${shown.join('\n')}`);
+    assert.match(shown[11], header, `${where}: the header on the box's second row\n${shown.join('\n')}`);
+    assert.match(shown[49], /q quit/, `${where}: the key bar on the box's last row\n${shown.join('\n')}`);
+  };
+  try {
+    assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
+    boxed('the welcome');
+    for (const [cols, rows] of [[80, 24], [120, 60]]) {
+      await clock.advance(1_000);
+      const n = term.writes.length;
+      Object.assign(term.stdout, { columns: cols, rows });
+      term.stdout.emit('resize');
+      // With motion, the redraw waits for the 40 ms floor.
+      await clock.advance(TIMING.grid);
+      const wiped = term.writes.slice(n).filter((w) => w.includes('\x1b[2J'));
+      assert.equal(wiped.length, 1, `${cols}x${rows}: one frame clears the screen`);
+      assert.ok(wiped[0].startsWith('\x1b[?2026h\x1b[2J\x1b[H'), `${cols}x${rows}: cleared and drawn whole`);
+      if (rows === 24) assert.match(term.model.lines()[23], /q quit/, 'at 80x24 the key bar is the last row, as before');
+    }
+    boxed('resized back');
+    await app.toWaiting();
+    boxed('step 3', /B1/);
+    // Step 3 watching its file, from 25 s after it opened (as the 189 test
+    // above) for 12 s: looks, Pip's blinks and the 10 s repair frame.
+    const run = async (ms) => {
+      for (let k = 0; k < ms / 200; k++) {
+        await clock.advance(200);
+        await new Promise((r) => setTimeout(r, 1));
+      }
+    };
+    await run(25_000);
+    const from = term.writes.length;
+    await run(12_000);
+    const frames = term.writes.slice(from).filter((w) => w.startsWith('\x1b[?2026h'));
+    const full = frames.filter((w) => w.includes('\x1b[H'));
+    const rowFrames = frames.filter((w) => !w.includes('\x1b[H'));
+    assert.ok(full.length >= 1 && rowFrames.length >= 3, `${full.length} full frames, ${rowFrames.length} row frames`);
+    for (const w of full) assert.equal(w.split('\r\n').length, 60, 'a full frame writes every row, the blank ones around the box included');
+    const rows = rowFrames.flatMap((w) => [...w.matchAll(/\x1b\[(\d+);1H/g)].map((m) => Number(m[1])));
+    assert.ok(rows.length && rows.every((r) => r >= 11 && r <= 50), `rows rewritten: ${[...new Set(rows)]}`);
+    assert.ok(rowFrames.every((w) => w.match(/\x1b\[\d+;1H/g).length <= 2), 'each 40 ms frame rewrites a row or two');
+    boxed('after the frames', /B1/);
+  } finally {
+    app.close();
+  }
+});
+
 test('draws: when slow writes stop motion, the rest frame is asked for at once', async () => {
   const app = clockedRun(MOTION_ENV);
   const { term, clock } = app;
@@ -1168,14 +1222,16 @@ test('a still card blinks on one frame timer once the gates open, and has none a
 
 // What Pip's life on a card that watches costs on the wire (189, design
 // 4.7): step 3, which watches .practice/version.txt, from 25 s after it
-// opened, each 5 s for 40 s, at 80x24 and 120x40. Its file is read every
-// 2 s and the marker steps on each look; between, Pip blinks every 6 s and
-// looks to one side every 18 s, a one-row frame where its face changes.
-// The ceiling is about 1.3 times the most measured, as for the detailed
-// Pip (181); the 10 s repair frame is in it.
+// opened, each 5 s for 40 s, at 80x24 and 120x40, and at 120x60, where
+// the frame's 40-row box (191) adds only the blank rows around it to the
+// full frames. Its file is read every 2 s and the marker steps on each
+// look; between, Pip blinks every 6 s and looks to one side every 18 s, a
+// one-row frame where its face changes. The ceiling is about 1.3 times the
+// most measured, as for the detailed Pip (181); the 10 s repair frame is
+// in it.
 const WATCHED_CEILING = 11_000;
 test('a card that watches: Pip\'s blinks and looks to the side add only one-row frames where its face changes, and the bytes per 5 s stay under a ceiling', async () => {
-  for (const [cols, rows] of [[80, 24], [120, 40]]) {
+  for (const [cols, rows] of [[80, 24], [120, 40], [120, 60]]) {
     const app = clockedRun(MOTION_ENV, { cols, rows, watch: () => ({ close() {} }) });
     const { term, clock } = app;
     const inWindow = (from, to) => term.writes.filter((_, i) => app.times[i] >= from && app.times[i] < to);
