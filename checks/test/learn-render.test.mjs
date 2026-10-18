@@ -9,7 +9,7 @@ import { parseLesson, WORK_LEVELS } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { ambientOpened, TIMING } from '../../learn/lib/motion.mjs';
-import { bootFrame, cardMax, render } from '../../learn/lib/render.mjs';
+import { bootFrame, BOX_ROWS, cardMax, itemsMax, pipSlot, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
@@ -59,6 +59,74 @@ test('nothing on a screen is cut at 80x24 or larger', () => {
       // `cut` fills a line to the last column and ends it with an ellipsis.
       assert.ok(!lines.some((l) => l.endsWith('…') && width(l) === cols - 1), `${label} at ${cols}x${rows} cuts a line`);
       assert.ok(!lines.some((l) => l.trim() === '…'), `${label} at ${cols}x${rows} drops lines`);
+    }
+  }
+});
+
+// The frame's box (191): at most 80 columns by BOX_ROWS, centered both
+// ways. Each size with the box's first row and the key bar's, 0-based.
+const BOXED = [[60, 20, 0, 19], [80, 24, 0, 23], [120, 40, 0, 39], [120, 60, 10, 49], [120, 61, 10, 49], [200, 60, 10, 49]];
+const isRule = (l) => /^ *(─+|-+)$/.test(l);
+test('the frame is a box at most 80 columns by 40 rows, centered both ways: the key bar its last row, under the content, with equal blank rows above and below in a taller window, the odd one below', () => {
+  assert.equal(BOX_ROWS, 40);
+  for (const capName of ['full', 'ascii']) {
+    const t = theme(CAPS[capName]);
+    for (const [cols, rows, top, bar] of BOXED) {
+      // Below and above: equal, or one more below.
+      assert.ok([0, 1].includes(rows - 1 - bar - top), `${cols}x${rows}`);
+      for (const [label, base] of screens) {
+        for (const state of [base, { ...base, toast: { kind: 'stray' } }]) {
+          const where = `${label}${state.toast ? ' with a toast' : ''} at ${cols}x${rows} (${capName})`;
+          const lines = render(state, { cols, rows }, t);
+          assert.equal(lines.length, rows, where);
+          // The box draws as a window its height does, so a screen that
+          // sizes itself to its room gets the box's, and nothing stretches.
+          assert.deepEqual(lines.slice(top, bar + 1), render(state, { cols, rows: bar - top + 1 }, t), `${where}: the box`);
+          assert.deepEqual([...lines.slice(0, top), ...lines.slice(bar + 1)].filter(Boolean), [], `${where}: the rows around the box are blank`);
+          const plain = lines.map(strip);
+          assert.ok(plain[bar].trim() && isRule(plain[bar - 1]), `${where}: the key bar and its rule end the box\n${plain.join('\n')}`);
+          if (state.toast && rows > BOX_ROWS) assert.match(plain.slice(bar - 4, bar - 1).join('\n'), /looks like a command/, `${where}: the toast sits over the rule`);
+        }
+      }
+    }
+  }
+  // Across: the 80-column box with equal margins, its header on the box's
+  // second row (the first is the blank of a box 28 rows or taller).
+  const wide = render(driver().state, { cols: 200, rows: 60 }, theme(CAPS.full)).map(strip);
+  assert.equal(wide[48], `${' '.repeat(60)}${'─'.repeat(80)}`);
+  assert.equal(wide[10], '');
+  assert.match(wide[11], /^ {60} ?LEARN/);
+  // Below the minimum the window is the box: the one screen, its words
+  // centered in the whole window, as before.
+  for (const [cols, rows] of [[59, 60], [50, 19], [120, 19]]) {
+    for (const lines of [render(driver().state, { cols, rows }, theme(CAPS.full)), bootFrame(0, { cols, rows }, theme(CAPS.full))]) {
+      const words = lines.filter(Boolean);
+      assert.equal(lines.length, rows, `${cols}x${rows}`);
+      assert.match(words.join(' '), /at least 60 by\s+20/, `${cols}x${rows}`);
+      assert.equal(lines.findIndex(Boolean), Math.floor((rows - words.length) / 2), `${cols}x${rows}`);
+    }
+  }
+});
+
+test('the boot frame and the welcome land in the same box: the app\'s line and Pip on the same rows in a tall window, the 9x4 Pip and the detailed one', () => {
+  for (const depth of [8, 24]) {
+    const t = theme({ ...CAPS.full, depth });
+    for (const [cols, rows] of [[80, 24], [120, 40], [120, 60], [200, 61]]) {
+      const size = { cols, rows };
+      const welcome = driver().state;
+      const slot = pipSlot(null, size, t, welcome);
+      const raster = slot && { size: slot };
+      const boot = bootFrame(0, size, t, undefined, raster).map(strip);
+      const shown = render(welcome, size, t, undefined, slot && { size: pipSlot(welcome, size, t) }).map(strip);
+      const where = `${cols}x${rows} at depth ${depth}\n${boot.join('\n')}\n${shown.join('\n')}`;
+      const title = (ls) => ls.findIndex((l) => l.includes('LEARN'));
+      assert.equal(title(boot), title(shown), where);
+      if (rows > BOX_ROWS) assert.equal(title(boot), Math.floor((rows - BOX_ROWS) / 2) + 1, where);
+      // Pip's rows: the 9x4 Pip's antenna and box, or the raster's cells.
+      const pip = (ls) => ls.flatMap((l, i) => (/[▀▄]|╭───┴───╮|●‿●|─‿─/.test(l) ? [i] : []));
+      assert.equal(pip(boot)[0], pip(shown)[0], where);
+      assert.equal(boot.length, rows, where);
+      assert.equal(boot.findLastIndex(isRule), shown.findLastIndex(isRule), `${where}: the rule`);
     }
   }
 });
@@ -860,6 +928,78 @@ const lessonWalks = async (keep = () => true) => {
 const everyScreen = async () => [...screens, ...await lessonWalks((label) => !label.startsWith('b-1 ') || label.startsWith('b-1 C.'))];
 const flatText = (text) => text.replace(/[^A-Za-z0-9]/g, '');
 
+test('in a tall window nothing is cut and nothing stretches: the tallest screen at 80 columns fits the box, and the map, the check-only card, your card, the comparison and Pip\'s slot measure the box', async () => {
+  const all = await everyScreen();
+  for (const capName of ['full', 'ascii']) {
+    const t = theme(CAPS[capName]);
+    for (const [label, base] of all) {
+      for (const state of [base, { ...base, toast: { kind: 'stray' } }]) {
+        const where = `${label}${state.toast ? ' with a toast' : ''} (${capName})`;
+        const lines = render(state, { cols: 120, rows: 60 }, t).map(strip);
+        assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where} drops lines at 120x60\n${lines.join('\n')}`);
+        // The row over the gap above the rule is still padding: no screen in
+        // a 120-column window needs every row of the box (the tallest without
+        // a toast, i-5's W2.0 with its first hint for a learner who skipped
+        // the lessons before it, takes 37, 2026-10-18).
+        if (!state.toast) assert.equal(lines[49 - 3], '', `${where}: the box has no row to spare\n${lines.join('\n')}`);
+      }
+    }
+    const tc = theme({ ...CAPS[capName], depth: 24 });
+    for (const [label, state] of screens) {
+      const at = (rows) => ({ cols: 120, rows });
+      for (const rows of [60, 200]) {
+        assert.equal(itemsMax(state, at(rows), t), itemsMax(state, at(40), t), `${label} at 120x${rows}: the check-only card's scroll`);
+        assert.equal(cardMax(state, at(rows), t), cardMax(state, at(40), t), `${label} at 120x${rows}: your card's or the comparison's scroll`);
+        assert.equal(pipSlot(state, at(rows), tc), pipSlot(state, at(40), tc), `${label} at 120x${rows}: Pip's slot`);
+      }
+    }
+  }
+});
+
+// Below 80 columns a few of i-5's W2 screens are taller than the box (up to
+// 45 rows at 60 columns for a learner who skipped the lessons before it,
+// with a toast, 2026-10-18), so in a tall window they give up blank rows
+// only: the blank over the card and its spacers, never a teaching line, the
+// toast or a kept row (spec 9.1, design 4.5). The 120x60 window, whose
+// 80-column box fits every screen, says what each screen shows whole.
+test('below 80 columns a tall window gives up only blank rows: a screen taller than the box keeps its teaching, its toast and its kept rows', async () => {
+  const all = (await everyScreen()).filter(([, s]) => s.view === 'step' && !s.overlay);
+  // A wrong pick's "not this one" tag sits inside its option where the
+  // option wraps, which differs by width: the words are read without it.
+  const read = (ls) => flatText(ls.map((l) => l.replace(/ +(←|<-) not this one/, '')).join(''));
+  for (const capName of ['full', 'ascii']) {
+    const t = theme(CAPS[capName]);
+    const box = `${t.glyph.rail}  ${t.glyph.bar}`;
+    const spacers = (ls) => ls.filter((l) => l.trim() === t.glyph.rail).length;
+    let gaveWay = 0;
+    // Each with a toast: it takes the box's rows, so a screen is at its
+    // tallest with one, and the toast must stay too.
+    for (const [label, base] of all) {
+      const state = { ...base, toast: { kind: 'stray' } };
+      const whole = render(state, { cols: 120, rows: 60 }, t).map(strip);
+      const beat = beatOf(state);
+      const shown = read(whole);
+      const words = [beat.ask, ...(beat.options ?? []).map((o) => o.text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')),
+        C.whyLead, C.doneWhen, C.stray.split('.')[0], C.notYet, C.stepDone(state.pos.step + 1), C.right, C.notQuite, C.eased].filter(Boolean)
+        .map(flatText).filter((word) => shown.includes(word));
+      // The narrowest window, and one near 80 columns.
+      for (const cols of [60, 70]) {
+        const where = `${label} with a toast at ${cols}x60 (${capName})`;
+        const lines = render(state, { cols, rows: 60 }, t).map(strip);
+        const show = `\n${lines.join('\n')}`;
+        const text = read(lines);
+        assert.ok(!lines.some((l) => l.trim() === t.glyph.ellipsis), `${where}: a teaching row is cut${show}`);
+        for (const word of words) assert.ok(text.includes(word), `${where}: "${word}" is gone${show}`);
+        assert.equal(lines.some((l) => l.includes(box)), whole.some((l) => l.includes(box)), `${where}: the hint box${show}`);
+        assert.equal(lines.filter((l) => l.trim().startsWith(t.glyph.bl)).length, whole.filter((l) => l.trim().startsWith(t.glyph.bl)).length, `${where}: the card's bottom border${show}`);
+        if (spacers(lines) < spacers(whole)) gaveWay++;
+      }
+    }
+    // Some do give way, so this measures what the spec says.
+    assert.ok(gaveWay > 0, `no screen below 80 columns gives up a card spacer (${capName})`);
+  }
+});
+
 test('rows that never drop: the question and its options, feedback, the hint box, the eased line and the key bar', async () => {
   const all = await everyScreen();
   for (const [capName, caps] of Object.entries(CAPS)) {
@@ -884,7 +1024,8 @@ test('rows that never drop: the question and its options, feedback, the hint box
           C.notYet, C.stepDone(state.pos.step + 1), C.right, C.notQuite, C.eased].filter(Boolean);
         for (const word of words) if (whole.includes(flatText(word))) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is gone${show}`);
         assert.equal(lines.filter((l) => l.trim().startsWith(t.glyph.bl)).length, tall.filter((l) => l.trim().startsWith(t.glyph.bl)).length, `${where}: the card's bottom border is gone${show}`);
-        assert.equal(lines.at(-1), tall.at(-1), `${where}: the key bar`);
+        // The tall window's key bar is its box's last row, over the blank rows that center the box (191).
+        assert.equal(lines.at(-1), tall.findLast(Boolean), `${where}: the key bar`);
       }
     }
   }
@@ -1400,7 +1541,8 @@ test('kept rows never drop for a toast: the toast gives up its blank row, then g
         assert.equal(lines.length, 20, where);
         for (const row of tall.filter((l) => l.includes(box))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
         assert.equal(lines.filter(cardBottom(t)).length, 1, `${where}: the card's bottom border is gone${show}`);
-        assert.equal(lines.at(-1), tall.at(-1), `${where}: the key bar`);
+        // The tall window's key bar is its box's last row, over the blank rows that center the box (191).
+        assert.equal(lines.at(-1), tall.findLast(Boolean), `${where}: the key bar`);
       }
     }
   }
