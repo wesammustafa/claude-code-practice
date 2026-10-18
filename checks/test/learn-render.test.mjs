@@ -572,23 +572,25 @@ test('the next screen counts the questions in the steps this learner finished', 
   const b4 = lessonById('b-4');
   const questions = (steps) => steps.flatMap((st) => st.beats).filter((b) => b.ask && b.kind !== 'predict').length;
   const count = (d, cols, rows) => plainAt(d, cols, rows).match(/(\d+) questions? answered/)?.[1];
-  // A full play: every question in the play, warm-ups too, as before.
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-4') } });
+  // A full play: every question in the play, its warm-up too (exit was
+  // missed before, so R2 plays: 194).
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, missed: ['exit'], lessons: finishedBefore('b-4') } });
   playUntil(d, (s) => s.view === 'next' && s.lesson === 'b-4');
   const p = d.state.progress['b-4'];
   const played = [...p.warm.map((id) => b4.content.warmup.find((w) => w.id === id)), ...b4.content.steps];
   assert.ok(played.every((st) => p.done.includes(st.id)));
-  assert.equal(questions(played), 9, 'every question beat in the play');
-  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.equal(count(d, cols, rows), '9', `${cols}x${rows}`);
+  assert.equal(p.warm.length, 1);
+  assert.equal(questions(played), 8, 'every question beat in the play');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) assert.equal(count(d, cols, rows), '8', `${cols}x${rows}`);
   // The same play marked complete with no step done: the app saw no answer.
   const at = (done) => ({ state: { ...d.state, progress: { ...d.state.progress, 'b-4': { ...p, done } } } });
   for (const [cols, rows] of [[60, 20], [80, 24]]) {
-    assert.ok(!plainAt(at([]), cols, rows).includes('9 questions answered'), `${cols}x${rows}`);
+    assert.ok(!plainAt(at([]), cols, rows).includes('8 questions answered'), `${cols}x${rows}`);
     assert.equal(count(at([]), cols, rows), '0', `${cols}x${rows}`);
   }
   // Part of it: only the steps done count.
   const some = played.slice(0, 5);
-  assert.ok(questions(some) > 0 && questions(some) < 9);
+  assert.ok(questions(some) > 0 && questions(some) < 8);
   assert.equal(count(at(some.map((x) => x.id)), 80, 24), String(questions(some)));
 });
 
@@ -1051,10 +1053,11 @@ test('spacers drop one at a time from the bottom, and the map\'s lesson rows sta
 
 // Each lesson's intro, complete and next screens, played on the path.
 // After a later level's first lesson, the learner has answered its folder
-// question there: the practice copy.
+// question there: the practice copy. `top` adds to the save, such as the
+// skills missed before, which pick a warm-up (194).
 const foldersBefore = (l) => (WORK_LEVELS.includes(l.level) && allCourse.find((x) => x.level === l.level) !== l ? { folders: { [l.level]: FACTS.root } } : {});
-const endScreens = () => allCourse.filter((l) => l.content).flatMap((l) => {
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id), ...foldersBefore(l) } });
+const endScreens = (top = {}) => allCourse.filter((l) => l.content).flatMap((l) => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id), ...foldersBefore(l), ...top } });
   assert.equal(d.state.view, 'intro', l.id);
   const intro = d.state;
   playUntil(d, (s) => s.view === 'complete' && s.lesson === l.id);
@@ -1117,7 +1120,7 @@ test('every intro opens with its Why line, in the page\'s words, at 60x20 and 80
 const B4_INTRO = {
   '80x24': `
    B4   Keep a session on track                               about 20 minutes
-  ☆──☆──☆   ○──○   ◇   ○──○──○   ◇──◇──◇──◇   ☆──☆                    15 steps
+  ☆──☆   ○──○   ◇   ○──○──○   ◇──◇──◇──◇   ☆──☆                       14 steps
   ────────────────────────────────────────────────────────────────────────────
 
   Why: "a long, wandering conversation leaves Claude less room for the work
@@ -1134,7 +1137,7 @@ const B4_INTRO = {
                 ★★★    CHALLENGE ★★★    just the goal
          ◆◆◆◆◆    HINTED ★★☆    the goal, hints if you ask
   ●●●●●    GUIDED ★☆☆    every command shown
-  2 warm-ups first
+  1 warm-up first
   ❯  Start lesson 4
      I've used Claude Code before: give me less help
 
@@ -1142,7 +1145,7 @@ const B4_INTRO = {
   ↑↓ choose    enter start    m map    q quit`,
   '60x20': `
    B4   Keep a session on track           about 20 minutes
-  ☆☆☆ ○○ ◇ ○○○ ◇◇◇◇ ☆☆                            15 steps
+  ☆──☆   ○──○   ◇   ○──○──○   ◇──◇──◇──◇   ☆──☆   14 steps
   ────────────────────────────────────────────────────────
 
   Why: "a long, wandering conversation leaves Claude less
@@ -1155,7 +1158,7 @@ const B4_INTRO = {
      ○ resume an earlier conversation
   The help shrinks each time a skill comes back:
   ●●●●●◆◆◆◆◆★★★    GUIDED ★☆☆  ▸  CHALLENGE ★★★
-  2 warm-ups first
+  1 warm-up first
   ❯  Start lesson 4
      I've used Claude Code before: give me less help
 
@@ -1164,7 +1167,8 @@ const B4_INTRO = {
 };
 
 test('the b-4 intro, with its Why line and payoff, is the design\'s at 80x24 and 60x20', () => {
-  const intro = endScreens().find(([l]) => l === 'b-4 intro')[1];
+  // With exit missed before, so b-4 plays its one warm-up, R2 (194).
+  const intro = endScreens({ missed: ['exit'] }).find(([l]) => l === 'b-4 intro')[1];
   for (const [cols, rows] of SHORT) {
     const lines = render(intro, { cols, rows }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
     assert.deepEqual(lines, B4_INTRO[`${cols}x${rows}`].slice(1).split('\n'), lines.join('\n'));
@@ -1714,8 +1718,9 @@ test('no line is cut by width anywhere in a row at 60x20 or 80x24, apart from th
 });
 
 // The level's first warm-up says once why warm-ups exist: the first one the
-// level's first lesson with warm-ups plays (b-2 today), whichever it picks.
-const WARMUP_WHY = "A warm-up brings back an earlier lesson from memory. A wrong answer is fine: you see the lesson's words at once.";
+// learner plays in the level, in whichever lesson that is (194: one
+// warm-up, on a missed skill, so b-2 may play none).
+const WARMUP_WHY = "A warm-up brings back an earlier lesson from memory. A wrong answer is fine: the lesson's words follow.";
 const firstWarmup = (id, saved = {}, lessons = allCourse) => {
   const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore(id, lessons), ...saved } });
   assert.equal(d.state.view, 'intro', id);
@@ -1724,43 +1729,67 @@ const firstWarmup = (id, saved = {}, lessons = allCourse) => {
   if (d.state.view === 'intro') d.key('enter');
   return d;
 };
-// The same course with a warm-up in b-1, so b-2's first warm-up isn't the
-// level's first: b-2 then plays as it would with no explainer.
-const withoutWhy = allCourse.map((l) => (l.id === 'b-1' ? { ...l, content: { ...l.content, warmup: [...l.content.warmup, {}] } } : l));
+// The save's lessons up to `id`, with each of `played` (lesson ids whose
+// pool has an R1) saved as having played it, so `id`'s warm-up isn't the
+// level's first.
+const playedWarmups = (id, played, lessons = allCourse) => {
+  const before = finishedBefore(id, lessons);
+  for (const at of played) before[at] = { ...before[at], warm: ['R1'] };
+  return before;
+};
+// The same state with b-3 saved as having played a warm-up, as for a
+// learner back in b-2: b-2's then plays as it would with no explainer.
+const withoutWhy = (state) => ({ ...state, progress: { ...state.progress, 'b-3': { ...state.progress['b-3'], warm: ['R1'] } } });
 const explains = (d, cols = 80, rows = 24) => flatText(plainAt(d, cols, rows)).includes(flatText(WARMUP_WHY));
 
 test('the level\'s first warm-up says why warm-ups exist, under "Warm-up from lesson N", and no other warm-up does', () => {
-  const d = firstWarmup('b-2');
+  const d = firstWarmup('b-2', { missed: ['start'] });
   assert.equal(stepOf(d.state).id, 'R1');
   const lines = plainAt(d, 80, 24).split('\n');
   const from = lines.findIndex((l) => l.includes(C.warmup(1)));
   assert.ok(from > 0, lines.join('\n'));
   assert.match(lines[from + 1], /│  A warm-up brings back an earlier lesson from memory\. A wrong answer is$/);
-  assert.match(lines[from + 2], /│  fine: you see the lesson's words at once\.$/);
-  // The second warm-up, and b-3 to b-5's first, say nothing more.
-  playUntil(d, (s) => stepOf(s)?.id === 'R2');
-  assert.equal(stepOf(d.state).part, 'Warm-up');
-  assert.ok(!explains(d), plainAt(d, 80, 24));
+  assert.match(lines[from + 2], /│  fine: the lesson's words follow\.$/);
+  // b-3 to b-5's warm-ups, after b-2 played one, say nothing more (each R1,
+  // missed before).
   for (const id of ['b-3', 'b-4', 'b-5']) {
-    const later = firstWarmup(id);
+    const later = firstWarmup(id, { missed: ['plan-mode', 'review-diff', 'start'], lessons: playedWarmups(id, ['b-2']) });
     assert.equal(stepOf(later.state).part, 'Warm-up', id);
     assert.ok(!explains(later), `${id}\n${plainAt(later, 80, 24)}`);
   }
 });
 
-test('the explainer goes on the first warm-up b-2 plays: a missed skill first takes it', () => {
-  // R2 recalls status; a learner who missed it gets R2 first (ticket 132).
+test('the explainer goes on the first warm-up the learner plays: b-3\'s, when b-2 played none', () => {
+  // All of b-1 right, so nothing missed: b-2 opens on its worked example and
+  // saves no warm-up.
+  const b2 = firstWarmup('b-2');
+  assert.equal(stepOf(b2.state).part, 'Worked example');
+  assert.deepEqual(b2.state.progress['b-2'].warm, []);
+  assert.ok(!explains(b2), plainAt(b2, 80, 24));
+  // A skill missed in b-2: b-3's warm-up is the learner's first, and says why.
+  const b3 = firstWarmup('b-3', { missed: ['plan-mode'], lessons: { ...finishedBefore('b-3'), 'b-2': { ...finishedBefore('b-3')['b-2'], warm: b2.state.progress['b-2'].warm } } });
+  assert.equal(stepOf(b3.state).part, 'Warm-up');
+  assert.ok(plainAt(b3, 80, 24).includes(C.warmup(2)), plainAt(b3, 80, 24));
+  assert.ok(explains(b3), plainAt(b3, 80, 24));
+  // A lesson played later in the level counts too: b-3 after b-4 played one.
+  const after = firstWarmup('b-3', { missed: ['plan-mode'], lessons: { ...finishedBefore('b-3'), 'b-4': { warm: ['R1'] } } });
+  assert.equal(stepOf(after.state).part, 'Warm-up');
+  assert.ok(!explains(after), plainAt(after, 80, 24));
+});
+
+test('the explainer goes on the warm-up b-2 plays: whichever missed skill picks it', () => {
+  // R2 recalls status; a learner who missed it gets R2 (tickets 132, 194).
   const d = firstWarmup('b-2', { missed: ['status'] });
   assert.equal(stepOf(d.state).id, 'R2');
   assert.ok(explains(d), plainAt(d, 80, 24));
   playUntil(d, (s) => stepOf(s)?.id !== 'R2');
-  assert.equal(stepOf(d.state).part, 'Warm-up');
+  assert.equal(stepOf(d.state).part, 'Worked example');
   assert.ok(!explains(d), plainAt(d, 80, 24));
 });
 
 test('the explainer is optional: at 60x20 it drops whole, before any teaching line is cut, in full and ascii', () => {
   const seen = { shown: [], dropped: [] };
-  for (const missed of [[], ['status'], ['exit']]) {
+  for (const missed of [['start'], ['status'], ['exit']]) {
     for (const answer of [[], ['1'], ['1', 's'], ['2'], ['3']]) {
       const d = firstWarmup('b-2', { missed });
       for (const k of answer) d.key(k);
@@ -1782,63 +1811,73 @@ test('the explainer is optional: at 60x20 it drops whole, before any teaching li
         assert.ok(!(cut && whole), `${at} (${capName}) cuts a line and keeps the explainer\n${lines.join('\n')}`);
         // Once it drops, what gave way before it comes back: the screen is
         // the one with no explainer at all.
-        if (!whole) assert.deepEqual(lines, render({ ...d.state, course: withoutWhy }, { cols: 60, rows: 20 }, t).map(strip), `${at} (${capName})`);
+        if (!whole) assert.deepEqual(lines, render(withoutWhy(d.state), { cols: 60, rows: 20 }, t).map(strip), `${at} (${capName})`);
         assert.ok(explains(d), `${at}: 80x24 keeps it`);
         seen[whole ? 'shown' : 'dropped'].push(at);
       }
     }
   }
-  assert.ok(seen.shown.includes('R1 after nothing') && seen.dropped.includes('R1 after 1'), JSON.stringify(seen));
+  assert.ok(seen.shown.includes('R1 after nothing') && seen.dropped.includes('R2 after 2'), JSON.stringify(seen));
 });
 
-test('the explainer comes from the content and the warm-up\'s place, never from learn.json', () => {
+test('the explainer comes from the content, the warm-up\'s place and the saved warm-ups, and adds nothing to learn.json', () => {
   // Answered, saved, and back on R1 from that save: it shows again, since
-  // the save holds no word of it. Resumed on R2, it doesn't.
-  const d = firstWarmup('b-2');
+  // the save holds no word of it. Resumed on R2, the second warm-up of a
+  // save from before 194, it doesn't.
+  const d = firstWarmup('b-2', { missed: ['start'] });
   d.key('2');
   assert.equal(d.state.beat.status, 'done');
   const saved = snapshot(d.state);
-  // The save has the keys it had before the explainer, and holds the same
-  // as the same play where b-1 has warm-ups, so b-2's first says nothing.
+  // The save has the keys it had before the explainer.
   assert.deepEqual(Object.keys(saved), ['format', 'welcomed', 'eased', 'missed', 'lessons']);
   for (const p of Object.values(saved.lessons)) {
     assert.deepEqual(Object.keys(p), ['step', 'beat', 'done', 'answers', 'levels', 'lessHelp', 'moreHelpAt', 'easedSteps', 'complete', 'warm', 'recalled', 'stamps', 'bottomAt']);
   }
-  const quiet = firstWarmup('b-2', {}, withoutWhy);
+  // The same play after b-3 saved a warm-up says nothing, and saves the same
+  // apart from b-3's list.
+  const quiet = firstWarmup('b-2', { missed: ['start'], lessons: playedWarmups('b-2', ['b-3']) });
   assert.ok(!explains(quiet));
   quiet.key('2');
-  assert.deepEqual(snapshot(quiet.state), saved);
+  const { 'b-3': b3Saved, ...quietLessons } = snapshot(quiet.state).lessons;
+  assert.deepEqual(b3Saved.warm, ['R1']);
+  const { 'b-3': _, ...savedLessons } = saved.lessons;
+  assert.deepEqual({ ...snapshot(quiet.state), lessons: quietLessons }, { ...saved, lessons: savedLessons });
   for (const [step, shows] of [['R1', true], ['R2', false]]) {
-    const back = driver({ course: allCourse, saved: { ...saved, lessons: { ...saved.lessons, 'b-2': { ...saved.lessons['b-2'], step, beat: 0 } } } });
+    const back = driver({ course: allCourse, saved: { ...saved, lessons: { ...saved.lessons, 'b-2': { ...saved.lessons['b-2'], step, beat: 0, warm: ['R1', 'R2'] } } } });
     back.key('enter');
     assert.equal(stepOf(back.state).id, step);
     assert.equal(explains(back), shows, `${step}\n${plainAt(back, 80, 24)}`);
   }
   // With no warm-ups in b-2, b-3 is the level's first lesson that has them.
   const lessons = allCourse.map((l) => (l.id === 'b-2' ? { ...l, content: { ...l.content, warmup: [] } } : l));
-  const b3 = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-3', lessons) } });
+  const b3 = driver({ course: lessons, saved: { format: 1, welcomed: true, missed: ['plan-mode'], lessons: finishedBefore('b-3', lessons) } });
   b3.key('enter');
   assert.equal(stepOf(b3.state).part, 'Warm-up');
   assert.ok(explains(b3), plainAt(b3, 80, 24));
 });
 
-test('each level has its own first warm-up: a later level\'s first lesson with warm-ups says why too', () => {
+test('each level has its own first warm-up: a later level\'s first warm-up says why too', () => {
   // A made-up Intermediate lesson after the Beginner path: b-2's content
   // under the id i-1, so its warm-ups recall Beginner lessons.
   const b2 = allCourse.find((l) => l.id === 'b-2');
   const as = (lessons, id) => lessons.map((l) => (l.id === id ? { ...b2, id, level: 'intermediate', content: { ...b2.content, lesson: id } } : l));
   const lessons = as(allCourse, 'i-1');
-  const i1 = firstWarmup('i-1', {}, lessons);
+  // Beginner lessons that played warm-ups don't count for Intermediate.
+  const i1 = firstWarmup('i-1', { missed: ['start'], lessons: playedWarmups('i-1', ['b-2', 'b-3'], lessons) }, lessons);
   assert.equal(i1.state.lesson, 'i-1');
   assert.equal(stepOf(i1.state).part, 'Warm-up');
   assert.ok(explains(i1), plainAt(i1, 80, 24));
-  const b2First = firstWarmup('b-2', {}, lessons);
+  const b2First = firstWarmup('b-2', { missed: ['start'] }, lessons);
   assert.ok(explains(b2First), plainAt(b2First, 80, 24));
-  // A second Intermediate lesson with warm-ups says nothing more.
+  // A second Intermediate lesson's warm-up, after i-1 played one, says
+  // nothing more; after i-1 played none, it is the level's first.
   const i2 = as(lessons, 'i-2');
-  const second = firstWarmup('i-2', {}, i2);
+  const second = firstWarmup('i-2', { missed: ['start'], lessons: playedWarmups('i-2', ['i-1'], i2) }, i2);
   assert.equal(stepOf(second.state).part, 'Warm-up');
   assert.ok(!explains(second), plainAt(second, 80, 24));
+  const first = firstWarmup('i-2', { missed: ['start'] }, i2);
+  assert.equal(stepOf(first.state).part, 'Warm-up');
+  assert.ok(explains(first), plainAt(first, 80, 24));
 });
 
 // Ticket 178: a warm-up from a level index names the index, and so do the
@@ -2099,10 +2138,11 @@ test('the Why line follows the effective tier: less help lifts GUIDED to HINTED 
 });
 
 // 132's M4 case: a skill this learner never did opens at a first meeting's
-// GUIDED. R1 (plan-mode) is typed wrong twice, so no recall puts plan-mode
-// on the plan (a right recall would: learn-zone.test.mjs).
+// GUIDED. R1 (plan-mode, missed before, so it plays: 194) is typed wrong
+// twice, so no recall puts plan-mode on the plan (a right recall would:
+// learn-zone.test.mjs).
 test('b-3 opened from the map with nothing done shows W1 (plan-mode) at GUIDED with its Why line', () => {
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: {} } });
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, missed: ['plan-mode'], lessons: {} } });
   if (d.state.view !== 'map') d.key('m');
   while (allCourse[d.state.mapCursor].id !== 'b-3') d.key('down');
   d.key('enter');
@@ -2223,11 +2263,11 @@ test('the Why line\'s lead is in accent and its quote in text, and a step\'s not
 // saved line gives way.
 const B4_NEXT = `
    B4   Keep a session on track                                    COMPLETE ✔
-  ★━━★━━★   ●━━●   ◆   ●━━●━━●   ◆━━◆━━◆━━◆   ★━━★                    15 of 15
+  ★━━★   ●━━●   ◆   ●━━●━━●   ◆━━◆━━◆━━◆   ★━━★                       14 of 14
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   ✅ The lesson's check passes: 2 of 2 items
-  💬 9 questions answered
+  💬 8 questions answered
 
   Your climb
 
@@ -2250,7 +2290,7 @@ const B4_NEXT = `
 const readWords = (read) => flatText(read.replace(/\[([^\]]+)\]\([^)]+\)/, '$1'));
 
 test('the next screen ends the lesson with 📖 Go further and the page\'s line: b-4 is the design\'s at 80x24', () => {
-  const next = endScreens().find(([l]) => l === 'b-4 next')[1];
+  const next = endScreens({ missed: ['exit'] }).find(([l]) => l === 'b-4 next')[1];
   const lines = render(next, { cols: 80, rows: 24 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
   assert.deepEqual(lines, B4_NEXT.slice(1).split('\n'), lines.join('\n'));
 });
@@ -2349,9 +2389,9 @@ test('the Go further line is an optional row: it drops whole with its blank, bef
 });
 
 // The page overlay, opened with p from the screen `stop` finds in a play of
-// lesson `id` on the path.
-const pageOn = (id, stop) => {
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+// lesson `id` on the path, with `top` added to the save.
+const pageOn = (id, stop, top = {}) => {
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...top } });
   playUntil(d, stop);
   d.key('p');
   assert.equal(d.state.overlay, 'page', id);
@@ -2433,8 +2473,8 @@ test('p on a step shows its page\'s Go further line: a warm-up\'s is the lesson 
   // b-3's first step of its own.
   const own = pageOn('b-3', (s) => s.view === 'step' && s.lesson === 'b-3' && stepOf(s).part !== 'Warm-up');
   assert.ok(text(own).includes(URLS['b-3']), text(own));
-  // b-2's first warm-up, from b-1.
-  const warm = pageOn('b-2', (s) => s.view === 'step' && s.lesson === 'b-2' && stepOf(s).part === 'Warm-up');
+  // b-2's warm-up, from b-1, played where start was missed (194).
+  const warm = pageOn('b-2', (s) => s.view === 'step' && s.lesson === 'b-2' && stepOf(s).part === 'Warm-up', { missed: ['start'] });
   const from = stepOf(warm.state).from;
   assert.equal(from, 'b-1');
   assert.ok(text(warm).includes(URLS[from]) && !text(warm).includes(URLS['b-2']), text(warm));
@@ -2948,21 +2988,38 @@ test('a step done before keeps the accent "current" glyph until it passes again:
   assert.equal(colored(row2(r)).accent, undefined);
 });
 
+// b-2 plays one warm-up where start was missed before, and none where
+// nothing was (194); a save from before 194 resumes with its two.
 test('row 3 counts the warm-ups on the plan as steps, with the trail closed up at 60x20', () => {
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-2') } });
-  if (d.state.view === 'map') d.key('enter');
-  const rows = () => render(d.state, { cols: 60, rows: 20 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
-  assert.equal(d.state.view, 'intro');
-  assert.match(rows()[1], /^  ☆☆ ◇ ○{7} ◇{4} ☆☆ +16 steps$/);
-  assert.equal(rows()[2], `  ${'─'.repeat(56)}`);
+  const at = (top) => {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore('b-2'), ...top } });
+    if (d.state.view === 'map') d.key('enter');
+    assert.equal(d.state.view, 'intro');
+    return d;
+  };
+  const rows = (d) => render(d.state, { cols: 60, rows: 20 }, theme(CAPS.full)).map((l) => strip(l).trimEnd());
+  const d = at({ missed: ['start'] });
+  assert.match(rows(d)[1], /^  ☆   ◇   ○(──○){6}   ◇(──◇){3}   ☆──☆ 15 steps$/);
+  assert.ok(rows(d).includes(`  ${C.warmups(1)}`), rows(d).join('\n'));
+  assert.equal(rows(d)[2], `  ${'─'.repeat(56)}`);
   d.key('enter');
   playUntil(d, (s) => s.view === 'step' && s.beat.status === 'done');
   assert.equal(stepOf(d.state).id, 'R1');
-  // 1 of 16 over 56 cells.
-  assert.equal(rows()[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
+  // 1 of 15 over 56 cells.
+  assert.equal(rows(d)[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
   d.key('enter');
-  assert.equal(stepOf(d.state).id, 'R2');
-  assert.equal(rows()[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
+  assert.equal(stepOf(d.state).id, 'W1');
+  // Nothing missed: the lesson's own 14 steps, and no warm-up line.
+  const none = at({});
+  assert.match(rows(none)[1], / 14 steps$/);
+  assert.ok(!rows(none).some((l) => /warm-up/.test(l)), rows(none).join('\n'));
+  // Two warm-ups from an older save: 16 steps, closed up.
+  const old = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('b-2'), 'b-2': { step: 'R2', beat: 0, warm: ['R1', 'R2'], done: ['R1'] } } } });
+  old.key('enter');
+  assert.equal(stepOf(old.state).id, 'R2');
+  assert.match(rows(old)[1], /^  ★★ ◇ ○{7} ◇{4} ☆☆ +step 2 of 16$/, rows(old).join('\n'));
+  // 1 of 16 over 56 cells.
+  assert.equal(rows(old)[2], `  ${'━'.repeat(4)}${'─'.repeat(52)}`);
 });
 
 // Your card (the c overlay): the commands from steps the learner finished,

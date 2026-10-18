@@ -2,7 +2,7 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
-import { GIT, indexLevel, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
+import { GIT, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
 import { evidenceOf, grewFrom, judge } from './holds.mjs';
 import { cleanListed, eachFile, judgeGit, needsChange } from './status.mjs';
@@ -20,8 +20,9 @@ const ACTIVITY_KEPT = 8;
 
 const clone = (x) => structuredClone(x);
 const blankProgress = () => ({ step: null, beat: 0, done: [], answers: {}, levels: [], lessHelp: false, moreHelpAt: null, easedSteps: {}, complete: false, warm: [], recalled: [], stamps: {}, bottomAt: null });
-// How many warm-up questions open a lesson that has them.
-export const WARMUPS = 2;
+// How many warm-up questions open a lesson, at most: one, on a skill the
+// learner missed (ticket 194, the lesson value rework's rule 4).
+export const WARMUPS = 1;
 
 // The screens Pip greets the learner on, once per opening (176).
 const GREETS = ['welcome', 'resume'];
@@ -770,22 +771,15 @@ function back(s, effects) {
   }
 }
 
-// Picks the lesson's warm-up questions as it starts: questions on a skill the
-// learner missed before come first, then skills whose help hasn't faded for
-// them (no step finished on it in an earlier lesson, and not recalled), then
-// the rest, each in the file's order. While the pool has other skills, no
-// two questions ask the same one. A level index warm-up recalls a level, no
-// step's skill (ticket 178), so it ranks with the rest unless it was missed.
+// Picks the lesson's warm-up as it starts: the first question in the file's
+// order on a skill the learner missed before, or none when they missed no
+// skill the pool recalls (ticket 194: a warm-up spends a question only where
+// it brings back something missed, so unmet skills and the file order no
+// longer fill the place). A beat that names the skill it recalls counts
+// under that skill, as its miss and its recall do.
 export function pickWarmups(s, id = s.lesson) {
-  const h = history(s);
-  const idx = s.course.findIndex((l) => l.id === id);
-  const met = (skill) => h.recalled.has(skill) || s.course.some((_, k) => k < idx && h.steps.has(`${k} ${skill}`));
-  const rank = (w) => (s.missed.includes(w.skill) ? 0 : indexLevel(w.from) || met(w.skill) ? 2 : 1);
-  const ranked = [...contentOf(s, id).warmup].sort((a, b) => rank(a) - rank(b));
-  const picked = [];
-  for (const w of ranked) if (picked.length < WARMUPS && !picked.some((x) => x.skill === w.skill)) picked.push(w);
-  for (const w of ranked) if (picked.length < WARMUPS && !picked.includes(w)) picked.push(w);
-  return picked.map((w) => w.id);
+  const missed = (w) => w.beats.some((b) => s.missed.includes(b.skill ?? w.skill));
+  return contentOf(s, id).warmup.filter(missed).slice(0, WARMUPS).map((w) => w.id);
 }
 function chooseWarmups(s) {
   s.progress[s.lesson].warm = pickWarmups(s);

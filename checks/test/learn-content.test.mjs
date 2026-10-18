@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GUIDE, indexLevel, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
-import { TYPED_MAX } from '../../learn/lib/flow.mjs';
+import { TYPED_MAX, WARMUPS } from '../../learn/lib/flow.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { lessons } from '../lessons/index.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
@@ -176,20 +176,16 @@ test('warm-ups: questions from an earlier lesson, numbered, from memory', () => 
   assert.deepEqual(Object.entries(parsed).flatMap(([id, l]) => warmupOff(id, l)), []);
 });
 
-// C.warmupWhy, on the first warm-up of each level, says a wrong answer
-// shows the lesson's words at once: every warm-up there must. A wrong pick
-// shows its option's because, and a wrong typed answer the first hint.
-test('the level\'s first lesson with warm-ups shows the lesson\'s words on every wrong answer', () => {
-  const firsts = new Map();
-  for (const p of PATH) {
-    const l = parsed[p.id];
-    if (l?.warmup.length && !firsts.has(p.level)) firsts.set(p.level, p.id);
-  }
-  assert.equal(firsts.get('beginner'), 'b-2');
-  for (const id of firsts.values()) {
-    for (const w of parsed[id].warmup) {
+// C.warmupWhy goes on the first warm-up a learner meets in a level, which
+// since 194 can be any lesson's (a lesson plays one only on a missed skill),
+// and says the lesson's words follow a wrong answer: every warm-up's must. A
+// wrong pick shows its option's because at once; a wrong typed answer its
+// first hint, where it has one, and its reveal after a second try.
+test('every warm-up shows the lesson\'s words after a wrong answer', () => {
+  for (const [id, l] of Object.entries(parsed)) {
+    for (const w of l.warmup) {
       const b = w.beats[0];
-      if (b.kind === 'type') assert.ok(b.hints.length, `${id} ${w.id}: a wrong typed answer shows no quote`);
+      if (b.kind === 'type') assert.ok(b.reveal, `${id} ${w.id}: a wrong typed answer shows no quote`);
       else for (const o of b.options) if (o.kind !== 'right') assert.ok(o.because, `${id} ${w.id}: "${o.text}" shows no quote`);
     }
   }
@@ -596,8 +592,8 @@ test('warm-ups: a warm-up may recall a level index, from any lesson', () => {
 });
 
 // A typed answer, a wrong or decoy pick, or s on any question but a guess
-// marks the skill missed, for a warm-up to ask it first later (flow.mjs:
-// submitTyped, pick and s).
+// marks the skill missed, for a later lesson's warm-up to ask it, the only
+// warm-up that lesson plays (194; flow.mjs: submitTyped, pick and s).
 const MISSABLE = new Set(['right', 'wrong', 'decoy']);
 const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'predict' && b.options.some((o) => MISSABLE.has(o.kind)));
 // Skills a question can mark missed that no later lesson's pool recalls, each
@@ -831,5 +827,187 @@ test('back lines: each why is the app\'s own words until the guide\'s quote chec
       assert.equal(back.quoted, false, `${id}:${back.line}: a back line quotes the page before the guide's quote check reads it`);
       assert.doesNotMatch(back.text, /`|(^|\s)\/[a-z]/, `${id}:${back.line}: "${back.text}" names a command`);
     }
+  }
+});
+
+// ---- the lesson value rework's rules (ticket 194) -----------------------------
+// design/lesson-value-rework.md's rules 3 to 5, as far as a test can judge
+// them: the budget, no guess whose every option approves, each safety kind
+// once a level, and warm-ups that are scenarios. Today's lesson files were
+// written before the rules, and each breaks at least one: each is exempt by
+// name until its level's rework rewrites it, 195 for Beginner and 196 for
+// Intermediate, which removes its entry here. An entry whose lesson keeps
+// every rule fails, so the rework can't leave one behind.
+const BEFORE_REWORK = {
+  'b-1': 195, 'b-2': 195, 'b-3': 195, 'b-4': 195, 'b-5': 195, 'b-capstone': 195,
+  'i-1': 196, 'i-2': 196, 'i-3': 196, 'i-4': 196, 'i-5': 196, 'i-6': 196, 'i-7': 196, 'i-8': 196, 'i-capstone': 196,
+};
+// Rule 3: at most 3 graded questions per core lesson, and none in a capstone.
+const BUDGET = 3;
+// The questions a lesson grades outside its warm-ups, as [step, beat index]:
+// every predict, ask and type beat, safety guesses included, and a do beat
+// that asks (its verify is answer). Your turn's decision is one of these.
+const gradedOf = (l) => l.steps.flatMap((s) => s.beats.flatMap((b, n) => (['predict', 'ask', 'type'].includes(b.kind) || b.ask ? [[s, n]] : [])));
+const bare = (text) => text.replace(/\*\*|`/g, '').trim();
+
+function budgetOff(id, l) {
+  const graded = gradedOf(l);
+  if (id.endsWith('capstone')) {
+    return [...(graded.length ? [`${id}: a capstone has no quiz, and this one asks ${graded.length} questions`] : []),
+      ...(l.warmup.length ? [`${id}: a capstone has no warm-up, and this one has ${l.warmup.length}`] : [])];
+  }
+  return graded.length > BUDGET ? [`${id}: ${graded.length} graded questions, over the budget of ${BUDGET}`] : [];
+}
+
+// Rule 5: no "approve?" guess whose every option approves, so its answer is
+// always to approve. An option approves when it leads with yes, approve,
+// allow, accept or let, whatever follows ("Yes, and don't ask again", Claude
+// Code's own second choice), or says one of them later with nothing that
+// refuses ("Read it, then choose Yes"). "Don't ask again" approves too, so
+// it is no refusal, in either apostrophe.
+const APPROVES = /\b(yes|approve|allow|accept|let)\b/i;
+const LEADS_APPROVING = /^(?:plain\s+)?(?:yes|approve|allow|accept|let)\b/i;
+const REFUSES = /\b(no|not|decline|deny|never|don't)\b/i;
+const approves = (o) => {
+  const text = bare(o.text).replace(/^["']|["']$/g, '').replace(/\u2019/g, "'").replace(/\b(?:don't|do not) ask (?:me )?again\b/gi, '');
+  return LEADS_APPROVING.test(text) || (APPROVES.test(text) && !REFUSES.test(text));
+};
+const approveOnlyOff = (id, l) => l.steps.flatMap((s) => s.beats.flatMap((b, n) => {
+  const options = b.options.filter((o) => !['other', 'stuck'].includes(o.kind));
+  return b.kind === 'predict' && options.length && options.every(approves) ? [`${id} ${s.id}.${n}: every option of this guess approves`] : [];
+}));
+
+// Rule 5: a safety kind (the `safety:` value) is asked once a level; after
+// that a one-line reminder does. `entries` is [id, lesson] pairs.
+function safetyOff(entries) {
+  const asked = new Map();
+  for (const [id, l] of entries) {
+    const level = PATH.find((p) => p.id === id)?.level ?? id;
+    for (const s of l.steps) {
+      s.beats.forEach((b, n) => {
+        if (!b.safety) return;
+        const key = `${level} ${b.safety}`;
+        asked.set(key, [...(asked.get(key) ?? []), `${id} ${s.id}.${n}`]);
+      });
+    }
+  }
+  return [...asked].filter(([, at]) => at.length > 1).map(([key, at]) => `${key}: asked ${at.length} times (${at.join(', ')})`);
+}
+
+// Rule 4: a warm-up is a scenario, never a key or a command: no typed answer
+// and no right option that is one, or names one. KEY and COMMAND judge a
+// whole answer, a code or bold span, and each word of an answer made of
+// keys ("Esc Esc", "Esc twice"). In prose, where "tab" or "delete" is a
+// plain word, a key counts only as a modifier chord (not "option" or
+// "command", which prose uses), Esc, or the word after press, hit or tap,
+// and a command only as a word that starts with / or --. A key or command
+// in prose beyond these is Review.
+const MOD = '(?:shift|ctrl|control|alt|option|cmd|command|meta)';
+const KEY = new RegExp(`^(?:${MOD}[+-])*(?:tab|esc|escape|enter|return|space|backspace|delete|up|down|left|right|f\\d{1,2})$|^(?:${MOD}[+-])+\\S+$|^(?:ctrl|cmd|alt)\\s\\S$`, 'i');
+const COMMAND = /^(?:\/[a-z]|--?[a-z]|(?:claude|git|npm|npx|node)(?:\s|$))/i;
+const whole = (text) => KEY.test(text) || COMMAND.test(text);
+const REPEATS = /^(?:twice|again|then|and|times?|\d+)$/i;
+function keyOrCommand(text) {
+  const plain = bare(text).replace(/^["']|["'.]$/g, '');
+  const words = plain.split(/[\s,]+/).filter((w) => w && !REPEATS.test(w));
+  const spans = [...text.matchAll(/`([^`]+)`|\*\*([^*]+)\*\*/g)].map((m) => (m[1] ?? m[2]).trim());
+  return whole(plain) || (words.length > 0 && words.every((w) => KEY.test(w))) || spans.some(whole)
+    || /\b(?:shift|ctrl|control|alt|cmd|meta)[+-]\w{1,9}\b|\b(?:ctrl|cmd)\s\S\b|\besc\b/i.test(plain)
+    || [...plain.matchAll(/\b(?:press|hit|tap)\s+(\S+)/gi)].some((m) => KEY.test(m[1].replace(/[,.;:]$/, '')))
+    || plain.split(/\s+/).some((w) => /^(?:\/[a-z]|--[a-z])/i.test(w));
+}
+const warmupFormOff = (id, l) => l.warmup.flatMap((w) => w.beats.flatMap((b) => {
+  const answers = b.kind === 'type' ? b.accept : b.options.filter((o) => o.kind === 'right').map((o) => o.text);
+  const found = answers.find(keyOrCommand);
+  return found ? [`${id} ${w.id}: a warm-up's answer is a key or a command (${found}): ask a scenario`] : [];
+}));
+
+const reworkOff = (id, l) => [...budgetOff(id, l), ...approveOnlyOff(id, l), ...warmupFormOff(id, l)];
+
+test('the rework\'s rules: one warm-up shown, at most 3 graded questions and none in a capstone, no approve-only guess, a safety kind once a level, scenario warm-ups', () => {
+  assert.equal(WARMUPS, 1, 'the app shows at most one warm-up');
+  const after = Object.entries(parsed).filter(([id]) => !(id in BEFORE_REWORK));
+  assert.deepEqual([...after.flatMap(([id, l]) => reworkOff(id, l)), ...safetyOff(after)], []);
+  for (const [id, ticket] of Object.entries(BEFORE_REWORK)) {
+    assert.ok(parsed[id], `${id}: the exemption names no lesson file`);
+    const broken = [...reworkOff(id, parsed[id]), ...safetyOff([[id, parsed[id]]])];
+    assert.ok(broken.length, `${id} keeps every rule now: drop its exemption, as ${ticket} does`);
+  }
+});
+
+// A made-up lesson `id` for the rules: `warm` holds each warm-up's beat
+// lines, `beats` each beat's lines on its one Worked example step.
+function ruled(id, { warm = [], beats = [] } = {}) {
+  const text = [`---\nlesson: ${id}\ntitle: "Demo"\n---\n\n## intro\n- can: "do it"`,
+    ...(warm.length ? ['\n## warm-up', ...warm.map((lines, i) => `\n### R${i + 1} | Warm-up | Recall\n- tier: challenge\n- skill: status\n- from: b-1\n${lines.join('\n')}`)] : []),
+    '\n## steps\n\n### W1 | Worked example step 1 of 1 | Do it\n- tier: guided\n- skill: status\n- where: claude\n- beat: do\n- verify: self\n- goal: "Do it."',
+    ...beats.map((lines) => lines.join('\n')),
+    '\n### C | Check | Check\n- tier: challenge\n- skill: check\n- where: terminal\n- beat: do\n- verify: check all\n- goal: "Run the check."'].join('\n');
+  return parseLesson(text, `${id}.md`);
+}
+const guess = (...options) => ['- beat: predict', '- ask: Guess: what do you answer?', ...options];
+const PICK = ['- beat: ask', '- ask: Which one fits?', '- right: this one', '- wrong: that one', '- because: "Because."'];
+const TYPED = ['- beat: type', '- ask: Which file?', '- accept: CLAUDE.md', '- reveal: "`CLAUDE.md`"'];
+const ASKED = ['- beat: do', '- verify: answer', '- ask: What did it print?', '- right: a version', '- other: something else'];
+
+test('the rework\'s budget: a fourth graded question fails a new lesson, and a capstone fails on any', () => {
+  const three = [guess('- right: **No**', '- option: **Yes**'), PICK, TYPED];
+  assert.deepEqual(budgetOff('a-1', ruled('a-1', { beats: three })), []);
+  // Warm-ups are no part of it.
+  assert.deepEqual(budgetOff('a-1', ruled('a-1', { warm: [PICK, PICK], beats: three })), []);
+  // A fourth, of any kind: a safety guess, a pick, a typed answer or a do beat that asks.
+  for (const fourth of [[...guess('- right: **No**', '- option: **Yes**'), '- safety: permission-prompt'], PICK, TYPED, ASKED]) {
+    assert.deepEqual(budgetOff('a-1', ruled('a-1', { beats: [...three, fourth] })), ['a-1: 4 graded questions, over the budget of 3'], fourth.join('\n'));
+  }
+  assert.deepEqual(budgetOff('a-capstone', ruled('a-capstone')), []);
+  assert.deepEqual(budgetOff('a-capstone', ruled('a-capstone', { warm: [PICK], beats: [PICK] })), [
+    'a-capstone: a capstone has no quiz, and this one asks 1 questions', 'a-capstone: a capstone has no warm-up, and this one has 1']);
+});
+
+test('the rework\'s approve-only guess: a new lesson fails a guess whose every option approves', () => {
+  const at = (...options) => approveOnlyOff('a-1', ruled('a-1', { beats: [guess(...options)] }));
+  for (const options of [['- right: plain **Yes**', '- option: the other Yes choices'], ['- right: "Approve it"', '- option: let Claude commit'],
+    ['- right: Read the whole command, then choose **Yes**.', '- option: **Yes, and switch to auto mode**', '- other: I saw something different'],
+    // Claude Code's own second choice, in either apostrophe: its "don't" refuses nothing.
+    ['- right: plain **Yes**', "- option: **Yes, and don't ask again**"], ['- right: **Yes**', "- option: **Yes, and don't ask again for this command**"],
+    ['- right: **Yes**', '- option: **Yes, and don\u2019t ask again for this command**'], ['- right: **Yes**', '- option: Choose **Yes**, and don\'t ask again'],
+    ['- right: **Yes**', '- option: Yes, but not again'], ['- right: Accept the edit', '- option: Press enter to accept']]) {
+    assert.deepEqual(at(...options), ['a-1 W1.1: every option of this guess approves'], options.join('\n'));
+  }
+  for (const options of [['- right: plain **Yes**', '- option: Answer **No** and say what to do instead'], ['- right: Decline it', '- option: Approve it, so the write can finish'],
+    ['- right: Once you\'ve reviewed the server it runs', '- option: Always, since the file is committed'],
+    ['- right: plain **Yes**', '- option: No, let me edit it first'], ['- right: **Yes, and don\'t ask again**', '- option: Don\'t approve it: say what to do instead']]) {
+    assert.deepEqual(at(...options), [], options.join('\n'));
+  }
+  // A pick is no guess: its wrong options say why.
+  assert.deepEqual(approveOnlyOff('a-1', ruled('a-1', { beats: [['- beat: ask', '- ask: Which?', '- right: plain **Yes**', '- wrong: the other Yes choices', '- because: "Because."']] })), []);
+});
+
+test('the rework\'s safety kinds: a kind asked a second time in a level fails, in one lesson or two', () => {
+  const safe = (kind) => [...guess('- right: **No**', '- option: **Yes**'), `- safety: ${kind}`];
+  const a1 = ruled('a-1', { beats: [safe('permission-prompt')] });
+  assert.deepEqual(safetyOff([['a-1', a1], ['a-2', ruled('a-2', { beats: [safe('plan-approval')] })]]), []);
+  assert.deepEqual(safetyOff([['a-1', a1], ['a-2', ruled('a-2', { beats: [safe('permission-prompt')] })]]), ['advanced permission-prompt: asked 2 times (a-1 W1.1, a-2 W1.1)']);
+  assert.deepEqual(safetyOff([['a-1', ruled('a-1', { beats: [safe('mcp-approval'), safe('mcp-approval')] })]]), ['advanced mcp-approval: asked 2 times (a-1 W1.1, a-1 W1.2)']);
+  // Each level asks it once.
+  assert.deepEqual(safetyOff([['i-1', ruled('i-1', { beats: [safe('permission-prompt')] })], ['a-1', a1]]), []);
+});
+
+test('the rework\'s warm-ups: a new lesson fails a warm-up whose answer is a key or a command', () => {
+  const typed = (...accept) => ['- beat: type', '- ask: Which one?', ...accept.map((a) => `- accept: ${a}`), '- reveal: "It is."'];
+  const right = (text) => ['- beat: ask', '- ask: Which one?', `- right: ${text}`, '- wrong: the other', '- because: "Because."'];
+  for (const [beat, answer] of [[typed('Shift+Tab', 'Alt+M'), 'Shift+Tab'], [typed('Esc'), 'Esc'], [typed('Ctrl+O'), 'Ctrl+O'], [typed('/context'), '/context'],
+    [typed('disable', 'claude plugin disable'), 'claude plugin disable'], [typed('--settings'), '--settings'], [right('"`/rewind`"'), '`/rewind`'], [right('`claude --version`'), '`claude --version`'],
+    // A key or command inside the answer, repeated, or joined some other way.
+    [typed('Esc Esc'), 'Esc Esc'], [typed('Esc twice'), 'Esc twice'], [typed('Ctrl-O'), 'Ctrl-O'], [typed('ctrl o'), 'ctrl o'], [typed('Ctrl+C twice'), 'Ctrl+C twice'],
+    [right('Press **Shift+Tab**'), 'Press **Shift+Tab**'], [right('Run `/clear`'), 'Run `/clear`'], [right('Press `Esc` twice'), 'Press `Esc` twice'],
+    [right('Press Enter to send it'), 'Press Enter to send it'], [right('Start it with claude --continue'), 'Start it with claude --continue'], [right('Type /context and read the grid'), 'Type /context and read the grid']]) {
+    assert.deepEqual(warmupFormOff('a-1', ruled('a-1', { warm: [beat] })), [`a-1 R1: a warm-up's answer is a key or a command (${answer}): ask a scenario`], beat.join('\n'));
+  }
+  for (const beat of [typed('.claude/settings.json'), typed('PreToolUse'), right('the project\'s `CLAUDE.md`'), right('plain **Yes**'), PICK,
+    // Prose whose words are keys only elsewhere.
+    right('Delete the worktree, then open a new tab'), right('Go back to the plan and return to it later'), right('The command-line option the page names'),
+    right('Shift the task to a subagent'), right('`.claude/skills/<name>/SKILL.md`'), right('Undo the last turn and/or restore the code')]) {
+    assert.deepEqual(warmupFormOff('a-1', ruled('a-1', { warm: [beat] })), [], beat.join('\n'));
   }
 });

@@ -1100,7 +1100,8 @@ test('main: --dir on a terminal answers the intro\'s question and is saved, as a
 
 test('main: the goodbye says where to run the app again: the practice copy, named, when the lesson\'s work folder is another', async () => {
   const mine = repo();
-  for (const [folders, words] of [[() => ({ intermediate: mine }), (copy) => C.savedAtCopy('I1', 1, 5, copy)], [() => ({}), () => C.savedAt('I1', 1, 5)]]) {
+  // Step 1 of i-1's 3: nothing missed, so no warm-up opens it (194).
+  for (const [folders, words] of [[() => ({ intermediate: mine }), (copy) => C.savedAtCopy('I1', 1, 3, copy)], [() => ({}), () => C.savedAt('I1', 1, 3)]]) {
     const app = inCopy({ folders });
     try {
       assert.ok(await until(() => app.frame().includes(C.startLesson(1)) || app.frame().includes(C.folderCopy)), app.frame());
@@ -1110,7 +1111,7 @@ test('main: the goodbye says where to run the app again: the practice copy, name
         assert.ok(await until(() => app.frame().includes(C.startLesson(1))), app.frame());
       }
       app.type('\r');
-      assert.ok(await until(() => app.frame().includes('step 1 of 5')), app.frame());
+      assert.ok(await until(() => app.frame().includes('step 1 of 3')), app.frame());
       app.type('q');
       assert.ok(await until(() => app.exited() === 0));
       assert.equal(app.stdout.writes.at(-1), `${words(app.copy)}\n`);
