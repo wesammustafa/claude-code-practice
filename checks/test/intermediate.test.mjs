@@ -475,11 +475,13 @@ test('i-6 passes for a committed read-only subagent that Claude delegated to', (
   });
 });
 
-test('i-6 accepts tools written as a YAML list', () => {
-  withRepo(agentRepo({ fields: GAPS_FIELDS.replace('tools: Read, Grep, Glob', 'tools:\n  - Read\n  - Grep') }), (dir) => {
-    const { code, out } = check(['i-6', '--dir', dir]);
-    assert.equal(code, 0, out);
-  });
+test('i-6 accepts tools written as a YAML list, indented or at the key\'s indent', () => {
+  for (const tools of ['tools:\n  - Read\n  - Grep', 'tools:\n- Read\n- Grep\n- Glob']) {
+    withRepo(agentRepo({ fields: GAPS_FIELDS.replace('tools: Read, Grep, Glob', tools) }), (dir) => {
+      const { code, out } = check(['i-6', '--dir', dir]);
+      assert.equal(code, 0, `${tools}: ${out}`);
+    });
+  }
 });
 
 test('i-6 reads a trailing comment and a description on the next line as Claude Code does', () => {
@@ -500,7 +502,7 @@ test('i-6 fails while the partial file still has its TODOs', () => {
 });
 
 test('i-6 fails for a subagent that can edit files or run commands, or inherits every tool', () => {
-  for (const tools of ['tools: Read, Grep, Bash', 'tools: Read, Edit', '']) {
+  for (const tools of ['tools: Read, Grep, Bash', 'tools: Read, Edit', 'tools:\n- Read\n- Bash', '']) {
     withRepo(agentRepo({ fields: GAPS_FIELDS.replace('tools: Read, Grep, Glob', tools) }), (dir) => {
       const { code, out } = check(['i-6', '--dir', dir]);
       assert.equal(code, 1, `${tools}: ${out}`);
@@ -701,6 +703,33 @@ test('the Intermediate capstone fails without a skill, a reviewer or a hook, nam
       const { code, out } = check(['i-capstone', '--dir', dir]);
       assert.equal(code, 1, out);
       assert.match(out, hint);
+    });
+  }
+});
+
+// Items 3, 4, 5 and 7 come from lessons 7, 8, 4 and 2: with their file
+// missing, or a server file without the lesson's server, they send the
+// learner to the capstone, and the lessons' own checks still name the lesson.
+test('the Intermediate capstone names the capstone, not a lesson, for a missing .mcp.json, settings file or CLAUDE.md, or a server file without the server', () => {
+  const noServer = JSON.stringify({ mcpServers: { other: { type: 'stdio', command: 'npx', args: ['-y', 'other-mcp@1.0.0'] } } }, null, 2);
+  for (const [setup, says, own] of [
+    [{ omit: ['.mcp.json'] }, ['There is no .mcp.json at the repository root. Write the one the capstone asks for there, as in lesson 7.'], [['i-7', 'Save the partial file from the lesson\'s Your turn there.']]],
+    [{ files: { '.mcp.json': noServer } }, ['No server in .mcp.json runs chrome-devtools-mcp. Add it under `mcpServers`, as in lesson 7.'], [['i-7', 'Add it under `mcpServers`, as in the lesson.']]],
+    [{ omit: ['.claude/settings.json'] }, [
+      'There is no committed .claude/settings.json that parses as JSON. Add the `enabledPlugins` entry the capstone asks for and commit it, as in lesson 8.',
+      'There is no .claude/settings.json. Write the team settings the capstone asks for there, as in lesson 4.',
+    ], [['i-8', 'Add the `enabledPlugins` entry from the lesson and commit it.'], ['i-4', 'Save the partial file from the lesson\'s Your turn there.']]],
+    [{ omit: ['CLAUDE.md'] }, ['There is no committed CLAUDE.md. Commit the one the capstone asks for, as in lesson 2.'], [['i-2', 'Commit the one you organize in this lesson.']]],
+  ]) {
+    withRepo(capstoneRepo(setup), (dir) => {
+      const { code, out } = check(['i-capstone', '--dir', dir]);
+      assert.equal(code, 1, out);
+      for (const line of says) assert.ok(out.includes(line), out);
+      assert.doesNotMatch(out, /Your turn|this lesson|the lesson/, out);
+      for (const [lesson, said] of own) {
+        const mine = check([lesson, '--dir', dir]);
+        assert.ok(mine.out.includes(said), mine.out);
+      }
     });
   }
 });

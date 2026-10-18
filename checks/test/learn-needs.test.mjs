@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadCourse, parseLesson, PATH } from '../../learn/lib/content.mjs';
 import { C } from '../../learn/lib/copy.mjs';
-import { introAsks } from '../../learn/lib/flow.mjs';
+import { introAsks, pinOf } from '../../learn/lib/flow.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
@@ -62,7 +62,8 @@ const screen = (state, [cols, rows] = [80, 24], t = FULL) => render(state, { col
 // A screen's words as one line, for a sentence that wraps; code spans lose
 // their backticks on screen.
 const flat = (lines) => lines.map((l) => l.trim()).join(' ').replace(/\s+/g, ' ');
-const words = (text) => text.replace(/`/g, '');
+// A quote's words as the app draws them: code spans and a link's text plain.
+const words = (text) => text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/`/g, '');
 // At i-1's intro, Beginner finished and Intermediate's folder answered, with
 // `opts` in its lesson file; `facts` as main found them.
 const atIntro = (opts, facts = {}, folders = { intermediate: MINE }) => {
@@ -510,12 +511,14 @@ test('n opens the intro\'s notes whole, a note at a time where they are taller t
 // Each intro in learn/lessons as the learner may meet it: every command it
 // needs missing, every prerequisite failing, on native Windows, and, in a
 // later level, as its level's first intro, asking and then answered there,
-// and in a saved work folder that isn't a git repository.
+// and in a saved work folder that isn't a git repository. A lesson pinned to
+// the copy (i-capstone) asks nothing, so enter starts it: it has no answered
+// intro.
 test('every lesson file\'s intro fits at 60x20 and 80x24 with everything it needs missing: no teaching line cut', () => {
   const states = course.filter((l) => l.content).flatMap((l) => {
     // Every lesson before it finished, and no work folder saved yet.
     const lessons = Object.fromEntries(course.slice(0, course.indexOf(l)).map((x) => [x.id, { complete: true }]));
-    const modes = l.level === 'beginner' ? ['beginner'] : ['asking', 'answered', 'saved'];
+    const modes = l.level === 'beginner' ? ['beginner'] : pinOf(l) === 'copy' ? ['asking', 'saved'] : ['asking', 'answered', 'saved'];
     return modes.map((mode) => {
       const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons, ...(mode === 'saved' ? { folders: { [l.level]: MINE } } : {}) } });
       assert.deepEqual([d.state.view, d.state.lesson], ['intro', l.id]);
