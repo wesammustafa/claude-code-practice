@@ -1,6 +1,7 @@
 // Draws a state as exactly `rows` lines, none wider than `cols - 1`. Four
 // regions: the header (where am I), the body (what to do now, with how it's
-// going at the bottom of the card), and the key bar pinned to the bottom.
+// going at the bottom of the card), and the key bar pinned to the bottom of
+// the frame's box, which a taller window centers (191).
 import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFace, pipRaster, pipShown } from './art.mjs';
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
@@ -14,6 +15,24 @@ import { COMMANDS_URL, GIT, indexLevel, indexUrl, OWN_PARTS, READS } from './con
 import { cleanListed, needsChange } from './status.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
+// The frame's box (191): at most 80 columns wide (frameOf) and BOX_ROWS
+// tall, centered both ways, so in a tall window the key bar stays under the
+// content it belongs to. The tallest screen at 80 columns is 40 rows (i-5's
+// W2.0 with its first hint and a toast, in ASCII, for a learner who skipped
+// the lessons before it; 38 for one who did them, 2026-10-18), so no screen
+// gives way in the box that did not in the window before, and a window up to
+// 40 rows tall draws as it always did. Below 80 columns a few of i-5's W2
+// screens are taller (up to 45 rows at 60 columns): in a tall window they
+// give up blank rows only, the blank over the card and its spacers. Below
+// the minimum the window is the box: the small screen fills it.
+export const BOX_ROWS = 40;
+const boxOf = ({ cols, rows }) => ({ cols, rows: cols < MIN.cols || rows < MIN.rows ? rows : Math.min(rows, BOX_ROWS) });
+// The box's lines in a window `rows` tall: equal blank rows above and below,
+// the odd one below.
+function centered(out, rows) {
+  const above = Math.floor((rows - out.length) / 2);
+  return [...Array(above).fill(''), ...out, ...Array(rows - out.length - above).fill('')];
+}
 // Each body row says how it gives way when the body is taller than its room
 // (spec 3.1, the drop order). A plain string is teaching: it is cut last.
 // A blank line the layout may drop. Inside a card it keeps the card's rail;
@@ -100,7 +119,7 @@ let pageUrl = '';
 export function render(s, size, t, clock = REST, pip = null) {
   const step = s.view === 'step' && s.beat ? stepOf(s) : null;
   pageUrl = (step?.part === 'Warm-up' ? recalledPage(s, step) : lessonOf(s))?.url ?? '';
-  return screenOf(s, size, t, clock, pip).out;
+  return centered(screenOf(s, boxOf(size), t, clock, pip).out, size.rows);
 }
 
 // The screen's lines, and its spare rows: the blank rows it pads with, or
@@ -190,7 +209,9 @@ const STRAY = { kind: 'stray', until: Infinity };
 // screen it hands over to, so Pip does not change as git answers. main
 // draws with what this gives, and asks for Pip's frames only where it
 // gives a raster.
-export function pipSlot(s, size, t, ahead = null) {
+export function pipSlot(s, windowSize, t, ahead = null) {
+  // Measured in the frame's box, as the screen is drawn (191).
+  const size = boxOf(windowSize);
   if (!t.unicode || !t.truecolor || size.cols < MIN.cols || size.rows < MIN.rows) return null;
   // A raster with no pose: enough to measure the rows it takes.
   const blank = { size: 'standard' };
@@ -222,7 +243,7 @@ function frameCtx(s, size, t, clock, raster = null) {
 // move only what the card shows.
 export function itemsMax(s, size, t) {
   if (s.view !== 'checkonly' || s.overlay || size.cols < MIN.cols || size.rows < MIN.rows) return 0;
-  return VIEWS.checkonly(frameCtx(s, size, t, REST).ctx).itemsMax;
+  return VIEWS.checkonly(frameCtx(s, boxOf(size), t, REST).ctx).itemsMax;
 }
 
 // How far your card (the c overlay), or the comparison (173), can scroll in
@@ -232,7 +253,7 @@ export function itemsMax(s, size, t) {
 export function cardMax(s, size, t) {
   if (s.overlay !== 'card' && s.overlay !== 'compare') return null;
   if (size.cols < MIN.cols || size.rows < MIN.rows) return 0;
-  return OVERLAYS[s.overlay](viewOf(s, size, t, REST).f.ctx).max;
+  return OVERLAYS[s.overlay](viewOf(s, boxOf(size), t, REST).f.ctx).max;
 }
 
 // Every frame's card width, its left margin, and the blank above it on a
@@ -254,7 +275,7 @@ const placed = (t, M, cols) => (l) => (l ? cut(' '.repeat(M) + (t.unicode ? l : 
 // it) the detailed one, no bigger than the next screen's (pipSlot). No key
 // works yet, so the key bar is blank.
 export function bootFrame(since, size, t, clock = REST, pip = null) {
-  return bootOf(since, size, t, clock, pip).out;
+  return centered(bootOf(since, boxOf(size), t, clock, pip).out, size.rows);
 }
 function bootOf(since, size, t, clock, raster) {
   const { cols, rows } = size;
