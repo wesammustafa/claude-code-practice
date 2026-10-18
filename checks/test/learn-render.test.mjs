@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { parseLesson, WORK_LEVELS } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { beatOf, cardOf, DEFER_MS, hintAvailable, IDLE_MS, lessonOf, levelOf, nextLessonOf, rungsOf, stepNote, stepOf, tierOf } from '../../learn/lib/flow.mjs';
+import { ambientOpened, TIMING } from '../../learn/lib/motion.mjs';
 import { bootFrame, cardMax, render } from '../../learn/lib/render.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
@@ -2560,6 +2561,29 @@ test('Pip\'s face is in Pip\'s own colors: the outline purple, the eyes yellow, 
     assert.doesNotMatch(cheering.join('\n'), /[34]8;2;/, `depth ${caps.depth}: the cheer in truecolor`);
     const cheer = cheering.find((l) => strip(l).trim() === '+  ●  +');
     assert.deepEqual(inks(cheer).filter(([g]) => g !== ' '), [['+', eyes], ['●', eyes], ['+', eyes]]);
+  }
+});
+
+// Pip's life on a card that watches (189), as the top border draws it: a
+// blink's shut eyes, and its look toward the other window and away, each
+// in one-cell glyphs and Pip's own colors, the border its own width.
+test('on a card that watches, Pip\'s blink and its looks to each side are drawn on the top border in Pip\'s own colors and one-cell glyphs, the border\'s width kept, at 60x20, 80x24 and 120x40', () => {
+  const s = screens.find(([l]) => l === 'W3 waiting')[1];
+  const q = ambientOpened(s);
+  const t = theme({ ...CAPS.full, motion: true, calm: false });
+  const [outline, eyes, mouth] = ['38;5;177', '38;5;221', '38;5;255'];
+  for (const [cols, rows] of [[60, 20], [80, 24], [120, 40]]) {
+    const rest = cardTop(render(s, { cols, rows }, t));
+    for (const [ms, eye] of [[40, '─'], [TIMING.peekFrom, '◑'], [TIMING.peekFrom + TIMING.peekEvery, '◐']]) {
+      const lines = render(s, { cols, rows }, t, { at: q + ms });
+      const top = lines.find((l) => strip(l).trimEnd() === cardTop(lines));
+      const where = `${cols}x${rows}, +${ms} ms`;
+      assert.equal(width(cardTop(lines)), width(rest), where);
+      assert.equal(cardTop(lines).slice(0, -9), rest.slice(0, -9), `${where}: only the face changes`);
+      const face = inks(top).slice(-9, -2).filter(([g]) => g !== ' ');
+      assert.deepEqual(face, [['[', outline], [eye, eyes], ['‿', mouth], [eye, eyes], [']', outline]], where);
+      for (const [g] of face) assert.ok(width(g) === 1 && !isEmoji(g), `${where}: ${g}`);
+    }
   }
 });
 
