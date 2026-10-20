@@ -333,12 +333,14 @@ test('b-2 says the after snapshot lists no changed file yet, and what to do firs
 
 // A real template CLI with a solved link parser, committed together with a
 // regression test that rejects the patch's single-slash flaw.
-function committedRepo({ testScript = 'node --test "test/**/*.test.js"', files = {
+function committedRepo({ testScript = 'node --test "test/**/*.test.js"', templateFiles = {}, files = {
   'src/links.js': solvedLinks,
   'test/external.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { isExternal } from '../src/links.js';\ntest('a single slash is a project link', () => assert.equal(isExternal('/docs/setup.md'), false));\n",
 } } = {}) {
-  const dir = templateRepo();
+  const dir = templateRepo(templateFiles);
   const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  // The fix must change source even when this suite runs from solutions.
+  write(dir, { 'src/links.js': solvedLinks.replace("target.startsWith('//') || ", '') });
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'claude-code-practice', type: 'module', scripts: { test: testScript } }));
   git('add', '-A');
   git('commit', '-q', '-m', 'Initial template copy');
@@ -349,12 +351,14 @@ function committedRepo({ testScript = 'node --test "test/**/*.test.js"', files =
 }
 
 test('b-3 passes for a commit that changes code and a test, with the tests passing and the tree clean', () => {
-  const dir = committedRepo();
-  try {
-    const { code, out } = check(['b-3', '--dir', dir]);
-    assert.equal(code, 0, out);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  for (const templateFiles of [{}, { 'src/links.js': solvedLinks }]) {
+    const dir = committedRepo({ templateFiles });
+    try {
+      const { code, out } = check(['b-3', '--dir', dir]);
+      assert.equal(code, 0, out);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 
