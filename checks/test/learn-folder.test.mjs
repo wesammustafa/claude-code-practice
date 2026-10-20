@@ -497,7 +497,7 @@ test('f on a check-only card changes its level\'s folder; i-capstone, pinned to 
 // ---- the intro's rows (ticket 142's row test, measured again) -------------------
 // i-1 with b-4's intro: a Why line, four can lines and a payoff, so the
 // level's first intro is as full as a Beginner one, plus `extra` can lines.
-const B4_INTRO = readFileSync(join(root, 'learn', 'lessons', 'b-4.md'), 'utf8').match(/## intro\n([\s\S]*?)\n## /)[1];
+const B4_INTRO = readFileSync(join(root, 'checks/test/fixtures/reducer-course', 'b-4.md'), 'utf8').match(/## intro\n([\s\S]*?)\n## /)[1];
 const fullI1 = (extra = 0) => DEMO_I1.replace(/## intro\n[\s\S]*?\n## warm-up/, `## intro\n${B4_INTRO}${Array.from({ length: extra }, (_, k) => `- can: "practise skill ${k + 1}"\n`).join('')}\n## warm-up`);
 const MODES = [FULL, theme({ tty: true, depth: 4, unicode: true, links: false, win32: false }), theme({ tty: true, depth: 1, unicode: true, links: false, win32: false }), ASCII];
 const widthCut = (t, cols) => (l) => width(l) === cols - 1 && (t.unicode ? l.endsWith('…') : /\S\.$/.test(l));
@@ -1172,7 +1172,7 @@ test('main: a prerequisite check item runs through the check child in the work f
   // The frame's words, its rows' line ends taken out, for a sentence that wraps.
   const words = () => app.frame().replace(/\x1b\[K/g, '').replace(/\s+/g, ' ');
   try {
-    assert.ok(await until(() => words().includes(C.buildsOnCheck('B5', 'a committed CLAUDE.md holds the rule saved in .practice/b-5-rule.txt')) && words().includes(C.buildsOnFile('B4', C.fileEmpty(skill)))), app.frame());
+    assert.ok(await until(() => words().includes(C.buildsOnCheck('B5', 'a committed CLAUDE.md has a rule that every new JavaScript file in src/ starts with a given line')) && words().includes(C.buildsOnFile('B4', C.fileEmpty(skill)))), app.frame());
     assert.deepEqual(app.ran.filter((r) => r.lesson !== 'i-1'), [{ dir: mine, lesson: 'b-5', items: [0] }], 'one check child, for the check item, in the work folder');
     // B5 and B4 are practised in the copy, so doing them again there would
     // not set the work folder right: neither is offered.

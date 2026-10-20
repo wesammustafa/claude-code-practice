@@ -102,7 +102,7 @@ export const PATH_MAX = 1024;
 // Items whose check starts another process: a test run, a hook, a stub
 // run. They run only when the learner presses r, never on every file change.
 export const SLOW = {
-  'b-3': [1], 'b-capstone': [3, 4],
+  'b-1': [0], 'b-2': [2, 3], 'b-3': [0, 1, 2, 4], 'b-4': [3], 'b-capstone': [2, 3, 4],
   'i-5': [2], 'i-capstone': [1, 9],
   'a-4': [1, 2, 3], 'a-7': [0, 1, 2, 3, 4], 'a-capstone': [4, 5, 6, 11],
 };

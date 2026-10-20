@@ -32,15 +32,15 @@ import { lessons } from '../lessons/index.mjs';
 import { statusPaths } from '../paths.mjs';
 import { TIME_LIMIT } from '../stub-claude.mjs';
 import { check, commit, exportHead, repo, withRepo, write } from './helpers.mjs';
-import { course, driver, finished, finishedBefore, root } from './learn-drive.mjs';
+import { b1Item, course, driver, finished, finishedBefore, root } from './learn-drive.mjs';
 import { fakeClock, fakeOut, screenModel, turn } from './learn-term.mjs';
 
 // Every lesson on the course, in its order.
 const EVERY = PATH.map((p) => p.id);
 const RUN_CHECK = join(root, 'learn', 'run-check.mjs');
-const child = (args) => {
+const child = (args, extraEnv = {}) => {
   const { NODE_TEST_CONTEXT, ...env } = process.env;
-  const r = spawnSync(process.execPath, [RUN_CHECK, ...args], { encoding: 'utf8', env });
+  const r = spawnSync(process.execPath, [RUN_CHECK, ...args], { encoding: 'utf8', env: { ...env, ...extraEnv } });
   return { code: r.status, out: r.stdout.trim() ? JSON.parse(r.stdout.trim()) : null };
 };
 
@@ -68,17 +68,19 @@ test('keys: arrows, enter, Ctrl+C, a lone Escape, and a paste as one event', () 
   assert.deepEqual(parse('bash\r'), [{ type: 'paste', text: 'bash' }]);
 });
 
-test('the check child gives the check\'s own words, with npm run check\'s pass rule', () => {
+test('the check child gives the live version and note checks their own words', () => {
   withRepo(() => repo(), (dir) => {
-    const none = child(['b-1', dir]);
+    const none = child(['b-1', dir], { PATH: dir });
     assert.equal(none.code, 0);
+    assert.equal(none.out.items.length, 2);
     assert.equal(none.out.items[0].pass, false);
-    assert.equal(none.out.items[0].hint, lessons['b-1'].items[0].check({ dir, read: () => null }));
-    write(dir, { '.practice/version.txt': '' });
-    assert.match(child(['b-1', dir, '0']).out.items[0].hint, /is empty/);
-    // Windows PowerShell 5.1 writes UTF-16 with a byte-order mark.
-    writeFileSync(join(dir, '.practice', 'version.txt'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('2.1.285 (Claude Code)\r\n', 'utf16le')]));
-    assert.equal(child(['b-1', dir]).out.items[0].pass, true);
+    assert.match(none.out.items[0].hint, /couldn't find `claude`/);
+    assert.equal(none.out.items[1].hint, lessons['b-1'].items[1].check({ dir, read: () => null, exists: () => false }));
+    // An obsolete saved version cannot make the live installation pass.
+    write(dir, { '.practice/version.txt': '2.1.285 (Claude Code)' });
+    assert.equal(child(['b-1', dir, '0'], { PATH: dir }).out.items[0].pass, false);
+    write(dir, { 'practice/b-1/onboarding.md': 'linkcheck exits 1 when it finds broken links.' });
+    assert.equal(child(['b-1', dir, '1']).out.items[0].pass, true);
     assert.equal(child(['b-9', dir]).code, 2);
     assert.equal(child(['b-1', dir, '7']).code, 2);
   });
@@ -121,7 +123,7 @@ test('the check child writes {"running": n} to stderr before each item it runs, 
     assert.equal(two.stderr, '{"running":1}\n{"running":2}\n', 'the first and the second of the items asked for');
     assert.equal(two.stdout.split('\n').filter(Boolean).length, 1);
     assert.deepEqual(JSON.parse(two.stdout).items.map((i) => i.index), [0, 2]);
-    assert.equal(run(['b-1', dir]).stderr, '{"running":1}\n', 'every item when none is named');
+    assert.equal(run(['b-1', dir]).stderr, '{"running":1}\n{"running":2}\n', 'every item when none is named');
     const bad = run(['b-9', dir]);
     assert.equal(bad.status, 2);
     assert.equal(bad.stderr, '', 'no item runs, so none is reported');
@@ -133,10 +135,10 @@ test('runCheck passes on each report as item n of the m items the child runs, be
   const dir = repo();
   try {
     const seen = [];
-    const r = await runCheck(dir, 'b-3', [0, 2], { onRunning: (n, m) => seen.push([n, m]) });
+    const r = await runCheck(dir, 'b-3', [3, 5], { onRunning: (n, m) => seen.push([n, m]) });
     assert.deepEqual(seen, [[1, 2], [2, 2]]);
-    assert.deepEqual(r.items.map((i) => i.index), [0, 2]);
-    // The slow item is left out, so the child runs two of the three.
+    assert.deepEqual(r.items.map((i) => i.index), [3, 5]);
+    // The four process-running items are left out, so the child runs the two fast items.
     seen.length = 0;
     await runCheck(dir, 'b-3', null, { onRunning: (n, m) => seen.push([n, m]) });
     assert.deepEqual(seen, [[1, 2], [2, 2]]);
@@ -148,7 +150,7 @@ test('runCheck passes on each report as item n of the m items the child runs, be
 test('the check child\'s time limit runs from the start of each item, so slow items add up in one run without ending it', async () => {
   // b-capstone's two slow items, each 2 s here, the tool then npm test, and
   // together past the limit: each well under it.
-  const nap = (ms) => `setTimeout(() => process.exit(2), ${ms});\n`;
+  const nap = (ms) => `setTimeout(() => { console.error('docs missing'); process.exit(2); }, ${ms});\n`;
   const dir = repo({ 'src/cli.js': nap(2_000), 'package.json': JSON.stringify({ scripts: { test: 'node -e "setTimeout(() => {}, 2000)"' } }) });
   try {
     const r = await runCheck(dir, 'b-capstone', [3, 4], { slow: true, limit: 4_000 });
@@ -233,7 +235,7 @@ test('SLOW holds exactly the items that start a process, through a helper in che
   assert.ok(!starters.has('openRepo'), 'openRepo starts a process other than git');
   const found = Object.fromEntries(EVERY.map((id) => [id, lessons[id].items.flatMap((it, i) => (starts(it.check.toString()) ? [i] : []))]).filter(([, is]) => is.length));
   // runCommitted runs i-5's hook, runStubbed a-4's script, and testsPass is b-3's npm test.
-  assert.deepEqual([found['i-5'], found['a-4'], found['b-3']], [[2], [1, 2, 3], [1]]);
+  assert.deepEqual([found['i-5'], found['a-4'], found['b-3']], [[2], [1, 2, 3], [0, 1, 2, 4]]);
   assert.deepEqual(found, SLOW);
 });
 
@@ -474,15 +476,32 @@ const until = async (fn, ms = 8_000) => {
   return false;
 };
 
-test('a full run on a fake terminal: writing version.txt turns step 3 done, and only learn.json is added', async () => {
+// These terminal mechanics tests deliberately use stable synthetic lessons.
+// Live reworked content has its own complete reducer/render walk.
+function reducerRepo() {
   const dir = exportHead(root);
+  for (const id of ['b-1', 'b-2', 'b-3', 'b-4', 'b-5', 'b-capstone']) {
+    write(dir, { [`learn/lessons/${id}.md`]: readFileSync(join(root, 'checks/test/fixtures/reducer-course', `${id}.md`), 'utf8').replaceAll('- verify: check 0', id === 'b-1' ? '- verify: check 1' : '- verify: check 0') });
+  }
+  return dir;
+}
+
+async function reducerCheck(dir, id, items, opts) {
+  if (id !== 'b-1') return runCheck(dir, id, items, opts);
+  const path = join(dir, '.practice/version.txt');
+  const item = b1Item(existsSync(path) ? readFileSync(path, 'utf8') : null);
+  return { items: [{ index: 0, text: 'synthetic prerequisite', pass: true, hint: '' }, { ...item, index: 1 }] };
+}
+
+test('a full run on a fake terminal: writing version.txt turns step 3 done, and only learn.json is added', async () => {
+  const dir = reducerRepo();
   // The solutions branch commits its .practice/ files; start from none.
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
   const outside = () => statusPaths(execFileSync('git', ['status', '--porcelain', '--ignored', '--untracked-files=all'], { cwd: dir, encoding: 'utf8' }));
   const before = outside();
   const term = fakeTerminal();
   let exited = null;
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, runCheck: reducerCheck, exit: (code) => { exited = code; } });
   try {
     assert.ok(await until(() => term.lastFrame().includes("Let's learn Claude Code")), term.lastFrame());
     term.type('\r');
@@ -510,10 +529,10 @@ test('a full run on a fake terminal: writing version.txt turns step 3 done, and 
 });
 
 test('main sends each key with how far the check-only card scrolls in the window, so up moves the card at once after down went past the end', async () => {
-  const dir = exportHead(root);
+  const dir = reducerRepo();
   const term = fakeTerminal();
   let exited = null;
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, runCheck: reducerCheck, exit: (code) => { exited = code; } });
   const shown = () => term.lastFrame().match(/Items (\d+) to (\d+) of 13/);
   try {
     assert.ok(await until(() => term.lastFrame().includes("Let's learn Claude Code")), term.lastFrame());
@@ -541,7 +560,7 @@ test('main sends each key with how far the check-only card scrolls in the window
 });
 
 test('main sends each key with how far your card scrolls in the window, so up leaves the Commands by level link at once after down went past the end', async () => {
-  const dir = exportHead(root);
+  const dir = reducerRepo();
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
   mkdirSync(join(dir, '.practice'));
   // Every Beginner lesson finished: a card taller than 60x20.
@@ -549,7 +568,7 @@ test('main sends each key with how far your card scrolls in the window, so up le
   writeFileSync(storePath(dir), JSON.stringify({ format: 1, welcomed: true, lessons: { ...finishedBefore('b-capstone'), 'b-capstone': finished(capstone) } }));
   const term = fakeTerminal({ cols: 60, rows: 20 });
   let exited = null;
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, runCheck: reducerCheck, exit: (code) => { exited = code; } });
   const lines = () => term.model.lines().map((l) => l.trim());
   const linked = () => lines().join('').includes('https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/reference/commands.md');
   try {
@@ -590,7 +609,7 @@ const MOTION_ENV = { ...CALM_ENV, LEARN_CALM: '' };
 // against performance.now(). With `stopped`, no timeout fires at all, and
 // with `ticks: false` the app's 1 s tick and its poll never run.
 function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols, rows, from, ticks = true } = {}) {
-  const dir = exportHead(root);
+  const dir = reducerRepo();
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
   if (saved) {
     mkdirSync(join(dir, '.practice'));
@@ -618,7 +637,7 @@ function clockedRun(env, { watch, askGit, signals, runCheck, saved, depth, cols,
   };
   // When each frame from write `from` on went out.
   app.frameTimes = (from = 0) => app.times.slice(from).filter((_, i) => term.writes[from + i].startsWith('\x1b[?2026h'));
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, perf: clock.now, timers: { ...clock, ...(ticks ? {} : { setInterval: () => 0 }), setTimeout: (fn, ms) => (app.stopped ? 0 : clock.setTimeout(() => { clock.spend(lateness()); fn(); }, ms >= 1 ? ms - app.earlyMs : ms)) }, pipSlot: (...a) => ((app.slots += 1), pipSlot(...a)), watch, askGit, signals, runCheck, exit: (code) => { app.exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env, platform: 'linux', root: dir, perf: clock.now, timers: { ...clock, ...(ticks ? {} : { setInterval: () => 0 }), setTimeout: (fn, ms) => (app.stopped ? 0 : clock.setTimeout(() => { clock.spend(lateness()); fn(); }, ms >= 1 ? ms - app.earlyMs : ms)) }, pipSlot: (...a) => ((app.slots += 1), pipSlot(...a)), watch, askGit, signals, runCheck: runCheck ?? reducerCheck, exit: (code) => { app.exited = code; } });
   // Until fn() holds, moving the clock 40 ms at a time while the children run.
   app.settle = async (fn, ms = 8_000) => {
     const end = Date.now() + ms;
@@ -952,7 +971,8 @@ test('r: the card says what it checks until r\'s own result lands, even when pol
     changed = onChange;
     return { close() {} };
   };
-  const app = clockedRun(CALM_ENV, { watch });
+  const fake = heldCheck();
+  const app = clockedRun(CALM_ENV, { watch, runCheck: fake.run });
   const { term, clock } = app;
   try {
     assert.ok(await until(() => term.shows().includes("Let's learn Claude Code")), term.shows());
@@ -961,11 +981,19 @@ test('r: the card says what it checks until r\'s own result lands, even when pol
     await new Promise((r) => setTimeout(r, 500));
     // A poll's run starts; r's run waits behind it, and a second poll asks
     // again before r's run starts.
+    fake.held = true;
     changed();
+    assert.ok(await app.settle(() => fake.runs.length === 1), 'the poll is held');
     term.type('r');
     await clock.advance(DEFER_MS + 30);
     assert.match(term.shows(), /Checking \.practice\/version\.txt…/);
     changed();
+    fake.runs[0].end();
+    assert.ok(await app.settle(() => fake.runs.length === 2), 'r starts after the poll');
+    assert.match(term.shows(), /Checking \.practice\/version\.txt…/, 'the old poll result cannot finish r');
+    assert.equal(fake.runs[1].slow, true, 'the queued request retains r\'s slow flag');
+    fake.held = false;
+    fake.runs[1].end();
     assert.ok(await app.settle(() => term.shows().includes('Not yet')), `r's result never ended the wait:\n${term.shows()}`);
     assert.doesNotMatch(term.shows(), /Checking/);
   } finally {
@@ -2095,13 +2123,13 @@ test('a motion run on a fake terminal: step 3 done, a key gives the rest frame, 
 });
 
 test('a save that fails shows a note and the app keeps going', async () => {
-  const dir = exportHead(root);
+  const dir = reducerRepo();
   rmSync(join(dir, '.practice'), { recursive: true, force: true });
   // A file where the folder should be: every save fails.
   writeFileSync(join(dir, '.practice'), 'not a folder');
   const term = fakeTerminal();
   let exited = null;
-  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, exit: (code) => { exited = code; } });
+  main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, runCheck: reducerCheck, exit: (code) => { exited = code; } });
   try {
     assert.ok(await until(() => term.lastFrame().includes("Let's learn Claude Code")));
     term.type('\r');
