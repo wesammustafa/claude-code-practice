@@ -4,7 +4,7 @@
 // from a practice copy, so a new FAIL message in a check needs a new scenario.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseLesson } from '../../learn/lib/content.mjs';
 import { lessons } from '../lessons/index.mjs';
@@ -34,7 +34,18 @@ for (const id of ids) {
         const hint = withRepo(() => repo(), (d) => {
           if (sc.files) write(d, sc.files);
           if (sc.setup) sc.setup(d, { write, commit });
-          return item.check(openRepo(d));
+          if (sc.command) {
+            write(d, { 'bin/claude': sc.command });
+            chmodSync(join(d, 'bin/claude'), 0o755);
+          }
+          const previous = process.env.PATH;
+          try {
+            if (sc.path) process.env.PATH = join(d, sc.path);
+            return item.check(openRepo(d));
+          } finally {
+            if (previous === undefined) delete process.env.PATH;
+            else process.env.PATH = previous;
+          }
         });
         assert.equal(typeof hint, 'string', `${id} item ${index}, ${sc.name}: the check passed`);
         const matched = ladder.narrow.filter((n) => hint.includes(n.part));

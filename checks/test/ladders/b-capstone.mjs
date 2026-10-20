@@ -12,26 +12,22 @@ const savedCommit = (files, plan) => (dir, { write, commit }) => {
 };
 
 export const scenarios = [
-  { item: 0, name: 'no version file', files: {} },
-  { item: 0, name: 'an empty version file', files: { '.practice/version.txt': '' } },
-  { item: 0, name: 'an error instead of a version', files: { '.practice/version.txt': 'zsh: command not found: claude\n' } },
+  { item: 0, name: 'no snapshot while the plan was on screen', files: {} },
+  { item: 0, name: 'a file had changed before the approval', files: { '.practice/capstone-before.txt': ' M src/cli.js\n?? linkcheck.json\n' } },
+  { item: 0, name: 'saved after approving', files: { '.practice/capstone-before.txt': ' M src/check-links.js\n M src/cli.js\n?? test/check-links.test.js\n' } },
 
-  { item: 1, name: 'no snapshot while the plan was on screen', files: {} },
-  { item: 1, name: 'a file had changed before the approval', files: { '.practice/capstone-before.txt': ' M src/cli.js\n?? linkcheck.json\n' } },
-  { item: 1, name: 'saved after approving', files: { '.practice/capstone-before.txt': ' M src/check-links.js\n M src/cli.js\n?? test/check-links.test.js\n' } },
-
-  { item: 2, name: 'no plan file', files: {} },
-  { item: 2, name: 'a plan, but no saved commit', files: { '.practice/capstone-plan.txt': 'src/cli.js\nsrc/check-links.js\ntest/check-links.test.js\n' } },
-  { item: 2, name: 'a saved commit that is not in the repository', files: { '.practice/capstone-plan.txt': 'src/cli.js\n', '.practice/capstone-commit.txt': '0123456789abcdef0123456789abcdef01234567\n' } },
+  { item: 1, name: 'no plan file', files: {} },
+  { item: 1, name: 'a plan, but no saved commit', files: { '.practice/capstone-plan.txt': 'src/cli.js\nsrc/check-links.js\ntest/check-links.test.js\n' } },
+  { item: 1, name: 'a saved commit that is not in the repository', files: { '.practice/capstone-plan.txt': 'src/cli.js\n', '.practice/capstone-commit.txt': '0123456789abcdef0123456789abcdef01234567\n' } },
   {
-    item: 2,
+    item: 1,
     name: 'the commit changes a file the plan did not name',
     setup: savedCommit({ 'src/cli.js': '// fixed\n', 'test/cli.test.js': '// test\n', 'README.md': 'notes\n' }, 'src/cli.js\ntest/cli.test.js\n'),
   },
   {
     // A real run's plan added two test files: a list that names only one of
     // them fails here, not when the plan is saved.
-    item: 2,
+    item: 1,
     name: 'the plan names one of the two test files the commit changes',
     setup: savedCommit(
       { 'src/check-links.js': '// fixed\n', 'src/cli.js': '// fixed\n', 'test/links.test.js': '// test\n', 'test/cli.test.js': '// test\n' },
@@ -39,7 +35,7 @@ export const scenarios = [
     ),
   },
   {
-    item: 2,
+    item: 1,
     name: 'the saved commit is the earlier CLAUDE.md commit',
     setup(dir, { write, commit }) {
       write(dir, { 'CLAUDE.md': '# linkcheck\n\nRun the tests with npm test.\n' });
@@ -48,7 +44,7 @@ export const scenarios = [
     },
   },
   {
-    item: 2,
+    item: 1,
     name: 'the commit has no test',
     setup: savedCommit({ 'src/cli.js': '// fixed\n', 'src/check-links.js': '// fixed\n' }, 'src/cli.js\nsrc/check-links.js\ntest/check-links.test.js\n'),
   },
@@ -88,3 +84,19 @@ export const scenarios = [
     },
   },
 ];
+
+scenarios.push({ item: 1, name: 'test-only commit', setup: savedCommit({ 'test/cli.test.js': '// test' }, 'test/cli.test.js\n') });
+const saved = (files, initial = true) => (dir, api) => {
+  if (initial) { api.write(dir, { 'README.md': 'Initial', 'package.json': '{"scripts":{"test":"exit 0"}}' }); api.commit(dir, 'Initial'); }
+  api.write(dir, files);
+  const sha = api.commit(dir, 'Fix');
+  api.write(dir, { '.practice/capstone-commit.txt': sha });
+};
+scenarios.push(
+  { item: 2, name: 'no saved commit', files: {} },
+  { item: 2, name: 'commit has no tests', setup: saved({ 'src/cli.js': '// source' }) },
+  { item: 2, name: 'commit has tests alone', setup: saved({ 'test/cli.test.js': '// test' }) },
+  { item: 2, name: 'first commit has no previous code', setup: saved({ 'src/cli.js': '// source', 'test/cli.test.js': '// test' }, false) },
+  { item: 2, name: 'tests pass without fix', setup: saved({ 'src/cli.js': '// source', 'test/cli.test.js': '// test' }) },
+  { item: 3, name: 'error omits missing folder', files: { 'src/cli.js': 'console.error("invalid config"); process.exit(2);' } },
+);

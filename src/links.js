@@ -19,5 +19,5 @@ export function findLinks(markdown) {
 }
 
 export function isExternal(target) {
-  return /^[a-z][a-z0-9+.-]*:/i.test(target);
+  return target.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(target);
 }

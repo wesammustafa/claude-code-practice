@@ -10,5 +10,6 @@ A small command-line tool that reports relative Markdown links whose file is mis
 
 ## Conventions
 
-- Every new source file starts with the line `// Part of linkcheck.`
+- Every new JavaScript file in `src/` starts with the line `// Part of linkcheck.`
+- CLI errors go to stderr and start with `linkcheck:`.
 - Tests live in `test/`, one test file per source file.
