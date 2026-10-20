@@ -11,6 +11,9 @@ export function parseConfig(text) {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('linkcheck.json must hold a JSON object, such as {}');
   }
+  for (const key of Object.keys(raw)) {
+    if (!Object.hasOwn(DEFAULTS, key)) throw new Error(`linkcheck.json: unknown key "${key}"`);
+  }
   const config = { ...DEFAULTS, ...raw };
   for (const key of ['files', 'ignore']) {
     if (!Array.isArray(config[key]) || !config[key].every((v) => typeof v === 'string')) {

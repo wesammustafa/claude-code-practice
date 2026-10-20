@@ -21,3 +21,7 @@ test('the file must hold an object', () => {
 test('an empty file is rejected with a clear message', () => {
   assert.throws(() => parseConfig('  \n'), /linkcheck\.json is empty/);
 });
+
+test('an unknown config key is rejected and named', () => {
+  assert.throws(() => parseConfig('{"files": ["docs"], "ignores": ["vendor/"]}'), /unknown key.*ignores/i);
+});
