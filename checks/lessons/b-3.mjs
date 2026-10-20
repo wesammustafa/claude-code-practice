@@ -136,7 +136,7 @@ export const items = [
       if (other) return other;
       const { broken, error } = brokenIn(repo, { 'doc.md': '[app](//cdn.example.com/app.js)\n[root](/missing.md)\n[page](missing.md)\n' });
       if (error) return error;
-      if (broken.has(1)) return 'The checker still reports `[app](//cdn.example.com/app.js)` as broken, so the teammate\'s patch isn\'t in your working tree. Apply it with `git apply practice/b-3/protocol-relative.patch` (Your turn, step 2), then fix what it gets wrong.';
+      if (broken.has(1)) return 'The checker still reports `//cdn.example.com/app.js` as broken. Apply `git apply practice/b-3/protocol-relative.patch`, then fix the flaw (Your turn, step 2).';
       const links = { 2: '`[root](/missing.md)`', 3: '`[page](missing.md)`' };
       const skipped = [2, 3].filter((line) => !broken.has(line));
       if (!skipped.length) return true;

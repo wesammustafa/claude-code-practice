@@ -55,49 +55,54 @@ test('each reworked Beginner beat fits at 60x20 and 80x24 in Unicode and ASCII',
   }
 });
 
-// One real repository failure for each new check item, at the actual lesson's
-// Check. Unlike generic reducer fixtures, these exercise real ladder text.
+// Every ladder scenario at the actual lesson's Check, with the real
+// repository failure. Generic reducer fixtures do not cover these messages.
 test('real Beginner failures preserve the title, Goal, whole check message and border at both sizes', async () => {
   const flat = text => text.replace(/[`*]/g, '').replace(/\s+/g, '');
   let covered = 0;
+  let expected = 0;
   for (const l of beginner) {
     const { scenarios } = await import(`./ladders/${l.id}.mjs`);
+    expected += scenarios.length;
     for (let index = 0; index < l.items.length; index++) {
       const candidates = scenarios.filter(s => s.item === index);
-      const sc = candidates.at(-1);
-      const hint = withRepo(() => repo(), dir => {
-        if (sc.files) write(dir, sc.files);
-        if (sc.setup) sc.setup(dir, { write, commit });
-        if (sc.command) { write(dir, { 'bin/claude': sc.command }); chmodSync(join(dir, 'bin/claude'), 0o755); }
-        const previous = process.env.PATH;
-        try {
-          if (sc.path) process.env.PATH = join(dir, sc.path);
-          return lessons[l.id].items[index].check(openRepo(dir));
-        } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
-      });
-      assert.equal(typeof hint, 'string', `${l.id} ${index}: scenario must fail`);
-      const d = driver({ course: liveCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore(l.id, liveCourse), [l.id]: { step: 'C', beat: 0, warm: [] } } } });
-      d.key('enter');
-      const items = l.items.map((text, i) => ({ index: i, text, pass: i !== index, hint: i === index ? hint : '' }));
-      d.send({ type: 'check', lesson: l.id, items }); d.key('r');
-      d.send({ type: 'check', lesson: l.id, items, asked: d.state.beat.asked });
-      for (let n = 0; n < 8 && rungsOf(d.state)[d.state.beat.rung]?.kind !== 'check'; n++) d.key('h');
-      assert.equal(rungsOf(d.state)[d.state.beat.rung]?.kind, 'check', `${l.id} ${index}`);
-      covered++;
-      const goal = beatOf(d.state).lines.find(line => line.key === 'goal').text;
-      for (const unicode of [true, false]) {
-        const t = theme({ tty: true, depth: 1, unicode, links: false, win32: !unicode });
-        for (const [cols, rows] of [[60, 20], [80, 24]]) {
-          const lines = render(d.state, { cols, rows }, t).map(strip);
-          const screen = flat(lines.map(line => line.replace(/^\s*[│|]\s*(?:[▌|]\s*)?/, '')).join(''));
-          const label = `${l.id} ${index} ${sc.name} ${cols}x${rows}`;
-          assert.ok(screen.includes(flat('Check')), `${label}: title gone\n${lines.join('\n')}`);
-          assert.ok(screen.includes(flat(goal)), `${label}: Goal gone\n${lines.join('\n')}`);
-          assert.ok(screen.includes(flat(hint)), `${label}: check message cut\n${lines.join('\n')}`);
-          assert.ok(lines.some(line => line.includes(t.glyph.bl)), `${label}: bottom border gone`);
+      assert.ok(candidates.length, `${l.id} ${index}: no failure scenarios`);
+      for (const sc of candidates) {
+        const hint = withRepo(() => repo(), dir => {
+          if (sc.files) write(dir, sc.files);
+          if (sc.setup) sc.setup(dir, { write, commit });
+          if (sc.command) { write(dir, { 'bin/claude': sc.command }); chmodSync(join(dir, 'bin/claude'), 0o755); }
+          const previous = process.env.PATH;
+          try {
+            if (sc.path) process.env.PATH = join(dir, sc.path);
+            return lessons[l.id].items[index].check(openRepo(dir));
+          } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+        });
+        assert.equal(typeof hint, 'string', `${l.id} ${index}: scenario must fail`);
+        const d = driver({ course: liveCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore(l.id, liveCourse), [l.id]: { step: 'C', beat: 0, warm: [] } } } });
+        d.key('enter');
+        const items = l.items.map((text, i) => ({ index: i, text, pass: i !== index, hint: i === index ? hint : '' }));
+        d.send({ type: 'check', lesson: l.id, items }); d.key('r');
+        d.send({ type: 'check', lesson: l.id, items, asked: d.state.beat.asked });
+        for (let n = 0; n < 8 && rungsOf(d.state)[d.state.beat.rung]?.kind !== 'check'; n++) d.key('h');
+        assert.equal(rungsOf(d.state)[d.state.beat.rung]?.kind, 'check', `${l.id} ${index}`);
+        covered++;
+        const goal = beatOf(d.state).lines.find(line => line.key === 'goal').text;
+        for (const unicode of [true, false]) {
+          const t = theme({ tty: true, depth: 1, unicode, links: false, win32: !unicode });
+          for (const [cols, rows] of [[60, 20], [80, 24]]) {
+            const lines = render(d.state, { cols, rows }, t).map(strip);
+            const screen = flat(lines.map(line => line.replace(/^\s*[│|]\s*(?:[▌|]\s*)?/, '')).join(''));
+            const label = `${l.id} ${index} ${sc.name} ${cols}x${rows}`;
+            assert.ok(screen.includes(flat('Check')), `${label}: title gone\n${lines.join('\n')}`);
+            assert.ok(screen.includes(flat(goal)), `${label}: Goal gone\n${lines.join('\n')}`);
+          assert.ok(screen.includes(flat('The check says:')), `${label}: hint box gone\n${lines.join('\n')}`);
+            assert.ok(screen.includes(flat(hint)), `${label}: check message cut\n${lines.join('\n')}`);
+            assert.ok(lines.some(line => line.includes(t.glyph.bl)), `${label}: bottom border gone`);
+          }
         }
       }
     }
   }
-  assert.equal(covered, beginner.reduce((n, l) => n + l.items.length, 0));
+  assert.equal(covered, expected, 'every scenario targets a real item');
 });

@@ -74,7 +74,7 @@ export const items = [
       const { files, error } = savedCommit(repo);
       if (error) return error;
       const extra = files.filter((f) => !plan.has(f));
-      if (extra.length) return `The commit changes files the plan didn't name: ${extra.join(', ')}. If the plan you approved named them, add them to \`.practice/capstone-plan.txt\`. If not, take them out of the commit, set them aside with \`git stash push --include-untracked\`, and run ${SAVE_COMMIT} again.`;
+      if (extra.length) return `The commit changes files the plan didn't name: ${extra.join(', ')}. If the approved plan named them, add them to \`.practice/capstone-plan.txt\`; otherwise remove them from the commit and stash with \`--include-untracked\`. Re-save the SHA (task 7).`;
       if (!files.some(isTestFile)) return `The commit changes no test file. The test the bug report asks for goes in the same commit as the fix: ask Claude to add it, then ${AMEND}.`;
       return files.every(isTestFile) ? ONLY_TESTS : true;
     },
