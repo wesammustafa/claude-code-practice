@@ -15,13 +15,13 @@ import { sanitize, snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { lessons } from '../lessons/index.mjs';
-import { course, driver, FACTS, finishedBefore, lessonScreens, mapTo, playUntil, root } from './learn-drive.mjs';
+import { course, liveCourse, driver, FACTS, finishedBefore, lessonScreens, mapTo, playUntil, root } from './learn-drive.mjs';
 
 const FULL = theme({ tty: true, depth: 8, unicode: true, links: true, win32: false });
 const ASCII = theme({ tty: true, depth: 1, unicode: false, links: false, win32: true });
 const SIZES = [[60, 20], [80, 24]];
 // The course with no lesson file at all, so every lesson shows its check.
-const noFiles = course.map((l) => ({ ...l, content: null }));
+const noFiles = liveCourse.map((l) => ({ ...l, content: null }));
 // A lesson's check-only view, opened from the map.
 const checkOnly = (id, lessons = noFiles, saved = {}) => {
   const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: saved } });
@@ -80,7 +80,7 @@ test('PATH lists all 23 lessons in course order, each with its page, its level a
 // process (stub runs, hooks, npm test).
 test('SLOW holds every item that starts a process, so a poll or a file event never runs one', () => {
   assert.deepEqual(SLOW, {
-    'b-3': [1], 'b-capstone': [3, 4],
+    'b-1': [0], 'b-2': [2, 3], 'b-3': [0, 1, 2, 4], 'b-4': [3], 'b-capstone': [2, 3, 4],
     'i-5': [2], 'i-capstone': [1, 9],
     'a-4': [1, 2, 3], 'a-7': [0, 1, 2, 3, 4], 'a-capstone': [4, 5, 6, 11],
   });
@@ -473,12 +473,12 @@ test('r\'s run on the check-only card goes on through a trip to the map and back
 });
 
 test('on a step card, r\'s run of a slow item spins as any check does: the seconds from 3 s, slower after 10 s', () => {
-  const ids = slowHere.filter((id) => course.find((l) => l.id === id).content);
-  assert.deepEqual(ids, ['b-3', 'b-capstone', 'i-5', 'i-capstone']);
+  const ids = slowHere.filter((id) => liveCourse.find((l) => l.id === id).content);
+  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-capstone']);
   for (const id of ids) {
-    const l = course.find((x) => x.id === id);
+    const l = liveCourse.find((x) => x.id === id);
     // The cards r put "Checking" over, for a beat whose check has a slow item.
-    const cards = lessonScreens(id).filter(([label, x]) => label.endsWith(' checking') && watching(x)?.check
+    const cards = lessonScreens(id, liveCourse).filter(([label, x]) => label.endsWith(' checking') && watching(x)?.check
       && (watching(x).check.items ?? l.items.map((_, i) => i)).some((i) => SLOW[id].includes(i)));
     assert.ok(cards.length >= 1, id);
     for (const [label, x] of cards) {

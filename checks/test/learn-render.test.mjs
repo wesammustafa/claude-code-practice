@@ -1592,7 +1592,9 @@ test('b-2\'s real FAIL messages at "The check says:" keep the card\'s title, Goa
   const box = `${t.glyph.rail}  ${t.glyph.bar}`;
   const l = allCourse.find((x) => x.id === 'b-2');
   let seen = 0;
-  for (const sc of scenarios) {
+  // This stable UI scenario has the original two snapshot items. The live
+  // rework test covers the new CLI behavior items against liveCourse.
+  for (const sc of scenarios.filter((sc) => sc.item < l.items.length)) {
     const hint = withRepo(() => repo(), (dir) => {
       if (sc.files) write(dir, sc.files);
       if (sc.setup) sc.setup(dir, { write, commit });
@@ -1947,7 +1949,7 @@ for (const [level, name] of [['intermediate', 'Intermediate'], ['beginner', 'Beg
 test('a Windows note is never cut: on Windows at 60x20 and 80x24 the whole note is on every screen of its step', async () => {
   const { course } = await import('./learn-drive.mjs');
   // A beat's notes: an intro's own (i-1's) shows on the intro.
-  const notes = course.filter((l) => l.content).flatMap((l) => readFileSync(join(root, 'learn', 'lessons', `${l.id}.md`), 'utf8').replace(/^## intro\n[\s\S]*?\n(?=## )/m, '').split('\n')
+  const notes = course.filter((l) => l.content).flatMap((l) => readFileSync(join(root, ...(l.level === 'beginner' ? ['checks/test/fixtures/reducer-course'] : ['learn', 'lessons']), `${l.id}.md`), 'utf8').replace(/^## intro\n[\s\S]*?\n(?=## )/m, '').split('\n')
     .flatMap((line) => line.match(/^- win-note: "(.*)"$/)?.slice(1) ?? []));
   assert.equal(notes.length, 3, notes.join('\n'));
   const all = (await lessonWalks()).filter(([, s]) => s.view === 'step' && s.beat && beatOf(s).winNote);
@@ -3694,7 +3696,7 @@ test('lessonScreens walks a beat of each git kind to its not-yet and done screen
 // commands no longer size the chip, and a long bottom in its ladder block.
 test('a ladder bottom that stands in for a beat\'s commands gets a chip as wide as it, on one row at 80x24 and 60x20', () => {
   const long = 'jq .sandbox .claude/settings.local.json';
-  const text = readFileSync(join(root, 'learn', 'lessons', 'b-1.md'), 'utf8')
+  const text = readFileSync(join(root, 'checks/test/fixtures/reducer-course', 'b-1.md'), 'utf8')
     .replace(/- run: "cd <your practice copy>"\n- run: "mkdir -p \.practice"\n- win: "[^"]*"\n- tick: practice-dir\n- run: "claude --version > \.practice\/version\.txt"\n/, '')
     .replace(/- bottom: "mkdir -p \.practice"\n- win: "[^"]*"\n- bottom: "claude --version > \.practice\/version\.txt"/, `- bottom: "${long}"`);
   assert.ok(!/^- run: "claude --version > /m.test(text) && text.includes(long), 'the fixture took out the run lines and put in the long bottom');

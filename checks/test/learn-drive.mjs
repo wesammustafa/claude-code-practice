@@ -1,15 +1,26 @@
 // Shared by the learn app's tests: lesson 1 driven through the reducer, with
 // the check's real FAIL messages, so tests can look at every screen.
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadCourse, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { beatOf, DEFER_MS, hintAvailable, IDLE_MS, initialState, lessonOf, reduce, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
-import { versionSaved } from '../lessons/b-1.mjs';
+import { versionSaved } from './fixtures/saved-version.mjs';
 import { openRepo } from '../repo.mjs';
 import { repo, withRepo, write } from './helpers.mjs';
 
 export const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const course = loadCourse(root);
+// Stable synthetic course for reducer/render unit tests. Production content
+// is tested independently through liveCourse, the content/ladders tests and
+// the rework integration walk. Keeping these fixtures avoids coupling tests
+// of generic UI behavior to editorial step numbering.
+export const liveCourse = loadCourse(root);
+export const course = liveCourse.map((l) => {
+  if (l.level !== 'beginner') return l;
+  const content = parseLesson(readFileSync(join(root, 'checks/test/fixtures/reducer-course', `${l.id}.md`), 'utf8'), `fixture/${l.id}.md`);
+  const slow = l.id === 'b-3' ? [1] : l.id === 'b-capstone' ? [3, 4] : [];
+  return { ...l, items: content.ladder.map(r => r.item), slow, content };
+});
 export const FACTS = { root: '/home/sam/claude-code-practice', name: 'Sam', gitError: null, practiceDir: true, codespace: false, win32: false };
 
 // The b-1 item's real result for a version.txt holding `text` (null: no file).

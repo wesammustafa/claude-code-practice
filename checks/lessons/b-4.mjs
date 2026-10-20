@@ -77,9 +77,9 @@ export const items = [
       const others = paths.filter((p) => p !== LINKS);
       if (others.length) {
         const list = others.map((p) => `\`${p}\``).join(', ');
-        return `${list} ${others.length > 1 ? 'are' : 'is'} still changed. If you haven't rewound yet, rewind the rename prompt with Restore code and run ${SAVE_AFTER} again. If you did, or the menu offered no Restore code, Claude most likely changed ${others.length > 1 ? 'them' : 'it'} with a command, which rewind doesn't track: run \`git restore src test\` and repeat Your turn from step 3.`;
+        return `${list} ${others.length > 1 ? 'are' : 'is'} still changed. Use Restore code, then ${SAVE_AFTER}. If a command made the edit, use \`git restore src test\` and repeat Your turn from step 3.`;
       }
-      if (!paths.includes(LINKS)) return `\`src/links.js\` isn't changed, so the script's rename is gone. If you ran \`git restore\` before saving, repeat Your turn from step 3. If Restore code put it back, Claude had already edited \`src/links.js\` in this conversation, and rewind also puts back a command's change to a file Claude edited: run \`git restore src test\`, type \`/exit\`, start \`claude\` for a new session, and repeat Your turn from step 3.`;
+      if (!paths.includes(LINKS)) return `\`src/links.js\` isn't changed, so the script's rename is gone. If you restored it yourself, repeat step 3. Otherwise Claude had already edited it: run \`git restore src test\`, start a new session and repeat step 3.`;
       return true;
     },
   },
@@ -96,7 +96,7 @@ export const items = [
         return `Still changed: ${left.join(', ')}.${why}${fix}${extra}`;
       }
       // The rename is dropped in Your turn: another tool imports findLinks by name.
-      if (!hasExport(repo.gitLocal('show', `HEAD:${LINKS}`), 'findLinks')) return 'Your last commit\'s `src/links.js` no longer exports `findLinks`, so the rename you dropped was committed, and the other tool that imports `findLinks` would break. Undo that commit with `git revert <sha>`, with the sha `git log` lists for it.';
+      if (!hasExport(repo.gitLocal('show', `HEAD:${LINKS}`), 'findLinks')) return 'Your last commit\'s `src/links.js` no longer exports `findLinks`. Undo the dropped rename with `git revert <sha>`; find that commit with `git log`.';
       const run = spawnSync(process.execPath, [CLI, 'samples'], { cwd: repo.dir, encoding: 'utf8', timeout: LINKCHECK_LIMIT });
       if ([0, 1].includes(run.status) && /\d+ broken link\(s\)|All relative links resolve\./.test(run.stdout)) return true;
       return '`npm run linkcheck -- samples` stops with an error. Run it, read the error, and ask Claude to fix the code you committed.';

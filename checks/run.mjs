@@ -59,11 +59,11 @@ const results = chosen.map(([lessonId, lesson]) => ({
 // process.exit() would drop output still on its way through a pipe, which a
 // busy machine can leave there.
 if (values.summary) {
-  // Saved state under .practice/ never reaches GitHub, so the progress run
-  // reports those items as checked locally instead of failed.
+  // The installed CLI and saved state under .practice/ belong to the
+  // Learner's machine, so progress reports those items as checked locally.
   const rows = results.flatMap((l) => l.items.map((i) => `| ${l.id} | ${i.text} | ${i.local ? 'checked locally' : i.pass ? 'passed' : 'not yet'} |`));
   console.log(['## Practice progress', '', '| Lesson | Item | Result |', '|---|---|---|', ...rows, '',
-    'Items marked "checked locally" read files under `.practice/`, which are never pushed. Run `npm run check -- <lesson-id>` on your machine to check them.'].join('\n'));
+    'Items marked "checked locally" use your installed CLI or files under `.practice/`, which are never pushed. Run `npm run check -- <lesson-id>` on your machine to check them.'].join('\n'));
 } else if (values.assert) {
   const wrong = results.filter((l) => (values.assert === 'pass') !== l.items.every((i) => i.pass));
   for (const l of wrong) console.log(`${l.id}: expected every check to ${values.assert}, but ${values.assert === 'pass' ? 'some failed' : 'all passed'}`);

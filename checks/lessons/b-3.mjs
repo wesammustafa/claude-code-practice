@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { isTestFile, TEST_NAMES } from '../paths.mjs';
 
 export const title = 'Your first change, from request to commit';
@@ -14,6 +15,20 @@ export const title = 'Your first change, from request to commit';
 export const NPM_TEST_LIMIT = 120_000;
 
 const npmTest = (dir) => spawnSync('npm', ['test', '--silent'], { cwd: dir, encoding: 'utf8', shell: process.platform === 'win32', timeout: NPM_TEST_LIMIT });
+
+// A shell lookup or script failure is not evidence of a failing Node test.
+// Mutation checks require its TAP/spec failure summary as well as an exit.
+export function testRunError(run, { requireFailure = false } = {}) {
+  const completed = !run.error && !run.signal && Number.isInteger(run.status) && run.status >= 0;
+  if (completed) {
+    if (!requireFailure || run.status === 0) return null;
+    const output = stripVTControlCharacters(`${run.stdout ?? ''}\n${run.stderr ?? ''}`);
+    if (/^[ \t]*(?:#|ℹ)[ \t]+fail[ \t]+[1-9]\d*[ \t\r]*$/m.test(output)) return null;
+  }
+  const reason = run.error?.code || run.signal || run.error?.message
+    || (completed ? `exit ${run.status}, no failing Node test result` : 'no exit status');
+  return `\`npm test\` did not finish (${reason}). Fix the test runner and retry; this does not prove a failing test.`;
+}
 
 // Lesson 3 runs the template's own link checker and plants its patch there, so
 // it can't check another repository.
@@ -72,7 +87,8 @@ export const testsPass = {
     try { hasScript = Boolean(pkg && JSON.parse(pkg).scripts?.test); } catch { /* not JSON */ }
     if (hasScript) {
       const run = npmTest(repo.dir);
-      return run.status === 0 ? true : '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.';
+      const error = testRunError(run);
+      return error ? `\`npm test\` fails. ${error}` : run.status === 0 ? true : '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.';
     }
     const saved = repo.read('.practice/b-3-tests.txt');
     const save = '`<your test command>; echo $? > .practice/b-3-tests.txt` (Windows: `<your test command>; $LASTEXITCODE > .practice/b-3-tests.txt`)';
@@ -120,13 +136,13 @@ export const items = [
       if (other) return other;
       const { broken, error } = brokenIn(repo, { 'doc.md': '[app](//cdn.example.com/app.js)\n[root](/missing.md)\n[page](missing.md)\n' });
       if (error) return error;
-      if (broken.has(1)) return 'The checker still reports `[app](//cdn.example.com/app.js)` as broken, so the teammate\'s patch isn\'t in your working tree. Apply it with `git apply practice/b-3/protocol-relative.patch` (Your turn, step 2), then fix what it gets wrong.';
+      if (broken.has(1)) return 'The checker still reports `//cdn.example.com/app.js` as broken. Apply `git apply practice/b-3/protocol-relative.patch`, then fix the flaw (Your turn, step 2).';
       const links = { 2: '`[root](/missing.md)`', 3: '`[page](missing.md)`' };
       const skipped = [2, 3].filter((line) => !broken.has(line));
       if (!skipped.length) return true;
       // Before the Learner commits a fix, the hint leaves finding the flaw to them.
       if (!patchCommitted(repo)) return 'The checker skips a link that the patch\'s description says is still checked, so the patch\'s flaw is still there. Read its description again, compare it with what the new line skips, and tell Claude what you found (Your turn, steps 1 and 3).';
-      return `Your commit still skips ${skipped.map((line) => links[line]).join(' and ')}, a link to a file in the project: the patch's flaw is still there. Tell Claude that only a link starting with \`//\` or a scheme such as \`https:\` points to another site, ask for a fix and a test that fails on the patch's version, and commit them.`;
+      return `Your commit still skips ${skipped.map((line) => links[line]).join(' and ')}. Only \`//\` or a URL scheme is external. Fix the rule, add a test that fails on the patch, and commit both.`;
     },
   },
   {
@@ -137,12 +153,16 @@ export const items = [
       const dir = mkdtempSync(join(tmpdir(), 'b3-planted-'));
       try {
         cpSync(repo.dir, dir, { recursive: true, filter: (src) => !/[\\/](\.git|node_modules|\.practice)$/.test(src) });
-        if (npmTest(dir).status !== 0) return 'The tests fail as they are. Make `npm test` pass first.';
+        const before = npmTest(dir);
+        const beforeError = testRunError(before);
+        if (beforeError || before.status !== 0) return beforeError ?? 'The tests fail as they are. Make `npm test` pass first.';
         cpSync(join(dir, 'src', 'links.js'), join(dir, 'src', 'links.checked.js'));
         writeFileSync(join(dir, 'src', 'links.js'), PLANTED);
-        if (npmTest(dir).status !== 0) return true;
+        const mutant = npmTest(dir);
+        const mutantError = testRunError(mutant, { requireFailure: true });
+        if (mutantError || mutant.status !== 0) return mutantError ?? true;
         if (!patchCommitted(repo)) return 'Your tests still pass with the patch\'s `isExternal` put back, so none of them catches its flaw yet. Once you have found the flaw (Your turn, step 1), ask Claude for a test that fails on the patch\'s version.';
-        return 'Your tests still pass with the patch\'s `isExternal` put back, so none of them checks a link that starts with one slash. Ask Claude for a test that a link like `/docs/setup.md` is not external, check that it fails on the patch\'s version, and commit it.';
+        return 'Your tests still pass with the patch\'s `isExternal` put back: none of them checks a link that starts with one slash. Add a regression case for `/docs/setup.md` and commit it.';
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
