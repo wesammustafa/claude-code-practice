@@ -23,10 +23,24 @@ badge: Beginner
 - skill: plan-mode
 - where: terminal
 - beat: do
+- verify: check 5
+- watching: the committed CLAUDE.md
+- goal: "A committed `CLAUDE.md` in your copy that names the test command, `npm test`"
+- hint: "If you skipped lesson 5: start `claude` in your copy and run `/init`."
+- hint: "In the new `CLAUDE.md`, delete what it says about the course's own files (`checks/`, `learn/`, `capstone/` and `.github/`) and about `npm run check`, `npm run learn` and `npm run test:checks`, including any rule to keep your work off `main`: that rule is for the template repository, not your copy."
+- hint: "Make sure the file names `npm test`, then end that session with `/exit`, so the task starts in a new one."
+- bottom: "Commit any change to `CLAUDE.md` on its own before you start (`git add CLAUDE.md`, then `git commit -m "Add CLAUDE.md"`)"
+- beat: do
+- verify: git-clean
+- goal: "Your copy of the practice template, with no uncommitted changes"
+- hint: "commit them or set them aside with `git stash push --include-untracked`"
+- beat: do
 - verify: self
 - goal: "Reproduce the bug before you fix it."
 - do: "make a new folder outside your practice copy and save `{ "files": ["docs"] }` in it as `linkcheck.json`."
 - hint: "Then run `npm run linkcheck -- <that folder>` in your copy:"
+- note: "Don't put a `linkcheck.json` in your copy, because the check counts it as a change."
+- win-note: "**Windows:** save the file with `'{ "files": ["docs"] }' | Set-Content <that folder>\linkcheck.json`, not `>`."
 - beat: do
 - verify: self
 - goal: "Start a new session in your copy."
@@ -61,10 +75,15 @@ badge: Beginner
 - skill: snapshot
 - where: shell
 - beat: do
-- verify: check 0
+- verify: check 0 fresh since T2
+- evidence: .practice/capstone-before.txt
 - goal: "While the final plan is on screen, in your own terminal, save `git status --porcelain` to `.practice/capstone-before.txt`."
 - hint: "Save the files the plan will change, every test file included, to `.practice/capstone-plan.txt`:"
 - watching: .practice/capstone-before.txt
+- beat: do
+- verify: file .practice/capstone-plan.txt fresh since T2
+- goal: "Save the files the plan will change, every test file included, to `.practice/capstone-plan.txt`:"
+- hint: "one path per line, relative to the repository root, with forward slashes, such as `src/cli.js`."
 
 ### T5 | The task step 5 of 7 | Watch red become green
 - tier: challenge
@@ -89,7 +108,9 @@ badge: Beginner
 - skill: commit
 - where: shell
 - beat: do
-- verify: self
+- verify: check 1 2 fresh since T2
+- evidence: .practice/capstone-commit.txt
+- watching: .practice/capstone-commit.txt
 - goal: "Commit the fix and its test together,"
 - hint: "git rev-parse HEAD > .practice/capstone-commit.txt"
 
@@ -136,6 +157,7 @@ badge: Beginner
 - narrow "could not copy": Can the repository be copied locally for the regression check?
 - narrow "could not check out": Can git read the saved commit in the temporary copy?
 - narrow "first commit in this repository": Is there a version of the code from before the fix to test?
+- narrow "did not finish": Did npm report failing tests, rather than a runner error?
 - narrow "still passes, so": Would the new test fail if the source fix were removed?
 - back: T2 Revisit the decision and evidence from this step before trying the same action again.
 
@@ -154,7 +176,6 @@ badge: Beginner
 ### a committed CLAUDE.md names the test command, `npm test`
 - narrow "doesn't mention `npm test`": Does the committed project memory name the real test command?
 - narrow "There is no committed CLAUDE.md.": Were the project instructions committed before starting the fix?
-- back: T1 Revisit the decision and evidence from this step before trying the same action again.
 
 ### nothing is left uncommitted
 - narrow "These changes are uncommitted": Which files remain outside the reviewed fix commit?

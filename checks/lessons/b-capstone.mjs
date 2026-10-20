@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { NPM_TEST_LIMIT, testsPass, nothingUncommitted } from './b-3.mjs';
+import { NPM_TEST_LIMIT, testRunError, testsPass, nothingUncommitted } from './b-3.mjs';
 import { isTestFile, planPaths, statusPaths } from '../paths.mjs';
 
 export const title = 'Beginner capstone';
@@ -47,7 +47,8 @@ function testsWithoutFix(repo, sha, files) {
       else rmSync(join(dir, file), { force: true });
     }
     const run = spawnSync('npm', ['test', '--silent'], { cwd: dir, encoding: 'utf8', shell: process.platform === 'win32', timeout: NPM_TEST_LIMIT });
-    return { passed: run.status === 0 };
+    const error = testRunError(run, { requireFailure: true });
+    return error ? { error } : { passed: run.status === 0 };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

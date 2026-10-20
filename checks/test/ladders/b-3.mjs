@@ -21,6 +21,7 @@ export const scenarios = [
   { item: 1, name: 'committed patch skips other links', setup: committed({ ...tool('All relative links resolve.'), 'test/external.test.js': '// patch test' }) },
   { item: 2, name: 'outside the template', files: {} },
   { item: 2, name: 'tests already fail', files: { ...tool(''), 'package.json': '{"scripts":{"test":"exit 1"}}' } },
+  { item: 2, name: 'test runner is missing', files: tool(''), path: 'missing-npm' },
   { item: 2, name: 'uncommitted tests miss flaw', files: tool('All relative links resolve.') },
   { item: 2, name: 'committed tests miss flaw', setup: committed({ ...tool('All relative links resolve.'), 'test/external.test.js': '// patch test' }) },
   { item: 3, name: 'no learner commit', files: {} },

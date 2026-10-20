@@ -14,6 +14,20 @@ import { openRepo } from '../repo.mjs';
 import { commit, repo, withRepo, write } from './helpers.mjs';
 
 const beginner = liveCourse.filter(l => l.level === 'beginner');
+test('lesson 3 sets lesson 2 aside before starting a new change', () => {
+  const first = beginner.find(l => l.id === 'b-3').content.steps[0].beats[0];
+  assert.equal(first.verify.kind, 'git-clean');
+  assert.equal(first.where, 'terminal');
+  assert.ok(first.bottom.some(line => line.text.includes('git stash push --include-untracked -m b-2')));
+});
+
+test('capstone prepares committed memory and preserves its Windows reproduction warning', () => {
+  const first = beginner.find(l => l.id === 'b-capstone').content.steps[0];
+  assert.ok(first.beats.some(b => b.verify.kind === 'check' && b.verify.items?.includes(5)));
+  assert.ok(first.beats.some(b => b.verify.kind === 'git-clean'));
+  assert.ok(first.beats.some(b => b.winNote?.includes('Set-Content')));
+});
+
 test('Beginner live content teaches the promoted features and all four memory notes', () => {
   const text = id => readFileSync(join(root, 'learn/lessons', `${id}.md`), 'utf8');
   for (const feature of ['Ctrl+B', '/btw', '/tasks']) assert.ok(text('b-3').includes(feature), feature);

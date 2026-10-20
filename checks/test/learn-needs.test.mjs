@@ -353,7 +353,7 @@ test('an offer that goes once its prerequisite passes leaves the cursor on the s
 
 // ---- the row plan ----------------------------------------------------------------
 // b-4's intro, the longest Beginner one: a Why line, four can lines and a payoff.
-const B4_INTRO = readFileSync(join(root, 'learn', 'lessons', 'b-4.md'), 'utf8').match(/## intro\n([\s\S]*?)\n## /)[1];
+const B4_INTRO = readFileSync(join(root, 'checks/test/fixtures/reducer-course', 'b-4.md'), 'utf8').match(/## intro\n([\s\S]*?)\n## /)[1];
 const NEED_SHORT = '`jq`, for the load log in the Worked example.';
 // Advanced lesson 7's You need line, the longest that names commands.
 const NEED_LONG = 'bash and `jq`, on macOS, Linux or WSL 2. On Linux and WSL 2, the sandbox needs `bubblewrap` and `socat`';
