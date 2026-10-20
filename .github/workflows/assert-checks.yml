@@ -32,6 +32,8 @@ jobs:
       - name: Run the tests
         run: npm test
       # The checks' own tests stay out of `npm test`, which Learners run.
+      # This suite also runs on solutions. Fixtures must establish the exercise
+      # state each test needs rather than inherit it from the checkout.
       - name: Run the checks' own tests
         run: npm run test:checks
       - name: Every check fails on main
