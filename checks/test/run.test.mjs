@@ -397,6 +397,33 @@ test('b-3 counts test files named the pytest, Java and .NET way', () => {
   }
 });
 
+test('b-3 checks the changes a merge introduces relative to its first parent', () => {
+  for (const [files, expected] of [
+    [{ 'src/fix.js': '// fix\n', 'test/fix.test.js': '// test\n' }, true],
+    [{ 'docs.md': 'notes\n' }, /no test file/],
+    [{ 'test/fix.test.js': '// test\n' }, /only tests/],
+  ]) {
+    const dir = repo({ 'README.md': 'initial\n' });
+    const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+    try {
+      git('add', '-A'); git('commit', '-qm', 'Initial');
+      const main = git('branch', '--show-current');
+      git('checkout', '-qb', 'fix');
+      write(dir, files);
+      git('add', '-A'); git('commit', '-qm', 'Fix');
+      git('checkout', '-q', main);
+      write(dir, { 'README.md': 'updated on main\n' });
+      git('commit', '-qam', 'Update notes');
+      git('merge', '--no-ff', 'fix', '-m', 'Merge fix');
+      const result = b3Items[3].check(openRepo(dir));
+      if (expected === true) assert.equal(result, true);
+      else assert.match(result, expected);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test('b-3 does not count a file whose name merely ends in "test"', () => {
   const dir = committedRepo({ files: { 'src/Latest.java': 'class Latest {}\n', 'contest.py': 'x = 1\n' } });
   try {
