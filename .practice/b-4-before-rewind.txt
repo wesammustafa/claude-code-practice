@@ -1,1 +1,3 @@
- M src/cli.js
+ M src/check-links.js
+ M src/links.js
+ M test/links.test.js
