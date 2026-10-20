@@ -176,7 +176,8 @@ export const items = [
       } catch {
         return 'There is no commit of yours yet. Once the fix and its test are in, ask Claude to commit them together.';
       }
-      const files = repo.git('show', '--name-only', '--format=', 'HEAD').split('\n').filter(Boolean);
+      // A merge's combined diff can omit files changed by only one parent.
+      const files = repo.git('diff', '--name-only', 'HEAD^', 'HEAD').split('\n').filter(Boolean);
       const tests = files.filter(isTestFile);
       if (!tests.length) return `Your last commit changes no test file (${files.join(', ') || 'no files'}). The check counts ${TEST_NAMES}. Ask Claude to add the test and amend the commit with \`git commit --amend\`.`;
       if (tests.length === files.length) return `Your last commit changes only tests (${files.join(', ')}). If the code change is in the commit before it, ask Claude to combine the two commits into one.`;
