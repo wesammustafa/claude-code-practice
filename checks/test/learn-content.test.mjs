@@ -99,8 +99,6 @@ test('intro: every lesson but a capstone names one source to read, quoted with i
 // A first meeting's GUIDED step with no Why line on its card, and why. Name
 // one here only where the page has no sentence that is a reason for the step.
 const NO_WHY = {
-  'b-2 W8': 'the goal line already gives the page\'s reason, "so Your turn starts clean"; the Check item about the snapshot states a file the app may not have seen',
-  'b-4 W7': 'the page gives no reason to resume; the sentence before it is about /clear, which would read as a claim about /exit and cue W7.1\'s answer',
 };
 
 test('the first GUIDED Worked example step on each skill has a why line on a beat that shows it inline', () => {
@@ -124,7 +122,6 @@ test('the first GUIDED Worked example step on each skill has a why line on a bea
 
 // A page step split in two: the second step keeps the page step's number.
 const SPLIT = {
-  'b-5 W2': 'Q10: page step 1 splits so /init comes in a GUIDED step after Claude Code starts at CHALLENGE',
   'i-8 W2': 'page step 1 ("In a session in your repository") splits as b-5\'s does, so i-8 opens on starting Claude Code at CHALLENGE, not on its GUIDED install',
 };
 
@@ -451,7 +448,7 @@ test('difficulty: each step\'s tier is the course rule\'s, and it climbs like a 
   for (const dip of dips) t.diagnostic(dip);
   // A safety choice keeps a guess before it at every tier.
   const b1 = parsed['b-1'];
-  assert.ok(b1.steps.find((s) => s.id === 'W4').beats[0].safety);
+  assert.ok(b1.steps.find((s) => s.id === 'W3').beats[0].safety);
   for (const l of Object.values(parsed)) for (const s of allSteps(l)) for (const b of s.beats) if (b.safety) assert.equal(b.kind, 'predict', `${l.lesson} ${s.id}: a safety choice is a guess`);
 });
 
@@ -485,7 +482,6 @@ test('difficulty: help fades within each level, a level\'s first lesson may open
 // Action beats above GUIDED that may show nothing behind h, each with its
 // reason. Any other beat that hides its command needs a rung.
 const NO_RUNG = {
-  'b-capstone T4.0': 'the capstone page names no plan menu choice, and only its own words can be quoted here',
 };
 
 test('help: above GUIDED, every action with no command on its card has a rung behind h', () => {
@@ -542,10 +538,6 @@ test('the Check\'s recall question files a miss under a skill the course has tau
 // Lessons with no skill in their warm-up pool that comes back in their own
 // steps, so R1 can't be one; each with its reason.
 const R1_NOT_REUSED = {
-  'b-4': 'no skill in its pool comes back in b-4',
-  // R1 (project memory) still primes T1's CLAUDE.md commit, check item 5,
-  // whose step is tagged save-version.
-  'b-capstone': 'no capstone step is tagged with the b-4 and b-5 skills its pool recalls, so a missed one keeps its ease for Intermediate (D12)',
 };
 
 // What is wrong with the order of lesson `id`'s warm-ups.
@@ -599,8 +591,6 @@ const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'p
 // Skills a question can mark missed that no later lesson's pool recalls, each
 // with its reason.
 const NO_LATER_WARMUP = {
-  clear: 'only b-5\'s pool asks it, so only the capstone\'s could recall it, and D12 gives the capstone two: memory and rewind',
-  'save-version': 'only the capstone asks it, and no Beginner lesson comes after the capstone',
 };
 
 // The skills a question in `contents` (in PATH order) can mark missed that
@@ -631,7 +621,6 @@ test('warm-ups: a level index warm-up leaves no skill for a later pool to recall
 // Questions whose options keep a natural order, so their right answer's
 // place says nothing; each with its reason.
 const NATURAL_ORDER = {
-  'b-2 W2.0': 'One, Two, Three are counts, in counting order',
 };
 
 test('questions give no cue: not by length, quotes, bold, code or place', () => {
@@ -778,13 +767,14 @@ test('a code block shows on a do, ask or self beat, and names no folder a run li
 // `- back: <step id> <why>` on a ladder block or a beat: where the step's
 // state comes from. b-2's after item is its one use so far; 195 and 196 add
 // the rest with each level's rework.
-const B2 = readFileSync(join(dir, 'b-2.md'), 'utf8');
+// Parser failure cases use a stable synthetic lesson, independent of editorial numbering.
+const B2 = readFileSync(join(root, 'checks/test/fixtures/reducer-course/b-2.md'), 'utf8');
 const B2_BACK = '- back: W2 The edits this step saves come from the plan you make there.\n';
 const withBack = (line, text = B2) => parseLesson(text.replace(B2_BACK, line), 'b-2.md');
 
 test('back lines: b-2\'s after item goes back to the step that switches to plan mode, before the step that asks for the change', () => {
   assert.ok(B2.includes(B2_BACK));
-  const rung = parsed['b-2'].ladder.find((r) => r.item === lessons['b-2'].items[1].text);
+  const rung = parseLesson(B2, 'b-2.md').ladder.find((r) => r.item === lessons['b-2'].items[1].text);
   assert.deepEqual([rung.back.step, rung.back.quoted], ['W2', false]);
   const steps = parsed['b-2'].steps.map((s) => s.id);
   assert.equal(steps[steps.indexOf('W2') + 1], 'W3');
@@ -839,7 +829,6 @@ test('back lines: each why is the app\'s own words until the guide\'s quote chec
 // Intermediate, which removes its entry here. An entry whose lesson keeps
 // every rule fails, so the rework can't leave one behind.
 const BEFORE_REWORK = {
-  'b-1': 195, 'b-2': 195, 'b-3': 195, 'b-4': 195, 'b-5': 195, 'b-capstone': 195,
   'i-1': 196, 'i-2': 196, 'i-3': 196, 'i-4': 196, 'i-5': 196, 'i-6': 196, 'i-7': 196, 'i-8': 196, 'i-capstone': 196,
 };
 // Rule 3: at most 3 graded questions per core lesson, and none in a capstone.

@@ -90,7 +90,7 @@ export const items = [
       const { memory, line, scoped } = rule(repo);
       if (!memory) return 'There is no committed CLAUDE.md. Run `/init`, edit what it wrote, then `git add CLAUDE.md` and commit it.';
       if (!line) return 'The committed CLAUDE.md has no line like ``- Every new JavaScript file in `src/` starts with the line `// SPDX-License-Identifier: MIT`.``. Add it under `## Conventions`, with the header line in backticks, and commit CLAUDE.md again.';
-      return scoped ? true : `The rule for \`${line}\` in the committed CLAUDE.md doesn't say which files it covers, so a session could put that line at the top of a shell script or a JSON file, where it breaks them. Make it say "Every new JavaScript file in \`src/\`" and commit CLAUDE.md again.`;
+      return scoped ? true : `The rule for \`${line}\` doesn't say which files it covers. Scope it to "Every new JavaScript file in \`src/\`" and commit CLAUDE.md: a header can break shell scripts or JSON.`;
     },
   },
   {
@@ -112,7 +112,7 @@ export const items = [
         return 'No commit after the rule adds a JavaScript file to `src/`. In a new session, ask for a change that creates one, such as `src/stats.js` with a test, and to commit it.';
       }
       const [latest] = commits;
-      return `In commit ${latest.sha.slice(0, 7)}, these new files don't start with \`${line}\`: ${wrongIn(latest).join(', ')}. Start a new session, run \`/context all\` to see that CLAUDE.md loaded, and ask for a different new file in \`src/\` and a commit.`;
+      return `In commit ${latest.sha.slice(0, 7)}, these new files don't start with \`${line}\`: ${wrongIn(latest).join(', ')}. In a new session, verify CLAUDE.md with \`/context all\`, then ask for a different new file and commit.`;
     },
   },
   {
@@ -126,8 +126,8 @@ export const items = [
       const missing = memory.text.split(/\r?\n/).flatMap((text) => [...text.matchAll(NPM_RUN)]
         .filter((m) => !known.has(m[1])).map((m) => ({ script: m[1], text: text.trim() })));
       if (!missing.length) return true;
-      const { script, text } = missing[0];
-      return `The committed CLAUDE.md names \`npm run ${script}\`, but package.json has no such script. The line is "${text}". Every session reads that line as a command to run, even in a warning: fix it or delete it, then commit CLAUDE.md.`;
+      const { script } = missing[0];
+      return `The committed CLAUDE.md names \`npm run ${script}\`, but package.json has no such script. Fix or delete that line, then commit CLAUDE.md.`;
     },
   },
   {

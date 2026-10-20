@@ -1,31 +1,34 @@
-// Every FAIL message of lesson 3's check, each from a practice copy that
-// produces it: `files` to write, or `setup(dir, { write, commit })`. The
-// tests item runs `npm test`, so its copies hold a one-line test script.
-const saveHead = (dir, write, sha) => write(dir, { '.practice/b-3-commit.txt': `${sha}\n` });
-
+// Each small CLI emits the checker's public output format. These copies
+// isolate a failure without invoking the learner's whole application.
+const tool = (output) => ({
+  'package.json': '{"type":"module","scripts":{"test":"exit 0"}}',
+  'src/links.js': 'export function isExternal(x) { return x.startsWith("//"); }',
+  'src/cli.js': `console.log(${JSON.stringify(output)});`,
+});
+const missing = { item: 0, name: 'outside the template', files: {} };
+const broken = (rows) => tool(`${rows}\n3 broken link(s)`);
+const committed = (files) => (dir, { write, commit }) => { write(dir, { 'README.md': 'initial' }); commit(dir, 'Initial'); write(dir, files); commit(dir, 'Patch'); };
 export const scenarios = [
-  { item: 0, name: 'no saved commit yet', files: {} },
-  { item: 0, name: 'a blank saved commit', files: { '.practice/b-3-commit.txt': '\n' } },
-  { item: 0, name: 'a saved sha this repository does not have', files: { '.practice/b-3-commit.txt': '0123456789abcdef0123456789abcdef01234567\n' } },
-  {
-    item: 0,
-    name: 'a commit with no test file',
-    setup(dir, { write, commit }) {
-      write(dir, { 'src/links.js': 'export const x = 1;\n' });
-      saveHead(dir, write, commit(dir, 'code only', ['src/links.js']));
-    },
-  },
-  {
-    item: 0,
-    name: 'a commit with only the test',
-    setup(dir, { write, commit }) {
-      write(dir, { 'test/links.test.js': 'test\n' });
-      saveHead(dir, write, commit(dir, 'test only', ['test/links.test.js']));
-    },
-  },
-  { item: 1, name: 'npm test fails', files: { 'package.json': JSON.stringify({ scripts: { test: 'exit 1' } }) } },
-  { item: 1, name: 'no npm test script and no saved exit code', files: {} },
-  { item: 1, name: 'a saved exit code that is not a number', files: { '.practice/b-3-tests.txt': 'True\n' } },
-  { item: 1, name: 'a saved exit code that is not 0', files: { '.practice/b-3-tests.txt': '1\n' } },
-  { item: 2, name: 'a file left uncommitted', files: { 'src/links.js': 'export const x = 1;\n' } },
+  missing,
+  { item: 0, name: 'CLI crashes', files: { ...tool(''), 'src/cli.js': 'throw new Error("broken");' } },
+  { item: 0, name: 'existing titled link reported', files: broken('doc.md:1: broken link to setup.md "Setup guide"') },
+  { item: 0, name: 'titles skipped', files: tool('All relative links resolve.') },
+  { item: 0, name: 'target includes title', files: broken('doc.md:2: broken link to gone.md "Old page"\ndoc.md:3: broken link to old.md') },
+  { item: 1, name: 'outside the template', files: {} },
+  { item: 1, name: 'CLI crashes', files: { ...tool(''), 'src/cli.js': 'throw new Error("broken");' } },
+  { item: 1, name: 'protocol relative not skipped', files: broken('doc.md:1: broken link to //cdn.example.com/app.js') },
+  { item: 1, name: 'uncommitted patch skips other links', files: tool('All relative links resolve.') },
+  { item: 1, name: 'committed patch skips other links', setup: committed({ ...tool('All relative links resolve.'), 'test/external.test.js': '// patch test' }) },
+  { item: 2, name: 'outside the template', files: {} },
+  { item: 2, name: 'tests already fail', files: { ...tool(''), 'package.json': '{"scripts":{"test":"exit 1"}}' } },
+  { item: 2, name: 'uncommitted tests miss flaw', files: tool('All relative links resolve.') },
+  { item: 2, name: 'committed tests miss flaw', setup: committed({ ...tool('All relative links resolve.'), 'test/external.test.js': '// patch test' }) },
+  { item: 3, name: 'no learner commit', files: {} },
+  { item: 3, name: 'last commit has no test', setup: committed({ 'src/x.js': 'export const x = 1;' }) },
+  { item: 3, name: 'last commit has tests alone', setup: committed({ 'test/x.test.js': '// test' }) },
+  { item: 4, name: 'npm tests fail', files: { 'package.json': '{"scripts":{"test":"exit 1"}}' } },
+  { item: 4, name: 'no npm test script', files: {} },
+  { item: 4, name: 'saved exit is not a number', files: { '.practice/b-3-tests.txt': 'True' } },
+  { item: 4, name: 'saved exit is nonzero', files: { '.practice/b-3-tests.txt': '1' } },
+  { item: 5, name: 'uncommitted source', files: { 'src/x.js': '// work' } },
 ];

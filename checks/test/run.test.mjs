@@ -3,10 +3,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { openRepo } from '../repo.mjs';
+import { items as b3Items, testsPass } from '../lessons/b-3.mjs';
+import { write } from './helpers.mjs';
 
 const runner = join(dirname(fileURLToPath(import.meta.url)), '..', 'run.mjs');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -29,49 +32,67 @@ function check(args, env = {}) {
   return { code: result.status, out: `${result.stdout}${result.stderr}` };
 }
 
-test('b-1 passes in another repo, given with --dir, once the version is recorded', () => {
-  const dir = repo({ '.practice/version.txt': '2.1.285 (Claude Code)\n' });
+const correctedNote = '- linkcheck exits with code 1 when it finds a broken link, so it can fail CI.\n';
+
+function versionEnv(dir, output = '2.1.292 (Claude Code)\n', exit = 0) {
+  const bin = join(dir, '.bin');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, 'version.cjs'), `process.stdout.write(${JSON.stringify(output)}); process.exit(${exit});\n`);
+  const command = process.platform === 'win32' ? 'claude.cmd' : 'claude';
+  const wrapper = process.platform === 'win32'
+    ? `@"${process.execPath}" "%~dp0version.cjs"\r\n`
+    : `#!${process.execPath}\nrequire('./version.cjs');\n`;
+  writeFileSync(join(bin, command), wrapper);
+  chmodSync(join(bin, command), 0o755);
+  return { PATH: `${bin}${delimiter}${process.env.PATH ?? ''}` };
+}
+
+test('b-1 reads the installed version and the corrected note, without a saved version file', () => {
+  const dir = repo({ 'practice/b-1/onboarding.md': correctedNote });
   try {
-    const { code, out } = check(['b-1', '--dir', dir]);
+    const { code, out } = check(['b-1', '--dir', dir], versionEnv(dir));
     assert.equal(code, 0, out);
     assert.match(out, /PASS .*claude --version/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('b-1 fails, with a hint that names the folder it read, when nothing is recorded', () => {
+test('b-1 refuses another repository without the exercise note', () => {
   const dir = repo();
   try {
-    const { code, out } = check(['b-1', '--dir', dir]);
+    const { code, out } = check(['b-1', '--dir', dir], versionEnv(dir));
     assert.equal(code, 1, out);
-    assert.match(out, /FAIL .*claude --version/);
-    assert.match(out, /claude --version > \.practice\/version\.txt/);
-    assert.ok(out.includes(dir), out);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.match(out, /Your turn uses the note in your practice copy/);
+    assert.match(out, /without `--dir`/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('b-1 fails when the recorded text is not a Claude Code version', () => {
-  const dir = repo({ '.practice/version.txt': 'command not found: claude\n' });
+test('b-1 does not let a saved version hide a missing executable', () => {
+  const dir = repo({ 'practice/b-1/onboarding.md': correctedNote, '.practice/version.txt': '2.1.292 (Claude Code)\n' });
   try {
-    assert.equal(check(['b-1', '--dir', dir]).code, 1);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+    const { code, out } = check(['b-1', '--dir', dir], { PATH: '' });
+    assert.equal(code, 1, out);
+    assert.match(out, /couldn't find `claude`/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('b-1 says what to look at when the version file is empty', () => {
-  const dir = repo({ '.practice/version.txt': '' });
+test('b-1 rejects empty, malformed and unsuccessful version output', () => {
+  const dir = repo({ 'practice/b-1/onboarding.md': correctedNote });
   try {
-    const { code, out } = check(['b-1', '--dir', dir]);
+    for (const [output, exit] of [['', 0], ['command not found: claude\n', 0], ['2.1.292 (Claude Code)\n', 1]]) {
+      const { code, out } = check(['b-1', '--dir', dir], versionEnv(dir, output, exit));
+      assert.equal(code, 1, out);
+      assert.match(out, /not a line such as/);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('b-1 still fails when the note gives broken links a successful exit code', () => {
+  const dir = repo({ 'practice/b-1/onboarding.md': '- linkcheck exits with code 0 when it finds broken links.\n' });
+  try {
+    const { code, out } = check(['b-1', '--dir', dir], versionEnv(dir));
     assert.equal(code, 1, out);
-    assert.match(out, /is empty/);
-    assert.match(out, /isn't found/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.match(out, /The note still says/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('the progress summary never fails and marks saved-state items as checked locally', () => {
@@ -79,7 +100,7 @@ test('the progress summary never fails and marks saved-state items as checked lo
   try {
     const { code, out } = check(['all', '--summary', '--dir', dir], { GITHUB_ACTIONS: 'true' });
     assert.equal(code, 0, out);
-    assert.match(out, /\| b-1 \|.*\| checked locally \|/);
+    assert.match(out, /\| b-2 \|.*\| checked locally \|/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -115,18 +136,79 @@ test('a folder given without --dir is refused, not silently ignored', () => {
   }
 });
 
-test('b-1 accepts a version file that Windows PowerShell wrote as UTF-16', () => {
-  const dir = repo();
+test('b-1 reads an onboarding note written by Windows PowerShell as UTF-16', () => {
+  const dir = repo({ 'practice/b-1/onboarding.md': '' });
   try {
-    mkdirSync(join(dir, '.practice'));
-    const text = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('2.1.285 (Claude Code)\r\n', 'utf16le')]);
-    writeFileSync(join(dir, '.practice', 'version.txt'), text);
-    const { code, out } = check(['b-1', '--dir', dir]);
+    const text = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(correctedNote, 'utf16le')]);
+    writeFileSync(join(dir, 'practice', 'b-1', 'onboarding.md'), text);
+    const { code, out } = check(['b-1', '--dir', dir], versionEnv(dir));
     assert.equal(code, 0, out);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// Known solved exercise files, independent of the check implementation.
+// The real template CLI runs against them in the positive integration cases.
+const solvedConfig = [
+  "// Parses linkcheck.json. Every field is optional:",
+  "//   files:  files or folders to scan for Markdown links (default [\".\"])",
+  "//   ignore: link targets to skip, matched as prefixes (default [])",
+  "export const DEFAULTS = { files: ['.'], ignore: [] };",
+  "",
+  "export function parseConfig(text) {",
+  "  if (!text.trim()) {",
+  "    throw new Error('linkcheck.json is empty: write a JSON object, such as {}');",
+  "  }",
+  "  const raw = JSON.parse(text);",
+  "  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {",
+  "    throw new Error('linkcheck.json must hold a JSON object, such as {}');",
+  "  }",
+  "  for (const key of Object.keys(raw)) {",
+  "    if (!Object.hasOwn(DEFAULTS, key)) throw new Error(`linkcheck.json: unknown key \"${key}\"`);",
+  "  }",
+  "  const config = { ...DEFAULTS, ...raw };",
+  "  for (const key of ['files', 'ignore']) {",
+  "    if (!Array.isArray(config[key]) || !config[key].every((v) => typeof v === 'string')) {",
+  "      throw new Error(`linkcheck.json: \"${key}\" must be a list of strings`);",
+  "    }",
+  "  }",
+  "  return config;",
+  "}"
+].join('\n') + '\n';
+const solvedLinks = [
+  "// Finds inline Markdown links, [text](target), outside code blocks.",
+  "// TODO: also find reference-style links, [text][ref], whose target a [ref]: line defines elsewhere on the page.",
+  "export function findLinks(markdown) {",
+  "  const links = [];",
+  "  let inFence = false;",
+  "  markdown.split('\\n').forEach((line, i) => {",
+  "    if (/^\\s*(```|~~~)/.test(line)) {",
+  "      inFence = !inFence;",
+  "      return;",
+  "    }",
+  "    if (inFence) return;",
+  "    const prose = line.replace(/`[^`]*`/g, '');",
+  "    // The target may sit in angle brackets and may be followed by a title.",
+  "    for (const m of prose.matchAll(/(?<!!)\\[([^\\]]*)\\]\\(\\s*(?:<([^>]*)>|([^)\\s]+))(?:\\s+(?:\"[^\"]*\"|'[^']*'))?\\s*\\)/g)) {",
+  "      links.push({ text: m[1], target: m[2] ?? m[3], line: i + 1 });",
+  "    }",
+  "  });",
+  "  return links;",
+  "}",
+  "",
+  "export function isExternal(target) {",
+  "  return target.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(target);",
+  "}"
+].join('\n') + '\n';
+function templateRepo(files = {}) {
+  const dir = repo();
+  for (const entry of ['package.json', 'src', 'test', 'samples']) cpSync(join(root, entry), join(dir, entry), { recursive: true });
+  writeFileSync(join(dir, '.git', 'info', 'exclude'), '.practice/\n');
+  write(dir, files);
+  return dir;
+}
+function planRepo(files) {
+  return templateRepo({ 'src/config.js': solvedConfig, ...files });
+}
 
 // Neutral paths: the b-2 check reads only these strings, and the lesson's own
 // file names here would tell Claude what the check expects.
@@ -137,7 +219,7 @@ const planned = {
 };
 
 test('b-2 passes when nothing changed before approval and only planned files changed after', () => {
-  const dir = repo(planned);
+  const dir = planRepo(planned);
   try {
     const { code, out } = check(['b-2', '--dir', dir]);
     assert.equal(code, 0, out);
@@ -147,7 +229,7 @@ test('b-2 passes when nothing changed before approval and only planned files cha
 });
 
 test('b-2 fails when files had changed before the plan was approved, and says how to start clean', () => {
-  const dir = repo({ ...planned, '.practice/b-2-before.txt': ' M src/a.js\n' });
+  const dir = planRepo({ ...planned, '.practice/b-2-before.txt': ' M src/a.js\n' });
   try {
     const { code, out } = check(['b-2', '--dir', dir]);
     assert.equal(code, 1, out);
@@ -159,7 +241,7 @@ test('b-2 fails when files had changed before the plan was approved, and says ho
 });
 
 test('b-2 fails when a changed file was not in the plan', () => {
-  const dir = repo({ ...planned, '.practice/b-2-after.txt': ' M src/a.js\n?? test/b.test.js\n' });
+  const dir = planRepo({ ...planned, '.practice/b-2-after.txt': ' M src/a.js\n?? test/b.test.js\n' });
   try {
     const { code, out } = check(['b-2', '--dir', dir]);
     assert.equal(code, 1, out);
@@ -172,7 +254,7 @@ test('b-2 fails when a changed file was not in the plan', () => {
 // `git status --porcelain` lists a new, untracked folder as `dir/`, not the
 // files inside it.
 test('b-2 counts a new folder as planned when the plan names a file inside it', () => {
-  const dir = repo({
+  const dir = planRepo({
     ...planned,
     '.practice/b-2-plan.txt': 'src/a.js\ntest/fixtures/a.json\n',
     '.practice/b-2-after.txt': ' M src/a.js\n?? test/fixtures/\n',
@@ -186,7 +268,7 @@ test('b-2 counts a new folder as planned when the plan names a file inside it', 
 });
 
 test('b-2 fails for a new folder when the plan names nothing inside it', () => {
-  const dir = repo({ ...planned, '.practice/b-2-after.txt': ' M src/a.js\n?? notes/\n' });
+  const dir = planRepo({ ...planned, '.practice/b-2-after.txt': ' M src/a.js\n?? notes/\n' });
   try {
     const { code, out } = check(['b-2', '--dir', dir]);
     assert.equal(code, 1, out);
@@ -197,7 +279,7 @@ test('b-2 fails for a new folder when the plan names nothing inside it', () => {
 });
 
 test('b-2 accepts plan paths written with ./, backslashes or backticks, with Windows line endings', () => {
-  const dir = repo({ ...planned, '.practice/b-2-plan.txt': './src/a.js\r\n`test\\a.test.js`\r\n' });
+  const dir = planRepo({ ...planned, '.practice/b-2-plan.txt': './src/a.js\r\n`test\\a.test.js`\r\n' });
   try {
     const { code, out } = check(['b-2', '--dir', dir]);
     assert.equal(code, 0, out);
@@ -207,7 +289,7 @@ test('b-2 accepts plan paths written with ./, backslashes or backticks, with Win
 });
 
 test('b-2 accepts a plan path written as the full path into the repository', () => {
-  const dir = repo(planned);
+  const dir = planRepo(planned);
   try {
     writeFileSync(join(dir, '.practice', 'b-2-plan.txt'), `${join(dir, 'src', 'a.js')}\ntest/a.test.js\n`);
     const { code, out } = check(['b-2', '--dir', dir]);
@@ -219,7 +301,7 @@ test('b-2 accepts a plan path written as the full path into the repository', () 
 
 test('b-2 asks for the after snapshot when it is missing', () => {
   const { '.practice/b-2-after.txt': _, ...unsaved } = planned;
-  const dir = repo(unsaved);
+  const dir = planRepo(unsaved);
   try {
     const { code, out } = check(['b-2', '--dir', dir]);
     assert.equal(code, 1, out);
@@ -233,7 +315,7 @@ test('b-2 asks for the after snapshot when it is missing', () => {
 // 190: the Learner saved the snapshot before approving any edit, so git saw
 // nothing. Asking them to run the same command again reads as stuck.
 test('b-2 says the after snapshot lists no changed file yet, and what to do first', () => {
-  const dir = repo({ ...planned, '.practice/b-2-after.txt': '' });
+  const dir = planRepo({ ...planned, '.practice/b-2-after.txt': '' });
   try {
     const { code, out } = check(['b-2', '--dir', dir]);
     assert.equal(code, 1, out);
@@ -249,23 +331,20 @@ test('b-2 says the after snapshot lists no changed file yet, and what to do firs
   }
 });
 
-// A repository with one commit that changes code and its test, like the one
-// the Learner makes in lesson b-3, and the commit's sha saved for the check.
-function committedRepo({ testScript = 'node -e "process.exit(0)"', files = { 'src/links.js': 'export {}\n', 'test/links.test.js': '// test\n' } } = {}) {
-  const dir = repo({ 'package.json': JSON.stringify({ scripts: { test: testScript } }) });
-  const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
-  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'start');
-  git('add', 'package.json');
-  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'package');
-  for (const [path, text] of Object.entries(files)) {
-    mkdirSync(dirname(join(dir, path)), { recursive: true });
-    writeFileSync(join(dir, path), text);
-  }
+// A real template CLI with a solved link parser, committed together with a
+// regression test that rejects the patch's single-slash flaw.
+function committedRepo({ testScript = 'node --test "test/**/*.test.js"', files = {
+  'src/links.js': solvedLinks,
+  'test/external.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { isExternal } from '../src/links.js';\ntest('a single slash is a project link', () => assert.equal(isExternal('/docs/setup.md'), false));\n",
+} } = {}) {
+  const dir = templateRepo();
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'claude-code-practice', type: 'module', scripts: { test: testScript } }));
   git('add', '-A');
-  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'Check links that have a title');
-  mkdirSync(join(dir, '.practice'), { recursive: true });
-  writeFileSync(join(dir, '.practice', 'b-3-commit.txt'), `${git('rev-parse', 'HEAD')}\n`);
-  writeFileSync(join(dir, '.git', 'info', 'exclude'), '.practice/\n');
+  git('commit', '-q', '-m', 'Initial template copy');
+  write(dir, files);
+  git('add', '-A');
+  git('commit', '-q', '--allow-empty', '-m', 'Fix protocol-relative links and test the patch');
   return dir;
 }
 
@@ -279,14 +358,13 @@ test('b-3 passes for a commit that changes code and a test, with the tests passi
   }
 });
 
-test('b-3 fails when the commit changes no test file, and says to amend it and save it again', () => {
+test('b-3 fails when the commit changes no test file, and says to amend it', () => {
   const dir = committedRepo({ files: { 'src/links.js': 'export {}\n' } });
   try {
     const { code, out } = check(['b-3', '--dir', dir]);
     assert.equal(code, 1, out);
     assert.match(out, /no test file/);
     assert.match(out, /git commit --amend/);
-    assert.match(out, /git rev-parse HEAD > \.practice\/b-3-commit\.txt/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -299,7 +377,6 @@ test('b-3 fails when the commit changes only tests, and says to combine it with 
     assert.equal(code, 1, out);
     assert.match(out, /only tests/);
     assert.match(out, /combine/);
-    assert.match(out, /git rev-parse HEAD > \.practice\/b-3-commit\.txt/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -313,8 +390,7 @@ test('b-3 counts test files named the pytest, Java and .NET way', () => {
   ]) {
     const dir = committedRepo({ files });
     try {
-      const { code, out } = check(['b-3', '--dir', dir]);
-      assert.equal(code, 0, out);
+      assert.equal(b3Items[3].check(openRepo(dir)), true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -324,9 +400,7 @@ test('b-3 counts test files named the pytest, Java and .NET way', () => {
 test('b-3 does not count a file whose name merely ends in "test"', () => {
   const dir = committedRepo({ files: { 'src/Latest.java': 'class Latest {}\n', 'contest.py': 'x = 1\n' } });
   try {
-    const { code, out } = check(['b-3', '--dir', dir]);
-    assert.equal(code, 1, out);
-    assert.match(out, /no test file/);
+    assert.match(b3Items[3].check(openRepo(dir)), /no test file/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -343,23 +417,17 @@ test('b-3 fails when the tests fail', () => {
   }
 });
 
-test('b-3 reads a saved exit code when there is no npm test script, and gives the Windows command', () => {
+test('the shared test-result item reads saved exit codes when no npm test script exists', () => {
   const dir = committedRepo({ testScript: '' });
   const saved = join(dir, '.practice', 'b-3-tests.txt');
+  mkdirSync(dirname(saved), { recursive: true });
   try {
-    let { code, out } = check(['b-3', '--dir', dir]);
-    assert.equal(code, 1, out);
-    assert.match(out, /\$LASTEXITCODE > \.practice\/b-3-tests\.txt/);
+    assert.match(testsPass.check(openRepo(dir)), /\$LASTEXITCODE > \.practice\/b-3-tests\.txt/);
     writeFileSync(saved, 'True\n');
-    ({ code, out } = check(['b-3', '--dir', dir]));
-    assert.equal(code, 1, out);
-    assert.match(out, /not an exit code/);
+    assert.match(testsPass.check(openRepo(dir)), /not an exit code/);
     writeFileSync(saved, '0\n');
-    ({ code, out } = check(['b-3', '--dir', dir]));
-    assert.equal(code, 0, out);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.equal(testsPass.check(openRepo(dir)), true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('b-3 fails when changes are left uncommitted, and says how to set aside new files too', () => {
@@ -377,63 +445,65 @@ test('b-3 fails when changes are left uncommitted, and says how to set aside new
 });
 
 const rewound = {
-  '.practice/b-4-before-rewind.txt': ' M src/cli.js\n',
-  '.practice/b-4-after-rewind.txt': '',
+  '.practice/b-4-before-rewind.txt': ' M src/links.js\n M src/check-links.js\n M test/links.test.js\n',
+  '.practice/b-4-after-rewind.txt': ' M src/links.js\n',
 };
+function rewindRepo(files = rewound) {
+  const dir = templateRepo();
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  git('add', '-A'); git('commit', '-q', '-m', 'Initial template copy');
+  const path = join(dir, 'src', 'check-links.js');
+  writeFileSync(path, readFileSync(path, 'utf8') + '\n// Refactored while keeping the synchronous export.\n');
+  git('add', 'src/check-links.js'); git('commit', '-q', '-m', 'Refactor the link checker');
+  write(dir, files);
+  return dir;
+}
 
-test('b-4 passes when a change was there before rewinding and gone after', () => {
-  const dir = repo(rewound);
+test('b-4 passes when rewind restored the caller and left the command-only file change', () => {
+  const dir = rewindRepo();
   try {
     const { code, out } = check(['b-4', '--dir', dir]);
     assert.equal(code, 0, out);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('b-4 fails when no change was saved before rewinding', () => {
-  const dir = repo({ ...rewound, '.practice/b-4-before-rewind.txt': '' });
+test('b-4 fails when the before snapshot omits the script change', () => {
+  const dir = rewindRepo({ ...rewound, '.practice/b-4-before-rewind.txt': ' M src/check-links.js\n' });
   try {
-    assert.equal(check(['b-4', '--dir', dir]).code, 1);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+    const { code, out } = check(['b-4', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /doesn't list `src\/links\.js`/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('b-4 fails when the change is still there after rewinding, and says how to recover and save again', () => {
-  const dir = repo({ ...rewound, '.practice/b-4-after-rewind.txt': ' M src/cli.js\n' });
+test('b-4 explains how to recover when the caller remains changed after rewind', () => {
+  const dir = rewindRepo({ ...rewound, '.practice/b-4-after-rewind.txt': ' M src/links.js\n M src/check-links.js\n' });
   try {
     const { code, out } = check(['b-4', '--dir', dir]);
     assert.equal(code, 1, out);
     assert.match(out, /Restore code/);
-    assert.match(out, /git restore/);
+    assert.match(out, /git restore src test/);
     assert.match(out, /git status --porcelain > \.practice\/b-4-after-rewind\.txt/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('b-4 says rewind cannot undo changes that were there before the edit', () => {
-  const dir = repo({
-    '.practice/b-4-before-rewind.txt': ' M src/cli.js\n?? notes.txt\n',
-    '.practice/b-4-after-rewind.txt': '?? notes.txt\n',
-  });
+test('b-4 explains why a command change can be restored for a file edited earlier', () => {
+  const dir = rewindRepo({ ...rewound, '.practice/b-4-after-rewind.txt': '' });
   try {
     const { code, out } = check(['b-4', '--dir', dir]);
     assert.equal(code, 1, out);
-    assert.match(out, /notes\.txt/);
-    assert.match(out, /git stash push --include-untracked/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.match(out, /Claude had already edited/);
+    assert.match(out, /new session/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 // A repository whose committed CLAUDE.md holds a rule, followed by a commit a
 // new session made, as in lesson b-5.
-function memoryRepo({ claudeMd = '# Project\n\n- Every new source file starts with the line `// Part of linkcheck.`\n', commitClaudeMd = true, header = '// Part of linkcheck.', commitChange = true } = {}) {
-  const dir = repo({ 'CLAUDE.md': claudeMd, '.practice/b-5-rule.txt': '// Part of linkcheck.\n' });
+function memoryRepo({ claudeMd = '# Project\n\n- Every new JavaScript file in `src/` starts with the line `// Part of linkcheck.`\n- CLI errors go to stderr and start with `linkcheck:`.\n', commitClaudeMd = true, header = '// Part of linkcheck.', commitChange = true } = {}) {
+  const dir = repo({ 'CLAUDE.md': claudeMd, '.gitignore': 'CLAUDE.local.md\n', 'package.json': '{"scripts":{"test":"node --test"}}' });
   writeFileSync(join(dir, '.git', 'info', 'exclude'), '.practice/\n');
   const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  git('add', '.gitignore', 'package.json');
   if (commitClaudeMd) git('add', 'CLAUDE.md');
   git('commit', '-q', '--allow-empty', '-m', 'Add project instructions');
   mkdirSync(join(dir, 'src'), { recursive: true });
@@ -444,7 +514,6 @@ function memoryRepo({ claudeMd = '# Project\n\n- Every new source file starts wi
     git('add', 'src', 'test');
     git('commit', '-q', '-m', 'Add countLinks');
   }
-  writeFileSync(join(dir, '.practice', 'b-5-commit.txt'), `${git('rev-parse', 'HEAD')}\n`);
   return dir;
 }
 
@@ -463,31 +532,31 @@ test('b-5 fails when CLAUDE.md is not committed', () => {
   try {
     const { code, out } = check(['b-5', '--dir', dir]);
     assert.equal(code, 1, out);
-    assert.match(out, /not committed/);
+    assert.match(out, /no committed CLAUDE\.md/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('b-5 names the saved rule file when the committed CLAUDE.md lacks the rule', () => {
+test('b-5 explains the header rule when committed memory lacks it', () => {
   const dir = memoryRepo({ claudeMd: '# Project\n' });
   try {
     const { code, out } = check(['b-5', '--dir', dir]);
     assert.equal(code, 1, out);
-    assert.match(out, /doesn't contain `\/\/ Part of linkcheck\.`, the line saved in `\.practice\/b-5-rule\.txt`/);
+    assert.match(out, /has no line like/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('b-5 fails when a new file does not start with the rule, and says to save a new commit', () => {
+test('b-5 fails when a new file violates the rule, and asks for a new-session change', () => {
   const dir = memoryRepo({ header: '// stats' });
   try {
     const { code, out } = check(['b-5', '--dir', dir]);
     assert.equal(code, 1, out);
     assert.match(out, /src\/stats\.js/);
     assert.match(out, /new session/);
-    assert.match(out, /git rev-parse HEAD > \.practice\/b-5-commit\.txt/);
+    assert.match(out, /different new file/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -548,7 +617,6 @@ function capstoneRepo({ fix = true, withTest = true, before = '', planned = 'src
   git('add', '-A');
   git('commit', '-q', '--allow-empty', '-m', 'Report a missing folder in linkcheck.json');
   mkdirSync(join(dir, '.practice'), { recursive: true });
-  writeFileSync(join(dir, '.practice', 'version.txt'), '2.1.285 (Claude Code)\n');
   writeFileSync(join(dir, '.practice', 'capstone-before.txt'), before);
   writeFileSync(join(dir, '.practice', 'capstone-plan.txt'), planned);
   writeFileSync(join(dir, '.practice', 'capstone-commit.txt'), `${git('rev-parse', 'HEAD')}\n`);

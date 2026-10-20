@@ -79,7 +79,7 @@ export const items = [
         const list = others.map((p) => `\`${p}\``).join(', ');
         return `${list} ${others.length > 1 ? 'are' : 'is'} still changed. If you haven't rewound yet, rewind the rename prompt with Restore code and run ${SAVE_AFTER} again. If you did, or the menu offered no Restore code, Claude most likely changed ${others.length > 1 ? 'them' : 'it'} with a command, which rewind doesn't track: run \`git restore src test\` and repeat Your turn from step 3.`;
       }
-      if (!paths.includes(LINKS)) return `\`src/links.js\` isn't changed, so the script's rename is gone. If you ran \`git restore\` before saving, repeat Your turn from step 3. If Restore code put it back, Claude had already edited \`src/links.js\` in this conversation, and rewind also puts back a command's change to a file Claude edited: run \`git restore src test\`, type \`/exit\`, start \`claude\` for a new session, and repeat Your turn from step 3.`;
+      if (!paths.includes(LINKS)) return `\`src/links.js\` isn't changed, so the script's rename is gone. If you restored it yourself, repeat step 3. Otherwise Claude had already edited it: run \`git restore src test\`, start a new session and repeat step 3.`;
       return true;
     },
   },

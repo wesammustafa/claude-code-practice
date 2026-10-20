@@ -126,7 +126,7 @@ export const items = [
       if (!skipped.length) return true;
       // Before the Learner commits a fix, the hint leaves finding the flaw to them.
       if (!patchCommitted(repo)) return 'The checker skips a link that the patch\'s description says is still checked, so the patch\'s flaw is still there. Read its description again, compare it with what the new line skips, and tell Claude what you found (Your turn, steps 1 and 3).';
-      return `Your commit still skips ${skipped.map((line) => links[line]).join(' and ')}, a link to a file in the project: the patch's flaw is still there. Tell Claude that only a link starting with \`//\` or a scheme such as \`https:\` points to another site, ask for a fix and a test that fails on the patch's version, and commit them.`;
+      return `Your commit still skips ${skipped.map((line) => links[line]).join(' and ')}. Only \`//\` or a URL scheme is external. Fix the rule, add a test that fails on the patch, and commit both.`;
     },
   },
   {
@@ -142,7 +142,7 @@ export const items = [
         writeFileSync(join(dir, 'src', 'links.js'), PLANTED);
         if (npmTest(dir).status !== 0) return true;
         if (!patchCommitted(repo)) return 'Your tests still pass with the patch\'s `isExternal` put back, so none of them catches its flaw yet. Once you have found the flaw (Your turn, step 1), ask Claude for a test that fails on the patch\'s version.';
-        return 'Your tests still pass with the patch\'s `isExternal` put back, so none of them checks a link that starts with one slash. Ask Claude for a test that a link like `/docs/setup.md` is not external, check that it fails on the patch\'s version, and commit it.';
+        return 'Your tests still pass with the patch\'s `isExternal` put back: none of them checks a link that starts with one slash. Add a regression case for `/docs/setup.md` and commit it.';
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

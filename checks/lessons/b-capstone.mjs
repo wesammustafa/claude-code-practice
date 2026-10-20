@@ -17,7 +17,7 @@ const lines = (text) => (text ?? '').split(/\r?\n/).map((l) => l.trim()).filter(
 const SAVE_COMMIT = '`git rev-parse HEAD > .practice/capstone-commit.txt`';
 const AMEND = `amend the fix commit with \`git commit --amend\` and run ${SAVE_COMMIT} again`;
 // A test committed after its fix: the saved commit holds no fix to test.
-const ONLY_TESTS = `The commit changes only tests, but the fix and its test go in one commit. If the fix is in the commit before it, ask Claude to combine the two, as long as you haven't pushed them. If the fix isn't committed yet, ask Claude to add it and amend this commit with \`git commit --amend\`. Then run ${SAVE_COMMIT} again.`;
+const ONLY_TESTS = `The commit changes only tests. Combine it with the fix before it, if you haven't pushed, or amend with \`git commit --amend\` to include the fix. Then run ${SAVE_COMMIT} again.`;
 
 // The commit the Learner saved and the files it changes, or what to fix.
 function savedCommit(repo) {
@@ -61,7 +61,7 @@ export const items = [
       const before = repo.read('.practice/capstone-before.txt');
       if (before === null) return 'While the plan is on screen, run `git status --porcelain > .practice/capstone-before.txt`.';
       const changed = statusPaths(before);
-      return changed.length ? `Files had changed before you approved the plan: ${changed.join(', ')}. Start from a clean tree (commit them, or set them aside with \`git stash push --include-untracked\`), stay in plan mode until you approve, and save this file while the plan is on screen.` : true;
+      return changed.length ? `Files had changed before you approved the plan: ${changed.join(', ')}. Commit them or use \`git stash push --include-untracked\`, return to plan mode and save the snapshot before approving.` : true;
     },
   },
   {
@@ -88,7 +88,7 @@ export const items = [
       if (files.every(isTestFile)) return ONLY_TESTS;
       const result = testsWithoutFix(repo, sha, files);
       if (result.error) return result.error;
-      return result.passed ? `With the commit's source files put back as they were before it, \`npm test\` still passes, so the new test doesn't catch the bug. Ask Claude for a test that runs the case in the bug report and fails on the old code, check that it fails, then ${AMEND}.` : true;
+      return result.passed ? `Without the fix, \`npm test\` still passes, so the new test doesn't catch the bug. Add a regression test that fails on the old code, amend the fix and run ${SAVE_COMMIT} again.` : true;
     },
   },
   {
@@ -101,7 +101,7 @@ export const items = [
         if (run.status !== 2) return `The tool exited with code ${run.status}, not 2. Read capstone/beginner-bug.md again.`;
         // The scratch folder's own path may hold any word, so it doesn't count.
         const said = `${run.stderr}\n${run.stdout}`.split(dir).join('');
-        return /\bdocs\b/.test(said) ? true : `The tool exits with code 2, but its error doesn't name the missing folder, \`docs\`, as the bug report asks. Ask Claude for that correction, inside the files the plan names, then ${AMEND}.`;
+        return /\bdocs\b/.test(said) ? true : `The tool exits with code 2, but its error doesn't name the missing folder, \`docs\`. Fix that inside the plan, amend the commit and run ${SAVE_COMMIT} again.`;
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
