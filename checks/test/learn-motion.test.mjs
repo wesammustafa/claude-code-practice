@@ -1247,7 +1247,9 @@ test('a level-up: Pip opens its eyes as the banner wipes in, then the arrow fill
 });
 
 test("the complete screen's light runs every lesson's whole trail, from its first stop to its last, before it rests", () => {
-  const stops = (line) => [...line.replace(/\s+\d+ of \d+$/, '')].filter((c) => !'━─ '.includes(c));
+  // The trail, less the count and the work folder before it, where a lesson
+  // runs outside the practice copy (a-5's new copy).
+  const stops = (line) => [...line.replace(/\s+(?:in \S+ · )?\d+ of \d+$/, '')].filter((c) => !'━─ '.includes(c));
   for (const { id } of lessons) {
     const s = screens.find(([l]) => l === `${id} complete`)[1];
     const at = (ms) => stops(frameAt(s, s.fx.view, ms)[1]);

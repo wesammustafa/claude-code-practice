@@ -122,6 +122,7 @@ test('the first GUIDED Worked example step on each skill has a why line on a bea
 
 // A page step split in two: the second step keeps the page step's number.
 const SPLIT = {
+  'a-5 W2': 'page step 1 ("In the copy, start `claude`, run `/install-github-app`") splits as i-8\'s does, so a-5 opens on starting Claude Code at CHALLENGE, not on its GUIDED App install',
   'i-8 W2': 'page step 1 ("In a session in your repository") splits as b-5\'s does, so i-8 opens on starting Claude Code at CHALLENGE, not on its GUIDED install',
 };
 

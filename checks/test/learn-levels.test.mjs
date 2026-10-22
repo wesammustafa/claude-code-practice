@@ -20,6 +20,9 @@ const MODES = { full: FULL, sixteen: theme({ tty: true, depth: 4, unicode: true,
 const screen = (state, [cols, rows] = [80, 24], t = FULL) => render(state, { cols, rows }, t).map((l) => strip(l).trimEnd());
 // Every lesson before `id` complete.
 const doneBefore = (course, id) => Object.fromEntries(course.slice(0, course.findIndex((l) => l.id === id)).map((l) => [l.id, { complete: true }]));
+// The course with every Advanced lesson shown through its check, as before
+// its lesson files, for the tests that open a check-only Advanced lesson.
+const advancedCheckOnly = () => threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 
 test('every PATH entry carries its level, the folder of its page, and the level names are the guide\'s', () => {
   for (const p of PATH) assert.equal(p.level, p.page.split('/')[1], p.id);
@@ -36,8 +39,7 @@ test('every lesson has a label unique in the course, and plain output shows each
 });
 
 test('titles show no literal backticks: a-4\'s in the header, on the map and in plain output', () => {
-  // a-4's check-only view: Advanced's lesson files left out.
-  const course = threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
+  const course = advancedCheckOnly();
   const plain = plainProgress(course, {}, null).split('\n');
   assert.ok(plain.includes('A4   Script Claude Code with claude -p: 0 of 0 check items pass'), plain.join('\n'));
   // Every lesson before a-4 done: the map opens at a-4, and enter opens its check.
@@ -192,7 +194,7 @@ test('the welcome names the current level and draws only its path line, with one
 // lesson, and changes no count: a count is of completed lessons alone. The
 // counts were already so before 172; this keeps them so.
 test('a saved new copy changes neither the welcome\'s nor the map\'s n of m count: they count a completed a-5 or a-capstone, and only that', () => {
-  const course = threeLevels();
+  const course = advancedCheckOnly();
   const folders = { 'a-5': '/home/sam/claude-actions-practice', 'a-capstone': '/home/sam/ci-review' };
   const cases = [
     ['a-5 given, not done', doneBefore(course, 'a-5'), '4 of 8 done'],

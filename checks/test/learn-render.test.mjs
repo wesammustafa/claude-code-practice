@@ -17,6 +17,10 @@ import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
 import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
+// A state without its while-it-runs box (ticket 150): an optional box that
+// gives way whole, so its rows are none of the kept rows below, and its
+// still bar is no hint box.
+const noWhileRuns = (state) => (state.beat?.whileRuns ? { ...state, beat: { ...state.beat, whileRuns: undefined } } : state);
 const CAPS = {
   full: { tty: true, depth: 8, unicode: true, links: true, win32: false },
   sixteen: { tty: true, depth: 4, unicode: true, links: false, win32: false },
@@ -387,9 +391,13 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
   }
 });
 
-// The end of the last lesson with a lesson file: a play stops there.
+// The end of the last lesson a play reaches: a play stops there. A lesson
+// that runs in a new copy (a-5) waits for its folder, which a play from an
+// earlier lesson never gives, so the next screens pass it by; a play that
+// starts in it ends with the course's last lesson file.
+const lastReached = allCourse.filter((l) => l.content && !l.newCopy).at(-1).id;
 const lastWithFile = allCourse.filter((l) => l.content).at(-1).id;
-const atTheEnd = (s) => s.lesson === lastWithFile && s.view === 'complete';
+const atTheEnd = (s) => [lastReached, lastWithFile].includes(s.lesson) && s.view === 'complete';
 
 // Every step a real bottom rung eases, in a real play from that rung on, with
 // and without less help: the "more help" line wraps whole, even where a 60x20
@@ -2488,6 +2496,7 @@ const URLS = {
   'a-2': 'https://code.claude.com/docs/en/agents',
   'a-3': 'https://code.claude.com/docs/en/workflows#example-workflow-prompts',
   'a-4': 'https://code.claude.com/docs/en/headless',
+  'a-5': 'https://code.claude.com/docs/en/github-actions#run-on-a-schedule',
 };
 
 test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
@@ -3356,7 +3365,7 @@ test('the arrows move your card only where it scrolls: while it fits, they move 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
 const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4',
-  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC', 'a-1': 'A1', 'a-2': 'A2', 'a-3': 'A3', 'a-4': 'A4' };
+  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC', 'a-1': 'A1', 'a-2': 'A2', 'a-3': 'A3', 'a-4': 'A4', 'a-5': 'A5' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];
