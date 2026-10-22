@@ -172,7 +172,7 @@ function reviewEntry(repo, marketplace, entry, index, committed) {
   const found = { name, dir, manifest };
   if (!committed.has(manifest)) {
     const lists = `${where} lists ${code(`${dir || '.'}/`)}`;
-    if (existsSync(join(repo.dir, manifest))) return { stage: 2, ...found, hint: `${lists}, but ${commitHint(repo, manifest, dir || manifest)}` };
+    if (existsSync(join(repo.dir, manifest))) return { stage: 2, ...found, hint: commitHint(repo, manifest, dir || manifest) };
     if (dir && [...committed].some((p) => p.startsWith(`${dir}/`))) return { stage: 2, ...found, hint: `${lists}, which has no \`.claude-plugin/plugin.json\`. A plugin folder needs one, with the plugin's \`name\`: add it and commit.` };
     return { stage: 2, ...found, hint: `${lists}, where no plugin is committed. Put the plugin there, with its \`.claude-plugin/plugin.json\`, and commit it, or fix the \`source\`.` };
   }

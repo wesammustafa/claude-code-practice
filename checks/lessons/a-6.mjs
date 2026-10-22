@@ -82,7 +82,7 @@ function settingsHint(repo, settings, marketplaces, page) {
   if (settings === null) {
     if (repo.exists(SETTINGS)) return commitHint(repo, SETTINGS);
     const [m] = marketplaces;
-    return `There is no committed ${code(SETTINGS)}. Create it with \`"extraKnownMarketplaces": { "${m.name}": { "source": { "source": "directory", "path": "${relativePath(m.root)}" } } }\` and \`"enabledPlugins": { "${m.plugins[0].name}@${m.name}": true }\`, ${page.settings}, and commit it.`;
+    return `There is no committed ${code(SETTINGS)}. Create it with ${code(m.name)} under \`extraKnownMarketplaces\`, at the path ${code(relativePath(m.root))}, and \`"enabledPlugins": { "${m.plugins[0].name}@${m.name}": true }\`, ${page.settings}, and commit it.`;
   }
   if (settings.error) return `The committed ${code(SETTINGS)} isn't valid JSON: ${settings.error}`;
   if (!isObject(settings.value)) return `The committed ${code(SETTINGS)} isn't a JSON object.`;
@@ -175,7 +175,7 @@ function reviewHooks(repo, plugin, path, project, committed) {
     const stays = words.find((w) => /(^|\/)\.claude\//.test(w));
     const missing = words.map((w) => w.match(PLUGIN_ROOT)?.[1]).filter(Boolean).map((rel) => `${plugin.dir ? `${plugin.dir}/` : ''}${posix.normalize(rel)}`).find((p) => !committed.has(p));
     if (twice) problems.push(`\`${SETTINGS}\` still runs the same hook${twice.names.length ? `, ${code(twice.names[0])}` : ''}, so it would run twice each time its event fires. Remove that hook from \`${SETTINGS}\` and commit.`);
-    else if (stays) problems.push(`The hook in ${code(path)} still runs ${code(stays)}, a script in \`.claude/\`. Move the script into the plugin and call it as \`\${CLAUDE_PLUGIN_ROOT}/<path in the plugin>\`, then commit.`);
+    else if (stays) problems.push(`The plugin's hook still runs ${code(stays)}, a script in \`.claude/\`. Move the script into the plugin, call it as \`\${CLAUDE_PLUGIN_ROOT}/<path in the plugin>\`, and commit.`);
     else if (missing) {
       problems.push(existsSync(join(repo.dir, missing))
         ? `The hook in ${code(path)} runs ${code(missing)}, but ${commitHint(repo, missing).replace(/^`[^`]+` /, 'it ')}`
@@ -224,11 +224,10 @@ export const movedComponent = {
     if (tutor) {
       // Still committed at its own path, the plugin's tutor is a copy: remove it rather than move it back.
       const fix = committed.has(`.claude/${TUTOR}`) ? `Remove the copy with \`git rm -r ${shell(posix.dirname(tutor))}\`` : 'Move it back to `.claude/skills/tutor/` with `git mv`';
-      return `${code(tutor)} is the practice copy's \`/tutor\` skill, which came with the template, so it doesn't count as one of your own. ${fix}, then move a skill, a subagent or a hook of your own into the plugin, and commit.`;
+      return `The plugin's \`/tutor\` skill came with the practice copy, so it isn't one of your own. ${fix}, then move one of your own into the plugin, and commit.`;
     }
     const [{ dir }] = plugins;
-    const at = (rest) => code(dir ? `${dir}/${rest}` : rest);
-    return `The plugin holds only the example's \`onboard\` skill and \`config-reviewer\` subagent. Move one of your own into it: a skill to ${at('skills/<name>/SKILL.md')}, a subagent to ${at('agents/<name>.md')}, or a hook into ${at('hooks/hooks.json')}, as Your turn describes, with \`git mv\` so the original leaves \`.claude/\`. Then commit.`;
+    return `The plugin holds only the example's \`onboard\` skill and \`config-reviewer\` subagent. Move a skill, a subagent or a hook of your own into ${dir ? code(`${dir}/`) : 'the plugin'}, as Your turn describes, with \`git mv\` so the original leaves \`.claude/\`. Then commit.`;
   },
 };
 
@@ -299,13 +298,13 @@ export function strictValidation(record = VALIDATE) {
       if (report.success !== true) {
         const found = messages(report);
         const said = found.length ? ` It reports: ${found.slice(0, 2).map(code).join('; ')}${found.length > 2 ? `, and ${found.length - 2} more` : ''}.` : '';
-        return `${code(record)} records a validation that failed.${said} Fix what it reports, run \`claude plugin validate ${shell(relativePath(plugin.dir))} --strict\` until it passes, then save the report again: ${save}.`;
+        return `${code(record)} records a validation that failed.${said} Fix what it reports, then save the report again: ${save}.`;
       }
       if (report.strict !== true) return `${code(record)} records a validation without \`--strict\`, which lets warnings through. Run it with \`--strict\`: ${save}.`;
       const target = typeof report.target === 'string' ? report.target.trim() : '';
       if (!target) return `${code(record)} has no \`target\`, so the check can't tell what was validated. Save the report unchanged: ${save}.`;
       const slashed = target.replace(/\\/g, '/');
-      if (/(?:^|\/)\.claude-plugin\/marketplace\.json$/.test(slashed)) return `${code(record)} records a validation of the marketplace, ${code(target)}, which doesn't open the plugin's skill and agent files. Validate the plugin directory: ${save}.`;
+      if (/(?:^|\/)\.claude-plugin\/marketplace\.json$/.test(slashed)) return `${code(record)} records a validation of the marketplace, which doesn't open the plugin's skill and agent files. Validate the plugin directory: ${save}.`;
       const dirs = pluginFolders(repo);
       if (!dirs.length) return `There is no committed plugin directory, a folder with \`.claude-plugin/plugin.json\`, for ${code(record)} to match. Commit the plugin, then save the report again: ${save}.`;
       const listed = and(dirs.map((d) => code(relativePath(d))));
@@ -317,7 +316,7 @@ export function strictValidation(record = VALIDATE) {
         });
         if (ok) return true;
         const rel = relative(real(repo.dir) ?? repo.dir, where);
-        if (!rel || rel.startsWith('..') || isAbsolute(rel)) return `${code(record)} records a validation of ${code(target)}, ${rel ? 'outside this repository' : 'the repository itself'}, not of a plugin directory in it (${listed}). From the repository's root, run ${save}.`;
+        if (!rel || rel.startsWith('..') || isAbsolute(rel)) return `${code(record)} records a validation of ${code(target)}, ${rel ? 'outside this repository' : 'the repository itself'}, not of a plugin directory in it. Validate the plugin folder again, from the repository's root.`;
         return `${code(record)} records a validation of ${code(rel.replace(/\\/g, '/'))}, which isn't a committed plugin directory (${listed}). Run ${save}.`;
       }
       // A path that isn't on this machine was saved elsewhere: it must end in
@@ -328,7 +327,7 @@ export function strictValidation(record = VALIDATE) {
         const own = d ? d.split('/') : [];
         return (own.length && ends(own)) || ends([...own, '.claude-plugin', 'plugin.json']);
       })) return true;
-      return `${code(record)} records a validation of ${code(target)}, which isn't on this machine and doesn't end in a committed plugin directory (${listed}). From the repository's root, run ${save}.`;
+      return `${code(record)} records a validation of ${code(target)}, which isn't on this machine and doesn't end in a committed plugin directory. Validate the plugin folder again, from the repository's root.`;
     },
   };
 }

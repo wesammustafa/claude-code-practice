@@ -248,7 +248,9 @@ function missingHint(repo, { triggers, file, guide }) {
     const events = prompted.steps[0].triggers;
     return `${code(prompted.path)} runs Claude with a \`prompt\`, but ${events.length ? `starts on ${and(events.map(code))}` : 'has no `on:` events the check can read'}. Start it with ${onPhrase(triggers)}, then commit and push.${byHand}`;
   }
-  if (files.length) return `${code(files[0].path)} has no \`prompt\`, so it waits for \`@claude\` (interactive mode). You need a second workflow, ${code(file)}, that starts with ${onPhrase(triggers)} and has a \`prompt\`. Write it as ${guide} describes, then commit and push it.${byHand}`;
+  // This one is long already: GitHub's rule about manual runs waits for the
+  // hint about the second workflow's commit (ticket 198).
+  if (files.length) return `${code(files[0].path)} has no \`prompt\`, so it waits for \`@claude\` (interactive mode). You need a second workflow, ${code(file)}, that starts with ${onPhrase(triggers)} and has a \`prompt\`. Write it as ${guide} describes, then commit and push it.`;
   return `There is no committed workflow that runs \`anthropics/claude-code-action\`. Write ${code(file)} as ${guide} describes, then commit and push it.${byHand}`;
 }
 
@@ -320,7 +322,9 @@ export function dispatchedRun(record = RUNS, file = WORKFLOW) {
   const name = file.split('/').pop();
   const save = `\`gh run list --workflow ${name} --json ${RUN_FIELDS} > ${record}\``;
   const start = `\`gh workflow run ${name}\``;
-  const again = `then save the list again: ${save}`;
+  // The full command is in the first hint and on the lesson's ladder: the
+  // others say only to save again, so each fits the app's card (ticket 198).
+  const again = 'then save the list again';
 
   // How far one run gets: 0, not started by hand; 1, another repository;
   // 2, not finished; 3, not successful; 4, an unknown commit; 5, a commit
@@ -331,7 +335,7 @@ export function dispatchedRun(record = RUNS, file = WORKFLOW) {
     if (run.event !== 'workflow_dispatch') return { stage: 0 };
     if (origin) {
       const m = typeof run.url === 'string' ? run.url.match(RUN_URL) : null;
-      if (!m) return { stage: 1, hint: `${which} in ${code(record)} has no GitHub run URL, so the check can't tell which repository it ran in. Save the list with its \`url\`: ${save}.` };
+      if (!m) return { stage: 1, hint: `${which} in ${code(record)} has no GitHub run URL, so the check can't tell which repository it ran in. Save the list again with its \`url\`.` };
       if (`${m[1]}/${m[2]}`.toLowerCase() !== origin.toLowerCase()) return { stage: 1, hint: `${which} ran in \`${m[1]}/${m[2]}\`, but this repository's \`origin\` is \`${origin}\`. Save the list in the copy you made for this lesson, and run the check there.` };
     }
     if (run.status !== 'completed') return { stage: 2, hint: `${which} hasn't finished: its \`status\` is ${code(String(run.status ?? 'missing'))}. Wait for it with \`gh run watch ${id}\`, ${again}.` };
@@ -357,7 +361,7 @@ export function dispatchedRun(record = RUNS, file = WORKFLOW) {
     local: true,
     check(repo) {
       const text = repo.read(record);
-      if (text === null || !text.trim()) return `There is no ${code(record)} yet. Start the workflow with ${start}, wait for it to finish, then save the list: ${save}.`;
+      if (text === null || !text.trim()) return `There is no ${code(record)} yet. Once your run finishes, save the list: ${save}.`;
       let value;
       try {
         value = JSON.parse(text);
