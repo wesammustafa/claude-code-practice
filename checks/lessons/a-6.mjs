@@ -316,7 +316,7 @@ export function strictValidation(record = VALIDATE) {
         });
         if (ok) return true;
         const rel = relative(real(repo.dir) ?? repo.dir, where);
-        if (!rel || rel.startsWith('..') || isAbsolute(rel)) return `${code(record)} records a validation of ${code(target)}, ${rel ? 'outside this repository' : 'the repository itself'}, not of a plugin directory in it (${listed}). From the repository's root, run ${save}.`;
+        if (!rel || rel.startsWith('..') || isAbsolute(rel)) return `${code(record)} records a validation of ${code(target)}, ${rel ? 'outside this repository' : 'the repository itself'}, not of a plugin directory in it. Validate the plugin folder again, from the repository's root.`;
         return `${code(record)} records a validation of ${code(rel.replace(/\\/g, '/'))}, which isn't a committed plugin directory (${listed}). Run ${save}.`;
       }
       // A path that isn't on this machine was saved elsewhere: it must end in
@@ -327,7 +327,7 @@ export function strictValidation(record = VALIDATE) {
         const own = d ? d.split('/') : [];
         return (own.length && ends(own)) || ends([...own, '.claude-plugin', 'plugin.json']);
       })) return true;
-      return `${code(record)} records a validation of ${code(target)}, which isn't on this machine and doesn't end in a committed plugin directory (${listed}). From the repository's root, run ${save}.`;
+      return `${code(record)} records a validation of ${code(target)}, which isn't on this machine and doesn't end in a committed plugin directory. Validate the plugin folder again, from the repository's root.`;
     },
   };
 }

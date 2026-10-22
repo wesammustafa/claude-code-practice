@@ -72,7 +72,7 @@ function review(repo, snapshot) {
       if (a.head !== b.head && !isAncestor(a.head, b.head) && !isAncestor(b.head, a.head)) pairs.push([a, b]);
     }
   }
-  if (!pairs.length) return { worktrees, hint: `The worktrees in \`${snapshot}\` point at one commit, or one at an earlier commit of the other's, so it was saved before both sessions committed. Save it again after each session commits and before you remove the worktrees: ${save(snapshot)}.` };
+  if (!pairs.length) return { worktrees, hint: `\`${snapshot}\` was saved before both sessions committed: its worktrees point at one commit, or one at an earlier commit of the other's. Save it again before you remove them: ${save(snapshot)}.` };
   const [{ pair, unmerged }] = pairs
     .map((p) => ({ pair: p, unmerged: p.filter((r) => !isAncestor(r.head, 'HEAD')) }))
     .sort((x, y) => x.unmerged.length - y.unmerged.length);
