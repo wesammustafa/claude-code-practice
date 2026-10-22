@@ -14,7 +14,7 @@ import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
 import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
-import { allScreens, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -1770,6 +1770,26 @@ const playedWarmups = (id, played, lessons = allCourse) => {
 // learner back in b-2: b-2's then plays as it would with no explainer.
 const withoutWhy = (state) => ({ ...state, progress: { ...state.progress, 'b-3': { ...state.progress['b-3'], warm: ['R1'] } } });
 const explains = (d, cols = 80, rows = 24) => flatText(plainAt(d, cols, rows)).includes(flatText(WARMUP_WHY));
+
+// Ticket 187: on a typing beat s is a letter of the answer, so a wrong
+// answer the lesson didn't list names the empty line instead; an ask beat
+// keeps its s.
+test('a wrong typed answer says enter on an empty line shows the answer, not s', () => {
+  for (const [id, skill, lessons] of [['b-4', 'exit', bareExit], ['i-3', 'run-skill', allCourse]]) {
+    const d = firstWarmup(id, { missed: [skill] }, lessons);
+    assert.equal(beatOf(d.state).kind, 'type', id);
+    for (const c of 'nope') d.key(c, c);
+    d.key('enter');
+    const text = flatText(plainAt(d, 80, 24));
+    assert.ok(text.includes(flatText(C.lookAgainTyped)), `${id}\n${plainAt(d, 80, 24)}`);
+    assert.ok(!text.includes(flatText(C.lookAgain)), id);
+  }
+  // i-3 R2, an ask beat, with the same bare wrong answer keeps s.
+  const ask = firstWarmup('i-3', { missed: ['write-rule'] });
+  assert.equal(beatOf(ask.state).kind, 'ask');
+  ask.state.beat.feedback = { kind: 'wrong' };
+  assert.ok(flatText(plainAt(ask, 80, 24)).includes(flatText(C.lookAgain)), plainAt(ask, 80, 24));
+});
 
 test('the level\'s first warm-up says why warm-ups exist, under "Warm-up from lesson N", and no other warm-up does', () => {
   const d = firstWarmup('b-2', { missed: ['start'] });
