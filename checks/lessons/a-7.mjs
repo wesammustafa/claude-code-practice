@@ -7,10 +7,9 @@
 // auto-allow, refusing to start without it. The check runs the committed
 // script with a stand-in for `claude`, so it spends no usage; when the
 // script never reaches its `claude -p` call there, it reads the call from
-// the script's text. It also reads two real runs the Learner saved: a
-// slice of the task, whose cost must be under the spend limit, and a run a
-// limit stopped. Reading the diff and running the tests before committing
-// any of it is self-checked.
+// the script's text. It also reads the real slice run the Learner saved,
+// whose cost must be under the spend limit. Reviewing the run's diff for
+// changes outside the task is self-checked.
 import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, sep } from 'node:path';
@@ -23,11 +22,9 @@ export const title = 'Put bounds on autonomous runs';
 
 export const SCRIPT = 'scripts/bounded-run.sh';
 export const SLICE = '.practice/a-7-slice.json';
-export const CAPPED = '.practice/a-7-capped.json';
 
 const PROJECT = '.claude/settings.json';
 const OUT = 'result.json';
-const LIMITS = new Set(['error_max_turns', 'error_max_budget_usd']);
 const PATH_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit', 'MultiEdit', 'Glob', 'Grep']);
 const SANDBOX = '`"sandbox": {"enabled": true, "failIfUnavailable": true, "allowUnsandboxedCommands": false, "autoAllowBashIfSandboxed": false}`';
 const NARROW = 'Allow one folder or one command per rule, as in `Edit(./src/**)` or `Bash(npm test *)`.';
@@ -532,22 +529,4 @@ export function sliceRun(record = SLICE, script = SCRIPT) {
   };
 }
 
-export function cappedRun(record = CAPPED) {
-  const again = 'Then run the lesson\'s step that stops a run at a limit again.';
-  return {
-    text: `${code(record)} holds a run a limit stopped`,
-    local: true,
-    check(repo) {
-      const saved = savedResult(repo, record);
-      if (saved.missing) return `There is no ${code(record)} yet: run the lesson's step that gives a run a limit too small to finish, which saves its JSON there.`;
-      const wrong = resultHint(saved, record, again);
-      if (wrong) return wrong;
-      const { subtype } = saved.value;
-      if (LIMITS.has(subtype)) return true;
-      if (subtype === 'success') return `The run in ${code(record)} finished (\`success\`), so no limit stopped it. Give it a limit too small for the task, such as \`--max-budget-usd 0.01\`, as the lesson's step 4 does. ${again}`;
-      return `The run in ${code(record)} ended with ${code(String(subtype))}, not at a limit (\`error_max_turns\` or \`error_max_budget_usd\`). ${again}`;
-    },
-  };
-}
-
-export const items = [boundedScript(), runLimits(), narrowRules(), strictSandbox(), sliceRun(), cappedRun()];
+export const items = [boundedScript(), runLimits(), narrowRules(), strictSandbox(), sliceRun()];

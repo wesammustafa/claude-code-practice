@@ -2,9 +2,9 @@
 // .claude/worktrees/ in a committed .gitignore, runs two sessions at once,
 // each in a worktree that `claude --worktree <name>` makes there, merges both
 // branches and removes the worktrees. A worktree listing saved while both
-// existed names the commit each session made. That neither session saw the
-// other's uncommitted edits shows only in the sessions, so the lesson
-// self-checks it. The Advanced capstone reuses these items with its own
+// existed names the commit each session made. What a fresh worktree lacked,
+// and whether .worktreeinclude or the session supplied it, is a decision the
+// check can't see, so the lesson self-checks it. The Advanced capstone reuses these items with its own
 // listing.
 import { committedIgnore, ignoreHint } from '../ignore.mjs';
 import { claudeWorktrees, liveWorktrees, parseWorktrees } from '../worktrees.mjs';
