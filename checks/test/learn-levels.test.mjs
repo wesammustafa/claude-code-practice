@@ -41,6 +41,10 @@ test('every lesson has a label unique in the course, and plain output shows each
   assert.deepEqual(labels, LABELS);
 });
 
+// The course with no Advanced lesson file, for the tests of Advanced lessons
+// shown through their checks: since ticket 119 a-capstone has a lesson file.
+const noAdvanced = () => threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
+
 test('titles show no literal backticks: a-4\'s in the header, on the map and in plain output', () => {
   const course = advancedCheckOnly();
   const plain = plainProgress(course, {}, null).split('\n');

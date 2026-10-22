@@ -522,9 +522,12 @@ test('every lesson file\'s intro fits at 60x20 and 80x24 with everything it need
   const states = course.filter((l) => l.content).flatMap((l) => {
     // Every lesson before it finished, and no work folder saved yet.
     const lessons = Object.fromEntries(course.slice(0, course.indexOf(l)).map((x) => [x.id, { complete: true }]));
-    const modes = l.level === 'beginner' ? ['beginner'] : pinOf(l) ? ['asking', 'saved'] : ['asking', 'answered', 'saved'];
+    // A lesson pinned to a new copy (a-capstone) has no default to accept
+    // with enter: its folder is typed, then saved under its own id.
+    const modes = l.level === 'beginner' ? ['beginner'] : ['copy', 'new copy'].includes(pinOf(l)) ? ['asking', 'saved'] : ['asking', 'answered', 'saved'];
+    const key = pinOf(l) === 'new copy' ? l.id : l.level;
     return modes.map((mode) => {
-      const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons, ...(mode === 'saved' ? { folders: { [pinOf(l) === 'new copy' ? l.id : l.level]: MINE } } : {}) } });
+      const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons, ...(mode === 'saved' ? { folders: { [key]: MINE } } : {}) } });
       assert.deepEqual([d.state.view, d.state.lesson], ['intro', l.id]);
       if (mode === 'answered') d.key('enter');
       const dir = mode === 'saved' ? MINE : COPY;

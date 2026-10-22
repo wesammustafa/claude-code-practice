@@ -702,7 +702,7 @@ test('p spells out each URL whole: a long one breaks only after a /, ? or &, on 
     const read = l.content.intro.read?.match(/\]\(([^)\s]+)\)/)?.[1];
     for (const [name, stop] of [['step', (s) => s.view === 'step' && s.lesson === l.id && stepOf(s).part !== 'Warm-up'],
       ['next', (s) => s.view === 'next' && s.lesson === l.id]]) {
-      const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
+      const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id), ...(l.newCopy ? { folders: { [l.id]: '/home/sam/claude-capstone' } } : {}) } });
       playUntil(d, stop);
       d.key('p');
       assert.equal(d.state.overlay, 'page', `${l.id} ${name}`);
