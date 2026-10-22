@@ -21,10 +21,19 @@ export function brokenLinks(root, config) {
       const target = link.target.split('#')[0];
       if (!target || isExternal(link.target)) continue;
       if (config.ignore.some((prefix) => link.target.startsWith(prefix))) continue;
-      if (!existsSync(join(dirname(file), decodeURIComponent(target)))) {
+      if (!targetExists(dirname(file), target)) {
         broken.push({ file: relative(root, file), line: link.line, target: link.target });
       }
     }
   }
   return broken;
+}
+
+// A malformed percent escape, such as bad%.md, cannot name a file, so it is a broken link.
+function targetExists(folder, target) {
+  try {
+    return existsSync(join(folder, decodeURIComponent(target)));
+  } catch {
+    return false;
+  }
 }
