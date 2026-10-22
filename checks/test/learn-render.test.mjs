@@ -1637,27 +1637,26 @@ test('b-2\'s real FAIL messages at "The check says:" keep the card\'s title, Goa
 // line is cut" to the intro, complete and next screens; this list keeps the
 // step screens' count from growing unseen.
 const CUT_AT_60X20 = {
-  full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4',
+  full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4',
     // Intermediate's long hints and code blocks at 60x20.
     'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y3.0 hint 1',
-    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1', 'i-7 Y3.0 hint 1', 'i-7 C.0 hint 1',
+    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
-    'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
+    'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
     'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.1 hint 1 (skipped)',
     'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
-    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)', 'i-7 C.0 hint 1 (skipped)'],
-  ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-3 W6.2 hint 1', 'b-4 W5.4 hint 1',
-    'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
-    'b-capstone T3.1 hint 1', 'b-capstone T6.1 hint 1',
-    'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y2.0 hint 1', 'i-6 Y3.0 hint 1',
-    'i-6 C.0 hint 1', 'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1', 'i-7 Y3.0 hint 1', 'i-7 C.0 hint 1',
-    'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W6.2 hint 1 (skipped)', 'b-4 W4.2 hint 1 (skipped)',
+    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)'],
+  ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
+    'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
+    'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y3.0 hint 1',
+    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1',
+    'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
-    'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
-    'b-capstone T1.2 hint 1 (skipped)', 'b-capstone T3.1 hint 1 (skipped)', 'b-capstone T6.1 hint 1 (skipped)',
+    'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
+    'b-capstone T1.2 hint 1 (skipped)',
     'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.1 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)',
-    'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)', 'i-6 C.0 hint 1 (skipped)',
-    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)', 'i-7 Y3.0 hint 1 (skipped)', 'i-7 C.0 hint 1 (skipped)'],
+    'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
+    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {

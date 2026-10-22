@@ -15,7 +15,7 @@ export const title = 'Beginner capstone';
 
 const lines = (text) => (text ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 const SAVE_COMMIT = '`git rev-parse HEAD > .practice/capstone-commit.txt`';
-const AMEND = `amend the fix commit with \`git commit --amend\` and run ${SAVE_COMMIT} again`;
+const AMEND = `\`git commit --amend\` and run ${SAVE_COMMIT} again`;
 // A test committed after its fix: the saved commit holds no fix to test.
 const ONLY_TESTS = `The commit changes only tests. Combine it with the fix before it, if you haven't pushed, or amend with \`git commit --amend\` to include the fix. Then run ${SAVE_COMMIT} again.`;
 
@@ -62,7 +62,7 @@ export const items = [
       const before = repo.read('.practice/capstone-before.txt');
       if (before === null) return 'While the plan is on screen, run `git status --porcelain > .practice/capstone-before.txt`.';
       const changed = statusPaths(before);
-      return changed.length ? `Files had changed before you approved the plan: ${changed.join(', ')}. Commit them or use \`git stash push --include-untracked\`, return to plan mode and save the snapshot before approving.` : true;
+      return changed.length ? `Files had changed before you approved the plan: ${changed.join(', ')}. Commit or stash them, then snapshot again in plan mode.` : true;
     },
   },
   {
@@ -74,8 +74,8 @@ export const items = [
       const { files, error } = savedCommit(repo);
       if (error) return error;
       const extra = files.filter((f) => !plan.has(f));
-      if (extra.length) return `The commit changes files the plan didn't name: ${extra.join(', ')}. If the approved plan named them, add them to \`.practice/capstone-plan.txt\`; otherwise remove them from the commit and stash with \`--include-untracked\`. Re-save the SHA (task 7).`;
-      if (!files.some(isTestFile)) return `The commit changes no test file. The test the bug report asks for goes in the same commit as the fix: ask Claude to add it, then ${AMEND}.`;
+      if (extra.length) return `The commit changes files the plan didn't name: ${extra.join(', ')}. If the plan named them, add them to \`.practice/capstone-plan.txt\`; if not, take them out of the commit. Re-save the SHA (task 7).`;
+      if (!files.some(isTestFile)) return `The commit changes no test file. The test goes in the same commit as the fix: ask Claude to add it, then ${AMEND}.`;
       return files.every(isTestFile) ? ONLY_TESTS : true;
     },
   },
@@ -85,7 +85,7 @@ export const items = [
     check(repo) {
       const { sha, files, error } = savedCommit(repo);
       if (error) return error;
-      if (!files.some(isTestFile)) return `The commit changes no test file, so there is no test to run without the fix. The test goes in the same commit as the fix: ask Claude to add it, then ${AMEND}.`;
+      if (!files.some(isTestFile)) return `The commit changes no test file, so no test runs without the fix. Ask Claude to add one to the fix commit, then ${AMEND}.`;
       if (files.every(isTestFile)) return ONLY_TESTS;
       const result = testsWithoutFix(repo, sha, files);
       if (result.error) return result.error;

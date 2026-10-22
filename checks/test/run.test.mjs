@@ -691,7 +691,7 @@ test('the Beginner capstone fails when files had changed before approval, and sa
     const { code, out } = check(['b-capstone', '--dir', dir]);
     assert.equal(code, 1, out);
     assert.match(out, /before you approved the plan: src\/cli\.js/);
-    assert.match(out, /git stash push --include-untracked/);
+    assert.match(out, /Commit or stash them/);
     assert.match(out, /plan mode/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

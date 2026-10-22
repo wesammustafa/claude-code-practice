@@ -709,6 +709,7 @@ function card(ctx, { tint, where, short = null, done, rows }) {
   // A blank row that is part of a sentence, such as the Why line's, is the
   // rail alone too.
   const row = (r) => (r === '' || r?.spacer ? spacer(rail, r?.group) : typeof r === 'string' ? { text: `${rail}  ${r}`, rail }
+    : r.block ? { ...r, rows: r.rows.map(row), alt: r.alt.map(row) }
     : r.text === '' ? { ...r, text: rail, blank: true } : { ...r, text: `${rail}  ${r.text}`, rail });
   // A spacer next to another, where a line between them shows nothing, is
   // one; a sentence's blank row above a spacer leaves the blank to it.
@@ -1621,7 +1622,13 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
     // A beat that reads its file itself, or git status, has a not-yet line
     // in the app's own words, whole; a check's FAIL message is cut to what
     // is wrong.
-    rows.push(...para(t, `${C.notYet} ${READS.has(beat.verify.kind) || needsChange(beat.verify) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`)));
+    const notYet = para(t, `${C.notYet} ${READS.has(beat.verify.kind) || needsChange(beat.verify) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`));
+    // "The check says:" repeats the message whole, so below 24 rows the
+    // line folds to its mark, as a repeat does, before the card loses its
+    // title or Goal (ticket 198).
+    const says = st.rung >= 0 && rungsOf(s)[st.rung]?.kind === 'check';
+    if (says) rows.push(repeat(kept(notYet), kept([`${t.fg('warn', t.bold(warnMark))} ${t.fg('text', C.notYetShort)}`])));
+    else rows.push(...notYet);
   }
 
   // Feedback on a pick that wasn't right, before the answer.

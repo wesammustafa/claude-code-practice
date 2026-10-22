@@ -102,7 +102,7 @@ export const noteCorrected = {
     const exits = claims(text).filter((claim) => EXIT.test(claim) || CANT_FAIL.test(claim));
     const stale = exits.find((claim) => exitClaim(claim) === 'stale');
     if (stale) return `The note still says "${stale.replace(/^[-*+]\s+/, '').replace(/[.\s]+$/, '').slice(0, 120)}". Ask Claude which file decides how linkcheck exits, open that line yourself, and write what the code does.`;
-    if (!exits.some((claim) => exitClaim(claim) === 'right')) return 'No line in the note says which exit code linkcheck gives when it finds a broken link. Open the line Claude cites for how linkcheck exits, and write that code into the claim about it: whoever sets up CI next depends on it.';
+    if (!exits.some((claim) => exitClaim(claim) === 'right')) return 'No line in the note says which exit code linkcheck gives for a broken link. Open the line Claude cites for it and write that code into the claim: CI depends on it.';
     return true;
   },
 };
