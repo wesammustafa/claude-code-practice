@@ -60,6 +60,10 @@ export const C = {
   // A long wait's card, where the page gives no words for it (ticket 103):
   // about the app, never about how long the run takes.
   waitLong: 'No hurry: this card waits for as long as it takes.',
+  // The box a long wait offers a warm-up in (ticket 150). It scores nothing.
+  whileItRuns: 'While it runs',
+  whileNotScored: 'not scored',
+  whilePress: 'Press its number to answer.',
   terminalInFolder: 'in a terminal',
   warmup: (n, level) => `Warm-up from ${level ? `${level} lesson` : 'lesson'} ${n}`,
   warmupIndex: (level) => `Warm-up from the ${level} ${TERMS.levelIndex}`,
