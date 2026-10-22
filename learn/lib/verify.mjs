@@ -1,15 +1,15 @@
 // Asking the lesson's own check, and git, without blocking the screen. Both
 // run in child processes; the app writes nothing to the practice copy.
 import { execFile } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STUB_RUNS } from '../../checks/lessons/a-4.mjs';
 import { NPM_TEST_LIMIT } from '../../checks/lessons/b-3.mjs';
 import { lessons } from '../../checks/lessons/index.mjs';
 import { statusEntries } from '../../checks/paths.mjs';
 import { TIME_LIMIT } from '../../checks/stub-claude.mjs';
-import { SLOW } from './content.mjs';
+import { globName, isGlob, SLOW } from './content.mjs';
 import { stampFor } from './holds.mjs';
 import { isStaged, listing } from './status.mjs';
 
@@ -79,12 +79,36 @@ export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {
   });
 }
 
+// Runs one git probe (checks/probes.mjs, ticket 105) in the check child, in
+// `dir`: { pass, hint, evidence, state }, or { error }. It never fetches.
+export function runProbe(dir, name, args, { limit = ITEM_LIMIT } = {}) {
+  return new Promise((resolve) => {
+    track(execFile(process.execPath, [RUN_CHECK, '--probe', name, dir, ...args], { env: { ...childEnv(), GIT_NO_LAZY_FETCH: '1' }, windowsHide: true, timeout: limit, maxBuffer: 1 << 20 }, (error, stdout) => {
+      try {
+        const out = JSON.parse(stdout.trim().split('\n').pop());
+        resolve(out.error ? { error: out.error } : { pass: out.pass, hint: out.hint, evidence: out.evidence, state: out.state });
+      } catch {
+        resolve({ error: error ? (error.killed ? 'it took too long' : error.message.split('\n')[0]) : 'it printed something unexpected' });
+      }
+    }));
+  });
+}
+
 // What git status lists in `dir`, and which of those paths are staged. With
 // `files`, a look at part of the tree: each untracked file on its own line,
 // where git status lists a new folder whole, and only what is in `dir`,
-// named from there, where `dir` is a folder inside a repository.
-export function gitStatus(dir, { files = false } = {}) {
+// named from there, where `dir` is a folder inside a repository. With
+// `head`, also the commit HEAD is at (ticket 105), null before the first.
+export function gitStatus(dir, { files = false, head = false } = {}) {
   const opts = { cwd: dir, env: childEnv(), windowsHide: true, timeout: 30_000 };
+  if (head) {
+    return new Promise((resolve) => {
+      track(execFile('git', ['rev-parse', '--verify', '-q', 'HEAD'], opts, (error, stdout) => {
+        const at = error ? null : stdout.trim() || null;
+        gitStatus(dir, { files }).then((r) => resolve(r.error ? r : { ...r, head: at }));
+      }));
+    });
+  }
   return new Promise((resolve) => {
     const failed = (error) => resolve({ error: error.message.split('\n')[0] });
     if (!files) {
@@ -164,11 +188,31 @@ export function gitFirstName(dir) {
   });
 }
 
+// The file a path names: itself, or for a glob the newest file that matches
+// it (the last one written, so the one Claude just made), null when none
+// does. Named as the beat names it, from the work folder.
+export function matchOf(dir, path) {
+  if (!isGlob(path)) return path;
+  const folder = posix.dirname(path);
+  const name = globName(posix.basename(path));
+  let best = null;
+  try {
+    for (const e of readdirSync(join(dir, folder), { withFileTypes: true })) {
+      if (!e.isFile() || !name.test(e.name)) continue;
+      const at = statSync(join(dir, folder, e.name)).mtimeMs;
+      if (!best || at > best.at || (at === best.at && e.name < best.name)) best = { at, name: e.name };
+    }
+  } catch {
+    return null;
+  }
+  return best && posix.join(folder, best.name);
+}
+
 // A file's bytes as they are now, for the reducer to read what it holds
 // (holds.mjs); null when it isn't there or can't be read just now.
 export function bytesOf(dir, path) {
   try {
-    return readFileSync(join(dir, path));
+    return readFileSync(join(dir, matchOf(dir, path) ?? path));
   } catch {
     return null;
   }
@@ -179,7 +223,9 @@ export function bytesOf(dir, path) {
 // read just now (another program holds it, or its permissions changed).
 export function stampOf(dir, path) {
   try {
-    const file = join(dir, path);
+    const found = matchOf(dir, path);
+    if (found === null) return '';
+    const file = join(dir, found);
     return stampFor(statSync(file).mtimeMs, readFileSync(file));
   } catch (error) {
     return error.code === 'ENOENT' || error.code === 'ENOTDIR' ? '' : null;

@@ -4,6 +4,7 @@
 // decide what they mean. Pure: nothing here reads the disk or starts a
 // process.
 import { createHash } from 'node:crypto';
+import { isGlob } from './content.mjs';
 import { C } from './copy.mjs';
 import { graphemes, isEmoji } from './text.mjs';
 
@@ -100,7 +101,7 @@ const shown = (v) => oneRow(typeof v === 'string' ? v : JSON.stringify(v));
 // when nothing was added, so a line it forbids that is still there counts.
 export function judge(verify, buf, from = 0) {
   const { path } = verify;
-  if (!buf) return { pass: false, hint: verify.kind === 'file' ? C.fileEmpty(path) : C.noFile(path) };
+  if (!buf) return { pass: false, hint: isGlob(path) ? C.noMatch(path) : verify.kind === 'file' ? C.fileEmpty(path) : C.noFile(path) };
   const binary = binaryOf(buf);
   if (binary) return verify.kind === 'file' ? { pass: true, evidence: binary } : { pass: false, hint: C.notText(path, binary) };
   const text = textOf(buf);

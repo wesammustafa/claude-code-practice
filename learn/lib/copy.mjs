@@ -31,11 +31,13 @@ export const C = {
   hi: (name) => `Hi ${name || 'there'}! Let's learn Claude Code by using it.`,
   pip1: `I'm Pip. I watch your ${TERMS.practiceCopy} and light up`,
   pip2: 'the moment a step works.',
-  twoWindows: 'You use two windows, side by side:',
+  // A lesson may use more than one other window (ticket 103), so the
+  // welcome promises none in particular.
+  twoWindows: 'You use this window beside one or more terminals:',
   thisWindow: 'this window',
   thisWindowLines: ['one step at a time,', 'checks your work'],
-  otherWindow: 'your other terminal',
-  otherWindowLines: ['where you type commands', 'and run Claude Code', '(this app checks it)'],
+  otherWindow: 'your terminals',
+  otherWindowLines: ['where you type commands', 'and run Claude Code', '(this app checks them)'],
   openSecond: 'Open a second terminal now, in this same folder:',
   comeBack: 'Then come back here and press enter.',
   // The boot frame, while git answers the first questions at start.
@@ -52,7 +54,16 @@ export const C = {
   steps: (n) => `${n} steps`,
   stepOf: (n, m) => `step ${n} of ${m}`,
 
-  where: { terminal: 'in your other terminal', claude: 'in Claude Code', shell: 'in a third terminal', editor: 'in your editor', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
+  where: { terminal: 'in your other terminal', claude: 'in Claude Code', 'claude-2': 'in your second Claude Code', shell: 'in a third terminal', editor: 'in your editor', browser: 'in your browser', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
+  // A lesson that numbers its terminals as its page does (ticket 103).
+  terminalN: (n) => `in terminal ${n}`,
+  // A long wait's card, where the page gives no words for it (ticket 103):
+  // about the app, never about how long the run takes.
+  waitLong: 'No hurry: this card waits for as long as it takes.',
+  // The box a long wait offers a warm-up in (ticket 150). It scores nothing.
+  whileItRuns: 'While it runs',
+  whileNotScored: 'not scored',
+  whilePress: 'Press its number to answer.',
   terminalInFolder: 'in a terminal',
   warmup: (n, level) => `Warm-up from ${level ? `${level} lesson` : 'lesson'} ${n}`,
   warmupIndex: (level) => `Warm-up from the ${level} ${TERMS.levelIndex}`,
@@ -78,12 +89,16 @@ export const C = {
   done: 'DONE',
   doneWhen: 'Done when ',
   noCommands: 'No commands this time.',
+  // An optional step's card (ticket 102): the lesson file's words for when
+  // to skip it, then the key.
+  optional: (when) => `Optional. ${when} Press x to skip it.`,
   doneEachPart: "You've done each part before.",
   watching: (what) => [`Watching `, what, ". I'll turn green the moment it's right."],
   staleWatch: (what) => [`Watching `, what, ". It's from an earlier step: I'll turn green once you make it again."],
   fileEmpty: (path) => `${path} has no line in it yet.`,
   // What a file holds, for a beat that reads it (ticket 87): the not-yet lines.
   noFile: (path) => `${path} is not there yet.`,
+  noMatch: (glob) => `No file matches ${glob} yet.`,
   notText: (path, what) => `${path} is not a text file yet: it holds ${what}.`,
   notJson: (path, error) => `${path} does not parse as JSON yet (${error}).`,
   noKey: (path, key) => `${path} has no ${key} yet.`,
@@ -142,6 +157,14 @@ export const C = {
   nothingStaged: 'git status lists nothing staged yet.',
   stagedShows: (shown, more) => `Staged: ${shown}${more ? ` and ${more} more` : ''}`,
   changedOutside: (n, under, shown) => `${n} file${n === 1 ? '' : 's'} changed outside ${under}: ${shown}`,
+  // Against how git was when step n opened (ticket 105).
+  headSame: (n) => `No new commit yet: HEAD is where it was when step ${n} opened.`,
+  headDirty: (count, shown, more) => `A new commit, but git status still lists ${count} path${count === 1 ? '' : 's'}: ${shown}${more ? ` and ${more} more` : ''}`,
+  headMoved: (sha) => `A new commit, ${sha}, and nothing left to commit.`,
+  unchanged: (n) => `git status lists the same paths as when step ${n} opened.`,
+  changedSince: (n, count, shown, more) => `git status lists other paths than when step ${n} opened${count ? `: ${shown}${more ? ` and ${more} more` : ''}` : ': none now'}`,
+  // A requires item that is the work folder's own (probe todos), not a lesson's.
+  folderLacks: (hint) => `This lesson needs your ${TERMS.workFolder} to hold more: ${hint}`,
   session: (n) => `${n} step${n === 1 ? '' : 's'} this session`,
   beatDone: 'Done.',
   already: 'Already done: the check already passes, so this step counts.',
@@ -220,6 +243,9 @@ export const C = {
   mapFooter: 'Each lesson reuses what came before, so it starts with less help.',
   mapDone: 'done',
   mapNext: 'next',
+  // A lesson whose Check passed with its Tear down still to do (ticket 102).
+  mapTearDown: 'tear down',
+  tearDownLeft: 'The check passes. The tear down is still to do.',
   ofDone: (n, m) => `${n} of ${m} done`,
 
   checkOnly: ["This lesson isn't in the app yet. Follow the lesson page,", "and I'll watch its check for you:"],
@@ -320,6 +346,9 @@ export const C = {
   noFolder: (path) => `No folder at ${path}.`,
   dirBeginner: `This app checks Beginner in this ${TERMS.practiceCopy}, so --dir has no level to set yet. From Intermediate on, use it, or press f on the map.`,
   plainIn: (dir) => ` (checked in ${dir})`,
+  // A lesson done in the app whose check fails now (106): a later lesson
+  // may change what it checks on purpose, as a-6 moves a component.
+  plainChanged: 'Its check fails now: a later lesson may have changed what it checks.',
 
   k: {
     itsOpen: "it's open", quit: 'quit', choose: 'choose', start: 'start', map: 'map', more: 'more', checkNow: 'check now',
@@ -328,6 +357,6 @@ export const C = {
     bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
     useIt: 'use it', cancel: 'cancel', folder: 'folder', giveFolder: 'give its folder',
     continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', scroll: 'scroll', level: 'level', card: 'card', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
-    copy: 'copy', earlier: 'earlier step', earlierShort: 'earlier',
+    copy: 'copy', earlier: 'earlier step', earlierShort: 'earlier', skip: 'skip',
   },
 };

@@ -18,6 +18,7 @@ export function plainProgress(course, results, saved, { root, dirs = {} } = {}) 
       : `${ran.filter((i) => i.pass).length} of ${ran.length} check items pass${slow ? ` (npm run check -- ${l.id} also runs ${slow} slower one${slow === 1 ? '' : 's'})` : ''}`;
     const where = r && dirs[l.id] && dirs[l.id] !== root ? C.plainIn(dirs[l.id]) : '';
     lines.push(`${lessonLabel(l.id).padEnd(4)} ${titleOf(l)}: ${checked}${done}${where}`);
+    if (done && ran.some((i) => !i.pass)) lines.push(`     ${C.plainChanged}`);
     lines.push(`     ${l.url}`);
   }
   return `${lines.join('\n')}\n`;

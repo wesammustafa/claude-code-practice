@@ -6,7 +6,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, isLastBeat as lastShown, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tearDownLeft, tierOf, tiersOf, toFinish, tryFirst, unmet, whileRunsOf,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -485,7 +485,8 @@ const withRoot = (text, root, win32, dir) => {
 // A command on a dark block, one line per `w - 4` columns of the command,
 // so a long path is never cut.
 function chip(t, cmd, where, w) {
-  const prompt = where === 'claude' ? '›' : t.caps.win32 ? '>' : '$';
+  // A browser has no prompt (ticket 103): what it shows is an address.
+  const prompt = ['claude', 'claude-2'].includes(where) ? '›' : where === 'browser' ? ' ' : t.caps.win32 ? '>' : '$';
   const room = Math.max(10, w - 4);
   // Lines break at spaces, so a prompt keeps its words whole; only a word
   // longer than the line, such as a long path, is split.
@@ -572,7 +573,7 @@ function planned(state) {
 
 // The step on screen has its last beat done: it is passed before enter adds
 // it to `done`.
-const passedNow = (s) => s.view === 'step' && isDone(s.beat) && s.pos.beat === stepOf(s).beats.length - 1;
+const passedNow = (s) => s.view === 'step' && isDone(s.beat) && lastShown(s);
 
 // The step on screen is passed and was not done before: a first pass, which
 // counts toward the session and grows the progress rule.
@@ -827,7 +828,7 @@ function noteRows(ctx, w) {
     repo ? kept(para(t, repo, w, 'text', { quote: true, label: { text: C.youNeed, color: 'muted' } })) : [],
     win && t.caps.win32 ? quoted(win) : [],
     missing.length ? warnNote(t, quotes, w, 'text', { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : [],
-    ...unmet(s).map((r) => warnNote(t, (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
+    ...unmet(s).map((r) => warnNote(t, r.probe ? C.folderLacks(r.hint) : (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
 }
 
 // ---- views -------------------------------------------------------------------
@@ -899,6 +900,7 @@ const VIEWS = {
         withPip(ctx, bigPip(ctx, BIG_PIP.resume, ...greeting(ctx)), [
           () => [lead(t, 'wave', t.bold(t.fg('white', C.welcomeBack)))],
           (w) => para(t, C.youreOn(lessonLabel(s.lesson), index + 1, steps.length, steps[index].title), w, 'text'),
+          ...(tearDownLeft(s) ? [(w) => para(t, C.tearDownLeft, w, 'muted')] : []),
         ]),
         ...(s.confirmRestart ? [SPACER, ...kept(hang(mark, para(t, C.restartAsk, ctx.W - width(mark), 'white').map((x) => t.bold(x))))] : []),
       ],
@@ -1120,7 +1122,9 @@ const VIEWS = {
     }
     // The titles give way to the marks, which are wider in ASCII, and to the
     // bars and their gap, on a page that has them.
-    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 + (bars ? 0 : BAR + 2) - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
+    // A lesson with its Tear down still to do says so, in a wider column.
+    const stateW = lessons.some((l) => tearDownLeft(s, l.id)) ? Math.max(5, width(C.mapTearDown)) : 5;
+    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 - (stateW - 5) + (bars ? 0 : BAR + 2) - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
     // Where the level's rows don't fit even closed up, with the footer gone,
     // the list scrolls: the rows that fit, the cursor's as near their middle
     // as the ends allow.
@@ -1133,10 +1137,10 @@ const VIEWS = {
       const mark = `${sel ? t.fg('key', t.bold(t.glyph.pointer)) : ' '} ${p.complete ? t.fg('ok', t.glyph.check) : t.fg('faint', t.glyph.dotOff)}`;
       const pillBg = sel ? 'accentBg' : p.complete ? 'okBg' : 'dimBg';
       const name = sel ? t.bold(t.fg('key', titleOf(l))) : t.fg(p.complete ? 'text' : 'muted', titleOf(l));
-      const state = p.complete ? t.fg('ok', C.mapDone) : l === next ? t.fg('accent', t.bold(C.mapNext)) : '';
+      const state = p.complete ? t.fg('ok', C.mapDone) : tearDownLeft(s, l.id) ? t.fg('warn', C.mapTearDown) : l === next ? t.fg('accent', t.bold(C.mapNext)) : '';
       const medal = l.id.endsWith('capstone') ? t.emoji('cup') : p.complete && l.content?.badge ? t.emoji('badge') : '';
       const fitTitle = pad(cut(name, titleW + 1, t.unicode ? '…' : '.'), titleW + 1);
-      const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${bars ? `${mixBar(ctx, l, BAR)}  ` : ''}${pad(state, 5)}${medal ? ` ${medal}` : ''}`;
+      const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${bars ? `${mixBar(ctx, l, BAR)}  ` : ''}${pad(state, stateW)}${medal ? ` ${medal}` : ''}`;
       return i ? [spacer('', 'lessons'), line] : [line];
     });
     return {
@@ -1361,7 +1365,7 @@ function stepView(ctx) {
   const authored = authoredTier(s);
   const style = TIER_STYLE[tier];
   const done = ['done', 'already'].includes(st.status);
-  const isLastBeat = s.pos.beat === step.beats.length - 1;
+  const isLastBeat = lastShown(s);
   const hideRuns = tier !== 'guided' && authored === 'guided';
   const inlineBottom = tier === 'guided' && authored !== 'guided';
   const words = wordsOf(s);
@@ -1440,6 +1444,14 @@ function stepView(ctx) {
     const before = doneBefore(s);
     if (tier === 'challenge' && OWN_PARTS.has(step.part) && s.pos.beat === firstBeat) rows.push(SPACER, ...para(t, before ? `${C.noCommands} ${C.doneEachPart}` : C.noCommands, inner, 'muted'));
     else if (before && stepNote(s) && s.pos.beat === firstBeat && !done) rows.push(SPACER, ...para(t, hintAvailable(s) ? C.doneBefore.hinted : C.doneBefore.challenge, inner, 'muted'));
+    // An optional step says when to skip it, and how, until it is done (102).
+    if (step.optional && !done) rows.push(...kept(para(t, C.optional(step.optional), inner, 'muted')));
+    // A long wait says so, in the page's words or as the app's own (103).
+    if (beat.wait && !done) rows.push(...kept(beat.wait.text ? quoted(beat.wait.text) : para(t, C.waitLong, inner, 'muted')));
+    // Recall while it runs (150): a still box, never scored, that gives way
+    // whole before any teaching row and goes when the result lands.
+    const box = whileRunsOf(s);
+    if (box) rows.push(...optional(['', ...whileRunsBox(ctx, box)]));
     if (hideRuns && beat.lines.some((l) => ['run', 'code'].includes(l.key)) && !done) rows.push(...para(t, C.pressH, inner, 'muted'));
   }
   // A Windows note never drops: without it the step breaks there.
@@ -1451,7 +1463,10 @@ function stepView(ctx) {
       ...kept([`  ${t.fg('muted', '›')} ${t.fg('code', st.status === 'done' && st.revealed ? '' : st.typed)}${st.status === 'done' ? '' : t.inverse(' ')}`]));
     if (st.status !== 'done') rows.push(SPACER, ...para(t, C.emptyShows, inner, 'muted'));
   } else if (beat.ask) {
-    const recall = beat.recall ? Object.entries(s.progress[s.lesson].answers).find(([k]) => k.startsWith(`${beat.recall}.`)) : null;
+    // The guess it recalls: a predict beat's pick, not a choice's, now that
+    // ask picks are saved too (ticket 104).
+    const guessed = stepsOf(s).find((x) => x.id === beat.recall)?.beats ?? [];
+    const recall = beat.recall ? Object.entries(s.progress[s.lesson].answers).find(([k]) => k.startsWith(`${beat.recall}.`) && guessed[Number(k.slice(k.lastIndexOf('.') + 1))]?.kind === 'predict') : null;
     rows.push(SPACER);
     if (recall) rows.push(t.fg('muted', C.youGuessed(plainText(recall[1]))));
     // A safety choice says so on its own line; the question wraps under its lead.
@@ -1470,13 +1485,15 @@ function stepView(ctx) {
   };
 
   const whereKey = beat.kind === 'do' ? beat.where : beat.kind;
-  const whereEmoji = { terminal: 'terminal', claude: 'claude', shell: 'terminal', editor: 'editor', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
+  const whereEmoji = { terminal: 'terminal', claude: 'claude', 'claude-2': 'claude', shell: 'terminal', editor: 'editor', browser: 'browser', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
   // A terminal or Claude Code names its folder where that isn't the copy.
-  const place = ['terminal', 'claude', 'shell'].includes(whereKey) ? placeOf(s, t, beat, 16) : null;
-  const where = place && ['terminal', 'shell'].includes(whereKey) ? C.terminalInFolder : C.where[whereKey];
+  const place = ['terminal', 'claude', 'claude-2', 'shell'].includes(whereKey) ? placeOf(s, t, beat, 16) : null;
+  // A lesson that numbers its terminals labels them as its page does (103).
+  const numbered = content.terminals?.[whereKey];
+  const where = numbered ? C.terminalN(numbered) : place && ['terminal', 'shell'].includes(whereKey) ? C.terminalInFolder : C.where[whereKey];
   const tint = done ? 'ok' : style.tint;
   const head = lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length));
-  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, where, place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows: withFooter(note) });
+  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, where, place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind) || needsChange(beat.verify)), rows: withFooter(note) });
   let body = cardWith(null);
   // The same-answer note (ticket 192) takes the rows the screen pads with,
   // and the row of a "Press h" line the key bar repeats, and no more: the
@@ -1519,6 +1536,31 @@ function options(ctx, beat) {
   }).flat();
 }
 
+// A long wait's warm-up (ticket 150), behind a muted bar: its question and
+// numbered options, then, once picked, the right one ticked, a wrong pick
+// marked, and the page's words for it. Nothing in it moves.
+function whileRunsBox(ctx, { beat, answer }) {
+  const { t, inner } = ctx;
+  const w = inner - 2;
+  // Every mark takes the widest one's columns, so the numbers line up.
+  const markW = Math.max(width(t.glyph.check), width(t.glyph.warnMark));
+  const rows = [`${t.bold(t.fg('white', C.whileItRuns))}  ${t.fg('muted', C.whileNotScored)}`, ...para(t, beat.ask, w, 'white')];
+  beat.options.forEach((o, i) => {
+    const right = answer !== null && o.kind === 'right';
+    const wrong = answer === i && !right;
+    const glyph = right ? t.glyph.check : wrong ? t.glyph.warnMark : '';
+    const mark = `${' '.repeat(markW - width(glyph))}${t.fg(right ? 'ok' : 'warn', glyph)}`;
+    const indent = ' '.repeat(markW + 6);
+    const text = para(t, o.text, w - width(indent), right ? 'ok' : wrong ? 'muted' : 'text');
+    rows.push(...text.map((x, k) => (k ? `${indent}${x}` : ` ${mark} ${t.fg('muted', `${i + 1}`)}   ${x}`)));
+  });
+  const picked = answer === null ? null : beat.options[answer];
+  const words = picked && (picked.kind !== 'right' && picked.because ? picked.because : beat.reveal);
+  if (answer === null) rows.push(...para(t, C.whilePress, w, 'muted'));
+  else if (words) rows.push(...para(t, words, w, 'text', { quote: true }));
+  return rows.map((l) => prefixed(`${t.fg('muted', t.glyph.bar)} `, l));
+}
+
 // A run's checking label: how far the child has got where it runs several
 // items, or what it checks.
 const checkingLabel = (running, what) => (running?.m > 1 ? C.checkingItem(running.n, running.m) : C.checking(what));
@@ -1548,8 +1590,10 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
   // Room for text beside the burst.
   const room = inner - (t.unicode ? 21 : 7);
   // What the file holds, in `max` columns: on two lines when one is too long.
-  const holds = (max) => (width(`${beat.evidence} holds ${st.evidence}`) <= max ? [`${t.fg('code', beat.evidence)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
-    : [t.fg('code', cut(beat.evidence, max, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, max - 6, t.unicode ? '…' : '.'))}`]);
+  // A glob's file is the one it matched.
+  const shownPath = st.found ?? beat.evidence;
+  const holds = (max) => (width(`${shownPath} holds ${st.evidence}`) <= max ? [`${t.fg('code', shownPath)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
+    : [t.fg('code', cut(shownPath, max, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, max - 6, t.unicode ? '…' : '.'))}`]);
   const celebrate = (lines) => {
     const count = s.session + (firstPass(s) ? 1 : 0);
     // The check mark draws in strokes, then the sparks.
@@ -1583,7 +1627,7 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
     const mark = `${t.fg('ok', t.glyph.check)} `;
     const passes = wrapRuns([{ text: cmd, color: 'code' }, { text: ` ${C.checkPasses(items.filter((x) => x.pass).length, items.length)[0]}`, color: 'ok' }], inner - width(mark));
     rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
-      ...para(t, C.runItToo(dir ? C.inCopy : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
+      ...para(t, C.runItToo(dir ? C.inCopy : content.terminals?.[beat.where] ? C.terminalN(content.terminals[beat.where]) : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
   } else if (st.status === 'done' && looksAtFile(beat)) {
     // What the file holds, beside the burst.
     const ev = showsEvidence(s, beat, isLastBeat) ? holds(room) : [];
@@ -1780,18 +1824,20 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   // e comes in before q, so the keys already on the bar keep their places,
   // and it stays when a narrow bar drops keys: the note names it (192).
   const earlier = backOffered(s) ? { ...key('e', C.k.earlier), short: C.k.earlierShort, stays: true } : null;
+  // x skips an optional step (102); the card names it, so a narrow bar may drop it.
+  const skip = step.optional ? key('x', C.k.skip) : null;
   if (beat.ask && !st.answer) {
-    return [key(t.glyph.up, C.k.choose), key('enter', C.k.answer), st.wrongs.length && beat.kind !== 'predict' ? key('s', C.k.showAnswer) : null, hint, why, copy, earlier, key('q', C.k.quit)];
+    return [key(t.glyph.up, C.k.choose), key('enter', C.k.answer), st.wrongs.length && beat.kind !== 'predict' ? key('s', C.k.showAnswer) : null, hint, why, copy, earlier, skip, key('q', C.k.quit)];
   }
   const v = beat.verify.kind;
   if (v === 'self' || v === 'none' || beat.kind === 'self' || (v === 'git-clean' && beat.doneLabel)) {
     const k = v === 'none' ? 'enter' : 'space';
     // A done-label git beat at CHALLENGE: r is the try that opens h, so offer it.
     const r = !hint && tier === 'challenge' && tryFirst(s) === 'r' && !st.unlocked && rungsOf(s).length ? key('r', C.k.checkNow) : null;
-    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, copy, key('m', C.k.map), card, earlier, key('q', C.k.quit)];
+    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, copy, key('m', C.k.map), card, earlier, skip, key('q', C.k.quit)];
   }
   const r = hintStatus(st) === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
-  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), copy, card, earlier, key('q', C.k.quit)];
+  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), copy, card, earlier, skip, key('q', C.k.quit)];
 }
 // The next screen's enter: the next lesson, or the map after the last.
 const nextKey = (s) => {

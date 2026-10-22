@@ -12,21 +12,23 @@ const rank = (t) => TIERS.indexOf(t);
 const at = (i) => TIERS[Math.max(0, Math.min(2, i))];
 
 // A step the app checks: a check item, git status (the whole tree or part
-// of it, ticket 88), or what a file holds (ticket 87). A `file` beat, done
-// once its file holds any line, is not one.
-const CHECKED = new Set(['check', ...GIT, ...HOLDS]);
+// of it, ticket 88), what a file holds (ticket 87), or a git probe (ticket
+// 105). A `file` beat, done once its file holds any line, is not one.
+const CHECKED = new Set(['check', ...GIT, ...HOLDS, 'probe']);
 const verifiable = (step) => step.beats.some((b) => CHECKED.has(b.verify.kind));
 
 // The tier the course's rule gives each step of `lessonIndex`, from the
 // content of the lessons before it. `contents` is every lesson's parsed
 // content (or null), in course order. An earlier lesson k counts toward a
 // skill only when `counted(k, skill)`: by default the course plan counts
-// them all.
+// them all. An optional step, which a learner may skip, counts toward no
+// skill (ticket 102). A Tear down step after the Check gets the help a Your
+// turn step does, and CHALLENGE in a capstone.
 export function ruleTiers(contents, lessonIndex, counted = () => true) {
   const lesson = contents[lessonIndex];
   const before = new Map();
   contents.slice(0, lessonIndex).forEach((c, k) => {
-    for (const skill of new Set((c?.steps ?? []).map((s) => s.skill))) if (counted(k, skill)) before.set(skill, (before.get(skill) ?? 0) + 1);
+    for (const skill of new Set((c?.steps ?? []).filter((s) => !s.optional).map((s) => s.skill))) if (counted(k, skill)) before.set(skill, (before.get(skill) ?? 0) + 1);
   });
   const lastYour = [...lesson.steps].reverse().find((s) => s.part === 'Your turn' && verifiable(s));
   const capstone = lesson.lesson?.endsWith('capstone');

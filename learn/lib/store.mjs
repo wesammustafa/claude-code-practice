@@ -3,7 +3,7 @@
 // out. It is the only file the app writes, and only once `.practice/` exists.
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { FOLDER_KEYS, PATH_MAX } from './content.mjs';
+import { FOLDER_KEYS, PATH_MAX, STEP_ID } from './content.mjs';
 
 export const FORMAT = 1;
 export const storePath = (root) => join(root, '.practice', 'learn.json');
@@ -21,7 +21,7 @@ export function loadState(root) {
 // A work folder as the app saved it: an absolute path on one line.
 const folder = (x) => (typeof x === 'string' && x.length <= PATH_MAX && isAbsolute(x) && !/[\0\r\n]/.test(x) ? x : null);
 
-const stepId = (x) => (typeof x === 'string' && /^[WYTCR]\d*$/.test(x) ? x : null);
+const stepId = (x) => (typeof x === 'string' && STEP_ID.test(x) ? x : null);
 
 // Keeps only what the app saves, so a hand-edited or newer file can't
 // smuggle anything in.
