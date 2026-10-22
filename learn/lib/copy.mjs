@@ -111,6 +111,8 @@ export const C = {
   // How long a slow check's child has run, beside the spinner.
   seconds: (n) => `${n} s`,
   notYet: 'Not yet:',
+  // The not-yet line folded under "The check says:", which says why.
+  notYetShort: 'Not yet.',
   pressH: 'Press h for help.',
   pressHAgain: 'Press h again for more help.',
   checkSays: 'The check says:',

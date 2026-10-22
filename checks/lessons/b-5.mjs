@@ -89,7 +89,7 @@ export const items = [
     check(repo) {
       const { memory, line, scoped } = rule(repo);
       if (!memory) return 'There is no committed CLAUDE.md. Run `/init`, edit what it wrote, then `git add CLAUDE.md` and commit it.';
-      if (!line) return 'The committed CLAUDE.md has no line like ``- Every new JavaScript file in `src/` starts with the line `// SPDX-License-Identifier: MIT`.``. Add it under `## Conventions`, with the header line in backticks, and commit CLAUDE.md again.';
+      if (!line) return 'The committed CLAUDE.md has no line like ``- Every new JavaScript file in `src/` starts with the line `// SPDX-License-Identifier: MIT`.``. Add it under `## Conventions` and commit CLAUDE.md again.';
       return scoped ? true : `The rule for \`${line}\` doesn't say which files it covers. Scope it to "Every new JavaScript file in \`src/\`" and commit CLAUDE.md: a header can break shell scripts or JSON.`;
     },
   },

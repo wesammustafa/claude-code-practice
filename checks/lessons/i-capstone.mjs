@@ -45,7 +45,7 @@ const skill = {
       const f = file?.fields;
       return f && LINKCHECK.test(file.body) && words(f.description) >= 8 && String(f['disable-model-invocation']) !== 'true' && String(f['user-invocable']) !== 'false';
     });
-    return ok ? true : 'Commit a skill in `.claude/skills/<name>/SKILL.md` whose instructions run the link checker (`npm run linkcheck -- <folder>`), with a description of what it does and when to use it, and without `disable-model-invocation: true`, as in lesson 1.';
+    return ok ? true : 'Commit a skill in `.claude/skills/<name>/SKILL.md` whose body runs the link checker (`npm run linkcheck -- <folder>`), with a description of what it does and when to use it, and no `disable-model-invocation: true` (lesson 1).';
   },
 };
 
