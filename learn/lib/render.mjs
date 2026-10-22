@@ -485,7 +485,8 @@ const withRoot = (text, root, win32, dir) => {
 // A command on a dark block, one line per `w - 4` columns of the command,
 // so a long path is never cut.
 function chip(t, cmd, where, w) {
-  const prompt = where === 'claude' ? '›' : t.caps.win32 ? '>' : '$';
+  // A browser has no prompt (ticket 103): what it shows is an address.
+  const prompt = ['claude', 'claude-2'].includes(where) ? '›' : where === 'browser' ? ' ' : t.caps.win32 ? '>' : '$';
   const room = Math.max(10, w - 4);
   // Lines break at spaces, so a prompt keeps its words whole; only a word
   // longer than the line, such as a long path, is split.
@@ -1445,6 +1446,8 @@ function stepView(ctx) {
     else if (before && stepNote(s) && s.pos.beat === firstBeat && !done) rows.push(SPACER, ...para(t, hintAvailable(s) ? C.doneBefore.hinted : C.doneBefore.challenge, inner, 'muted'));
     // An optional step says when to skip it, and how, until it is done (102).
     if (step.optional && !done) rows.push(...kept(para(t, C.optional(step.optional), inner, 'muted')));
+    // A long wait says so, in the page's words or as the app's own (103).
+    if (beat.wait && !done) rows.push(...kept(beat.wait.text ? quoted(beat.wait.text) : para(t, C.waitLong, inner, 'muted')));
     if (hideRuns && beat.lines.some((l) => ['run', 'code'].includes(l.key)) && !done) rows.push(...para(t, C.pressH, inner, 'muted'));
   }
   // A Windows note never drops: without it the step breaks there.
@@ -1475,10 +1478,12 @@ function stepView(ctx) {
   };
 
   const whereKey = beat.kind === 'do' ? beat.where : beat.kind;
-  const whereEmoji = { terminal: 'terminal', claude: 'claude', shell: 'terminal', editor: 'editor', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
+  const whereEmoji = { terminal: 'terminal', claude: 'claude', 'claude-2': 'claude', shell: 'terminal', editor: 'editor', browser: 'browser', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
   // A terminal or Claude Code names its folder where that isn't the copy.
-  const place = ['terminal', 'claude', 'shell'].includes(whereKey) ? placeOf(s, t, beat, 16) : null;
-  const where = place && ['terminal', 'shell'].includes(whereKey) ? C.terminalInFolder : C.where[whereKey];
+  const place = ['terminal', 'claude', 'claude-2', 'shell'].includes(whereKey) ? placeOf(s, t, beat, 16) : null;
+  // A lesson that numbers its terminals labels them as its page does (103).
+  const numbered = content.terminals?.[whereKey];
+  const where = numbered ? C.terminalN(numbered) : place && ['terminal', 'shell'].includes(whereKey) ? C.terminalInFolder : C.where[whereKey];
   const tint = done ? 'ok' : style.tint;
   const head = lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length));
   const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, where, place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows: withFooter(note) });
@@ -1588,7 +1593,7 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
     const mark = `${t.fg('ok', t.glyph.check)} `;
     const passes = wrapRuns([{ text: cmd, color: 'code' }, { text: ` ${C.checkPasses(items.filter((x) => x.pass).length, items.length)[0]}`, color: 'ok' }], inner - width(mark));
     rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
-      ...para(t, C.runItToo(dir ? C.inCopy : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
+      ...para(t, C.runItToo(dir ? C.inCopy : content.terminals?.[beat.where] ? C.terminalN(content.terminals[beat.where]) : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
   } else if (st.status === 'done' && looksAtFile(beat)) {
     // What the file holds, beside the burst.
     const ev = showsEvidence(s, beat, isLastBeat) ? holds(room) : [];

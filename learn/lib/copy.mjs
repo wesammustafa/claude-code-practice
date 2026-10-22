@@ -31,11 +31,13 @@ export const C = {
   hi: (name) => `Hi ${name || 'there'}! Let's learn Claude Code by using it.`,
   pip1: `I'm Pip. I watch your ${TERMS.practiceCopy} and light up`,
   pip2: 'the moment a step works.',
-  twoWindows: 'You use two windows, side by side:',
+  // A lesson may use more than one other window (ticket 103), so the
+  // welcome promises none in particular.
+  twoWindows: 'You use this window beside one or more terminals:',
   thisWindow: 'this window',
   thisWindowLines: ['one step at a time,', 'checks your work'],
-  otherWindow: 'your other terminal',
-  otherWindowLines: ['where you type commands', 'and run Claude Code', '(this app checks it)'],
+  otherWindow: 'your terminals',
+  otherWindowLines: ['where you type commands', 'and run Claude Code', '(this app checks them)'],
   openSecond: 'Open a second terminal now, in this same folder:',
   comeBack: 'Then come back here and press enter.',
   // The boot frame, while git answers the first questions at start.
@@ -52,7 +54,12 @@ export const C = {
   steps: (n) => `${n} steps`,
   stepOf: (n, m) => `step ${n} of ${m}`,
 
-  where: { terminal: 'in your other terminal', claude: 'in Claude Code', shell: 'in a third terminal', editor: 'in your editor', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
+  where: { terminal: 'in your other terminal', claude: 'in Claude Code', 'claude-2': 'in your second Claude Code', shell: 'in a third terminal', editor: 'in your editor', browser: 'in your browser', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
+  // A lesson that numbers its terminals as its page does (ticket 103).
+  terminalN: (n) => `in terminal ${n}`,
+  // A long wait's card, where the page gives no words for it (ticket 103):
+  // about the app, never about how long the run takes.
+  waitLong: 'No hurry: this card waits for as long as it takes.',
   terminalInFolder: 'in a terminal',
   warmup: (n, level) => `Warm-up from ${level ? `${level} lesson` : 'lesson'} ${n}`,
   warmupIndex: (level) => `Warm-up from the ${level} ${TERMS.levelIndex}`,

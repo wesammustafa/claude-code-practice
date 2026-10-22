@@ -24,8 +24,17 @@ export const STEP_KEYS = new Set(['tier', 'skill', 'where', 'from', 'optional'])
 // A step id, as a fresh check's `since`, a back line or the saved place name it.
 export const STEP_ID = /^[WYTDCR]\d*$/;
 // Where a step's work happens: the other terminal, Claude Code, a third
-// terminal for shell commands while Claude Code is still open, or an editor.
-export const WHERE = new Set(['terminal', 'claude', 'shell', 'editor']);
+// terminal for shell commands while Claude Code is still open, or an editor;
+// since ticket 103 also a second Claude Code session (`claude-2`) and a
+// browser, whose beats verify with self, or with `none` and a later beat of
+// the step that reads a local file.
+export const WHERE = new Set(['terminal', 'claude', 'claude-2', 'shell', 'editor', 'browser']);
+// The windows a page may number, "In terminal 1", "In terminal 2": the front
+// matter's `terminals: [claude, claude-2, shell]` names them in the page's
+// order, one item a terminal, and an item may name two that share one
+// (`terminal claude`). Each beat in one of them is then labelled "in
+// terminal <n>" (ticket 103).
+export const NUMBERED = ['terminal', 'claude', 'claude-2', 'shell'];
 // Verify kinds the app answers by reading the beat's file itself, with no
 // process: `file`, and HOLDS, what a file holds (ticket 87).
 export const HOLDS = new Set(['json', 'match', 'no-match']);
@@ -35,12 +44,16 @@ export const READS = new Set(['file', ...HOLDS]);
 export const GIT = new Set(['git-clean', 'git-changed', 'git-only', 'git-staged']);
 export const BEAT_KINDS = new Set(['do', 'predict', 'ask', 'type', 'self']);
 // Keys a beat may hold, and whether their value must be a quote of the page.
+// `wait` (ticket 103) marks a long wait, for an agent, workflow or CI run:
+// `- wait: long` in the app's words, or `- wait: "<the page's words>"` where
+// the page says how long. No idle offer, and no CHALLENGE hint unlock, while
+// it waits.
 // `lead-in` (ticket 188): the page's words that frame the bottom line just
 // above it, such as "In the practice template:", drawn above its command
 // wherever the bottom line shows; at most one a bottom line. Like `win`, it
 // goes under its bottom line, before or after that line's `win`.
 export const BEAT_KEYS = {
-  where: false, verify: false, 'done-label': false, watching: false, evidence: false, safety: false, tick: false, skill: false,
+  where: false, verify: false, wait: null, 'done-label': false, watching: false, evidence: false, safety: false, tick: false, skill: false,
   say: false, ask: false, other: false, decoy: false, 'reveal-at': false, recall: false, accept: false, code: false,
   goal: true, do: true, run: true, win: true, expect: true, note: true, rule: true, after: true, why: true,
   codespace: true, 'win-note': true, hint: true, bottom: true, 'lead-in': true, because: true, point: true, reveal: true, self: true,
@@ -307,6 +320,12 @@ export function parseLesson(text, file = 'lesson') {
     else if (key === 'bottom') beat.bottom.push({ text: v.text });
     else if (key === 'why') beat.why.push(v.text);
     else if (key === 'accept') beat.accept.push(raw);
+    else if (key === 'wait') {
+      if (!['do', 'self'].includes(beat.kind)) fail(i, `a wait line on the ${beat.kind} beat: only a do or self beat waits`);
+      if (!v.quoted && raw !== 'long') fail(i, 'a wait line is wait: long, or the page\'s words in quotes');
+      if (beat.wait) fail(i, 'a second wait line on one beat');
+      beat.wait = v.quoted ? { text: v.text } : { text: null };
+    }
     else if (['goal', 'say', 'do', 'run', 'note', 'rule', 'after', 'expect'].includes(key)) {
       // A `say` that opens "Done when" is a check's expectation in the app's
       // words, for a step whose page has none to quote: like `expect`, a done
@@ -324,6 +343,7 @@ export function parseLesson(text, file = 'lesson') {
   };
   lesson.needs = needsOf(fm.fields.needs, needLines, fmLine('needs'), fail);
   lesson.requires = requiresOf(fm.fields.requires, fm.fields.lesson, fmLine('requires'), fail);
+  lesson.terminals = terminalsOf(fm.fields.terminals, fmLine('terminals'), fail);
   lesson.card.forEach((e, k) => {
     if (!e.show || !e.does) fail(cardLines[k], 'a card entry needs a show and a does line');
     if (!lesson.steps.some((s) => s.skill === e.skill)) fail(cardLines[k], `the card entry's skill ${e.skill} is no step of this lesson`);
@@ -333,12 +353,39 @@ export function parseLesson(text, file = 'lesson') {
     for (const b of s.beats) {
       b.where = b.where ?? s.where;
       if (b.where !== undefined && !WHERE.has(b.where)) throw new Error(`${file}:${b.line}: unknown where ${b.where}`);
+      if (lesson.terminals && NUMBERED.includes(b.where) && !(b.where in lesson.terminals)) throw new Error(`${file}:${b.line}: where ${b.where}, which terminals doesn't number`);
       b.verify = parseVerify(b, file);
       if (b.lines.some((l) => l.doneWhen) && b.verify.kind !== 'check' && !READS.has(b.verify.kind)) throw new Error(`${file}:${b.line}: a "Done when" say line needs a check beat or a beat that reads a file`);
     }
   }
+  // The app can't see a browser: its beat is the learner's word, or a
+  // later beat of the step reads the local file it leaves.
+  for (const s of lesson.steps) {
+    s.beats.forEach((b, k) => {
+      if (b.where !== 'browser' || b.verify.kind === 'self') return;
+      const later = s.beats.slice(k + 1).some((x) => x.verify.kind === 'check' || READS.has(x.verify.kind) || GIT.has(x.verify.kind));
+      if (b.verify.kind !== 'none' || !later) throw new Error(`${file}:${b.line}: a browser beat verifies with self, or with none and a later beat of its step that reads a local file`);
+    });
+  }
   backsOf(lesson, file);
   return lesson;
+}
+
+// `terminals: [claude, claude-2, shell]` (ticket 103): each where the page
+// numbers, to its terminal's number, or null without the key.
+function terminalsOf(raw, at, fail) {
+  if (raw === undefined) return null;
+  const items = listOf(raw);
+  if (!items.length) fail(at, 'terminals names at least one terminal');
+  const out = {};
+  items.forEach((item, k) => {
+    for (const w of item.trim().split(/\s+/)) {
+      if (!NUMBERED.includes(w)) fail(at, `terminals item "${item}": ${w} is none of ${NUMBERED.join(', ')}`);
+      if (w in out) fail(at, `terminals names ${w} twice`);
+      out[w] = k + 1;
+    }
+  });
+  return out;
 }
 
 // `back: <step id> <why>` (ticket 192): the step, then why its state is
