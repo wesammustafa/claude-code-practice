@@ -9,7 +9,7 @@ import { render } from '../../learn/lib/render.mjs';
 import { strip } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
-import { course, driver, failCheck, playUntil } from './learn-drive.mjs';
+import { course, driver, failCheck, lastInOrder, playUntil } from './learn-drive.mjs';
 
 const contents = course.map((l) => l.content);
 const rank = (t) => TIERS.indexOf(t);
@@ -64,8 +64,8 @@ function exactCommand(d) {
 }
 
 // The learners. Each starts afresh and calls `look` after every event.
-// The end of the last lesson with a lesson file.
-const last = course.filter((l) => l.content).at(-1).id;
+// The end of the last lesson a play in order reaches.
+const last = lastInOrder(course);
 const finale = (s) => s.lesson === last && s.view === 'complete';
 // Every lesson in order, needing no help.
 function inOrder(look) {
@@ -116,7 +116,8 @@ test('in order, with no hints: every tier equals the course plan', () => {
     assert.deepEqual(tiersOf(s), plan(s), where(s));
     met.add(where(s));
   });
-  for (const l of course.filter((x) => x.content)) for (const step of l.content.steps) assert.ok(met.has(`${l.id} ${step.id}`), `${l.id} ${step.id} was met`);
+  const played = course.slice(0, course.findIndex((l) => l.id === last) + 1);
+  for (const l of played.filter((x) => x.content)) for (const step of l.content.steps) assert.ok(met.has(`${l.id} ${step.id}`), `${l.id} ${step.id} was met`);
 });
 
 test('in order, taking the exact command on every non-guided step: no step ever gets less help than the plan', () => {

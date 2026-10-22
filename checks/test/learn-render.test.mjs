@@ -14,7 +14,7 @@ import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
 import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
-import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lastInOrder, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -387,9 +387,9 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
   }
 });
 
-// The end of the last lesson with a lesson file: a play stops there.
-const lastWithFile = allCourse.filter((l) => l.content).at(-1).id;
-const atTheEnd = (s) => s.lesson === lastWithFile && s.view === 'complete';
+// The end of the last lesson a play in order from lesson `from` reaches: a
+// play stops there.
+const atTheEnd = (from) => (s) => s.lesson === lastInOrder(allCourse, from) && s.view === 'complete';
 
 // Every step a real bottom rung eases, in a real play from that rung on, with
 // and without less help: the "more help" line wraps whole, even where a 60x20
@@ -427,7 +427,7 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
           d.key('enter');
           bottomRung(d);
           if (!d.state.eased.length) continue;
-          playUntil(d, (s) => s.beat?.eased || atTheEnd(s));
+          playUntil(d, (s) => s.beat?.eased || atTheEnd(lesson.id)(s));
           if (d.state.view !== 'step') continue;
           const where = `${d.state.lesson} ${stepOf(d.state).id}${lessHelp ? ' (less help)' : ''}`;
           if (landed.has(where)) continue;
@@ -465,7 +465,7 @@ test('a missed warm-up: the "more help" line wraps whole where its ease lands', 
       d.key(beatOf(d.state).kind === 'type' ? 'enter' : 's');
       assert.equal(d.state.beat.revealed, true, `${lesson.id} ${w.id}`);
       assert.ok(d.state.eased.includes(w.skill), `${lesson.id} ${w.id} eases ${w.skill}`);
-      playUntil(d, (s) => s.beat?.eased || atTheEnd(s));
+      playUntil(d, (s) => s.beat?.eased || atTheEnd(lesson.id)(s));
       if (d.state.view !== 'step') continue;
       easedLineWhole(d, `${d.state.lesson} ${stepOf(d.state).id} from ${lesson.id} ${w.id}`, whole);
     }
@@ -930,6 +930,16 @@ const lessonWalks = async (keep = () => true) => {
 // the walk passes it first time, and lessonScreens also fails it.
 const everyScreen = async () => [...screens, ...await lessonWalks((label) => !label.startsWith('b-1 ') || label.startsWith('b-1 C.'))];
 const flatText = (text) => text.replace(/[^A-Za-z0-9]/g, '');
+// The rows of the while-it-runs box (ticket 150): it draws the hint box's
+// bar, but it is optional, giving way whole where the room runs out, and it
+// grades nothing. Indexes into `lines`.
+const whileBoxRows = (lines, t) => {
+  const rows = new Set();
+  const bar = `${t.glyph.rail}  ${t.glyph.bar}`;
+  const at = lines.findIndex((l) => l.includes(`${t.glyph.bar} ${C.whileItRuns}`));
+  for (let i = at; at >= 0 && i < lines.length && lines[i].includes(bar); i++) rows.add(i);
+  return rows;
+};
 
 test('in a tall window nothing is cut and nothing stretches: the tallest screen at 80 columns fits the box, and the map, the check-only card, your card, the comparison and Pip\'s slot measure the box', async () => {
   const all = await everyScreen();
@@ -1031,7 +1041,8 @@ test('rows that never drop: the question and its options, feedback, the hint box
         const text = flatText(lines.join(''));
         const show = `\n${lines.join('\n')}`;
         // The hint box and feedback on a wrong pick, row by row.
-        for (const row of tall.filter((l) => l.includes(box))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
+        const optional = whileBoxRows(tall, t);
+        for (const row of tall.filter((l, i) => l.includes(box) && !optional.has(i))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
         // The question, each option and the feedback, wherever a tall window
         // shows them whole (a "not this one" tag can sit inside an option).
         const beat = beatOf(state);
@@ -1583,7 +1594,8 @@ test('kept rows never drop for a toast: the toast gives up its blank row, then g
         const lines = render(state, { cols: 60, rows: 20 }, t).map(strip);
         const show = `\n${lines.join('\n')}`;
         assert.equal(lines.length, 20, where);
-        for (const row of tall.filter((l) => l.includes(box))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
+        const optional = whileBoxRows(tall, t);
+        for (const row of tall.filter((l, i) => l.includes(box) && !optional.has(i))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
         assert.equal(lines.filter(cardBottom(t)).length, 1, `${where}: the card's bottom border is gone${show}`);
         // The tall window's key bar is its box's last row, over the blank rows that center the box (191).
         assert.equal(lines.at(-1), tall.findLast(Boolean), `${where}: the key bar`);
@@ -1680,17 +1692,28 @@ const CUT_AT_60X20 = {
   full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4',
     // Intermediate's long hints and code blocks at 60x20.
     'i-5 W1.0 hint 1',
+    // Advanced lessons 6 and 7: long check items and hint ladders at 60x20.
+    'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 W3.0 hint 4', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2', 'a-7 C.0 hint 3',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)'],
+    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)',
+    'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
+    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 hint 5 (skipped)', 'a-7 W3.0 bottom (skipped)',
+    'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-7 C.0 hint 3 (skipped)'],
   ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
     'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
     'i-5 W1.0 hint 1',
+    // Advanced lessons 6 and 7: long check items and hint ladders at 60x20.
+    'a-7 W3.0 hint 1', 'a-7 W3.0 hint 2', 'a-7 W3.0 hint 3', 'a-7 W3.0 hint 4', 'a-7 Y3.1 hint 1', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
+    'a-7 C.0 hint 3',
     'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
     'b-capstone T1.2 hint 1 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)'],
+    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)',
+    'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
+    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 hint 5 (skipped)', 'a-7 W3.0 bottom (skipped)',
+    'a-7 Y3.1 hint 1 (skipped)', 'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-7 C.0 hint 3 (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
@@ -2461,6 +2484,8 @@ const URLS = {
   'i-6': 'https://code.claude.com/docs/en/sub-agents',
   'i-7': 'https://code.claude.com/docs/en/mcp-quickstart',
   'i-8': 'https://code.claude.com/docs/en/plugins/code-intelligence',
+  'a-6': 'https://code.claude.com/docs/en/settings-example#a-teams-shared-settings',
+  'a-7': 'https://code.claude.com/docs/en/sandbox-environments',
 };
 
 test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
@@ -2929,7 +2954,10 @@ test('Pip tells the truth: the worried face only where the card shows a ▲ row,
     for (const [cols, rows] of SHORT) {
       const lines = render(s, { cols, rows }, t).map(strip);
       const face = pipOn(lines, t);
-      const shows = lines.some((l) => /^\s*│ {2}(▲ |▌ |Stuck\?)/.test(l));
+      // The while-it-runs box (ticket 150) draws the bar too, for a question
+      // that grades nothing: it is no hint box.
+      const box = whileBoxRows(lines, t);
+      const shows = lines.some((l, i) => !box.has(i) && /^\s*│ {2}(▲ |▌ |Stuck\?)/.test(l));
       const why = `${label} at ${cols}x${rows}: ${face}\n${lines.join('\n')}`;
       if (face === FACES.worried) {
         assert.ok(shows, why);
@@ -3316,7 +3344,7 @@ test('the arrows move your card only where it scrolls: while it fits, they move 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
 const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4',
-  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC' };
+  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC', 'a-6': 'A6', 'a-7': 'A7' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];

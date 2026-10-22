@@ -2166,7 +2166,7 @@ test('a-6 names what is wrong with enabledPlugins', () => {
 
 test('a-6 says to create the settings, fix their JSON, or commit them, with -f when an ignore rule hides them', () => {
   withRepo(shareRepo({ settings: null }), (dir) => {
-    assert.match(String(settingsHint(dir)), /There is no committed `\.claude\/settings\.json`\. Create it with `"extraKnownMarketplaces": \{ "team-tools": \{ "source": \{ "source": "directory", "path": "\.\/team-marketplace" \} \} \}` and `"enabledPlugins": \{ "team-kit@team-tools": true \}`/);
+    assert.match(String(settingsHint(dir)), /There is no committed `\.claude\/settings\.json`\. Create it with `team-tools` under `extraKnownMarketplaces`, at the path `\.\/team-marketplace`, and `"enabledPlugins": \{ "team-kit@team-tools": true \}`/);
   });
   withRepo(shareRepo({ settings: '{ "enabledPlugins": }' }), (dir) => {
     assert.match(String(settingsHint(dir)), /The committed `\.claude\/settings\.json` isn't valid JSON/);
@@ -2209,7 +2209,7 @@ test('a-6 reads a marketplace.json and plugin.json that start with a byte-order 
 
 test('a-6 fails until a component of your own is in the plugin and gone from .claude/', () => {
   withRepo(shareRepo({ move: [] }), (dir) => {
-    assert.match(String(movedHint(dir)), /The plugin holds only the example's `onboard` skill and `config-reviewer` subagent\. Move one of your own into it: a skill to `team-marketplace\/plugins\/team-kit\/skills\/<name>\/SKILL\.md`, a subagent to `team-marketplace\/plugins\/team-kit\/agents\/<name>\.md`, or a hook into `team-marketplace\/plugins\/team-kit\/hooks\/hooks\.json`/);
+    assert.match(String(movedHint(dir)), /The plugin holds only the example's `onboard` skill and `config-reviewer` subagent\. Move a skill, a subagent or a hook of your own into `team-marketplace\/plugins\/team-kit\/`/);
   });
   // Copied, not moved.
   withRepo(shareRepo({ move: [], files: { [`${TEAM_KIT}/agents/test-gaps.md`]: TEST_GAPS } }), (dir) => {
@@ -2247,7 +2247,7 @@ test('a-6 fails until a component of your own is in the plugin and gone from .cl
 test('a-6 doesn\'t count the practice copy\'s /tutor skill as a component you moved', () => {
   const tutor = { [`${TEAM_KIT}/skills/tutor/SKILL.md`]: '---\nname: tutor\ndescription: Coaches you through one lesson.\ndisable-model-invocation: true\n---\n\nTutor.\n' };
   withRepo(shareRepo({ move: [], files: tutor }), (dir) => {
-    assert.equal(movedHint(dir), '`team-marketplace/plugins/team-kit/skills/tutor/SKILL.md` is the practice copy\'s `/tutor` skill, which came with the template, so it doesn\'t count as one of your own. Move it back to `.claude/skills/tutor/` with `git mv`, then move a skill, a subagent or a hook of your own into the plugin, and commit.');
+    assert.equal(movedHint(dir), 'The plugin\'s `/tutor` skill came with the practice copy, so it isn\'t one of your own. Move it back to `.claude/skills/tutor/` with `git mv`, then move one of your own into the plugin, and commit.');
   });
   // Moved together with one of your own, it doesn't stop the item passing.
   withRepo(shareRepo({ files: tutor }), (dir) => {
@@ -2259,7 +2259,7 @@ test('a-6 tells a copied or uncommitted /tutor skill apart from a component you 
   const text = '---\nname: tutor\ndescription: Coaches you through one lesson.\ndisable-model-invocation: true\n---\n\nTutor.\n';
   // Copied: .claude/skills/tutor/ is still committed, so the hint removes the copy instead of moving it back.
   withRepo(shareRepo({ move: [], files: { '.claude/skills/tutor/SKILL.md': text, [`${TEAM_KIT}/skills/tutor/SKILL.md`]: text } }), (dir) => {
-    assert.equal(movedHint(dir), '`team-marketplace/plugins/team-kit/skills/tutor/SKILL.md` is the practice copy\'s `/tutor` skill, which came with the template, so it doesn\'t count as one of your own. Remove the copy with `git rm -r team-marketplace/plugins/team-kit/skills/tutor`, then move a skill, a subagent or a hook of your own into the plugin, and commit.');
+    assert.equal(movedHint(dir), 'The plugin\'s `/tutor` skill came with the practice copy, so it isn\'t one of your own. Remove the copy with `git rm -r team-marketplace/plugins/team-kit/skills/tutor`, then move one of your own into the plugin, and commit.');
   });
   // Uncommitted in the plugin, it is neither a component of your own nor a file to commit.
   withRepo(shareRepo({ move: [], after: (dir, plugin) => write(dir, { [`${plugin}/skills/tutor/SKILL.md`]: text }) }), (dir) => {
@@ -2282,7 +2282,7 @@ test('a-6 accepts a hook moved into hooks/hooks.json, and fails one still in the
     assert.match(String(movedHint(dir)), /`\.claude\/settings\.json` still runs the same hook, `protect-files\.sh`, so it would run twice each time its event fires\. Remove that hook from `\.claude\/settings\.json` and commit\./);
   });
   withRepo(shareRepo({ move: [], settings: { ...SHARED_SETTINGS, hooks: undefined }, files: { [hook]: hooksWith('${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-files.sh', []) } }), (dir) => {
-    assert.match(String(movedHint(dir)), /The hook in `team-marketplace\/plugins\/team-kit\/hooks\/hooks\.json` still runs `\$\{CLAUDE_PROJECT_DIR\}\/\.claude\/hooks\/protect-files\.sh`, a script in `\.claude\/`\. Move the script into the plugin/);
+    assert.match(String(movedHint(dir)), /The plugin's hook still runs `\$\{CLAUDE_PROJECT_DIR\}\/\.claude\/hooks\/protect-files\.sh`, a script in `\.claude\/`\. Move the script into the plugin/);
   });
   withRepo(shareRepo({ move: [], settings: { ...SHARED_SETTINGS, hooks: undefined }, files: { [hook]: hooksWith('"${CLAUDE_PLUGIN_ROOT}/scripts/check.sh"') } }), (dir) => {
     assert.equal(movedHint(dir), 'The hook in `team-marketplace/plugins/team-kit/hooks/hooks.json` runs `team-marketplace/plugins/team-kit/scripts/check.sh`, which isn\'t in the plugin. Put the script there, or fix the path after `${CLAUDE_PLUGIN_ROOT}/`, and commit.');
@@ -2359,11 +2359,11 @@ test('a-6 reads the saved validation, and says what is wrong with it', () => {
       ['✔ Validation passed\n', /holds the text report\. Save the JSON one, with `--json`/],
       ['oops', /isn't JSON\. Save the report unchanged/],
       [[], /it has no `success`/],
-      [reportOf('x', { success: false, manifest: { errors: [{ path: 'name', message: 'Plugin name cannot contain spaces' }], warnings: ['No version'] } }), /records a validation that failed\. It reports: `Plugin name cannot contain spaces`; `No version`\. Fix what it reports, run `claude plugin validate \.\/team-marketplace\/plugins\/team-kit --strict` until it passes/],
+      [reportOf('x', { success: false, manifest: { errors: [{ path: 'name', message: 'Plugin name cannot contain spaces' }], warnings: ['No version'] } }), /records a validation that failed\. It reports: `Plugin name cannot contain spaces`; `No version`\. Fix what it reports, then save the report again/],
       [reportOf('x', { success: false, manifest: null }), /records a validation that failed\. Fix what it reports/],
       [(dir, plugin) => reportOf(join(realpathSync(dir), plugin), { strict: false }), /records a validation without `--strict`, which lets warnings through/],
       [reportOf(''), /has no `target`/],
-      [(dir) => reportOf(join(realpathSync(dir), MARKETPLACE_ROOT, '.claude-plugin', 'marketplace.json')), /records a validation of the marketplace, .*, which doesn't open the plugin's skill and agent files\. Validate the plugin directory/],
+      [(dir) => reportOf(join(realpathSync(dir), MARKETPLACE_ROOT, '.claude-plugin', 'marketplace.json')), /records a validation of the marketplace, which doesn't open the plugin's skill and agent files\. Validate the plugin directory/],
       [reportOf(other), /records a validation of `.*other-.*`, outside this repository, not of a plugin directory in it \(`\.\/team-marketplace\/plugins\/team-kit`\)/],
       [(dir) => reportOf(realpathSync(dir)), /the repository itself, not of a plugin directory in it/],
       [(dir) => reportOf(join(realpathSync(dir), MARKETPLACE_ROOT)), /records a validation of `team-marketplace`, which isn't a committed plugin directory \(`\.\/team-marketplace\/plugins\/team-kit`\)/],
@@ -2782,7 +2782,7 @@ test('a-7 names allow rules wider than one folder or one command, wherever the r
 });
 
 test('a-7 fails bounds that allow nothing of their own', () => {
-  const hint = /Nothing the run is given allows a single call, so in `dontAsk` mode it can't edit a file or run your tests, and a `-p` run in a folder you never trusted leaves out the allow rules in `\.claude\/settings\.json`\./;
+  const hint = /Nothing the run is given allows a single call, so in `dontAsk` mode it can't edit a file or run your tests\. In the bounds file's `permissions\.allow`/;
   withRepo(boundedRepo({ bounds: boundsWith((b) => delete b.permissions.allow) }), (dir) => {
     assert.match(String(ruleHint(dir)), hint);
   });

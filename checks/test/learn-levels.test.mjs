@@ -18,6 +18,9 @@ const FULL = theme({ tty: true, depth: 8, unicode: true, links: true, win32: fal
 const ASCII = theme({ tty: true, depth: 1, unicode: false, links: false, win32: true });
 const MODES = { full: FULL, sixteen: theme({ tty: true, depth: 4, unicode: true, links: false, win32: false }), noColor: theme({ tty: true, depth: 1, unicode: true, links: false, win32: false }), ascii: ASCII };
 const screen = (state, [cols, rows] = [80, 24], t = FULL) => render(state, { cols, rows }, t).map((l) => strip(l).trimEnd());
+// The course with the Advanced lessons check-only, as they were before their
+// lesson files: the tests of a check-only Advanced lesson's screens use it.
+const advancedCheckOnly = () => threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 // Every lesson before `id` complete.
 const doneBefore = (course, id) => Object.fromEntries(course.slice(0, course.findIndex((l) => l.id === id)).map((l) => [l.id, { complete: true }]));
 
@@ -36,7 +39,7 @@ test('every lesson has a label unique in the course, and plain output shows each
 });
 
 test('titles show no literal backticks: a-4\'s in the header, on the map and in plain output', () => {
-  const course = threeLevels();
+  const course = advancedCheckOnly();
   const plain = plainProgress(course, {}, null).split('\n');
   assert.ok(plain.includes('A4   Script Claude Code with claude -p: 0 of 0 check items pass'), plain.join('\n'));
   // Every lesson before a-4 done: the map opens at a-4, and enter opens its check.
@@ -191,7 +194,7 @@ test('the welcome names the current level and draws only its path line, with one
 // lesson, and changes no count: a count is of completed lessons alone. The
 // counts were already so before 172; this keeps them so.
 test('a saved new copy changes neither the welcome\'s nor the map\'s n of m count: they count a completed a-5 or a-capstone, and only that', () => {
-  const course = threeLevels();
+  const course = advancedCheckOnly();
   const folders = { 'a-5': '/home/sam/claude-actions-practice', 'a-capstone': '/home/sam/ci-review' };
   const cases = [
     ['a-5 given, not done', doneBefore(course, 'a-5'), '4 of 8 done'],

@@ -22,6 +22,9 @@ const ASCII = theme({ tty: true, depth: 1, unicode: false, links: false, win32: 
 const SIZES = [[60, 20], [80, 24]];
 // The course with no lesson file at all, so every lesson shows its check.
 const noFiles = liveCourse.map((l) => ({ ...l, content: null }));
+// The course with the Advanced lessons check-only, as they were before their
+// lesson files: the tests of check-only lessons on the Advanced page use it.
+const advancedCheckOnly = course.map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 // A lesson's check-only view, opened from the map.
 const checkOnly = (id, lessons = noFiles, saved = {}) => {
   const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: saved } });
@@ -168,7 +171,7 @@ test('a check-only lesson is complete once a full check passes, slow items inclu
 });
 
 test('a check-only lesson with no slow item is complete on any result where every item passes, and the next marker moves to the lesson after it', () => {
-  const d = checkOnly('a-1', course, throughIntermediate());
+  const d = checkOnly('a-1', advancedCheckOnly, throughIntermediate());
   assert.match(mapRow(lines((d.key('m'), d.state), [80, 24]), 'A1'), /next/);
   d.key('m');
   assert.equal(d.state.view, 'checkonly');
@@ -179,7 +182,7 @@ test('a check-only lesson with no slow item is complete on any result where ever
   assert.match(mapRow(ls, 'A1'), /done/, ls.join('\n'));
   assert.match(mapRow(ls, 'A2'), /next/, ls.join('\n'));
   // The app opens on the next lesson's map row after a restart.
-  const again = driver({ course, saved: snapshot(d.state) });
+  const again = driver({ course: advancedCheckOnly, saved: snapshot(d.state) });
   assert.deepEqual([again.state.view, again.state.course[again.state.mapCursor].id], ['map', 'a-2']);
 });
 
@@ -187,7 +190,7 @@ test('a check-only lesson with no slow item is complete on any result where ever
 const TIER_MARKS = /[●◆★]/;
 
 test('a lesson with no lesson file shows no tier bar on the map, and a page with no bar has no legend or footer about them', () => {
-  const d = checkOnly('a-1', course, throughIntermediate());
+  const d = checkOnly('a-1', advancedCheckOnly, throughIntermediate());
   d.key('m');
   for (const size of SIZES) {
     const ls = lines(d.state, size);
@@ -259,7 +262,7 @@ test('a learner who starts at Intermediate or Advanced reaches its first lesson 
   // i-1 opens on its intro, a-1, with no lesson file yet, on its check.
   for (const [keys, id, view] of [[['right', 'enter'], 'i-1', 'intro'], [['left', 'enter'], 'a-1', 'checkonly']]) {
     // A new learner: the app opens on the first lesson with a lesson file.
-    const d = driver({ course });
+    const d = driver({ course: advancedCheckOnly });
     d.key('enter');
     assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'b-1']);
     d.key('m');
@@ -268,11 +271,11 @@ test('a learner who starts at Intermediate or Advanced reaches its first lesson 
   }
   // Every Beginner lesson done: the app opens on the next level's first
   // lesson, on its intro since it has a lesson file.
-  const done = driver({ course, saved: { format: 1, welcomed: true, lessons: beginnerDone() } });
+  const done = driver({ course: advancedCheckOnly, saved: { format: 1, welcomed: true, lessons: beginnerDone() } });
   assert.deepEqual([done.state.view, done.state.lesson], ['intro', 'i-1']);
   // Every lesson before Advanced done: the app opens on the map at a-1,
   // which has no lesson file, and enter shows its check.
-  const advanced = driver({ course, saved: { format: 1, welcomed: true, lessons: throughIntermediate() } });
+  const advanced = driver({ course: advancedCheckOnly, saved: { format: 1, welcomed: true, lessons: throughIntermediate() } });
   assert.deepEqual([advanced.state.view, advanced.state.course[advanced.state.mapCursor].id], ['map', 'a-1']);
   advanced.key('enter');
   assert.deepEqual([advanced.state.view, advanced.state.lesson], ['checkonly', 'a-1']);
@@ -399,7 +402,7 @@ function slowRow(at, frame, label) {
 }
 
 test('r on the check-only card says its run is going until its own result lands: the spinner and bounce, slower after 10 s, and the seconds from 3 s', () => {
-  const ids = slowHere.filter((id) => !course.find((l) => l.id === id).content);
+  const ids = slowHere.filter((id) => !advancedCheckOnly.find((l) => l.id === id).content);
   assert.deepEqual(ids, ['a-4', 'a-7']);
   for (const id of ids) {
     const d = checkOnly(id);
@@ -474,7 +477,7 @@ test('r\'s run on the check-only card goes on through a trip to the map and back
 
 test('on a step card, r\'s run of a slow item spins as any check does: the seconds from 3 s, slower after 10 s', () => {
   const ids = slowHere.filter((id) => liveCourse.find((l) => l.id === id).content);
-  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-7', 'i-capstone']);
+  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-7', 'i-capstone', 'a-7']);
   for (const id of ids) {
     const l = liveCourse.find((x) => x.id === id);
     // The cards r put "Checking" over, for a beat whose check has a slow item.
@@ -550,7 +553,7 @@ test('until a-5\'s and a-capstone\'s new copy folder is saved, the next lesson p
   const ADVANCED = '/home/sam/advanced-work';
   for (const folders of [{}, { advanced: ADVANCED }, { advanced: ADVANCED, 'a-capstone': '/home/sam/ci-review' }]) {
     const at = `saved: ${Object.keys(folders).join(', ') || 'no folder'}`;
-    const d = driver({ course, saved: { format: 1, welcomed: true, lessons: throughA4(), folders } });
+    const d = driver({ course: advancedCheckOnly, saved: { format: 1, welcomed: true, lessons: throughA4(), folders } });
     assert.deepEqual([d.state.view, d.state.course[d.state.mapCursor].id], ['map', 'a-6'], `${at}: the app opens on the map at a-6`);
     const ls = lines(d.state, [80, 24]);
     assert.match(mapRow(ls, 'A6'), /next/, `${at}\n${ls.join('\n')}`);
@@ -560,7 +563,7 @@ test('until a-5\'s and a-capstone\'s new copy folder is saved, the next lesson p
     assert.equal(d.state.course[d.state.mapCursor].id, 'a-6', `${at}: back on Advanced, at a-6`);
     if (folders['a-capstone']) continue;
     // Only they are left: the app opens on the map at a-5, which no marker names.
-    const rest = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...throughA4(), ...done(['a-6', 'a-7']) }, folders } });
+    const rest = driver({ course: advancedCheckOnly, saved: { format: 1, welcomed: true, lessons: { ...throughA4(), ...done(['a-6', 'a-7']) }, folders } });
     assert.deepEqual([rest.state.view, rest.state.course[rest.state.mapCursor].id], ['map', 'a-5'], at);
     assert.ok(!lines(rest.state, [80, 24]).some((l) => / next/.test(l)), `${at}\n${lines(rest.state, [80, 24]).join('\n')}`);
   }
@@ -574,7 +577,7 @@ test('once a-5 or a-capstone has its new copy saved, it is the next lesson where
     { id: 'a-capstone', label: 'AC', after: null, lessons: { ...throughA4(), ...done(['a-6', 'a-7']) }, folders: { 'a-capstone': '/home/sam/ci-review' } },
   ];
   for (const { id, label, after, lessons, folders } of cases) {
-    const d = driver({ course, saved: { format: 1, welcomed: true, lessons, folders } });
+    const d = driver({ course: advancedCheckOnly, saved: { format: 1, welcomed: true, lessons, folders } });
     assert.deepEqual([d.state.view, d.state.course[d.state.mapCursor].id], ['map', id], `the app opens on the map at ${id}`);
     for (const size of SIZES) {
       const ls = lines(d.state, size);
@@ -590,7 +593,7 @@ test('once a-5 or a-capstone has its new copy saved, it is the next lesson where
 
 test('a-5\'s new copy given in the session makes it the next lesson at once, and after a restart', () => {
   const A5COPY = '/home/sam/claude-actions-practice';
-  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: throughA4() } });
+  const d = driver({ course: advancedCheckOnly, saved: { format: 1, welcomed: true, lessons: throughA4() } });
   mapTo(d, 'a-5');
   d.key('enter');
   assert.deepEqual([d.state.view, d.state.lesson], ['checkonly', 'a-5']);
@@ -610,7 +613,7 @@ test('a-5\'s new copy given in the session makes it the next lesson at once, and
   mapTo(d, 'i-1');
   d.key('right');
   assert.equal(d.state.course[d.state.mapCursor].id, 'a-5', 'right onto Advanced lands at a-5');
-  const again = driver({ course, saved: snapshot(d.state) });
+  const again = driver({ course: advancedCheckOnly, saved: snapshot(d.state) });
   assert.deepEqual([again.state.view, again.state.course[again.state.mapCursor].id], ['map', 'a-5'], 'a restart opens at a-5');
 });
 

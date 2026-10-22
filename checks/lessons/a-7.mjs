@@ -417,7 +417,7 @@ function ruleProblems(repo, call) {
   for (const { rule, label, why } of wide.slice(0, 3)) problems.push(`${code(rule)} in ${label} ${why}.`);
   if (wide.length > 3) problems.push(`And ${wide.length - 3} more rules like these.`);
   if (wide.length) problems.push(NARROW);
-  if (!own) problems.push(`Nothing the run is given allows a single call, so in \`dontAsk\` mode it can't edit a file or run your tests, and a \`-p\` run in a folder you never trusted leaves out the allow rules in ${code(PROJECT)}. In the settings file's \`permissions.allow\`, allow the folders the task edits and the one command it runs, as in \`"Edit(./src/**)"\` and \`"Bash(npm test *)"\`.`);
+  if (!own) problems.push(`Nothing the run is given allows a single call, so in \`dontAsk\` mode it can't edit a file or run your tests. In the bounds file's \`permissions.allow\`, allow the folders the task edits and its one command, as in \`"Edit(./src/**)"\` and \`"Bash(npm test *)"\`.`);
 
   for (const command of ['git commit', 'git push']) {
     if (deny.some((d) => stops(d.rule, command))) continue;
