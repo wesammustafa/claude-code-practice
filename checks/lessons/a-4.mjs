@@ -240,7 +240,7 @@ function reviewProblems(run, fallback) {
   if (!run.stdout.includes(m.review)) problems.push('It didn\'t print the review. Print the JSON\'s `result`, as `jq -r \'.result\'` does.');
   const saved = run.saved[`out/${OUT}`];
   const save = `Save the output of \`claude -p\` to the path in the first argument, or to ${code(fallback)} without one: \`out="\${1:-${fallback}}"\`, then \`> "$out"\`.`;
-  if (saved === undefined) problems.push(run.saved[fallback] !== undefined ? `It saved the JSON to ${code(fallback)}, though its first argument named another path. ${save}` : `It didn't save the JSON to the path in its first argument. ${save}`);
+  if (saved === undefined) problems.push(run.saved[fallback] !== undefined ? `It saved the JSON to ${code(fallback)}, though its first argument named another path. Use the argument when there is one: \`out="\${1:-${fallback}}"\`.` : `It didn't save the JSON to the path in its first argument. ${save}`);
   else if (!isStubJson(saved)) problems.push('The file at the path in its first argument isn\'t the JSON `claude -p` printed. Save that output unchanged.');
   return problems;
 }

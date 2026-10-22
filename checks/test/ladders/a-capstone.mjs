@@ -29,19 +29,21 @@ const committed = (files) => (dir, { write, commit }) => {
 // ---- lesson 1: the ignore rule and the worktrees ----------------------------
 
 // Two worktrees where `claude --worktree` makes them, one commit in each,
-// the listing saved, and the branches merged unless `merge` is false.
-// `listing` rewrites what is saved.
-const worktrees = ({ merge = true, listing = (text) => text } = {}) => (dir, { write, commit }) => {
+// the listing saved (before the commits when `early`), and the branches
+// merged unless `merge` is false. `listing` rewrites what is saved.
+const worktrees = ({ merge = true, early = false, listing = (text) => text } = {}) => (dir, { write, commit }) => {
   write(dir, { '.gitignore': '.claude/worktrees/\n', 'README.md': '# linkcheck\n' });
   commit(dir, 'Start');
   const names = ['review-script', 'team-kit'];
   for (const name of names) git(dir, 'worktree', 'add', '-q', '-b', `worktree-${name}`, `.claude/worktrees/${name}`);
+  const save = () => write(dir, { [LISTING]: listing(`${git(dir, 'worktree', 'list', '--porcelain')}\n`) });
+  if (early) save();
   for (const name of names) {
     const at = join(dir, '.claude', 'worktrees', name);
     write(at, { [`work/${name}.txt`]: `${name}\n` });
     commit(at, `Build ${name}`);
   }
-  write(dir, { [LISTING]: listing(`${git(dir, 'worktree', 'list', '--porcelain')}\n`) });
+  if (!early) save();
   if (merge) for (const name of names) git(dir, 'merge', '-q', '--no-ff', '--no-edit', `worktree-${name}`);
 };
 
@@ -159,7 +161,7 @@ const kitWith = (settings) => committed({ ...KIT_FILES, [SETTINGS]: typeof setti
 
 export const scenarios = [
   // 0: the committed ignore rule.
-  { item: 0, name: 'a negated rule keeps the folder', setup: committed({ '.gitignore': '.claude/worktrees/\n!.claude/worktrees/\n' }) },
+  { item: 0, name: 'a negated rule keeps the folder', setup: committed({ '.gitignore': '.claude/worktrees/**\n!.claude/worktrees/**\n' }) },
   { item: 0, name: 'the rule only in .git/info/exclude', files: { '.git/info/exclude': '.practice/\n.claude/worktrees/\n' } },
   { item: 0, name: 'the rule not committed', files: { '.gitignore': '.claude/worktrees/\n' } },
   { item: 0, name: 'no rule', files: {} },
@@ -170,9 +172,7 @@ export const scenarios = [
   { item: 1, name: 'a listing that is no porcelain listing', files: { [LISTING]: 'two worktrees, both merged\n' } },
   { item: 1, name: 'a listing with the main checkout only', setup: worktrees({ listing: (text) => text.split('\n\n')[0] }) },
   { item: 1, name: 'a listing that names a commit this copy lacks', setup: worktrees({ listing: (text) => text.replace(/(worktree [^\n]*team-kit\nHEAD )[0-9a-f]{40}/, `$1${'ab'.repeat(20)}`) }) },
-  // A listing saved before both sessions committed gets a message too long
-  // for a 60x20 ASCII card (its last rows drop), so no scenario here: the
-  // "point at one commit" narrow line stands unverified by this file.
+  { item: 1, name: 'a listing saved before both sessions committed', setup: worktrees({ early: true }) },
   { item: 1, name: 'branches not merged', setup: worktrees({ merge: false }) },
 
   // 2: the saved workflow.
@@ -245,6 +245,10 @@ export const scenarios = [
 
   // 5: what the script does around its call.
   { item: 5, name: 'the script not committed', files: { [SCRIPT]: REVIEW } },
+  { item: 5, name: 'Windows line ends', setup: script(REVIEW.replace(/\n/g, '\r\n')) },
+  { item: 5, name: 'claude reached through npx', setup: script(withCall(`npx claude -p "${PROMPT}" ${FLAGS}`)) },
+  { item: 5, name: 'no review call when given a path', setup: script(edited([`git diff --cached | ${CALL} > "$out"`, `if [ -z "\${1:-}" ]; then git diff --cached | ${CALL} > "$out"; fi`])) },
+  { item: 5, name: 'the JSON saved beside the path it was given', setup: script(edited(['out="${1:-.practice/a-4-result.json}"', 'out="${1:-.practice/a-4-result.json}"; [ $# -gt 0 ] && out="$1.saved"'])) },
   { item: 5, name: 'jq missing', setup: script(edited(['jq -r \'.result // empty\' "$out"', 'echo "scripts/review-staged.sh: line 9: jq: command not found" >&2; exit 127'])) },
   { item: 5, name: 'two claude -p calls', setup: script(edited(['status=$?\n', `status=$?\ngit diff --cached | ${CALL} > /dev/null\n`])) },
   { item: 5, name: 'a second claude without -p', setup: script(edited(['status=$?\n', 'status=$?\nclaude doctor > /dev/null 2>&1\n'])) },

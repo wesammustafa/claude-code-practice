@@ -228,7 +228,7 @@ export function notRun(run, script) {
   if (run.windows) return `The check didn't run \`${script}\`: it runs scripts with bash and a stand-in for \`claude\` only from WSL 2, macOS or Linux, not from Windows itself. Run the check there.`;
   if (run.missing) return `Commit \`${script}\` first: the check runs the committed script.`;
   if (run.crlf) return `The committed \`${script}\` has Windows line ends (CRLF), which bash can't run. Save it with LF line ends (your editor has a setting for this), then commit it again.`;
-  if (run.refused) return `The check runs your script with a stand-in for \`claude\`, found by name on \`PATH\`, so it never spends your usage. \`${script}\` ${run.refused}, which the stand-in can't replace, so the check didn't run it. Call \`claude\` by name, leave \`PATH\` as it is, and commit.`;
+  if (run.refused) return `\`${script}\` ${run.refused}, which the stand-in can't replace, so the check didn't run it. Call \`claude\` by name, leave \`PATH\` as it is, and commit.`;
   if (run.error?.code === 'ENOENT') return `The check runs \`${script}\` with bash, which it couldn't find. Run the check where bash is installed: macOS, Linux or WSL.`;
   if (run.error) return `The check couldn't run \`${script}\`: ${run.error.message}`;
   return null;

@@ -1212,7 +1212,7 @@ test('a-4 checks that the script pipes in the staged diff and nothing else', () 
 
 test('a-4 checks where the script saves the JSON, and that it prints the review', () => {
   withRepo(reviewRepo({ script: edited(['out="${1:-.practice/a-4-result.json}"', 'out=".practice/a-4-result.json"']) }), (dir) => {
-    assert.match(String(behaviorHint(dir)), /It saved the JSON to `\.practice\/a-4-result\.json`, though its first argument named another path\. Save the output of `claude -p` to the path in the first argument, or to `\.practice\/a-4-result\.json` without one: `out="\$\{1:-\.practice\/a-4-result\.json\}"`, then `> "\$out"`\./);
+    assert.match(String(behaviorHint(dir)), /It saved the JSON to `\.practice\/a-4-result\.json`, though its first argument named another path\. Use the argument when there is one: `out="\$\{1:-\.practice\/a-4-result\.json\}"`\./);
   });
   withRepo(reviewRepo({ script: edited(['out="${1:-.practice/a-4-result.json}"', 'out="$1"']) }), (dir) => {
     assert.match(String(behaviorHint(dir)), /Run without an argument, it didn't save the JSON to `\.practice\/a-4-result\.json` \(it exited with 1: .*unbound variable\)\. Use that path when there is no argument/);
@@ -2106,7 +2106,7 @@ test('a-6 names what is wrong with the plugin an entry lists', () => {
   });
   // The plugin.json is on disk but not committed.
   withRepo(shareRepo({ files: { [manifest]: null }, after: (dir) => write(dir, { [manifest]: json({ name: 'team-kit' }) }) }), (dir) => {
-    assert.match(String(marketHint(dir)), /lists `team-marketplace\/plugins\/team-kit\/`, but `team-marketplace\/plugins\/team-kit` isn't committed\. Run `git add team-marketplace\/plugins\/team-kit` and commit it\./);
+    assert.match(String(marketHint(dir)), /^`team-marketplace\/plugins\/team-kit` isn't committed\. Run `git add team-marketplace\/plugins\/team-kit` and commit it\./);
   });
   withRepo(shareRepo({ files: { [manifest]: null } }), (dir) => {
     assert.match(String(marketHint(dir)), /lists `team-marketplace\/plugins\/team-kit\/`, which has no `\.claude-plugin\/plugin\.json`/);
@@ -2364,10 +2364,10 @@ test('a-6 reads the saved validation, and says what is wrong with it', () => {
       [(dir, plugin) => reportOf(join(realpathSync(dir), plugin), { strict: false }), /records a validation without `--strict`, which lets warnings through/],
       [reportOf(''), /has no `target`/],
       [(dir) => reportOf(join(realpathSync(dir), MARKETPLACE_ROOT, '.claude-plugin', 'marketplace.json')), /records a validation of the marketplace, which doesn't open the plugin's skill and agent files\. Validate the plugin directory/],
-      [reportOf(other), /records a validation of `.*other-.*`, outside this repository, not of a plugin directory in it \(`\.\/team-marketplace\/plugins\/team-kit`\)/],
+      [reportOf(other), /records a validation of `.*other-.*`, outside this repository, not of a plugin directory in it\. Validate the plugin folder again/],
       [(dir) => reportOf(realpathSync(dir)), /the repository itself, not of a plugin directory in it/],
       [(dir) => reportOf(join(realpathSync(dir), MARKETPLACE_ROOT)), /records a validation of `team-marketplace`, which isn't a committed plugin directory \(`\.\/team-marketplace\/plugins\/team-kit`\)/],
-      [reportOf(`${elsewhere}/plugins/other/.claude-plugin/plugin.json`), /which isn't on this machine and doesn't end in a committed plugin directory \(`\.\/team-marketplace\/plugins\/team-kit`\)/],
+      [reportOf(`${elsewhere}/plugins/other/.claude-plugin/plugin.json`), /which isn't on this machine and doesn't end in a committed plugin directory\. Validate the plugin folder again/],
     ]) {
       withRepo(shareRepo({ report }), (dir) => {
         const result = validateHint(dir);
@@ -2614,7 +2614,7 @@ test('a-7 wants one claude -p call, and says how a runner that never makes one e
   // A runner with another interface: the stand-in sees no call, so the
   // other items read the call from the script's text.
   withRepo(boundedRepo({ script: runner(['if [ $# -ne 2 ]', 'if [ $# -ne 3 ]']) }), (dir) => {
-    assert.match(String(runnerHint(dir)), /Run as `scripts\/bounded-run\.sh "<task>" <result\.json>`, `scripts\/bounded-run\.sh` never ran `claude -p`\. It exited with 2: Usage: scripts\/bounded-run\.sh "<task>" <result\.json> Make the script take the task as its first argument and the result path as its second\./);
+    assert.match(String(runnerHint(dir)), /Run as `scripts\/bounded-run\.sh "<task>" <result\.json>`, `scripts\/bounded-run\.sh` never ran `claude -p`\. It exited with 2: Usage: scripts\/bounded-run\.sh "<task>" <result\.json>$/);
     assert.deepEqual(committedHints(dir).slice(1), [true, true, true]);
   });
   withRepo(boundedRepo({ script: runner(['if [ $# -ne 2 ]', 'if [ $# -ne 3 ]'], ['--max-turns 15', '--max-turns "$TURNS"'], ['--max-budget-usd 2', '--max-budget-usd 0']) }), (dir) => {

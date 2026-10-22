@@ -254,7 +254,7 @@ export function boundedScript(script = SCRIPT) {
       if (!a.print.length) {
         const why = a.stray.length
           ? 'ran `claude` without `-p` (or `--print`), which starts an interactive session and waits for you. Add `-p`, with the task right after it.'
-          : `never ran \`claude -p\`. ${ended(a.run)} Make the script take the task as its first argument and the result path as its second.`;
+          : `never ran \`claude -p\`. ${ended(a.run)}`;
         return `Run as ${usage(script)}, ${code(script)} ${why}${pending(repo, script)}`;
       }
       const problems = [];
