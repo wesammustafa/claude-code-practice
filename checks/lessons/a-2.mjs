@@ -1,5 +1,5 @@
 // Choose an orchestration pattern (Advanced, lesson 2). The Learner picks a
-// pattern for each of four queued jobs by what it needs and what it costs,
+// pattern for each of five backlog items by what it needs and what it costs,
 // writes the choices to a file, and runs job 1 as parallel subagents in a
 // session started with a SubagentStart hook that logs each subagent's id and
 // type. Naming the pattern for a job of their own is self-checked.
@@ -37,30 +37,38 @@ const PATH = {
   workflow: [false, false, true],
 };
 
-// The four jobs in the lesson's Your turn, and the answer to each question on
-// the way to the pattern that fits.
+// The five jobs in the lesson's Your turn, and the answer to each question on
+// the way to the pattern that fits. Jobs 3 and 4 are near misses: a large
+// change that still belongs in one conversation, and investigators who only
+// report back, against job 5's investigators who must argue it out.
 const JOBS = {
   1: { pattern: 'subagents', why: [
-    'No: reading the files in your conversation would crowd it, and you only need the findings.',
+    'No: reading the three largest files in your conversation would crowd it, and you only need the suspects.',
     'No: each reviewer checks its own file and reports what it found.',
-    'No: three files, checked once, with no step that verifies the findings.',
+    'No: three files, checked once, with no step that confirms the findings.',
   ] },
   2: { pattern: 'workflow', why: [
-    'No: it checks every source file.',
-    'No: each finding is verified against the code, not argued out between workers.',
-    'Yes: it checks every source file, verifies each finding and reruns before every release, so a script should hold the plan.',
+    'No: it covers the whole codebase.',
+    'No: each finding is confirmed against the code, not argued out between workers.',
+    'Yes: it covers the whole codebase, confirms each finding before it is listed and runs again for every release, so a script should hold the plan.',
   ] },
   3: { pattern: 'main conversation', why: [
-    'Yes: fixing a typo is a quick, targeted change, and each step past one conversation costs more.',
+    'Yes: each call site is a short read, and the plan, the edits and the build share one context that must stay consistent. Each step past one conversation costs more.',
   ] },
-  4: { pattern: 'agent team', why: [
-    'No: three investigators work at the same time, each on a theory of its own.',
-    "Yes: the investigators message each other as they work to challenge each other's findings, and an agent team's teammates message each other directly.",
+  4: { pattern: 'subagents', why: [
+    'No: three investigations, each reading code and rerunning the test, would crowd your conversation, and you only need what each found.',
+    'No: each investigator checks one suspect and reports to you, and you weigh the results.',
+    'No: three checks, done once, and you judge the results yourself.',
+  ] },
+  5: { pattern: 'agent team', why: [
+    'No: three investigators work at the same time, each on a suspect of its own.',
+    "Yes: the investigators must knock down each other's explanations while they work, and an agent team's teammates message each other directly.",
   ] },
 };
+const NUMBERS = Object.keys(JOBS).map(Number);
 
 const SEPARATOR = '[:.)|\\-\\u2013\\u2014]';
-const JOB_LINE = new RegExp(`^(?:job\\s*#?\\s*([1-4])(?!\\d)\\s*${SEPARATOR}*|#?([1-4])(?!\\d)\\s*${SEPARATOR}+)\\s*(.*)$`, 'i');
+const JOB_LINE = new RegExp(`^(?:job\\s*#?\\s*([1-5])(?!\\d)\\s*${SEPARATOR}*|#?([1-5])(?!\\d)\\s*${SEPARATOR}+)\\s*(.*)$`, 'i');
 
 const and = (list) => (list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0]);
 
@@ -70,7 +78,7 @@ const and = (list) => (list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${
 // line's pattern is null when its text starts with none of the four, and
 // `start` keeps that text's first words for the hint.
 export function readChoices(text) {
-  const jobs = new Map([1, 2, 3, 4].map((n) => [n, []]));
+  const jobs = new Map(NUMBERS.map((n) => [n, []]));
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/[*_`]/g, '')
       .replace(/^\s*(?:[-+>|(]\s*|#{1,6}\s+|\[[ xX]\]\s*)*/, '')

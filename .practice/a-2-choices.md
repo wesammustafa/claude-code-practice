@@ -1,4 +1,5 @@
-1: subagents because three independent reviews run once and only a short list comes back
-2: workflow because the same check runs on every file, each finding is verified, and it reruns before every release
-3: main conversation because a one-line fix needs no separate context
-4: agent team because the investigators must challenge each other until they agree
+1: subagents because three independent reviews run once and only a short list of suspects comes back
+2: workflow because it covers the whole codebase, every finding is confirmed before it is listed, and it runs again for every release
+3: main conversation because the rename, its 40 small edits and the build share one context that must stay consistent
+4: subagents because each suspect is checked on its own and only the results come back for me to weigh
+5: agent team because the investigators must challenge each other's explanations while they work until they agree
