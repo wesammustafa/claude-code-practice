@@ -4,9 +4,9 @@
 // turns its plugin on; moves a skill, a subagent or a hook of their own from
 // .claude/ into the plugin; keeps their personal files out of git with a
 // committed .gitignore; and saves a strict validation of the plugin
-// directory. That the moved component loads from the plugin after trust,
-// with no install command, shows only in a session, so the lesson
-// self-checks it. The Advanced capstone reuses the marketplace items.
+// directory, which shares the first item with the marketplace. Why the plugin
+// needs no install command, where Intermediate lesson 8's did, is a
+// self-check. The Advanced capstone reuses the marketplace items.
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, posix, relative } from 'node:path';
 import { frontmatter } from '../frontmatter.mjs';
@@ -333,4 +333,17 @@ export function strictValidation(record = VALIDATE) {
   };
 }
 
-export const items = [teamMarketplace, sharedSettings, movedComponent, personalFiles, strictValidation()];
+// The lesson's first item: the marketplace passes, and the plugin it lists
+// passed a strict validation. One item, so the page names one structure
+// check; the capstone keeps the marketplace item on its own.
+const validation = strictValidation();
+export const validatedMarketplace = {
+  text: `a committed team marketplace lists a plugin by a relative path, and ${code(VALIDATE)} records a strict validation of that plugin that passed`,
+  local: true,
+  check(repo) {
+    const market = teamMarketplace.check(repo);
+    return market === true ? validation.check(repo) : market;
+  },
+};
+
+export const items = [validatedMarketplace, sharedSettings, movedComponent, personalFiles];
