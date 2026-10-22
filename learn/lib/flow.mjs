@@ -189,8 +189,8 @@ export const stepOf = (s) => stepsOf(s)[s.pos.step];
 export const beatOf = (s) => stepOf(s).beats[s.pos.beat];
 // Whether a beat shows (ticket 104): one with a when line only while the
 // saved pick on its choice is its option. The store keeps 200 characters of
-// a pick.
-export const beatShown = (p, beat) => !beat.when || p.answers[`${beat.when.step}.${beat.when.beat}`] === beat.when.option.slice(0, 200);
+// a pick, so a pick made in this sitting compares as a saved one does.
+export const beatShown = (p, beat) => !beat.when || p.answers[`${beat.when.step}.${beat.when.beat}`]?.slice(0, 200) === beat.when.option.slice(0, 200);
 // The step's next beat that shows after beat `at`, or -1; and its last one
 // that shows before `at`, or -1. A step's first beat always shows.
 const shownAfter = (p, step, at) => step.beats.findIndex((b, i) => i > at && beatShown(p, b));
