@@ -53,6 +53,7 @@ export const C = {
   stepOf: (n, m) => `step ${n} of ${m}`,
 
   where: { terminal: 'in your other terminal', claude: 'in Claude Code', shell: 'in a third terminal', editor: 'in your editor', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
+  terminalInFolder: 'in a terminal',
   warmup: (n, level) => `Warm-up from ${level ? `${level} lesson` : 'lesson'} ${n}`,
   warmupIndex: (level) => `Warm-up from the ${level} ${TERMS.levelIndex}`,
   // A wrong pick shows its because at once, but a typed warm-up with no hint
@@ -187,7 +188,7 @@ export const C = {
   runItToo: (place) => `Run it ${place} too: you will see the same result.`,
   eased: 'A little more help on this one: you needed help with it last time.',
   stray: "That looks like a command. Type it in your other terminal, not here.",
-  strayIn: (place) => `That looks like a command. Type it in your other terminal, ${place}, not here.`,
+  strayIn: (place) => `That looks like a command. Type it in a terminal, ${place}, not here.`,
   // Which folder a line that sends the learner to another terminal means,
   // where the level's work folder isn't the copy (ticket 86).
   inFolder: (name) => `in ${name}`,

@@ -275,6 +275,9 @@ export function mapTo(d, id) {
 // (app words, no lookaround or backreference); a test fails loudly where one
 // is beyond it.
 export function lineFor(regex) {
+  // A literal fixture for the description's minimum-length predicate. It is
+  // input for screen traversal; the scoped test verifies the real boundary.
+  if (regex === '^description:(?!.*\\bTODO\\b)\\s*(?:\\S+\\s+){7}\\S') return 'description: Reports untested functions when a review needs coverage gaps.';
   const ESCAPES = { s: ' ', S: 'x', w: 'x', W: '-', d: '1', D: 'x', b: '' };
   let i = 0;
   const branch = () => {

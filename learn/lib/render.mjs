@@ -1226,9 +1226,10 @@ const VIEWS = {
       above = lead;
       if (line) more = [t.fg('muted', k - from === 1 ? C.itemOf(from + 1, blocks.length) : C.itemsShown(from + 1, k, blocks.length))];
     }
+    const place = placeOf(s, t, null, 16);
     return {
       head,
-      body: card(ctx, { tint: 'muted', ...whereOf(t, 'terminal', C.where.terminal, placeOf(s, t, null, 16)), done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes] }),
+      body: card(ctx, { tint: 'muted', ...whereOf(t, 'terminal', place ? C.terminalInFolder : C.where.terminal, place), done: s.progress[l.id].complete, rows: [...above, ...shown.flat(), ...more, ...notes] }),
       // A lesson that runs in a new copy with none given yet: f is the way on.
       keys: [folderOf(s) ? null : mainKey('f', C.k.giveFolder), shown.length < blocks.length ? key(t.glyph.up, C.k.scroll) : null, folderOf(s) ? key('r', C.k.checkNow) : null, key('p', C.k.page), key('m', C.k.map), folderOf(s) && folderKey(s) ? { ...key('f', C.k.folder), low: true } : null, key('q', C.k.quit)],
       itemsMax: last,
@@ -1472,9 +1473,10 @@ function stepView(ctx) {
   const whereEmoji = { terminal: 'terminal', claude: 'claude', shell: 'terminal', editor: 'editor', predict: 'guess', ask: 'guess', type: 'goal', self: 'self' }[whereKey];
   // A terminal or Claude Code names its folder where that isn't the copy.
   const place = ['terminal', 'claude', 'shell'].includes(whereKey) ? placeOf(s, t, beat, 16) : null;
+  const where = place && ['terminal', 'shell'].includes(whereKey) ? C.terminalInFolder : C.where[whereKey];
   const tint = done ? 'ok' : style.tint;
   const head = lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length));
-  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, C.where[whereKey], place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows: withFooter(note) });
+  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, where, place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows: withFooter(note) });
   let body = cardWith(null);
   // The same-answer note (ticket 192) takes the rows the screen pads with,
   // and the row of a "Press h" line the key bar repeats, and no more: the
@@ -1581,7 +1583,7 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
     const mark = `${t.fg('ok', t.glyph.check)} `;
     const passes = wrapRuns([{ text: cmd, color: 'code' }, { text: ` ${C.checkPasses(items.filter((x) => x.pass).length, items.length)[0]}`, color: 'ok' }], inner - width(mark));
     rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
-      ...para(t, C.runItToo(dir ? `${C.where.terminal}, ${C.inCopy}` : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
+      ...para(t, C.runItToo(dir ? C.inCopy : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
   } else if (st.status === 'done' && looksAtFile(beat)) {
     // What the file holds, beside the burst.
     const ev = showsEvidence(s, beat, isLastBeat) ? holds(room) : [];

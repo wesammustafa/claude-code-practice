@@ -47,7 +47,7 @@ export const items = [
       if (typeof fields.name === 'string' && fields.name && fields.name !== 'tdd') return `The frontmatter name is "${fields.name}", so the skill runs as /${fields.name}, not /tdd. Set \`name: tdd\` or delete the line.`;
       const description = typeof fields.description === 'string' ? fields.description.trim() : '';
       const words = description.split(/\s+/).filter((w) => w && w !== 'TODO').length;
-      if (words < 8) return 'Write a description of a sentence or two that says what the skill does and when Claude should use it. Claude reads only the description to decide when to load the skill.';
+      if (words < 8) return 'Write a description of a sentence or two: what it does and when Claude should use it.';
       return true;
     },
   },

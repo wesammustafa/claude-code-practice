@@ -33,5 +33,10 @@ export const scenarios = [
   { item: 0, name: 'update checks left on', setup: shared(config(ARGS, {})) },
   { item: 1, name: 'no screenshot', files: {} },
   { item: 1, name: 'a JPEG saved under the PNG name', files: { [SHOT]: '\xff\xd8\xff\xe0 not a PNG' } },
+  { item: 2, name: 'the local demo is missing', files: {} },
+  { item: 2, name: 'the demo still updates the wrong element', files: { '.practice/demo.html': '<p id="link-count">Counting links...</p><script>document.querySelector("#link-total").textContent = "2 links ready";</script>' } },
+  { item: 2, name: 'the count calculation was removed', files: { '.practice/demo.html': '<p id="link-count">Counting links...</p>' } },
+  { item: 2, name: 'a static count does not compute the result', files: { '.practice/demo.html': '<p id="link-count">2 links ready</p>' } },
+  { item: 2, name: 'a hardcoded assignment ignores the link collection', files: { '.practice/demo.html': '<a href="#a">A</a><a href="#b">B</a><p id="link-count">Counting links...</p><script>document.querySelector("#link-count").textContent = "2 links ready";</script>' } },
 ];
 

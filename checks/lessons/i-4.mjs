@@ -68,6 +68,8 @@ export const items = [
         if (text === null) continue;
         const { value, error } = parse(text);
         if (error) return `${path} is not valid JSON: ${error}`;
+        // Local Boolean values override shared settings, including false.
+        if (value?.sandbox?.enabled === false) break;
         if (value?.sandbox?.enabled === true) return true;
       }
       return 'The sandbox is off. Run `/sandbox` in a session and choose the auto-allow mode, which saves `"sandbox": {"enabled": true}` to .claude/settings.local.json.';
