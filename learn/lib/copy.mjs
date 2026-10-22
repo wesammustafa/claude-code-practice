@@ -145,6 +145,14 @@ export const C = {
   nothingStaged: 'git status lists nothing staged yet.',
   stagedShows: (shown, more) => `Staged: ${shown}${more ? ` and ${more} more` : ''}`,
   changedOutside: (n, under, shown) => `${n} file${n === 1 ? '' : 's'} changed outside ${under}: ${shown}`,
+  // Against how git was when step n opened (ticket 105).
+  headSame: (n) => `No new commit yet: HEAD is where it was when step ${n} opened.`,
+  headDirty: (count, shown, more) => `A new commit, but git status still lists ${count} path${count === 1 ? '' : 's'}: ${shown}${more ? ` and ${more} more` : ''}`,
+  headMoved: (sha) => `A new commit, ${sha}, and nothing left to commit.`,
+  unchanged: (n) => `git status lists the same paths as when step ${n} opened.`,
+  changedSince: (n, count, shown, more) => `git status lists other paths than when step ${n} opened${count ? `: ${shown}${more ? ` and ${more} more` : ''}` : ': none now'}`,
+  // A requires item that is the work folder's own (probe todos), not a lesson's.
+  folderLacks: (hint) => `This lesson needs your ${TERMS.workFolder} to hold more: ${hint}`,
   session: (n) => `${n} step${n === 1 ? '' : 's'} this session`,
   beatDone: 'Done.',
   already: 'Already done: the check already passes, so this step counts.',

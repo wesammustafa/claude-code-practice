@@ -79,12 +79,36 @@ export function runCheck(dir, lesson, items, { slow = false, onRunning = () => {
   });
 }
 
+// Runs one git probe (checks/probes.mjs, ticket 105) in the check child, in
+// `dir`: { pass, hint, evidence, state }, or { error }. It never fetches.
+export function runProbe(dir, name, args, { limit = ITEM_LIMIT } = {}) {
+  return new Promise((resolve) => {
+    track(execFile(process.execPath, [RUN_CHECK, '--probe', name, dir, ...args], { env: { ...childEnv(), GIT_NO_LAZY_FETCH: '1' }, windowsHide: true, timeout: limit, maxBuffer: 1 << 20 }, (error, stdout) => {
+      try {
+        const out = JSON.parse(stdout.trim().split('\n').pop());
+        resolve(out.error ? { error: out.error } : { pass: out.pass, hint: out.hint, evidence: out.evidence, state: out.state });
+      } catch {
+        resolve({ error: error ? (error.killed ? 'it took too long' : error.message.split('\n')[0]) : 'it printed something unexpected' });
+      }
+    }));
+  });
+}
+
 // What git status lists in `dir`, and which of those paths are staged. With
 // `files`, a look at part of the tree: each untracked file on its own line,
 // where git status lists a new folder whole, and only what is in `dir`,
-// named from there, where `dir` is a folder inside a repository.
-export function gitStatus(dir, { files = false } = {}) {
+// named from there, where `dir` is a folder inside a repository. With
+// `head`, also the commit HEAD is at (ticket 105), null before the first.
+export function gitStatus(dir, { files = false, head = false } = {}) {
   const opts = { cwd: dir, env: childEnv(), windowsHide: true, timeout: 30_000 };
+  if (head) {
+    return new Promise((resolve) => {
+      track(execFile('git', ['rev-parse', '--verify', '-q', 'HEAD'], opts, (error, stdout) => {
+        const at = error ? null : stdout.trim() || null;
+        gitStatus(dir, { files }).then((r) => resolve(r.error ? r : { ...r, head: at }));
+      }));
+    });
+  }
   return new Promise((resolve) => {
     const failed = (error) => resolve({ error: error.message.split('\n')[0] });
     if (!files) {

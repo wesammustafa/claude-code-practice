@@ -2,10 +2,10 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
-import { GIT, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
+import { GIT, PATH_MAX, READS, SINCE_GIT, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
 import { evidenceOf, grewFrom, judge } from './holds.mjs';
-import { cleanListed, eachFile, judgeGit, needsChange } from './status.mjs';
+import { cleanListed, eachFile, judgeGit, needsChange, statusStamp } from './status.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
 export const IDLE_MS = 120_000;
@@ -296,15 +296,19 @@ export function watching(s) {
   const v = beatOf(s).verify;
   if (v.kind === 'check') return { check: { lesson: s.lesson, items: v.all ? null : v.items }, dir };
   if (READS.has(v.kind)) return { file: v.path, dir };
-  if (GIT.has(v.kind)) return { git: true, dir, ...(eachFile(v) ? { files: true } : {}) };
+  if (GIT.has(v.kind)) return { git: true, dir, ...(eachFile(v) ? { files: true } : {}), ...(v.kind === 'head-moved' ? { head: true } : {}) };
+  if (v.kind === 'probe') return { probe: { name: v.name, args: v.args }, dir };
   return null;
 }
 // The effect that asks git about what `w` watches, in its folder.
-const gitAsk = (w, extra = {}) => ({ type: 'git', ...extra, dir: w.dir, ...(w.files ? { files: true } : {}) });
+const gitAsk = (w, extra = {}) => ({ type: 'git', ...extra, dir: w.dir, ...(w.files ? { files: true } : {}), ...(w.head ? { head: true } : {}) });
+// The effect that runs the probe `w` watches (ticket 105).
+const probeAsk = (w, extra = {}) => ({ type: 'probe', ...extra, name: w.probe.name, args: w.probe.args, dir: w.dir });
 // Whether a git result answers what `w` watches: a beat on part of the tree
 // reads only one that lists each untracked file, and a whole-tree beat only
-// one that lists what git status shows.
-const answersGit = (w, ev) => Boolean(w?.git) && Boolean(ev.files) === Boolean(w.files);
+// one that lists what git status shows; a head-moved beat only one that
+// says where HEAD is.
+const answersGit = (w, ev) => Boolean(w?.git) && Boolean(ev.files) === Boolean(w.files) && ('head' in ev) === Boolean(w.head);
 
 // The intro that holds the folder question: a lesson that runs in a new
 // copy; for a level, the first of its intros the learner opens while it has
@@ -410,7 +414,7 @@ function onPrereq(s, ev) {
   if (s.prereqs[ev.lesson]?.dir !== ev.dir) s.prereqs[ev.lesson] = { dir: ev.dir, met: {} };
   const asked = ev.asked ?? 0;
   if (asked < (s.prereqs[ev.lesson].met[ev.at]?.asked ?? 0)) return;
-  const r = req.path ? judge({ kind: 'file', path: req.path }, ev.read) : { pass: ev.pass ?? null, hint: lessonOf(s, req.lesson).items[req.item] };
+  const r = req.path ? judge({ kind: 'file', path: req.path }, ev.read) : { pass: ev.pass ?? null, hint: req.probe ? ev.hint ?? '' : lessonOf(s, req.lesson).items[req.item] };
   s.prereqs[ev.lesson].met[ev.at] = { pass: r.pass, hint: r.hint, asked };
   // An offer that goes takes the cursor on it back to the first option.
   if (s.view === 'intro' && s.lesson === ev.lesson && !asksFolder(s) && s.cursor >= introOptions(s).length) s.cursor = 0;
@@ -422,7 +426,7 @@ function onPrereq(s, ev) {
 export function unmet(s) {
   const r = s.prereqs[s.lesson];
   if (!r || r.dir !== folderOf(s) || asksFolder(s)) return [];
-  return (contentOf(s)?.requires ?? []).flatMap((req, k) => (r.met[k]?.pass === false ? [{ ...req, hint: r.met[k].hint, offer: folderOf(s, req.lesson) === r.dir }] : []));
+  return (contentOf(s)?.requires ?? []).flatMap((req, k) => (r.met[k]?.pass === false ? [{ ...req, hint: r.met[k].hint, offer: Boolean(req.lesson) && folderOf(s, req.lesson) === r.dir }] : []));
 }
 // The lesson the intro offers to open first: the first failed
 // prerequisite's that can set it right.
@@ -561,7 +565,7 @@ export function copyable(s) {
 // where nothing can fail, so h answers at once.
 export function tryFirst(s) {
   const beat = beatOf(s);
-  if (beat.verify.kind === 'check' || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind)) return 'r';
+  if (beat.verify.kind === 'check' || beat.verify.kind === 'probe' || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind)) return 'r';
   const canMiss = beat.options.some((o) => o.kind === 'wrong' || o.kind === 'decoy');
   return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' && canMiss ? 'pick' : null;
 }
@@ -601,20 +605,32 @@ function openBeat(s, effects) {
   } else if (GIT.has(beat.verify.kind)) {
     s.beat.status = 'opening';
     effects.push(gitAsk(watching(s)));
+  } else if (beat.verify.kind === 'probe') {
+    s.beat.status = 'opening';
+    effects.push(probeAsk(watching(s)));
   }
   effects.push({ type: 'save' });
 }
 
 // A fresh check compares its file with how it was when its step opened (or
 // the step it names): ask for that file's state now, once, in the folder
-// the fresh beat's own step reads it in (ticket 183).
+// the fresh beat's own step reads it in (ticket 183). A fresh probe stamps
+// what its probe answers, and head-moved and git-unchanged where HEAD is
+// or what git status lists (ticket 105).
+const stampOf = (b) => {
+  const v = b.verify;
+  if (v.kind === 'probe') return v.fresh ? { probe: { name: v.name, args: v.args } } : null;
+  if (SINCE_GIT.has(v.kind)) return { git: v.kind === 'head-moved' ? 'head' : 'status' };
+  return v.fresh ? { path: b.evidence } : null;
+};
 function stampFresh(s, effects) {
   const step = stepOf(s);
   const stamps = s.progress[s.lesson].stamps;
   for (const other of stepsOf(s)) {
     other.beats.forEach((b, i) => {
       const key = `${other.id}.${i}`;
-      if (b.verify.fresh && (b.verify.since ?? other.id) === step.id && !(key in stamps)) effects.push({ type: 'stamp', key, path: b.evidence, dir: folderOf(s, s.lesson, other) });
+      const what = stampOf(b);
+      if (what && (b.verify.since ?? other.id) === step.id && !(key in stamps)) effects.push({ type: 'stamp', key, ...what, dir: folderOf(s, s.lesson, other) });
     });
   }
 }
@@ -929,7 +945,7 @@ function submitTyped(s, effects) {
 }
 
 // ---- checks and git ----------------------------------------------------------
-const RESULTS = ['check', 'check-error', 'file', 'git', 'git-error'];
+const RESULTS = ['check', 'check-error', 'file', 'git', 'git-error', 'probe', 'probe-error'];
 
 // `read` is the bytes of the beat's evidence file, as main read it.
 function onCheck(s, ev, effects, rRuns) {
@@ -1089,7 +1105,9 @@ function onGit(s, ev, effects, rRuns) {
   // A beat that needs git status to list something starts from what it
   // lists first, as a check does.
   if (needsChange(beat.verify)) {
-    const r = judgeGit(beat.verify, ev);
+    const r = judgeGit(beat.verify, ev, SINCE_GIT.has(beat.verify.kind) ? gitSince(s, ev, effects) : undefined);
+    // Nothing changing is the work: the first look can say not yet.
+    if (beat.verify.kind === 'git-unchanged' && st.baseline === undefined) st.baseline = null;
     return decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
   }
   const listed = cleanListed(beat.verify, ev.paths);
@@ -1112,6 +1130,30 @@ function onGit(s, ev, effects, rRuns) {
   st.unlocked = true;
   st.fail = { paths: listed };
   st.explicit = false;
+}
+
+// How git was when a head-moved or git-unchanged beat's step (or the step
+// it names) opened: the stamp taken then, or, where none was, this result,
+// kept as the stamp. `n` is that step's number on screen.
+function gitSince(s, ev, effects) {
+  const v = beatOf(s).verify;
+  const stamps = s.progress[s.lesson].stamps;
+  const key = answerKey(s);
+  if (!(key in stamps)) {
+    stamps[key] = v.kind === 'head-moved' ? ev.head ?? '' : statusStamp(ev.paths);
+    effects.push({ type: 'save' });
+  }
+  return { stamp: stamps[key], n: stepsOf(s).findIndex((x) => x.id === (v.since ?? stepOf(s).id)) + 1 };
+}
+
+// What a git probe answered (ticket 105), for the probe beat on screen. A
+// fresh one passes only once its `state` changed since its step opened.
+function onProbe(s, ev, effects, rRuns) {
+  if (rRuns || s.view !== 'step' || !s.beat) return;
+  const beat = beatOf(s);
+  const v = beat.verify;
+  if (v.kind !== 'probe' || ev.name !== v.name || !sameJson(ev.args, v.args) || ['done', 'already'].includes(s.beat.status)) return;
+  decide(s, { ...ev, path: beat.evidence, stamp: ev.state ?? null, evidence: ev.evidence ?? null }, effects, ev.pass ? null : { hint: ev.hint });
 }
 
 // ---- the reducer -------------------------------------------------------------
@@ -1170,6 +1212,14 @@ export function reduce(prev, ev) {
       break;
     case 'git':
       onGit(s, ev, effects, rRuns);
+      break;
+    case 'probe':
+      onProbe(s, ev, effects, rRuns);
+      break;
+    case 'probe-error':
+      if (!rRuns && s.view === 'step' && s.beat && beatOf(s).verify.kind === 'probe' && !['done', 'already'].includes(s.beat.status)) {
+        Object.assign(s.beat, { status: 'broken', error: ev.message, rung: -1, confirm: false });
+      }
       break;
     case 'file':
       onFile(s, ev, effects, rRuns);
@@ -1339,9 +1389,9 @@ function stampFx(prev, s, ev) {
   const w = watching(prev);
   // A git result the beat doesn't read (onGit) is no look; one on part of
   // the tree also differs when another path is staged.
-  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && answersGit(w, ev));
+  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && answersGit(w, ev)) || (ev.type === 'probe' && w?.probe?.name === ev.name);
   if (looked) {
-    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read, readFrom(prev, ev)) : ev.files ? [ev.paths, ev.staged] : ev.paths);
+    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read, readFrom(prev, ev)) : ev.type === 'probe' ? [ev.pass, ev.state] : 'head' in ev ? [ev.paths, ev.head] : ev.files ? [ev.paths, ev.staged] : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;
     if (fx.changed) fx.changedAt = t;
     fx.seen = seen;
@@ -1481,6 +1531,7 @@ function closeMap(s, effects) {
     if (w?.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beatOf(s).evidence ?? null, dir: w.dir });
     if (w?.file) effects.push({ type: 'file', path: w.file, dir: w.dir });
     if (w?.git) effects.push(gitAsk(w));
+    if (w?.probe) effects.push(probeAsk(w));
   }
 }
 
@@ -1617,6 +1668,7 @@ const VIEWS = {
       if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks, dir: w.dir });
       if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks, dir: w.dir });
       if (w.git) effects.push(gitAsk(w, { asked: s.asks }));
+      if (w.probe) effects.push(probeAsk(w, { asked: s.asks }));
       return true;
     }
     // At CHALLENGE, hints wait for a first try: name it instead of ignoring h.

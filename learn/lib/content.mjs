@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { frontmatter } from '../../checks/frontmatter.mjs';
 import { lessons as checks } from '../../checks/lessons/index.mjs';
+import { probeError, PROBES } from '../../checks/probes.mjs';
 import { inline } from './text.mjs';
 
 // `### <id> | <part> step N of M | <title>`, or `### C | Check | <title>`
@@ -31,8 +32,11 @@ export const WHERE = new Set(['terminal', 'claude', 'shell', 'editor']);
 export const HOLDS = new Set(['json', 'match', 'no-match']);
 export const READS = new Set(['file', ...HOLDS]);
 // Verify kinds the app answers with git status (ticket 88): the whole tree
-// clean, or part of it.
-export const GIT = new Set(['git-clean', 'git-changed', 'git-only', 'git-staged']);
+// clean, or part of it; and, against how git was when a step opened (ticket
+// 105), HEAD moved with the tree clean, or the same paths listed.
+export const GIT = new Set(['git-clean', 'git-changed', 'git-only', 'git-staged', 'head-moved', 'git-unchanged']);
+// The verify kinds that compare git with how it was when a step opened.
+export const SINCE_GIT = new Set(['head-moved', 'git-unchanged']);
 export const BEAT_KINDS = new Set(['do', 'predict', 'ask', 'type', 'self']);
 // Keys a beat may hold, and whether their value must be a quote of the page.
 // `lead-in` (ticket 188): the page's words that frame the bottom line just
@@ -402,8 +406,9 @@ function needsOf(raw, lines, at, fail) {
 // lesson's work folder. `<lesson> check <item>` passes when that lesson's
 // check item does, `<lesson> file <path>` once the file holds a line. A
 // check item that starts another process (SLOW) runs only on r, so it is no
-// prerequisite; a file is a file, not a folder. Errors name the front
-// matter's requires line.
+// prerequisite; a file is a file, not a folder. `probe todos <n>` (ticket
+// 105) is what the work folder itself must hold, from no lesson: TODO or
+// FIXME in n top-level folders. Errors name the front matter's requires line.
 function requiresOf(raw, id, at, fail) {
   const items = listOf(raw);
   const here = PATH.findIndex((p) => p.id === id);
@@ -411,8 +416,13 @@ function requiresOf(raw, id, at, fail) {
   const before = PATH.slice(0, here).map((p) => p.id);
   const seen = new Set();
   return items.map((item) => {
+    const todos = item.trim().match(/^probe todos (\S+)$/);
+    if (todos) {
+      if (probeError('todos', [todos[1]])) fail(at, `requires item "${item}": probe todos takes a count, like 2`);
+      return { probe: 'todos', args: [todos[1]] };
+    }
     const m = item.trim().match(/^(\S+) (?:check (\d+)|file (\S+))$/);
-    if (!m) fail(at, `requires item "${item}" is <lesson> check <item> or <lesson> file <path>`);
+    if (!m) fail(at, `requires item "${item}" is <lesson> check <item>, <lesson> file <path> or probe todos <n>`);
     const [, lesson, n, path] = m;
     if (!before.includes(lesson)) fail(at, `requires item "${item}": ${lesson} is no lesson before ${id}`);
     if (seen.has(m[0])) fail(at, `requires item "${item}" is named twice`);
@@ -503,10 +513,29 @@ function parseVerify(beat, file) {
     own(lines[2]);
     return { kind: lines[1], path: lines[2], regex: lines[3], ...extra };
   }
+  // `probe <name> [args]` (ticket 105): a git probe, checks/probes.mjs, run
+  // in the check child. branch-ahead is always fresh: it passes once the
+  // branch moved since its step opened (or the step `since` names).
+  const probe = base.match(/^probe (\S+)((?: \S+)*)$/);
+  if (probe) {
+    const args = probe[2].split(' ').filter(Boolean);
+    const error = probeError(probe[1], args);
+    if (error) throw new Error(`${file}:${beat.line}: ${error}`);
+    beat.watching = beat.watching ?? PROBES[probe[1]].watching;
+    return { kind: 'probe', name: probe[1], args, ...(PROBES[probe[1]].fresh ? { fresh: true, since: null, ...extra } : extra) };
+  }
   if (fresh && !beat.evidence) throw new Error(`${file}:${beat.line}: a fresh check needs an evidence file`);
   const check = base.match(/^check (\d+(?: \d+)*)$/);
   if (check) return { kind: 'check', items: check[1].split(' ').map(Number), ...extra };
-  if (fresh) throw new Error(`${file}:${beat.line}: only a check or a file can be fresh`);
+  if (fresh) throw new Error(`${file}:${beat.line}: only a check, a file or a probe can be fresh`);
+  // `head-moved [since <step>]`: HEAD is another commit than when that step
+  // (by default its own) opened, and git status lists nothing.
+  // `git-unchanged [since <step>]`: git status lists the same paths as then.
+  const since = v.match(/^(head-moved|git-unchanged)(?: since (\S+))?$/);
+  if (since) {
+    if (since[2] !== undefined && !STEP_ID.test(since[2])) throw new Error(`${file}:${beat.line}: ${since[1]} since a step id, like W2, not ${since[2]}`);
+    return { kind: since[1], since: since[2] ?? null };
+  }
   // A path git status is asked about, as it names one: from the work folder.
   const gitPath = (path) => {
     if (!workPath(path)) {
@@ -534,7 +563,7 @@ export function loadCourse(root, path = PATH) {
     const file = join(root, 'learn', 'lessons', `${entry.id}.md`);
     const content = existsSync(file) ? parseLesson(readFileSync(file, 'utf8'), `learn/lessons/${entry.id}.md`) : null;
     // A prerequisite comes from a lesson this course puts first.
-    const late = content?.requires.find((r) => !path.slice(0, at).some((p) => p.id === r.lesson));
+    const late = content?.requires.find((r) => r.lesson && !path.slice(0, at).some((p) => p.id === r.lesson));
     if (late) throw new Error(`learn/lessons/${entry.id}.md: requires ${late.lesson}, no lesson before ${entry.id} here`);
     // A lesson its PATH entry pins, with no folder of its own, places every
     // step there: its Worked example can't move (ticket 183).
