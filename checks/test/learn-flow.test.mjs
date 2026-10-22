@@ -2786,6 +2786,8 @@ test('a second session, the browser and long waits: the grammar (103)', () => {
   bad('- verify: file .practice/run.txt\n', '- verify: self\n', /a browser beat verifies with self, or with none and a later beat/);
   bad('- where: browser\n- verify: none', '- where: browser\n- verify: check 0', /a browser beat verifies with self/);
   assert.doesNotThrow(() => parseLesson(WAIT_B2.replace('- where: browser\n- verify: none', '- where: browser\n- verify: self'), 'b-2.md'));
+  // A later git probe (105) reads only local refs: it may verify for the browser.
+  assert.doesNotThrow(() => parseLesson(WAIT_B2.replace('- verify: file .practice/run.txt\n', '- verify: probe pushed\n'), 'b-2.md'));
   // Only a do or self beat waits.
   assert.throws(() => parseLesson(DEMO_B2.replace('- because: "Usage is something else."', '- because: "Usage is something else."\n- wait: long'), 'b-2.md'), /a wait line on the ask beat/);
 });
@@ -3139,6 +3141,11 @@ test('recall while a long run works: one unshown warm-up, missed skills first, t
   const none = onWaitWith({ missed: [], warm: ['R1'] }, WAIT_B2.replace(/### R3[\s\S]*?(?=## steps)/, ''));
   assert.equal(whileRunsOf(none.state), null);
   assert.ok(!flat(none.state, 80, 24).includes(C.whileItRuns));
+  // A choice (104) has no right answer to recall: the box passes it by.
+  const CHOICE_R1 = WAIT_B2.replace('- right: "`/status`"\n- wrong: "`/usage`"\n- because: "Usage is something else."', '- option: "`/status`"\n- option: "`/usage`"');
+  assert.notEqual(CHOICE_R1, WAIT_B2);
+  const choice = onWaitWith({}, CHOICE_R1);
+  assert.equal(whileRunsOf(choice.state).step.id, 'R3');
   // A beat with no wait never offers one.
   const plain = onWaitB2('Y2', 1, WAIT_B2.replace('- wait: long\n', ''));
   assert.equal(whileRunsOf(plain.state), null);

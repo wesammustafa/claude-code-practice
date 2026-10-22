@@ -2,7 +2,7 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
-import { GIT, PATH_MAX, READS, SINCE_GIT, WORK_LEVELS } from './content.mjs';
+import { GIT, isChoice, PATH_MAX, READS, SINCE_GIT, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
 import { evidenceOf, grewFrom, judge } from './holds.mjs';
 import { cleanListed, eachFile, judgeGit, needsChange, statusStamp } from './status.mjs';
@@ -591,11 +591,12 @@ export const longWait = (s) => s.view === 'step' && Boolean(s.beat) && !['done',
 // Recall while a long run works (ticket 150): the warm-up a long wait's box
 // offers, one of this lesson's pool that its warm-ups did not show and the
 // box has not asked, on a missed skill first, then in the file's order. Only
-// a question with options: typing would take the card's keys. Never scored.
+// a question with options: typing would take the card's keys. Never a choice
+// (ticket 104): it has no right answer to recall. Never scored.
 function whileRunsPick(s) {
   const p = s.progress[s.lesson];
   const missed = (w) => w.beats.some((b) => s.missed.includes(b.skill ?? w.skill));
-  const pool = contentOf(s).warmup.filter((w) => !p.warm.includes(w.id) && !s.whileShown.includes(`${s.lesson}.${w.id}`) && w.beats[0].ask && w.beats[0].kind !== 'type' && w.beats[0].options.length);
+  const pool = contentOf(s).warmup.filter((w) => !p.warm.includes(w.id) && !s.whileShown.includes(`${s.lesson}.${w.id}`) && w.beats[0].ask && w.beats[0].kind !== 'type' && w.beats[0].options.length && !isChoice(w.beats[0]));
   return [...pool.filter(missed), ...pool.filter((w) => !missed(w))][0]?.id ?? null;
 }
 // The box's warm-up step, its first beat and the answer picked (an option's

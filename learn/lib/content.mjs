@@ -378,11 +378,12 @@ export function parseLesson(text, file = 'lesson') {
     }
   }
   // The app can't see a browser: its beat is the learner's word, or a
-  // later beat of the step reads the local file it leaves.
+  // later beat of the step reads the local file it leaves (a git probe,
+  // ticket 105, reads only local refs too).
   for (const s of lesson.steps) {
     s.beats.forEach((b, k) => {
       if (b.where !== 'browser' || b.verify.kind === 'self') return;
-      const later = s.beats.slice(k + 1).some((x) => x.verify.kind === 'check' || READS.has(x.verify.kind) || GIT.has(x.verify.kind));
+      const later = s.beats.slice(k + 1).some((x) => x.verify.kind === 'check' || READS.has(x.verify.kind) || GIT.has(x.verify.kind) || x.verify.kind === 'probe');
       if (b.verify.kind !== 'none' || !later) throw new Error(`${file}:${b.line}: a browser beat verifies with self, or with none and a later beat of its step that reads a local file`);
     });
   }
