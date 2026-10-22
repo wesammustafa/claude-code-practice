@@ -553,6 +553,13 @@ const closes = (fence, line) => {
   return Boolean(m) && m[1][0] === fence[0] && m[1].length >= fence.length;
 };
 
+// A path a reading beat names may end in a glob, for a file whose name
+// Claude picks: `*` stands for any characters and `?` for one, in the file
+// name only (`file .claude/workflows/*.js fresh`). It reads the newest file
+// that matches (verify.mjs matchOf), and the card shows that file's path.
+export const isGlob = (path) => /[*?]/.test(path);
+export const globName = (name) => new RegExp(`^${name.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+
 const camel = (k) => k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
 function parseVerify(beat, file) {
@@ -570,6 +577,7 @@ function parseVerify(beat, file) {
   // The beats that read a file themselves: its evidence is its own file.
   const own = (path) => {
     if (beat.evidence && beat.evidence !== path) throw new Error(`${file}:${beat.line}: a file check's evidence is its own file`);
+    if (isGlob(path.slice(0, path.lastIndexOf('/') + 1))) throw new Error(`${file}:${beat.line}: a glob goes in the file name only, like .claude/workflows/*.js, not ${path}`);
     beat.evidence = path;
   };
   // `file <path>`: a file no check item covers, done once it holds a line.

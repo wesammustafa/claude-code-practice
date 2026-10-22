@@ -94,6 +94,7 @@ export const C = {
   fileEmpty: (path) => `${path} has no line in it yet.`,
   // What a file holds, for a beat that reads it (ticket 87): the not-yet lines.
   noFile: (path) => `${path} is not there yet.`,
+  noMatch: (glob) => `No file matches ${glob} yet.`,
   notText: (path, what) => `${path} is not a text file yet: it holds ${what}.`,
   notJson: (path, error) => `${path} does not parse as JSON yet (${error}).`,
   noKey: (path, key) => `${path} has no ${key} yet.`,
@@ -341,6 +342,9 @@ export const C = {
   noFolder: (path) => `No folder at ${path}.`,
   dirBeginner: `This app checks Beginner in this ${TERMS.practiceCopy}, so --dir has no level to set yet. From Intermediate on, use it, or press f on the map.`,
   plainIn: (dir) => ` (checked in ${dir})`,
+  // A lesson done in the app whose check fails now (106): a later lesson
+  // may change what it checks on purpose, as a-6 moves a component.
+  plainChanged: 'Its check fails now: a later lesson may have changed what it checks.',
 
   k: {
     itsOpen: "it's open", quit: 'quit', choose: 'choose', start: 'start', map: 'map', more: 'more', checkNow: 'check now',

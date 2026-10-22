@@ -1080,6 +1080,8 @@ function decide(s, ev, effects, failing) {
   if (!failing) {
     st.status = st.baseline === undefined ? 'already' : 'done';
     st.evidence = ev.evidence ?? null;
+    // The file a glob matched, for the card to name (106).
+    st.found = ev.found ?? null;
     st.feedback = null;
     st.rung = -1;
     st.confirm = false;

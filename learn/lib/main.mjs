@@ -21,7 +21,7 @@ import { openScreen } from './screen.mjs';
 import { statusStamp } from './status.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
-import { bytesOf, gitFirstName, gitReady, gitStatus, onPath, owing, probeFolder, runCheck, runProbe, singleFlight, stampOf, stopChildren } from './verify.mjs';
+import { bytesOf, gitFirstName, gitReady, gitStatus, matchOf, onPath, owing, probeFolder, runCheck, runProbe, singleFlight, stampOf, stopChildren } from './verify.mjs';
 import { watchDirs } from './watch.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -397,7 +397,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (closed) return;
     if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error, asked, dir });
     if (ev && stampOf(dir, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev, dir));
-    dispatch({ type: 'check', lesson, items: r.items, read: ev ? bytesOf(dir, ev) : null, path: ev ?? null, stamp: before, asked, dir });
+    dispatch({ type: 'check', lesson, items: r.items, read: ev ? bytesOf(dir, ev) : null, path: ev ?? null, found: ev ? matchOf(dir, ev) : null, stamp: before, asked, dir });
   });
   // `files`: git lists each untracked file, for a beat on part of the tree.
   // `head`: and where HEAD is, for a head-moved beat (ticket 105).
@@ -430,7 +430,12 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
 
   // A file's bytes and its state, read now in the lesson's folder: local and
   // quick, with no process. The reducer decides what they mean.
-  const file = (path, asked, dir) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, read: bytesOf(dir, path), stamp: stampOf(dir, path), asked: asked ?? 0, dir }));
+  // A glob reads the file it matches now, and says which (`found`).
+  const file = (path, asked, dir) => queueMicrotask(() => {
+    if (closed) return;
+    const found = matchOf(dir, path);
+    dispatch({ type: 'file', path, found, read: found && bytesOf(dir, found), stamp: found ? stampOf(dir, found) : '', asked: asked ?? 0, dir });
+  });
 
   function run(effects) {
     for (const e of effects) {

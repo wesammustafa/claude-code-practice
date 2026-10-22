@@ -13,6 +13,7 @@ import { theme } from '../../learn/lib/theme.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { statusStamp } from '../../learn/lib/status.mjs';
+import { plainProgress } from '../../learn/lib/plain.mjs';
 import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, bareExit, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
@@ -3056,4 +3057,49 @@ test('git-unchanged: git status lists the same paths as when the step it names o
   fitsBoth(d.state);
   assert.equal(statusStamp(['b', 'a', 'a']), statusStamp(['a', 'b']), 'the stamp is the same for the same paths');
   playUntil(onY1('git-unchanged'), (s) => stepOf(s)?.id === 'C');
+});
+
+// A file whose name Claude picks: the beat names a glob, and the card shows
+// the file it matched (106).
+const GLOB_B2 = DEMO_B2.replace('- verify: check 0 fresh\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', '- verify: file .practice/plans/*.txt fresh');
+
+test('file globs: a file check takes a glob in its last part, and shows the path it matched (106)', () => {
+  const beat = parseLesson(GLOB_B2, 'demo').steps[1].beats[0];
+  assert.deepEqual(beat.verify, { kind: 'file', path: '.practice/plans/*.txt', fresh: true, since: null });
+  assert.equal(beat.evidence, '.practice/plans/*.txt');
+  assert.throws(() => parseLesson(GLOB_B2.replace('.practice/plans/*.txt', '.practice/*/plan.txt'), 'demo'), /a glob goes in the file name only/);
+  const d = driver({ course: courseWith({ 'b-2': GLOB_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R2'], done: ['R1', 'R2', 'W1'], step: 'Y1', beat: 0 } } } });
+  assert.ok(d.key('enter').some((e) => e.type === 'file' && e.path === '.practice/plans/*.txt'));
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: '' });
+  d.key('r');
+  d.send({ type: 'file', path: '.practice/plans/*.txt', read: null, stamp: '', found: null, asked: d.state.beat.asked });
+  assert.equal(d.state.beat.status, 'fail');
+  assert.equal(d.state.beat.fail.hint, C.noMatch('.practice/plans/*.txt'));
+  d.send({ type: 'file', path: '.practice/plans/*.txt', read: Buffer.from('src/config.js\n'), stamp: 'C', found: '.practice/plans/review-plan.txt' });
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.beat.found, '.practice/plans/review-plan.txt');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const text = screenText(d.state, cols, rows).join('\n');
+    assert.ok(text.includes('review-plan.txt'), `${cols}x${rows}: the matched path is the evidence\n${text}`);
+    assert.ok(!text.includes('*.txt'), `${cols}x${rows}: not the glob\n${text}`);
+  }
+  fitsBoth(d.state);
+});
+
+test('a lesson done in the app whose check now fails: the map keeps it done, and plain output says a later lesson may have changed it (106)', () => {
+  const b1 = course.find((l) => l.id === 'b-1');
+  const failing = { items: b1.items.map((text, index) => ({ index, text, pass: index !== 0, hint: '' })) };
+  const passing = { items: b1.items.map((text, index) => ({ index, text, pass: true, hint: '' })) };
+  const lines = (results, complete) => plainProgress(course, { 'b-1': results }, { lessons: { 'b-1': { complete } } }).split('\n');
+  const after = (out) => out[out.findIndex((l) => l.startsWith('B1 ')) + 1];
+  assert.equal(after(lines(failing, true)), `     ${C.plainChanged}`);
+  assert.notEqual(after(lines(passing, true)), `     ${C.plainChanged}`, 'a passing check needs no word');
+  assert.notEqual(after(lines(failing, false)), `     ${C.plainChanged}`, 'nor one not done in the app');
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done } } });
+  d.key('m');
+  assert.equal(d.state.view, 'map');
+  d.send({ type: 'check', lesson: 'b-1', ...failing });
+  assert.equal(d.state.progress['b-1'].complete, true, 'a failing check never takes back a finished lesson');
+  const row = screenText(d.state).find((l) => / B1 /.test(l));
+  assert.ok(row.includes(C.mapDone), row);
 });
