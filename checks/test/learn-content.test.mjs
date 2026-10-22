@@ -21,7 +21,7 @@ const contents = PATH.map((p) => parsed[p.id] ?? null);
 const tracked = new Set(execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n'));
 const scripts = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts;
 const quotesOf = (step) => step.beats.flatMap((b) => [
-  ...b.lines.filter((l) => l.quoted).flatMap((l) => [l.text, l.win]), ...b.hints, ...b.bottom.flatMap((x) => [x.text, x.win]), ...b.why,
+  ...b.lines.filter((l) => l.quoted).flatMap((l) => [l.text, l.win]), ...b.hints, ...b.bottom.flatMap((x) => [x.text, x.win, x.leadIn]), ...b.why,
   ...b.options.flatMap((o) => [o.quoted ? o.text : null, o.because]), b.reveal, b.point, b.self, b.codespace, b.winNote,
 ].filter(Boolean)).join('\n');
 // Every step a lesson can show: its warm-ups, then its own steps.

@@ -24,11 +24,15 @@ export const READS = new Set(['file', ...HOLDS]);
 export const GIT = new Set(['git-clean', 'git-changed', 'git-only', 'git-staged']);
 export const BEAT_KINDS = new Set(['do', 'predict', 'ask', 'type', 'self']);
 // Keys a beat may hold, and whether their value must be a quote of the page.
+// `lead-in` (ticket 188): the page's words that frame the bottom line just
+// above it, such as "In the practice template:", drawn above its command
+// wherever the bottom line shows; at most one a bottom line. Like `win`, it
+// goes under its bottom line, before or after that line's `win`.
 export const BEAT_KEYS = {
   where: false, verify: false, 'done-label': false, watching: false, evidence: false, safety: false, tick: false, skill: false,
   say: false, ask: false, other: false, decoy: false, 'reveal-at': false, recall: false, accept: false, code: false,
   goal: true, do: true, run: true, win: true, expect: true, note: true, rule: true, after: true, why: true,
-  codespace: true, 'win-note': true, hint: true, bottom: true, because: true, point: true, reveal: true, self: true,
+  codespace: true, 'win-note': true, hint: true, bottom: true, 'lead-in': true, because: true, point: true, reveal: true, self: true,
   right: null, wrong: null, option: null, stuck: null, back: null,
 };
 // `why`: why the lesson matters; `payoff`: the one `can` line the intro and
@@ -45,8 +49,9 @@ export const INTRO_KEYS = { minutes: true, can: true, why: true, payoff: true, r
 // `back`, on a ladder block or a beat (ticket 192): where the step's state
 // comes from, as `- back: <step id> <why>`, the why a quote of the page or
 // the app's own words. A check that keeps answering the same sends the
-// learner back there.
-export const LADDER_KEYS = { hint: true, bottom: true, win: true, back: null };
+// learner back there. A ladder's bottom line takes a `win` and a `lead-in`
+// line as a beat's does.
+export const LADDER_KEYS = { hint: true, bottom: true, win: true, 'lead-in': true, back: null };
 // The card (the c overlay): each entry a `skill` line in the app's words,
 // then the page's command (`show`) and what it does (`does`). An entry shows
 // once the learner finished a step on its skill.
@@ -146,6 +151,10 @@ export function parseLesson(text, file = 'lesson') {
   const fail = (n, msg) => {
     throw new Error(`${file}:${n + 1}: ${msg}`);
   };
+  const leadIn = (bottom, text, n) => {
+    if (bottom.leadIn) fail(n, 'a second lead-in line on one bottom line');
+    bottom.leadIn = text;
+  };
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
@@ -213,7 +222,8 @@ export function parseLesson(text, file = 'lesson') {
       if (!v.quoted) fail(i, `${key} must be a quote of the lesson`);
       if (key === 'hint') rung.hints.push(v.text);
       else if (key === 'bottom') rung.bottom.push({ text: v.text });
-      else if (!rung.bottom.length) fail(i, 'a win line with no bottom line above it');
+      else if (!rung.bottom.length) fail(i, `a ${key} line with no bottom line above it`);
+      else if (key === 'lead-in') leadIn(rung.bottom.at(-1), v.text, i);
       else rung.bottom.at(-1).win = v.text;
       continue;
     }
@@ -232,7 +242,7 @@ export function parseLesson(text, file = 'lesson') {
       continue;
     }
     if (!(key in BEAT_KEYS)) fail(i, `unknown beat key ${key}`);
-    if (key !== 'win') beat.lastKey = key;
+    if (key !== 'win' && key !== 'lead-in') beat.lastKey = key;
     if (BEAT_KEYS[key] === true && !v.quoted) fail(i, `${key} must be a quote of the lesson`);
     if (BEAT_KEYS[key] === false && v.quoted) fail(i, `${key} holds the app's own words: no quotes`);
     if (OPTION_KEYS.has(key)) beat.options.push({ kind: key, ...v });
@@ -246,6 +256,9 @@ export function parseLesson(text, file = 'lesson') {
       const last = beat.lastKey === 'bottom' ? beat.bottom.at(-1) : beat.lines.at(-1);
       if (beat.lastKey !== 'bottom' && !['run', 'code'].includes(last?.key)) fail(i, 'a win line with no run, code or bottom line above it');
       last.win = v.text;
+    } else if (key === 'lead-in') {
+      if (beat.lastKey !== 'bottom') fail(i, 'a lead-in line with no bottom line above it');
+      leadIn(beat.bottom.at(-1), v.text, i);
     } else if (key === 'code') {
       if (beat.lines.some((l) => l.key === 'code')) fail(i, 'a second code block on one beat');
       if (['predict', 'type'].includes(beat.kind)) fail(i, `a code block on a ${beat.kind} beat: only a do, ask or self beat shows one`);

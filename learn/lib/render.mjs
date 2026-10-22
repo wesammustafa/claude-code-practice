@@ -1419,6 +1419,8 @@ function stepView(ctx) {
     if (inlineBottom) {
       for (const b of beat.bottom) {
         const text = (t.caps.win32 && b.win) || b.text;
+        // A lead-in, the page's words that frame the command, goes above it.
+        if (b.leadIn) rows.push(...para(t, b.leadIn, inner, 'text'));
         rows.push(...(text.includes('`') ? para(t, text, inner, 'text') : chip(t, text, beat.where, chipWidth(ctx, beat))));
       }
     }
@@ -1652,7 +1654,8 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
       else box.push(...r.lines.flatMap((b) => {
         if (b.key === 'code' && !(t.caps.win32 && b.win)) return codeRows(t, b, hw, words);
         const text = (t.caps.win32 && b.win) || withRoot(b.text, s.facts.root, t.caps.win32, folderOf(s));
-        return text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat, r.lines), hw));
+        const lead = b.leadIn ? para(t, b.leadIn, hw, 'text') : [];
+        return [...lead, ...(text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat, r.lines), hw)))];
       }));
       const more = st.rung < rungs.length - 1;
       // The last rung offers the earlier step a back line names, with its

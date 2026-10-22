@@ -3812,3 +3812,47 @@ test('the same-answer note: no row above it moves, nothing cut, the same words i
     }
   }
 });
+
+// A bottom line's lead-in (ticket 188): the page's words that frame its
+// command, drawn above the command on the bottom rung and inline.
+test('a bottom line\'s lead-in shows above its command, on the bottom rung and inline, at 60x20 and 80x24', () => {
+  const file = readFileSync(join(root, 'learn', 'lessons', 'i-1.md'), 'utf8');
+  const tdd = parseLesson(file, 'i-1.md').steps.find((x) => x.id === 'Y4').beats[1].bottom[0];
+  assert.equal(tdd.leadIn, 'In the practice template:');
+  // The parser names the form.
+  const lead = '- lead-in: "In the practice template:"';
+  assert.throws(() => parseLesson(file.replace(lead, '').replace('- hint: "Approve its edits and test runs, and let it commit."', `$&\n${lead}`), 'i-1.md'), /a lead-in line with no bottom line above it/);
+  assert.throws(() => parseLesson(file.replace(lead, `${lead}\n${lead}`), 'i-1.md'), /a second lead-in line on one bottom line/);
+  assert.throws(() => parseLesson(file.replace(lead, '- lead-in: In the practice template:'), 'i-1.md'), /lead-in must be a quote of the lesson/);
+  // Its place, rows above the first row of the command it frames.
+  const above = (lines, where) => {
+    const text = lines.map(strip);
+    const at = text.findIndex((l) => l.includes('In the practice template:'));
+    const cmd = text.findIndex((l) => l.includes('/tdd a slugify'));
+    assert.ok(at >= 0 && cmd > at, `${where}\n${text.join('\n')}`);
+  };
+  const bottom = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('i-1'), 'i-1': { warm: ['R1', 'R2', 'R3'], step: 'Y4', beat: 1, levels: ['challenge'] } } } });
+  bottom.key('enter');
+  for (let i = 0; i < 8 && !bottom.state.beat.confirm; i++) bottom.key('h');
+  bottom.key('y');
+  assert.equal(rungsOf(bottom.state)[bottom.state.beat.rung].kind, 'bottom');
+  // Inline: a HINTED step eased to GUIDED shows its bottom lines on the card.
+  const course = courseWith({ 'i-1': file.replace('- bottom: "mkdir -p .claude/skills/tdd"', `$&\n${lead}`) });
+  const inline = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('i-1'), 'i-1': { warm: ['R1', 'R2', 'R3'], step: 'Y1', beat: 0, levels: ['challenge'], easedSteps: { Y1: true } } } } });
+  inline.key('enter');
+  assert.equal(tierOf(inline.state), 'guided');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    for (const [name, caps] of Object.entries(CAPS)) {
+      const t = theme(caps);
+      const where = `${cols}x${rows} (${name})`;
+      const lines = render(bottom.state, { cols, rows }, t);
+      assert.equal(lines.length, rows, where);
+      for (const line of lines) assert.ok(width(line) <= cols - 1, `${where}: ${strip(line)}`);
+      above(lines, `bottom rung at ${where}`);
+      const card = render(inline.state, { cols, rows }, t).map(strip);
+      const at = card.findIndex((l) => l.includes('In the practice template:'));
+      const cmd = card.findIndex((l) => l.includes('mkdir -p .claude/skills/tdd'));
+      assert.ok(at >= 0 && cmd > at, `inline at ${where}\n${card.join('\n')}`);
+    }
+  }
+});
