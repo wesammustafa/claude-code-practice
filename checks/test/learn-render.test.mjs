@@ -2486,6 +2486,8 @@ const URLS = {
   'i-8': 'https://code.claude.com/docs/en/plugins/code-intelligence',
   'a-1': 'https://code.claude.com/docs/en/worktrees#isolate-subagents-with-worktrees',
   'a-2': 'https://code.claude.com/docs/en/agents',
+  'a-3': 'https://code.claude.com/docs/en/workflows#example-workflow-prompts',
+  'a-4': 'https://code.claude.com/docs/en/headless',
 };
 
 test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
@@ -2772,6 +2774,18 @@ const facesOf = (t) => (t.unicode ? FACES : ASCII_FACES);
 // The face at the end of the card's top border; null on a card without
 // Pip, undefined on a screen with no card.
 const cardTop = (lines) => lines.map((l) => strip(l).trimEnd()).find((l) => /^\s*(╭─|\+-) {2}/.test(l));
+// The card's rows less the while-it-runs box (150): its title row and the
+// barred rows under it, up to a hint the card shows below it. The box is
+// drawn with the hint box's bar, but it is an optional row that offers an
+// unscored question, not help.
+function withoutWhileItRuns(lines, t = theme(CAPS.full)) {
+  const barred = (l) => l.trimStart().startsWith(`${t.glyph.rail}  ${t.glyph.bar} `);
+  const at = lines.findIndex((l) => barred(l) && l.includes(C.whileItRuns));
+  if (at < 0) return lines;
+  let end = at + 1;
+  while (end < lines.length && barred(lines[end]) && !lines[end].includes(t.unicode ? '💡' : 'Hint:') && !lines[end].includes(t.unicode ? '▲' : '!')) end++;
+  return [...lines.slice(0, at), ...lines.slice(end)];
+}
 function pipOn(lines, t) {
   const top = cardTop(lines);
   if (top === undefined) return undefined;
@@ -3342,7 +3356,7 @@ test('the arrows move your card only where it scrolls: while it fits, they move 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
 const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4',
-  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC', 'a-1': 'A1', 'a-2': 'A2' };
+  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC', 'a-1': 'A1', 'a-2': 'A2', 'a-3': 'A3', 'a-4': 'A4' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];

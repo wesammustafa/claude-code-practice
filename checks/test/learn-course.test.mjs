@@ -142,7 +142,7 @@ const advancedCheckOnly = course.map((l) => (l.level === 'advanced' ? { ...l, co
 const mapRow = (ls, label) => ls.find((l) => new RegExp(`^\\s*[❯ ] [✔○] +${label} `).test(l)) ?? '';
 
 test('a check-only lesson is complete once a full check passes, slow items included: saved, counted, and the map\'s next marker moves on', () => {
-  const d = checkOnly('a-4', course, throughIntermediate());
+  const d = checkOnly('a-4', noAdvanced, throughIntermediate());
   const all = () => true;
   // A poll leaves the slow items out: everything it ran passes, but that is no full check.
   d.send(result('a-4', all));
@@ -166,7 +166,7 @@ test('a check-only lesson is complete once a full check passes, slow items inclu
   d.key('m');
   assert.match(lines(d.state, [80, 24])[0], /Advanced path +1 of 8 done$/);
   assert.match(mapRow(lines(d.state, [80, 24]), 'A4'), /done/);
-  const w = driver({ course, saved: { format: 1, welcomed: false, lessons: { ...throughIntermediate(), 'a-1': { complete: true } } } });
+  const w = driver({ course: noAdvanced, saved: { format: 1, welcomed: false, lessons: { ...throughIntermediate(), 'a-1': { complete: true } } } });
   assert.match(lines(w.state, [80, 24])[0], /Advanced path · 1 of 8 done$/);
 });
 
@@ -405,7 +405,7 @@ function slowRow(at, frame, label) {
 }
 
 test('r on the check-only card says its run is going until its own result lands: the spinner and bounce, slower after 10 s, and the seconds from 3 s', () => {
-  const ids = slowHere.filter((id) => !course.find((l) => l.id === id).content);
+  const ids = slowHere.filter((id) => !noAdvanced.find((l) => l.id === id).content);
   assert.deepEqual(ids, ['a-4', 'a-7']);
   for (const id of ids) {
     const d = checkOnly(id);
@@ -480,7 +480,7 @@ test('r\'s run on the check-only card goes on through a trip to the map and back
 
 test('on a step card, r\'s run of a slow item spins as any check does: the seconds from 3 s, slower after 10 s', () => {
   const ids = slowHere.filter((id) => liveCourse.find((l) => l.id === id).content);
-  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-7', 'i-capstone']);
+  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-7', 'i-capstone', 'a-4']);
   for (const id of ids) {
     const l = liveCourse.find((x) => x.id === id);
     // The cards r put "Checking" over, for a beat whose check has a slow item.

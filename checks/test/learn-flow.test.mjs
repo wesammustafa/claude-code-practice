@@ -1447,12 +1447,13 @@ test('fading counts only what this learner did: a lesson marked complete with no
 });
 
 test('fading counts only what this learner did: on the path every Beginner lesson keeps the course plan', () => {
+  // The plan of the course played: its Beginner lessons are the reducer
+  // fixtures, which may ask a skill fewer times than the shipped files that
+  // the authored tiers count (a-4 W1's ask: the fixtures ask it in b-1 only).
+  const contents = course.map((x) => x.content);
   for (const l of course.filter((x) => x.content)) {
+    const plan = ruleTiers(contents, course.indexOf(l));
     const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
-    // The plan of this course, whose Beginner lessons are the reducer
-    // fixtures: a later level's skill that a fixture asks more often than the
-    // shipped Beginner lesson (save-version, in a-1) fades sooner here.
-    const plan = ruleTiers(course.map((x) => x.content), course.indexOf(l));
     assert.deepEqual(ownTiers(d.state, l.id), plan, l.id);
     // With nothing done, every lesson after the first gives more help somewhere,
     // and a capstone none.
