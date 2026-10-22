@@ -829,7 +829,6 @@ test('back lines: each why is the app\'s own words until the guide\'s quote chec
 // Intermediate, which removes its entry here. An entry whose lesson keeps
 // every rule fails, so the rework can't leave one behind.
 const BEFORE_REWORK = {
-  'i-1': 196, 'i-2': 196, 'i-3': 196, 'i-4': 196, 'i-5': 196, 'i-6': 196, 'i-7': 196, 'i-8': 196, 'i-capstone': 196,
 };
 // Rule 3: at most 3 graded questions per core lesson, and none in a capstone.
 const BUDGET = 3;

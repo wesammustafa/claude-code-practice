@@ -3,6 +3,10 @@
 // Intermediate Exit statement leaves in files and git; picking a model and
 // effort, and seeing each piece work in a session, are self-assessed on the
 // capstone page.
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { frontmatter } from '../frontmatter.mjs';
 import { committedMode, editWriteScripts, missingJq, runCommitted } from '../hooks.mjs';
 import { items as memory } from './i-2.mjs';
@@ -91,6 +95,50 @@ const sandbox = {
   },
 };
 
+// Run the committed CLI in a disposable local copy. A working-tree-only fix
+// must not satisfy the handoff that the teammate receives from git.
+const bugFix = {
+  text: 'the committed CLI reports malformed percent escapes as broken links and still resolves valid encoded paths',
+  check(repo) {
+    let sources;
+    try {
+      const paths = repo.gitLocal('ls-tree', '-r', '--name-only', 'HEAD', '--', 'src').split('\n').filter(path => path.endsWith('.js'));
+      if (!paths.includes('src/cli.js')) throw new Error('missing CLI');
+      sources = paths.map(path => [path, repo.gitLocal('show', `HEAD:${path}`)]);
+    } catch {
+      return 'Commit the CLI source for the malformed percent fix. See capstone/intermediate-bug.md.';
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'intermediate-bug-'));
+    try {
+      writeFileSync(join(dir, 'package.json'), '{"type":"module"}\n');
+      for (const [path, text] of sources) {
+        mkdirSync(dirname(join(dir, path)), { recursive: true });
+        writeFileSync(join(dir, path), text);
+      }
+      const fixture = join(dir, 'fixture');
+      mkdirSync(fixture);
+      writeFileSync(join(fixture, 'existing file.md'), '# Existing\n');
+      const cases = [
+        { markdown: '[bad](bad%.md)\n[valid](existing%20file.md)\n[bad UTF-8](bad%E0.md)\n[later](missing.md)\n', status: 1, targets: ['bad%.md', 'bad%E0.md', 'missing.md'] },
+        { markdown: '[valid](existing%20file.md)\n', status: 0, targets: [] },
+      ];
+      for (const example of cases) {
+        writeFileSync(join(fixture, 'guide.md'), example.markdown);
+        const run = spawnSync(process.execPath, [join(dir, 'src', 'cli.js'), fixture], { cwd: dir, encoding: 'utf8', timeout: 5_000, maxBuffer: 128 * 1024 });
+        if (run.error) return `The committed CLI could not run (${run.error.code}). Fix the malformed percent case without hanging.`;
+        const report = run.stdout.split(/\r?\n/).filter(line => line.includes(': broken link to '));
+        if (run.status !== example.status || run.stderr.trim() || report.length !== example.targets.length ||
+          !example.targets.every(target => report.some(line => line.endsWith(`: broken link to ${target}`)))) {
+          return 'The committed CLI mishandles malformed percent links or valid encoded paths. Recheck capstone/intermediate-bug.md.';
+        }
+      }
+      return true;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+};
+
 // An item reused from a lesson sends the learner back to that lesson's page
 // when its file is missing or lacks what the lesson adds; here the capstone
 // asks for it. Each swap is a [from, to] pair of message text. The wrapper
@@ -112,4 +160,4 @@ const setupPlugin = asCapstone(plugins[0], ['Add the `enabledPlugins` entry from
 const teamRules = asCapstone(scopes[0], ['Save the partial file from the lesson\'s Your turn there.', 'Write the team settings the capstone asks for there, as in lesson 4.']);
 const imports = asCapstone(memory[0], ['Commit the one you organize in this lesson.', 'Commit the one the capstone asks for, as in lesson 2.']);
 
-export const items = [skill, hook, reviewer, pinnedServer, setupPlugin, teamRules, sandbox, imports, memory[1], testsPass, nothingUncommitted];
+export const items = [skill, hook, reviewer, pinnedServer, setupPlugin, teamRules, sandbox, imports, memory[1], testsPass, nothingUncommitted, bugFix];

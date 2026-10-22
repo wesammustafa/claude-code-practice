@@ -69,5 +69,5 @@ test('a capstone item reused from a lesson shows the lesson item\'s code', () =>
     }
   }
   const total = lessons['i-capstone'].items.reduce((n, item) => n + failReturns(item.check), 0);
-  assert.equal(total, 36);
+  assert.equal(total, 39);
 });

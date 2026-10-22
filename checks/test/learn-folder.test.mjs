@@ -346,18 +346,18 @@ test('when the work folder isn\'t the copy, the header names it on every lesson 
 test('every line that sends the learner to another terminal says which folder: the card\'s place, the check-only card\'s and the stray-command note', () => {
   const d = atI1({ intermediate: MINE });
   playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'W2');
-  // W2 happens in a third terminal, the Check in the other one; W1 in an editor.
-  for (const size of SIZES) assert.ok(has(screen(d.state, size), `${C.where.shell}, ${C.inFolder('my-app')}`), screen(d.state, size).join('\n'));
+  // Each terminal names its folder; W1 happens in an editor.
+  for (const size of SIZES) assert.ok(has(screen(d.state, size), 'in a terminal, in my-app'), screen(d.state, size).join('\n'));
   d.send({ type: 'paste', text: 'git commit -m x', wait: 40 });
   assert.ok(has(screen(d.state), C.strayIn(C.inFolder('my-app')).slice(0, 40)), screen(d.state).join('\n'));
   playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'C');
-  assert.ok(has(screen(d.state), `${C.where.terminal}, ${C.inFolder('my-app')}`), screen(d.state).join('\n'));
+  assert.ok(has(screen(d.state), 'in a terminal, in my-app'), screen(d.state).join('\n'));
   // The Check passes: the command shown names the folder, run from the copy.
   const items = lessonOf(d.state).items.map((text, index) => ({ index, text, pass: true, hint: '' }));
   d.send({ type: 'check', lesson: 'i-1', items, dir: MINE });
   const lines = screen(d.state, [80, 24]);
   assert.ok(has(lines, `npm run check -- i-1 --dir ${MINE}`), lines.join('\n'));
-  assert.ok(flat(lines).includes(C.runItToo(`${C.where.terminal}, ${C.inCopy}`)), lines.join('\n'));
+  assert.ok(flat(lines).includes('Run it in your practice copy too: you will see the same result.'), lines.join('\n'));
   fitsAll(d.state, 'C done');
   // In the copy, the lines are as they were.
   const copy = atI1({ intermediate: COPY });
@@ -368,13 +368,13 @@ test('every line that sends the learner to another terminal says which folder: t
   c.key('m');
   mapTo(c, 'i-5');
   c.key('enter');
-  assert.ok(has(screen(c.state), `${C.where.terminal}, ${C.inFolder('my-app')}`), screen(c.state).join('\n'));
+  assert.ok(has(screen(c.state), 'in a terminal, in my-app'), screen(c.state).join('\n'));
   c.key('m');
   mapTo(c, 'i-capstone');
   c.key('enter');
   assert.equal(c.state.lesson, 'i-capstone');
   assert.equal(lastOf(c.effects, 'check').dir, COPY, 'i-capstone checks in the copy');
-  assert.ok(has(screen(c.state), `${C.where.terminal}, ${C.inCopy}`), screen(c.state).join('\n'));
+  assert.ok(has(screen(c.state), 'in a terminal, in your practice copy'), screen(c.state).join('\n'));
   assert.ok(!has(headOf(screen(c.state)), C.inFolder('my-app')));
 });
 
@@ -405,7 +405,7 @@ test('a run line\'s <your repo> shows the work folder, the way <your practice co
   // the note for a command typed here.
   const d = atI1({ intermediate: MINE }, course);
   playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'C');
-  assert.ok(has(screen(d.state), `${C.where.terminal}, ${C.inCopy}`), screen(d.state).join('\n'));
+  assert.ok(has(screen(d.state), 'in a terminal, in your practice copy'), screen(d.state).join('\n'));
   d.send({ type: 'paste', text: 'npm run check -- i-1', wait: 40 });
   assert.ok(flat(screen(d.state)).includes(C.strayIn(C.inCopy)), screen(d.state).join('\n'));
   assert.ok(!flat(screen(d.state)).includes(C.strayIn(C.inFolder('my-app'))), screen(d.state).join('\n'));
@@ -1514,8 +1514,8 @@ test('the header says where each step happens: in your practice copy on a Worked
   head('W1', C.inCopy, C.inFolder('my-app'));
   passHere(d, COPY);
   head('W2', C.inCopy, C.inFolder('my-app'));
-  // W2's card: a third terminal in the copy, and its run line names the copy.
-  for (const size of SIZES) assert.ok(has(screen(d.state, size), `${C.where.shell}, ${C.inCopy}`), screen(d.state, size).join('\n'));
+  // W2's card and run line name the same practice folder.
+  for (const size of SIZES) assert.ok(has(screen(d.state, size), 'in a terminal, in your practice copy'), screen(d.state, size).join('\n'));
   assert.ok(has(screen(d.state), `cd ${COPY}`), screen(d.state).join('\n'));
   d.send({ type: 'paste', text: 'git status', wait: 40 });
   assert.ok(flat(screen(d.state)).includes(C.strayIn(C.inCopy)), screen(d.state).join('\n'));
@@ -1525,13 +1525,13 @@ test('the header says where each step happens: in your practice copy on a Worked
   passHere(d, MINE);
   passHere(d, MINE);
   head('Y2', C.inFolder('my-app'), C.inCopy);
-  for (const size of SIZES) assert.ok(has(screen(d.state, size), `${C.where.shell}, ${C.inFolder('my-app')}`), screen(d.state, size).join('\n'));
+  for (const size of SIZES) assert.ok(has(screen(d.state, size), 'in a terminal, in my-app'), screen(d.state, size).join('\n'));
   passHere(d, MINE);
   passHere(d, MINE);
   // The Check: its run line fills <your repo> with the work folder, from the copy.
   head('C', C.inFolder('my-app'), C.inCopy);
   assert.ok(has(screen(d.state, [80, 24]), `npm run check -- i-1 --dir ${MINE}`), screen(d.state, [80, 24]).join('\n'));
-  assert.ok(has(screen(d.state), `${C.where.shell}, ${C.inCopy}`), screen(d.state).join('\n'));
+  assert.ok(has(screen(d.state), 'in a terminal, in your practice copy'), screen(d.state).join('\n'));
   // The resume screen of a Worked example step says the copy.
   const r = atWorked({ intermediate: MINE }, { 'i-1': { step: 'W3', beat: 0, levels: [] } });
   for (const size of SIZES) assert.ok(has(headOf(screen(r.state, size)), C.inCopy), screen(r.state, size).join('\n'));

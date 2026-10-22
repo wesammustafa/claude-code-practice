@@ -14,6 +14,8 @@ A new teammate starts on Monday. Set up this repository so their Claude Code ses
 6. **Team settings.** Claude must never read `.env` files. It may run `npm test` without asking. The sandbox is on.
 7. **Project memory.** `CLAUDE.md` pulls in `package.json` with an import, and testing conventions live in a rule scoped to the files under `test/`.
 
+8. **A real bug fix.** Reproduce the malformed-percent crash in `capstone/intermediate-bug.md`, add a regression test, repair it and review the change using your setup. Commit the source fix and its regression test together.
+
 ## Done when
 
 - `npm test` passes and nothing is left uncommitted.

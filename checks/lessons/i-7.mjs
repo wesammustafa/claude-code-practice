@@ -1,13 +1,18 @@
 // Connect a tool with MCP (Intermediate, lesson 7). The Learner shares Chrome
 // DevTools MCP at project scope in a committed .mcp.json, pinned to one
 // version with the server's three outbound data flows turned off, and saves
-// a screenshot a session took with it.
+// a PNG capture and a repaired local demo. The real MCP console observation
+// remains a session self-check.
 import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 export const title = 'Connect a tool with MCP';
 
 const SHOT = '.practice/i-7-page.png';
+const DEMO = '.practice/demo.html';
+const DEMO_RUNNER = fileURLToPath(new URL('./i-7-demo.mjs', import.meta.url));
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function server(value) {
@@ -45,12 +50,27 @@ export const items = [
     },
   },
   {
-    text: '`.practice/i-7-page.png` is a screenshot the server saved',
+    text: '`.practice/i-7-page.png` holds a PNG image',
     local: true,
     check(repo) {
       const path = join(repo.dir, SHOT);
       if (!existsSync(path)) return `There is no ${SHOT}. Ask Claude to use the chrome-devtools tools to open a page and save a screenshot to ${SHOT}.`;
       return readFileSync(path).subarray(0, 8).equals(PNG_SIGNATURE) ? true : `${SHOT} isn't a PNG image. Ask Claude to save the screenshot again, as a PNG.`;
+    },
+  },
+  {
+    text: 'the demo script displays `2 links ready` without a script error',
+    local: true,
+    check(repo) {
+      const html = repo.read(DEMO);
+      if (html === null) return `There is no ${DEMO}. Save the broken page from the Worked example, then use MCP to diagnose and repair it.`;
+      const result = spawnSync(process.execPath, ['--max-old-space-size=32', DEMO_RUNNER], {
+        input: html, encoding: 'utf8', timeout: 1500, maxBuffer: 16384, env: {},
+      });
+      let observed;
+      try { observed = JSON.parse(result.stdout); } catch { observed = null; }
+      if (result.error || result.status !== 0 || !observed || observed.error || observed.errors?.length) return 'The demo script fails. Use MCP to read the error, then fix its cause in .practice/demo.html.';
+      return observed.counts?.[0] === '2 links ready' && observed.counts?.[1] === '3 links ready' ? true : "The demo count does not follow the page's links. Keep the calculation and fix the element it updates.";
     },
   },
 ];
