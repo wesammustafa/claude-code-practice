@@ -5,8 +5,9 @@
 // leaves that change in place.
 //   node practice/b-4/rename-export.mjs
 import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-const file = new URL('../../src/links.js', import.meta.url);
+const file = join(import.meta.dirname, '../../src/links.js');
 const text = readFileSync(file, 'utf8');
 if (!/\bfindLinks\b/.test(text)) {
   console.error('rename-export: src/links.js has no findLinks to rename.');

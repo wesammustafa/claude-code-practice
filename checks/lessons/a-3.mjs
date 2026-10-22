@@ -1,10 +1,13 @@
 // Run and save a dynamic workflow (Advanced, lesson 3). The Learner has
-// Claude write a workflow, saves the run from /workflows as a project command
-// in .claude/workflows/, has it read a folder from `args`, commits it, and
-// runs it by name on two folders, saving each report under .practice/ with
-// the folder on its first line. That both runs stayed within the size
-// guideline shows only in /workflows, so the lesson self-checks it. The
-// Advanced capstone reuses the script item with its own options.
+// Claude write a migration workflow that fixes until the tests pass, saves the
+// run from /workflows as a project command in .claude/workflows/, has it read
+// a folder from `args`, commits it, and runs it on two folders, saving each
+// report under .practice/ with the folder on its first line and the old
+// form's `git grep -E` pattern in .practice/a-3-pattern.txt. The history shows
+// the migration: the pattern matched in both folders before and matches in
+// neither at HEAD. Whether the tests pass, and what the Learner read in the
+// script before approving it, the lesson self-checks. The Advanced capstone
+// reuses the script item with its own options.
 import { statSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { planPaths } from '../paths.mjs';
@@ -13,7 +16,7 @@ import { findWorkflows, readWorkflow, STAGES } from '../workflow-script.mjs';
 export const title = 'Run and save a dynamic workflow';
 
 const REPORTS = ['.practice/a-3-run1.md', '.practice/a-3-run2.md'];
-const TODO = /\b(TODO|FIXME)\b/i;
+const PATTERN = '.practice/a-3-pattern.txt';
 
 const and = (list) => (list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0]);
 const code = (text) => `\`${text}\``;
@@ -182,49 +185,74 @@ export const twoFolderReports = {
       } else if (!within.length && fromFolder) {
         problems.push(`${code(r.path)} cites ${code(fromFolder.raw)}, a path from inside ${code(`${r.folder}/`)}. Each \`path:line\` must start at the repository's root, as ${code(`${r.folder}/${fromFolder.path}:${fromFolder.line}`)} does: start \`claude\` at the root, or ask Claude to write the paths from there, and run the workflow again.`);
       } else if (!within.length) {
-        problems.push(`${code(r.path)} cites no \`path:line\`${r.cites.length ? ` inside ${code(`${r.folder}/`)}` : ''}. Each item the workflow reports needs one, from the repository's root, such as ${code(`${r.folder}/<file>:<line>`)}.`);
+        problems.push(`${code(r.path)} cites no \`path:line\`${r.cites.length ? ` inside ${code(`${r.folder}/`)}` : ''}. Each file the report lists needs one, from the repository's root, such as ${code(`${r.folder}/<file>:<line>`)}.`);
       }
     }
     return problems.length ? problems.join(' ') : true;
   },
 };
 
-// The lines of a file in the working tree, without the empty one after a
-// final newline.
-function lines(repo, path) {
-  const list = (repo.read(path) ?? '').split(/\r?\n/);
-  if (list.length > 1 && list.at(-1) === '') list.pop();
-  return list;
+// The pattern's first non-blank line, without the backticks or quotes a
+// Learner may have kept around it.
+function readPattern(repo) {
+  const text = repo.read(PATTERN);
+  if (text === null) return { missing: true };
+  const line = text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? '';
+  const quoted = line.match(/^(`|'|")(.+)\1$/);
+  return { pattern: quoted ? quoted[2] : line };
 }
 
-export const citedTodos = {
-  text: 'every cited `path:line` exists and holds `TODO` or `FIXME`',
+// Whether `git grep -E` finds the pattern in `folder` at the trees `revs`, or
+// in the working tree's tracked files when `revs` is empty: true, false, or
+// git's own error for a pattern it can't read.
+function grep(repo, pattern, folder, revs = []) {
+  try {
+    repo.gitLocal('grep', '-q', '-E', '-e', pattern, ...revs, '--', folder);
+    return true;
+  } catch (error) {
+    if (error.status === 1) return false;
+    return { error: `${error.stderr ?? error.message}`.trim().split('\n')[0] };
+  }
+}
+
+// The commits that changed `folder`: each state the folder was ever in is
+// the tree of one of them.
+function changes(repo, folder) {
+  try {
+    return repo.gitLocal('rev-list', '--max-count=1000', 'HEAD', '--', folder).split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export const migratedFolders = {
+  text: `the \`git grep -E\` pattern in \`${PATTERN}\` matched inside both folders at an earlier commit, and matches inside neither at \`HEAD\``,
   local: true,
   check(repo) {
-    const reports = REPORTS.map((path) => readReport(repo, path)).filter((r) => r.text !== null && r.first);
-    if (!reports.length) return 'There are no reports to read yet. Save them as the item above says.';
-    const seen = new Map();
-    for (const r of reports) for (const c of r.cites) if (!seen.has(c.cited)) seen.set(c.cited, { ...c, folder: r.folder });
-    if (!seen.size) return 'The reports cite no `path:line`. Each item the workflow reports needs one, from the repository\'s root, such as `src/a.js:12`.';
-    const failures = [];
-    for (const c of seen.values()) {
-      if (!c.path) {
-        failures.push(`${code(c.raw)} names no file in this repository`);
-      } else if (!isFile(repo.dir, c.path)) {
-        const nested = c.folder && isFile(repo.dir, `${c.folder}/${c.path}`);
-        failures.push(nested ? `${code(c.raw)} is a path from inside ${code(`${c.folder}/`)}; from the root it's ${code(`${c.folder}/${c.path}:${c.line}`)}` : `there is no ${code(c.path)} for ${code(c.cited)}`);
-      } else {
-        const text = lines(repo, c.path);
-        if (c.line < 1) failures.push(`${code(c.cited)} names line 0, but lines start at 1`);
-        else if (c.line > text.length) failures.push(`${code(c.cited)} is past the end of ${code(c.path)}, which has ${text.length} line${text.length === 1 ? '' : 's'}`);
-        else if (!TODO.test(text[c.line - 1])) failures.push(`${code(c.cited)} holds no \`TODO\` or \`FIXME\``);
+    const { missing, pattern } = readPattern(repo);
+    if (missing) return `There is no ${code(PATTERN)}. Save the \`git grep -E\` pattern that finds the old form there, on one line, such as \`import\\.meta\\.url\`.`;
+    if (!pattern) return `${code(PATTERN)} is empty. Save the \`git grep -E\` pattern that finds the old form there, on one line.`;
+    const folders = [...new Set(REPORTS.map((path) => readReport(repo, path)).map((r) => r.folder).filter(Boolean))];
+    if (folders.length < 2) return 'The check reads the two folders from the reports\' first lines. Save the reports as the item above says.';
+    const shown = code(pattern);
+    const problems = [];
+    for (const folder of folders) {
+      const now = grep(repo, pattern, folder, ['HEAD']);
+      if (now?.error) return `git can't use the pattern in ${code(PATTERN)}, ${shown}: ${now.error}. Write it as \`git grep -E\` reads it, and test it with \`git grep -n -E '<pattern>' -- <folder>\`.`;
+      if (now) {
+        const tree = grep(repo, pattern, folder);
+        problems.push(tree === false
+          ? `${code(`${folder}/`)} is migrated in your working tree, but ${shown} still matches there at \`HEAD\`. Review the changes and commit them.`
+          : `${shown} still matches inside ${code(`${folder}/`)} at \`HEAD\`: \`git grep -n -E '${pattern}' -- ${shell(folder)}\` lists the lines. Run the workflow on that folder again, review its changes and commit them.`);
+        continue;
+      }
+      const revs = changes(repo, folder);
+      if (!revs.length || grep(repo, pattern, folder, revs) !== true) {
+        problems.push(`${shown} matches nothing inside ${code(`${folder}/`)} in any commit, so the check can't see a migration there. Write the pattern for the old form, and test it on a commit from before the run: \`git grep -n -E '<pattern>' <commit> -- ${shell(folder)}\` should list the old form.`);
       }
     }
-    if (!failures.length) return true;
-    const shown = failures.slice(0, 3).join('; ');
-    const more = failures.length > 3 ? `; and ${failures.length - 3} more` : '';
-    return `${shown.charAt(0).toUpperCase()}${shown.slice(1)}${more}. If the code changed after the run, run the workflow again and save a new report. If a report cites other lines in its reasons, ask Claude to cite only the \`TODO\` and \`FIXME\` lines.`;
+    return problems.length ? problems.join(' ') : true;
   },
 };
 
-export const items = [savedWorkflow({ needArgs: true }), twoFolderReports, citedTodos];
+export const items = [savedWorkflow({ needArgs: true }), twoFolderReports, migratedFolders];

@@ -1,11 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { findLinks, isExternal } from '../src/links.js';
 import { brokenLinks } from '../src/check-links.js';
 
-const samples = join(dirname(fileURLToPath(import.meta.url)), '..', 'samples');
+const samples = join(import.meta.dirname, '..', 'samples');
 
 test('finds inline links with their line numbers', () => {
   const links = findLinks('# Title\n\nSee [setup](setup.md) and [docs](https://example.com).\n');

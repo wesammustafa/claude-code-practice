@@ -1,2 +1,2 @@
-test
-test/links.test.js:26 - TODO still applies: no test calls brokenLinks with a non-empty ignore list, so skipping the targets that config.ignore lists is untested.
+practice
+practice/b-4/rename-export.mjs:8 - builds the path to src/links.js from import.meta.dirname instead of import.meta.url.
