@@ -21,6 +21,7 @@ try {
       globalThis.__i7Errors = errors;
       globalThis.document = {
         querySelector(selector) { return nodes[selector] ?? null; },
+        getElementById(id) { return nodes['#' + id] ?? null; },
         querySelectorAll(selector) { return selector === 'a' ? links : []; }
       };
       globalThis.console = { log() {}, warn() {}, error(...values) { errors.push(values.map(String).join(' ')); } };

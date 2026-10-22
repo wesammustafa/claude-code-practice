@@ -22,6 +22,7 @@ function repairedRepo(html = fixed) {
 for (const [name, html, expected] of [
   ['the selector mismatch still throws', demo("document.querySelector('#link-total').textContent = `${links.length} links ready`;"), 1],
   ['the repaired script updates the result element', fixed, 0],
+  ['a repair by element id updates the result element', demo("document.getElementById('link-count').textContent = `${links.length} links ready`;"), 0],
   ['suppressing the exception leaves the count broken', demo("try { document.querySelector('#link-total').textContent = `${links.length} links ready`; } catch {}"), 1],
   ['a static count without a script is not a repair', '<p id="link-count">2 links ready</p>', 1],
   ['a hardcoded assignment does not count the links', demo("document.querySelector('#link-count').textContent = '2 links ready';"), 1],
