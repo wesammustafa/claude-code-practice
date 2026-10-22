@@ -566,6 +566,10 @@ export function tryFirst(s) {
   return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' && canMiss ? 'pick' : null;
 }
 
+// A beat on screen that waits on a long run (ticket 103): the idle offer
+// never fires there, so the motion layer never goes still for it.
+export const longWait = (s) => s.view === 'step' && Boolean(s.beat) && !['done', 'already'].includes(s.beat.status) && Boolean(beatOf(s).wait);
+
 export function hintAvailable(s) {
   if (s.view !== 'step' || !s.beat || ['done', 'already'].includes(s.beat.status)) return false;
   if (beatOf(s).kind === 'type') return false;
@@ -1196,7 +1200,8 @@ export function reduce(prev, ev) {
         s.held = null;
         onKey(s, held, effects);
       }
-      if (ev.type === 'tick' && s.view === 'step' && s.beat && !['done', 'already'].includes(s.beat.status) && s.now - s.lastActivity >= IDLE_MS) {
+      // A long wait (ticket 103) is quiet by design: no offer, no unlock.
+      if (ev.type === 'tick' && s.view === 'step' && s.beat && !['done', 'already'].includes(s.beat.status) && !longWait(s) && s.now - s.lastActivity >= IDLE_MS) {
         s.beat.idle = true;
         s.beat.unlocked = true;
       }

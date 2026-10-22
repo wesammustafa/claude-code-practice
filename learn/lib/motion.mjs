@@ -3,7 +3,7 @@
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
 import { C } from './copy.mjs';
 import { faceCells, facePose } from './face.mjs';
-import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
+import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, longWait, stepOf, watching } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -167,7 +167,9 @@ const AMBIENT = ['welcome', 'step', 'checkonly'];
 // An overlay, or idle: no one-shot and no ambient loop moves. Only an
 // overlay stops the spinner, its seconds and the bounce: they show a child
 // that is still running (for at most 150 s an item).
-const idle = (s, at) => Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
+// A long wait (ticket 103) is never idle: the marker keeps stepping, one
+// frame for each look the app really takes.
+const idle = (s, at) => !longWait(s) && Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
 export const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
 
 // The words of the newest text: on a step card a "Not yet" line or feedback
@@ -680,6 +682,6 @@ export function nextChange(s, at, caps) {
   const quiet = quietFrom(s);
   if (!still && AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
   const life = !still && !caps.raster && ambientAllowed(s, at) && !childAt(s, at) ? lifeIn(s, at) : null;
-  if (life !== null && at + life < s.lastActivity + IDLE_MS) times.push(life);
+  if (life !== null && (longWait(s) || at + life < s.lastActivity + IDLE_MS)) times.push(life);
   return times.length ? Math.min(...times) : null;
 }

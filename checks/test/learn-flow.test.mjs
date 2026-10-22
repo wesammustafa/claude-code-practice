@@ -2,12 +2,13 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asStarted, backOffered, beatOf, DEFER_MS, HINT_LOCK_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { asStarted, backOffered, beatOf, cardMood, DEFER_MS, HINT_LOCK_MS, hintAvailable, IDLE_MS, longWait, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { GIT, OWN_PARTS, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { stampFor } from '../../learn/lib/holds.mjs';
 import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
 import { render } from '../../learn/lib/render.mjs';
+import { nextChange, phases, pipGates } from '../../learn/lib/motion.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { C } from '../../learn/lib/copy.mjs';
@@ -408,7 +409,9 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   assert.throws(() => parseLesson(DEMO_B2.replace('### R1 | Warm-up |', '### W9 | Worked example step 1 of 1 |'), 'demo'), /step heading in the warm-up section/);
   assert.throws(() => parseLesson(DEMO_B2.replace('### C | Check | Check', '### C | Warm-up | Check'), 'demo'), /warm-up heading in the steps section/);
   assert.throws(() => parseLesson(DEMO_B2.replace('- evidence: .practice/b-2-before.txt\n- goal', '- goal'), 'demo'), /a fresh check needs an evidence file/);
-  assert.throws(() => parseLesson(DEMO_B2.replace('- where: shell', '- where: browser'), 'demo'), /unknown where browser/);
+  assert.throws(() => parseLesson(DEMO_B2.replace('- where: shell', '- where: moon'), 'demo'), /unknown where moon/);
+  // The app can't see a browser: W1's check there is refused (ticket 103).
+  assert.throws(() => parseLesson(DEMO_B2.replace('- where: shell', '- where: browser'), 'demo'), /a browser beat verifies with self/);
   assert.throws(() => parseLesson(DEMO_B2.replace('- skill: snapshot\n- where: shell', '- skill: snapshot\n- from: b-1\n- where: shell'), 'demo'), /only a warm-up names the lesson it comes from/);
   // A "Done when" in the app's words is a check's or a file's expectation.
   const said = parseLesson(DEMO_B2.replace('- goal: "Save it again."', '- goal: "Save it again."\n- say: Done when the file lists it.\n- say: Then press r.'), 'demo');
@@ -2732,4 +2735,109 @@ test('optional steps: ruleTiers never counts an optional step\'s skill (102)', (
   const counted = [...contents];
   counted[at - 1] = parseLesson(PARTS_B2.replace('- optional: Skip this part in the cheap variant.\n', ''), 'b-2.md');
   assert.equal(ruleTiers(counted, at)[0], 'hinted', 'a step that is not optional counts');
+});
+
+// ---- a second session, the browser and long waits (ticket 103) ---------------
+// DEMO_B2 with its terminals numbered as a page numbers them, and a Your
+// turn step 2 that opens a run in the browser, then waits on it in the
+// second Claude Code session until a local file says it ended.
+const WAIT_B2 = DEMO_B2
+  .replace('next: b-3\n', 'next: b-3\nterminals: [terminal claude, claude-2, shell]\n')
+  .replace('### Y1 | Your turn step 1 of 1 | Save it again', '### Y1 | Your turn step 1 of 2 | Save it again')
+  .replace('### C | Check | Check', `### Y2 | Your turn step 2 of 2 | Watch the run
+- tier: challenge
+- skill: long-run
+- beat: do
+- where: browser
+- verify: none
+- do: "Open the run."
+- beat: do
+- where: claude-2
+- verify: file .practice/run.txt
+- wait: long
+- goal: "Wait for the run to finish."
+
+### C | Check | Check`);
+const onWaitB2 = (step, beat = 0, text = WAIT_B2) => {
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1', 'Y1'].slice(0, ['W1', 'Y1', 'Y2'].indexOf(step)), step, beat } } } });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== step || d.state.pos.beat !== beat) throw new Error(`onWaitB2: on ${d.state.view} ${stepOf(d.state)?.id} beat ${d.state.pos.beat}`);
+  return d;
+};
+const cardTop = (state, cols = 80, rows = 24, unicode = true) => screenText(state, cols, rows, unicode).find((l) => /[╭+]-/.test(l.trim().slice(0, 2)) || l.trim().startsWith('╭'));
+
+test('a second session, the browser and long waits: the grammar (103)', () => {
+  const l = parseLesson(WAIT_B2, 'b-2.md');
+  assert.deepEqual(l.terminals, { terminal: 1, claude: 1, 'claude-2': 2, shell: 3 });
+  const y2 = l.steps.find((s) => s.id === 'Y2');
+  assert.deepEqual(y2.beats.map((b) => [b.where, b.verify.kind, b.wait ?? null]), [['browser', 'none', null], ['claude-2', 'file', { text: null }]]);
+  assert.equal(parseLesson(DEMO_B2, 'b-2.md').terminals, null, 'without the key, nothing is numbered');
+  const quoted = parseLesson(WAIT_B2.replace('- wait: long', '- wait: "The run can take several minutes."'), 'b-2.md');
+  assert.deepEqual(quoted.steps.find((s) => s.id === 'Y2').beats[1].wait, { text: 'The run can take several minutes.' });
+  const bad = (from, to, re) => assert.throws(() => parseLesson(WAIT_B2.replace(from, to), 'b-2.md'), re);
+  bad('- wait: long', '- wait: a few minutes', /wait: long, or the page's words in quotes/);
+  bad('- wait: long', '- wait: long\n- wait: long', /a second wait line/);
+  bad('terminals: [terminal claude, claude-2, shell]', 'terminals: [terminal claude, claude-2, editor]', /editor is none of terminal, claude, claude-2, shell/);
+  bad('terminals: [terminal claude, claude-2, shell]', 'terminals: [terminal claude, claude claude-2, shell]', /terminals names claude twice/);
+  bad('terminals: [terminal claude, claude-2, shell]', 'terminals: [terminal claude, claude-2]', /where shell, which terminals doesn't number/);
+  // A browser beat: self, or none with a later beat of its step that reads a local file.
+  bad('- verify: file .practice/run.txt\n', '- verify: self\n', /a browser beat verifies with self, or with none and a later beat/);
+  bad('- where: browser\n- verify: none', '- where: browser\n- verify: check 0', /a browser beat verifies with self/);
+  assert.doesNotThrow(() => parseLesson(WAIT_B2.replace('- where: browser\n- verify: none', '- where: browser\n- verify: self'), 'b-2.md'));
+  // Only a do or self beat waits.
+  assert.throws(() => parseLesson(DEMO_B2.replace('- because: "Usage is something else."', '- because: "Usage is something else."\n- wait: long'), 'b-2.md'), /a wait line on the ask beat/);
+});
+
+test('a second session, the browser and long waits: the card labels its window as the page does (103)', () => {
+  const w1 = onWaitB2('W1');
+  assert.ok(cardTop(w1.state).includes(C.terminalN(3)), cardTop(w1.state));
+  fitsBoth(w1.state);
+  const browser = onWaitB2('Y2');
+  assert.ok(cardTop(browser.state).includes(`🌐 ${C.where.browser}`), cardTop(browser.state));
+  assert.ok(cardTop(browser.state, 60, 20, false).includes(`[BROWSER] ${C.where.browser}`), cardTop(browser.state, 60, 20, false));
+  fitsBoth(browser.state);
+  const second = onWaitB2('Y2', 1);
+  assert.ok(cardTop(second.state).includes(`💬 ${C.terminalN(2)}`), cardTop(second.state));
+  fitsBoth(second.state);
+  // Without numbers, the second session says what it is.
+  const plain = onWaitB2('Y2', 1, WAIT_B2.replace('terminals: [terminal claude, claude-2, shell]\n', ''));
+  assert.ok(cardTop(plain.state).includes(C.where['claude-2']), cardTop(plain.state));
+  fitsBoth(plain.state);
+  // The welcome promises no single other window.
+  assert.ok(!/two windows|other terminal\b/.test([C.twoWindows, C.otherWindow, ...C.otherWindowLines].join(' ')));
+});
+
+test('a second session, the browser and long waits: a long wait claims nothing the app cannot see (103)', () => {
+  const d = onWaitB2('Y2', 1);
+  // The app's own look at the file, which finds nothing yet.
+  d.send({ type: 'file', path: '.practice/run.txt', read: null, stamp: 'A' });
+  assert.equal(d.state.beat.status, 'waiting');
+  assert.equal(longWait(d.state), true);
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const card = screenText(d.state, cols, rows).map((l) => l.replace(/^\s*[│|]|[│|]\s*$/g, '')).join(' ').replace(/\s+/g, ' ');
+    assert.ok(card.includes(C.waitLong), `${cols}x${rows}: ${card}`);
+  }
+  const quiet = d.state.lastActivity;
+  // Ten quiet minutes: no idle offer, no CHALLENGE unlock, no "Stuck?".
+  for (let k = 0; k < 10; k++) d.send({ type: 'tick', wait: 60_000 });
+  assert.equal(d.state.beat.idle, false);
+  assert.equal(d.state.beat.unlocked, false);
+  assert.equal(cardMood(d.state), 'rest', 'Pip never wears the checking face for the run');
+  const at = quiet + 10 * 60_000;
+  const ON = { motion: true };
+  assert.equal(phases(d.state, at, ON).spinner, null, 'no spinner: no check child runs');
+  assert.equal(pipGates(d.state, at, { motion: true, truecolor: true, remote: false }).motion, true, 'the screen never goes still');
+  assert.notEqual(nextChange(d.state, at, ON), null, 'its next frame still comes');
+  fitsBoth(d.state);
+  // The file the run leaves ends the wait like any other file beat.
+  d.send({ type: 'file', path: '.practice/run.txt', read: Buffer.from('ok'), stamp: 'B' });
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(longWait(d.state), false);
+  // A beat with no wait goes idle as before.
+  const w = onWaitB2('Y2', 1, WAIT_B2.replace('- wait: long\n', ''));
+  w.send({ type: 'file', path: '.practice/run.txt', read: null, stamp: 'A' });
+  w.send({ type: 'tick', wait: IDLE_MS + 1_000 });
+  assert.equal(longWait(w.state), false);
+  assert.equal(w.state.beat.idle, true);
+  assert.equal(pipGates(w.state, w.now, { motion: true, truecolor: true, remote: false }).motion, false);
 });
