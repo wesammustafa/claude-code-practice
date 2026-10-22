@@ -7,7 +7,7 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import { isTestFile, TEST_NAMES } from '../paths.mjs';
+import { isTestFile } from '../paths.mjs';
 
 export const title = 'Your first change, from request to commit';
 
@@ -91,8 +91,8 @@ export const testsPass = {
       return error ? `\`npm test\` fails. ${error}` : run.status === 0 ? true : '`npm test` fails. Run it, read the first failure, and ask Claude to fix the code, not the test.';
     }
     const saved = repo.read('.practice/b-3-tests.txt');
-    const save = '`<your test command>; echo $? > .practice/b-3-tests.txt` (Windows: `<your test command>; $LASTEXITCODE > .practice/b-3-tests.txt`)';
-    if (saved === null) return `This repository has no \`npm test\` script. Run your tests, then save their exit code: ${save}.`;
+    const save = '`<your test command>; echo $? > .practice/b-3-tests.txt` (Windows: end with `$LASTEXITCODE > .practice/b-3-tests.txt`)';
+    if (saved === null) return `This repository has no \`npm test\` script. Save your tests' exit code: ${save}.`;
     const code = saved.trim();
     if (code === '0') return true;
     // In PowerShell, `$?` is True or False rather than an exit code.
@@ -121,7 +121,7 @@ export const items = [
         'doc.md': '[setup](setup.md "Setup guide")\n[gone](gone.md "Old page")\n[old](old.md \'Old page\')\n',
       });
       if (error) return error;
-      if (broken.has(1)) return `The checker reports \`[setup](setup.md "Setup guide")\` as a broken link to \`${broken.get(1)}\`, although setup.md exists: the title is still part of the target. Ask Claude to leave the title out of the target, with a test for it.`;
+      if (broken.has(1)) return `The checker reports \`[setup](setup.md "Setup guide")\` as a broken link to \`${broken.get(1)}\`, though setup.md exists. Ask Claude to leave the title out of the target, with a test.`;
       const links = { 2: ['`[gone](gone.md "Old page")`', 'gone.md'], 3: ['`[old](old.md \'Old page\')`', 'old.md'] };
       const skipped = [2, 3].filter((line) => !broken.has(line)).map((line) => links[line][0]);
       if (skipped.length) return `The checker skips ${skipped.join(' and ')}. Finish the worked example: links with a title, in double or single quotes, are checked, with a test for each.`;
@@ -141,7 +141,7 @@ export const items = [
       const skipped = [2, 3].filter((line) => !broken.has(line));
       if (!skipped.length) return true;
       // Before the Learner commits a fix, the hint leaves finding the flaw to them.
-      if (!patchCommitted(repo)) return 'The checker skips a link that the patch\'s description says is still checked, so the patch\'s flaw is still there. Read its description again, compare it with what the new line skips, and tell Claude what you found (Your turn, steps 1 and 3).';
+      if (!patchCommitted(repo)) return 'The checker skips a link that the patch\'s description says is still checked: the flaw is still there. Compare that description with what the new line skips, and tell Claude (Your turn, steps 1 and 3).';
       return `Your commit still skips ${skipped.map((line) => links[line]).join(' and ')}. Only \`//\` or a URL scheme is external. Fix the rule, add a test that fails on the patch, and commit both.`;
     },
   },
@@ -179,7 +179,7 @@ export const items = [
       // A merge's combined diff can omit files changed by only one parent.
       const files = repo.git('diff', '--name-only', 'HEAD^', 'HEAD').split('\n').filter(Boolean);
       const tests = files.filter(isTestFile);
-      if (!tests.length) return `Your last commit changes no test file (${files.join(', ') || 'no files'}). The check counts ${TEST_NAMES}. Ask Claude to add the test and amend the commit with \`git commit --amend\`.`;
+      if (!tests.length) return `Your last commit changes no test file (${files.join(', ') || 'no files'}): none is in a test/ folder or named like links.test.js. Add one, then \`git commit --amend\`.`;
       if (tests.length === files.length) return `Your last commit changes only tests (${files.join(', ')}). If the code change is in the commit before it, ask Claude to combine the two commits into one.`;
       return true;
     },

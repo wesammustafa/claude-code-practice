@@ -56,13 +56,15 @@ export const items = [
     check(repo) {
       if (committedMode(repo, HOOK) === null) return `Commit ${HOOK}: the check runs the committed script, the one your teammates get.`;
       const wrong = [];
+      const quiet = [];
       for (const [path, want] of CASES) {
         const run = runCommitted(repo, HOOK, path, 'Write');
         if (run.error) return `The hook couldn't run: ${run.error.message}`;
         if (missingJq(run)) return 'The hook needs `jq`, which isn\'t installed. Install it and run the check again.';
         if (run.status !== want) wrong.push(`${path} gave exit ${run.status}, expected ${want}`);
-        else if (want === 2 && !run.stderr.trim()) wrong.push(`${path} was blocked without a reason on stderr for Claude`);
+        else if (want === 2 && !run.stderr.trim()) quiet.push(path);
       }
+      if (quiet.length) wrong.push(`${quiet.join(', ')} ${quiet.length === 1 ? 'was' : 'were'} blocked without a reason on stderr for Claude`);
       return wrong.length ? `${wrong.join('; ')}.` : true;
     },
   },

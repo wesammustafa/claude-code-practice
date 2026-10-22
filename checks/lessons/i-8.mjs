@@ -56,7 +56,7 @@ export const items = [
       // and projectEnabled reflects the settings of the folder it ran in, so an
       // install counts only when its projectPath is this repository.
       const ok = (Array.isArray(list) ? list : list?.installed ?? []).some((p) => ids.includes(p?.id) && p.scope === 'project' && p.enabled === true && p.projectEnabled === true && here(p.projectPath, repo.dir) !== false);
-      return ok ? true : `The saved list doesn't show ${ids[0] ?? 'the plugin'} installed at project scope for this repository. Run \`claude plugin install ${ids[0] ?? '<plugin>@<marketplace>'} --scope project\` in the repository, then ${SAVE}.`;
+      return ok ? true : `The saved list doesn't show the plugin at project scope in this repository. Run \`claude plugin install ${ids[0] ?? '<plugin>@<marketplace>'} --scope project\` here, then ${SAVE}.`;
     },
   },
 ];

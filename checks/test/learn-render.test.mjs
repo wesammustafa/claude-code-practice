@@ -13,7 +13,8 @@ import { bootFrame, BOX_ROWS, cardMax, itemsMax, pipSlot, render } from '../../l
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
-import { allScreens, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
+import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -1372,13 +1373,39 @@ test('at 60x20 and 80x24 no teaching line is cut on the intro, complete, next an
         const text = flatText(lines.join(''));
         const content = lessonById(state.lesson).content;
         // "A notch harder" shows only before a lesson with a lesson file in
-        // the same level (ticket 85).
+        // the same level (ticket 85) that plans a larger share of steps
+        // above GUIDED (ticket 186).
         const next = nextLessonOf(state);
-        const notch = next?.content && levelOf(state, next.id) === levelOf(state);
+        const notch = next?.content && levelOf(state, next.id) === levelOf(state) && lessHelp(next.id) > lessHelp(state.lesson);
         const words = state.view === 'levelup' ? (state.levelTo === 'challenge' ? C.toChallenge : C.toHinted)
           : state.view === 'next' ? [C.notchHarder, C.savedBreak].filter((w) => w !== C.notchHarder || notch) : content.intro.can;
         for (const word of words) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is not whole${show}`);
       }
+    }
+  }
+});
+
+// A lesson's planned share of steps above GUIDED.
+const lessHelp = (id) => {
+  const m = mix(ruleTiers(allCourse.map((l) => l.content), allCourse.findIndex((l) => l.id === id)));
+  return (m[1] + m[2]) / (m[0] + m[1] + m[2]);
+};
+
+// i-2 plans 8 of 11 steps above GUIDED, i-3 6 of 9 and i-4 7 of 10.
+test('"A notch harder" shows only when the next lesson plans a larger share of steps above GUIDED: not i-2 to i-3, but i-3 to i-4 (ticket 186)', () => {
+  assert.ok(lessHelp('i-3') < lessHelp('i-2') && lessHelp('i-4') > lessHelp('i-3'));
+  const t = theme(CAPS.full);
+  for (const [id, notch] of [['i-2', false], ['i-3', true]]) {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...foldersBefore(lessonById(id)) } });
+    playUntil(d, (s) => s.view === 'next' && s.lesson === id);
+    for (const [cols, rows] of SHORT) {
+      const lines = render(d.state, { cols, rows }, t).map(strip);
+      const where = `${id} next at ${cols}x${rows}\n${lines.join('\n')}`;
+      const up = lines.findIndex((l) => l.includes(C.nextUp));
+      assert.ok(up > 0, where);
+      assert.equal(flatText(lines.join('')).includes(flatText(C.notchHarder)), notch, where);
+      // The next lesson's climb still shows within the level.
+      assert.ok(lines.slice(up).some((l) => /[●◆★]{3}/.test(l)), where);
     }
   }
 });
@@ -1637,27 +1664,26 @@ test('b-2\'s real FAIL messages at "The check says:" keep the card\'s title, Goa
 // line is cut" to the intro, complete and next screens; this list keeps the
 // step screens' count from growing unseen.
 const CUT_AT_60X20 = {
-  full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4',
+  full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4',
     // Intermediate's long hints and code blocks at 60x20.
     'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y3.0 hint 1',
-    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1', 'i-7 Y3.0 hint 1', 'i-7 C.0 hint 1',
+    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
-    'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
+    'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
     'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.1 hint 1 (skipped)',
     'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
-    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)', 'i-7 C.0 hint 1 (skipped)'],
-  ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-3 W6.2 hint 1', 'b-4 W5.4 hint 1',
-    'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-5 W4.0 hint 1', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
-    'b-capstone T3.1 hint 1', 'b-capstone T6.1 hint 1',
-    'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y2.0 hint 1', 'i-6 Y3.0 hint 1',
-    'i-6 C.0 hint 1', 'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1', 'i-7 Y3.0 hint 1', 'i-7 C.0 hint 1',
-    'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W6.2 hint 1 (skipped)', 'b-4 W4.2 hint 1 (skipped)',
+    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)'],
+  ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
+    'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
+    'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y3.0 hint 1',
+    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1',
+    'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
-    'b-5 W4.0 hint 1 (skipped)', 'b-5 W7.1 hint 1 (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
-    'b-capstone T1.2 hint 1 (skipped)', 'b-capstone T3.1 hint 1 (skipped)', 'b-capstone T6.1 hint 1 (skipped)',
+    'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
+    'b-capstone T1.2 hint 1 (skipped)',
     'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.1 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)',
-    'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)', 'i-6 C.0 hint 1 (skipped)',
-    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)', 'i-7 Y3.0 hint 1 (skipped)', 'i-7 C.0 hint 1 (skipped)'],
+    'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
+    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
@@ -1743,6 +1769,26 @@ const playedWarmups = (id, played, lessons = allCourse) => {
 // learner back in b-2: b-2's then plays as it would with no explainer.
 const withoutWhy = (state) => ({ ...state, progress: { ...state.progress, 'b-3': { ...state.progress['b-3'], warm: ['R1'] } } });
 const explains = (d, cols = 80, rows = 24) => flatText(plainAt(d, cols, rows)).includes(flatText(WARMUP_WHY));
+
+// Ticket 187: on a typing beat s is a letter of the answer, so a wrong
+// answer the lesson didn't list names the empty line instead; an ask beat
+// keeps its s.
+test('a wrong typed answer says enter on an empty line shows the answer, not s', () => {
+  for (const [id, skill, lessons] of [['b-4', 'exit', bareExit], ['i-3', 'run-skill', allCourse]]) {
+    const d = firstWarmup(id, { missed: [skill] }, lessons);
+    assert.equal(beatOf(d.state).kind, 'type', id);
+    for (const c of 'nope') d.key(c, c);
+    d.key('enter');
+    const text = flatText(plainAt(d, 80, 24));
+    assert.ok(text.includes(flatText(C.lookAgainTyped)), `${id}\n${plainAt(d, 80, 24)}`);
+    assert.ok(!text.includes(flatText(C.lookAgain)), id);
+  }
+  // i-3 R2, an ask beat, with the same bare wrong answer keeps s.
+  const ask = firstWarmup('i-3', { missed: ['write-rule'] });
+  assert.equal(beatOf(ask.state).kind, 'ask');
+  ask.state.beat.feedback = { kind: 'wrong' };
+  assert.ok(flatText(plainAt(ask, 80, 24)).includes(flatText(C.lookAgain)), plainAt(ask, 80, 24));
+});
 
 test('the level\'s first warm-up says why warm-ups exist, under "Warm-up from lesson N", and no other warm-up does', () => {
   const d = firstWarmup('b-2', { missed: ['start'] });
@@ -2304,10 +2350,8 @@ const NOTCH_ONE = '"A notch harder" wraps to two rows, and its Go further line w
 const GO_FURTHER_GIVES = {
   'b-2 next at 60x20': 'its Next up title wraps to two rows and its Go further line to three, so no spacer is left for the recall row',
   'i-1 next at 60x20': NOTCH,
-  'i-2 next at 60x20': NOTCH,
   'i-3 next at 60x20': NOTCH,
   'i-4 next at 60x20': NOTCH_ONE,
-  'i-6 next at 60x20': NOTCH_ONE,
   'i-7 next at 60x20': NOTCH_ONE,
   'i-8 next at 60x20': NOTCH_ONE,
 };
@@ -3809,6 +3853,50 @@ test('the same-answer note: no row above it moves, nothing cut, the same words i
       }
       // The keys already on the bar keep their places: e comes in before q.
       if (cols === 80) assert.ok(keys.startsWith(was.at(-1).replace(/\s+q quit$/, '')), `the key bar moved: ${where}`);
+    }
+  }
+});
+
+// A bottom line's lead-in (ticket 188): the page's words that frame its
+// command, drawn above the command on the bottom rung and inline.
+test('a bottom line\'s lead-in shows above its command, on the bottom rung and inline, at 60x20 and 80x24', () => {
+  const file = readFileSync(join(root, 'learn', 'lessons', 'i-1.md'), 'utf8');
+  const tdd = parseLesson(file, 'i-1.md').steps.find((x) => x.id === 'Y4').beats[1].bottom[0];
+  assert.equal(tdd.leadIn, 'In the practice template:');
+  // The parser names the form.
+  const lead = '- lead-in: "In the practice template:"';
+  assert.throws(() => parseLesson(file.replace(lead, '').replace('- hint: "Approve its edits and test runs, and let it commit."', `$&\n${lead}`), 'i-1.md'), /a lead-in line with no bottom line above it/);
+  assert.throws(() => parseLesson(file.replace(lead, `${lead}\n${lead}`), 'i-1.md'), /a second lead-in line on one bottom line/);
+  assert.throws(() => parseLesson(file.replace(lead, '- lead-in: In the practice template:'), 'i-1.md'), /lead-in must be a quote of the lesson/);
+  // Its place, rows above the first row of the command it frames.
+  const above = (lines, where) => {
+    const text = lines.map(strip);
+    const at = text.findIndex((l) => l.includes('In the practice template:'));
+    const cmd = text.findIndex((l) => l.includes('/tdd a slugify'));
+    assert.ok(at >= 0 && cmd > at, `${where}\n${text.join('\n')}`);
+  };
+  const bottom = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('i-1'), 'i-1': { warm: ['R1', 'R2', 'R3'], step: 'Y4', beat: 1, levels: ['challenge'] } } } });
+  bottom.key('enter');
+  for (let i = 0; i < 8 && !bottom.state.beat.confirm; i++) bottom.key('h');
+  bottom.key('y');
+  assert.equal(rungsOf(bottom.state)[bottom.state.beat.rung].kind, 'bottom');
+  // Inline: a HINTED step eased to GUIDED shows its bottom lines on the card.
+  const course = courseWith({ 'i-1': file.replace('- bottom: "mkdir -p .claude/skills/tdd"', `$&\n${lead}`) });
+  const inline = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('i-1'), 'i-1': { warm: ['R1', 'R2', 'R3'], step: 'Y1', beat: 0, levels: ['challenge'], easedSteps: { Y1: true } } } } });
+  inline.key('enter');
+  assert.equal(tierOf(inline.state), 'guided');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    for (const [name, caps] of Object.entries(CAPS)) {
+      const t = theme(caps);
+      const where = `${cols}x${rows} (${name})`;
+      const lines = render(bottom.state, { cols, rows }, t);
+      assert.equal(lines.length, rows, where);
+      for (const line of lines) assert.ok(width(line) <= cols - 1, `${where}: ${strip(line)}`);
+      above(lines, `bottom rung at ${where}`);
+      const card = render(inline.state, { cols, rows }, t).map(strip);
+      const at = card.findIndex((l) => l.includes('In the practice template:'));
+      const cmd = card.findIndex((l) => l.includes('mkdir -p .claude/skills/tdd'));
+      assert.ok(at >= 0 && cmd > at, `inline at ${where}\n${card.join('\n')}`);
     }
   }
 });

@@ -3,7 +3,7 @@
 // commits it, and saves the commit a /tdd run made. Whether Claude loaded the
 // skill on its own shows only in a session, so the lesson self-checks it.
 import { frontmatter } from '../frontmatter.mjs';
-import { isTestFile, TEST_NAMES } from '../paths.mjs';
+import { isTestFile } from '../paths.mjs';
 
 export const title = 'Turn a repeated workflow into a skill';
 
@@ -67,7 +67,7 @@ export const items = [
       const tests = files.filter(isTestFile);
       const code = files.filter((f) => !isTestFile(f) && !/\.md$/i.test(f) && !f.startsWith('.claude/'));
       if (tests.length && code.length) return true;
-      return `That commit should hold a test and the code it tests, together; it changes ${files.join(', ') || 'nothing'}. Tests are ${TEST_NAMES}. Run /tdd on a small feature, let it commit, then run ${SAVE_COMMIT} again.`;
+      return `That commit should hold a test and the code it tests. Run /tdd, commit both, then ${SAVE_COMMIT}.`;
     },
   },
 ];
