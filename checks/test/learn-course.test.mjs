@@ -53,12 +53,12 @@ const PAGES = [
   ['b-capstone', 'beginner', 'capstone', '30 to 60 minutes'],
   ['i-1', 'intermediate', '01-first-skill', 'about 20 minutes'],
   ['i-2', 'intermediate', '02-organize-memory', 'about 20 minutes'],
-  ['i-3', 'intermediate', '03-model-and-effort', 'about 15 minutes'],
+  ['i-3', 'intermediate', '03-model-and-effort', 'about 20 minutes'],
   ['i-4', 'intermediate', '04-permissions-and-sandbox', 'about 20 minutes'],
   ['i-5', 'intermediate', '05-hooks', 'about 20 minutes'],
-  ['i-6', 'intermediate', '06-subagents', 'about 20 minutes'],
-  ['i-7', 'intermediate', '07-mcp', 'about 20 minutes'],
-  ['i-8', 'intermediate', '08-plugins', 'about 20 minutes'],
+  ['i-6', 'intermediate', '06-subagents', 'about 25 minutes'],
+  ['i-7', 'intermediate', '07-mcp', 'about 25 minutes'],
+  ['i-8', 'intermediate', '08-plugins', 'about 25 minutes'],
   ['i-capstone', 'intermediate', 'capstone', '30 to 60 minutes'],
   ['a-1', 'advanced', '01-parallel-sessions', 'about 20 minutes'],
   ['a-2', 'advanced', '02-orchestration-patterns', 'about 20 minutes'],
@@ -81,7 +81,7 @@ test('PATH lists all 23 lessons in course order, each with its page, its level a
 test('SLOW holds every item that starts a process, so a poll or a file event never runs one', () => {
   assert.deepEqual(SLOW, {
     'b-1': [0], 'b-2': [2, 3], 'b-3': [0, 1, 2, 4], 'b-4': [3], 'b-capstone': [2, 3, 4],
-    'i-5': [2], 'i-capstone': [1, 9],
+    'i-5': [2], 'i-7': [2], 'i-capstone': [1, 9, 11],
     'a-4': [1, 2, 3], 'a-7': [0, 1, 2, 3, 4], 'a-capstone': [4, 5, 6, 11],
   });
 });
@@ -91,7 +91,7 @@ test('plain output runs no slow item: it names how many slower ones npm run chec
   const r = spawnSync(process.execPath, [join(root, 'learn', 'app.mjs')], { input: '', encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stderr);
   const line = (label) => r.stdout.split('\n').find((l) => l.startsWith(`${label} `)) ?? '';
-  for (const [label, id, n] of [['I5', 'i-5', 1], ['IC', 'i-capstone', 2], ['A4', 'a-4', 3], ['A7', 'a-7', 5]]) {
+  for (const [label, id, n] of [['I5', 'i-5', 1], ['I7', 'i-7', 1], ['IC', 'i-capstone', 3], ['A4', 'a-4', 3], ['A7', 'a-7', 5]]) {
     assert.match(line(label), new RegExp(`\\(npm run check -- ${id} also runs ${n} slower one${n === 1 ? '' : 's'}\\)`), r.stdout);
   }
 });
@@ -474,7 +474,7 @@ test('r\'s run on the check-only card goes on through a trip to the map and back
 
 test('on a step card, r\'s run of a slow item spins as any check does: the seconds from 3 s, slower after 10 s', () => {
   const ids = slowHere.filter((id) => liveCourse.find((l) => l.id === id).content);
-  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-capstone']);
+  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-7', 'i-capstone']);
   for (const id of ids) {
     const l = liveCourse.find((x) => x.id === id);
     // The cards r put "Checking" over, for a beat whose check has a slow item.
@@ -515,7 +515,7 @@ test('the check-only card scrolls no further than the window that ends on the la
       const per = Number(opened[2] ?? opened[1]) - Number(opened[1]) + 1;
       for (let i = 0; i < 20; i++) arrow(d, 'down', size, t);
       const end = shown();
-      assert.equal(Number(end[2] ?? end[1]), 11, `${at}: the last item shows\n${lines(d.state, size, t).join('\n')}`);
+      assert.equal(Number(end[2] ?? end[1]), 12, `${at}: the last item shows\n${lines(d.state, size, t).join('\n')}`);
       assert.ok(Number(end[2] ?? end[1]) - Number(end[1]) + 1 >= per, `${at}: the last window holds as many items as the first\n${lines(d.state, size, t).join('\n')}`);
       arrow(d, 'up', size, t);
       assert.equal(Number(shown()[1]), Number(end[1]) - 1, `${at}: up moved the card at once`);

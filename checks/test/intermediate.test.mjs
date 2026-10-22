@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { check, commit, repo, withRepo, write } from './helpers.mjs';
+import { buggyApp, fixedApp } from './fixtures/intermediate-app.mjs';
 
 // The tdd skill as lesson i-1's Your turn leaves it once finished.
 const FINISHED_TDD = `---
@@ -534,11 +535,12 @@ function mcpRepo({ mcp = MCP(PINNED), shot = PNG } = {}) {
     const dir = repo({ '.mcp.json': mcp });
     commit(dir, 'Share Chrome DevTools MCP');
     if (shot) write(dir, { '.practice/i-7-page.png': shot });
+    write(dir, { '.practice/demo.html': '<a href="#guide">Guide</a> <a href="#reference">Reference</a>\n<p id="link-count">Counting links...</p>\n<script>\nconst links = document.querySelectorAll(\'a\');\ndocument.querySelector(\'#link-count\').textContent = `${links.length} links ready`;\n</script>' });
     return dir;
   };
 }
 
-test('i-7 passes for a pinned server with its data flows off and a saved screenshot', () => {
+test('i-7 passes for a pinned server, a repaired demo and a saved screenshot', () => {
   withRepo(mcpRepo(), (dir) => {
     const { code, out } = check(['i-7', '--dir', dir]);
     assert.equal(code, 0, out);
@@ -669,9 +671,9 @@ function capstoneRepo({ omit = [], hook = SAMPLES_HOOK, files: extra = {}, setti
       ...patch,
     };
     const files = {
-      'package.json': JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } }),
+      'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node -e "process.exit(0)"' } }),
       'samples/guide.md': '# Guide\n',
-      'src/cli.js': '// cli\n',
+      ...fixedApp,
       'test/links.test.js': '// test\n',
       'CLAUDE.md': '# linkcheck\n\n- npm scripts: @package.json\n',
       '.claude/rules/testing.md': '---\npaths:\n  - "test/**/*.js"\n---\n\n- Use node:test.\n',
@@ -689,6 +691,33 @@ function capstoneRepo({ omit = [], hook = SAMPLES_HOOK, files: extra = {}, setti
     return dir;
   };
 }
+
+test('the Intermediate capstone rejects the original malformed-percent crash', () => {
+  withRepo(capstoneRepo({ files: buggyApp }), dir => {
+    const { code, out } = check(['i-capstone', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /malformed percent/);
+  });
+});
+
+test('the Intermediate capstone does not accept an uncommitted malformed-percent fix', () => {
+  withRepo(capstoneRepo({ files: buggyApp }), dir => {
+    write(dir, fixedApp);
+    const { code, out } = check(['i-capstone', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /mishandles malformed percent/);
+  });
+});
+
+test('the Intermediate capstone rejects skipping malformed targets or breaking encoded paths', () => {
+  const skip = buggyApp['src/check-links.js'].replace('      const target = link.target.split', '      try { decodeURIComponent(link.target); } catch { continue; }\n      const target = link.target.split');
+  const raw = buggyApp['src/check-links.js'].replace('decodeURIComponent(target)', 'target');
+  for (const source of [skip, raw]) withRepo(capstoneRepo({ files: { 'src/check-links.js': source } }), dir => {
+    const { code, out } = check(['i-capstone', '--dir', dir]);
+    assert.equal(code, 1, out);
+    assert.match(out, /mishandles malformed percent/);
+  });
+});
 
 test('the Intermediate capstone passes when everything in the brief is committed', () => {
   withRepo(capstoneRepo(), (dir) => {

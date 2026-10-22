@@ -75,12 +75,12 @@ export const PATH = [
   { id: 'b-capstone', level: 'beginner', page: 'docs/beginner/capstone.md', minutes: '30 to 60 minutes' },
   { id: 'i-1', level: 'intermediate', page: 'docs/intermediate/01-first-skill.md', minutes: 'about 20 minutes' },
   { id: 'i-2', level: 'intermediate', page: 'docs/intermediate/02-organize-memory.md', minutes: 'about 20 minutes' },
-  { id: 'i-3', level: 'intermediate', page: 'docs/intermediate/03-model-and-effort.md', minutes: 'about 15 minutes' },
+  { id: 'i-3', level: 'intermediate', page: 'docs/intermediate/03-model-and-effort.md', minutes: 'about 20 minutes' },
   { id: 'i-4', level: 'intermediate', page: 'docs/intermediate/04-permissions-and-sandbox.md', minutes: 'about 20 minutes' },
   { id: 'i-5', level: 'intermediate', page: 'docs/intermediate/05-hooks.md', minutes: 'about 20 minutes' },
-  { id: 'i-6', level: 'intermediate', page: 'docs/intermediate/06-subagents.md', minutes: 'about 20 minutes' },
-  { id: 'i-7', level: 'intermediate', page: 'docs/intermediate/07-mcp.md', minutes: 'about 20 minutes' },
-  { id: 'i-8', level: 'intermediate', page: 'docs/intermediate/08-plugins.md', minutes: 'about 20 minutes' },
+  { id: 'i-6', level: 'intermediate', page: 'docs/intermediate/06-subagents.md', minutes: 'about 25 minutes' },
+  { id: 'i-7', level: 'intermediate', page: 'docs/intermediate/07-mcp.md', minutes: 'about 25 minutes' },
+  { id: 'i-8', level: 'intermediate', page: 'docs/intermediate/08-plugins.md', minutes: 'about 25 minutes' },
   { id: 'i-capstone', level: 'intermediate', page: 'docs/intermediate/capstone.md', minutes: '30 to 60 minutes', folder: 'copy' },
   { id: 'a-1', level: 'advanced', page: 'docs/advanced/01-parallel-sessions.md', minutes: 'about 20 minutes' },
   { id: 'a-2', level: 'advanced', page: 'docs/advanced/02-orchestration-patterns.md', minutes: 'about 20 minutes' },
@@ -108,7 +108,7 @@ export const PATH_MAX = 1024;
 // run. They run only when the learner presses r, never on every file change.
 export const SLOW = {
   'b-1': [0], 'b-2': [2, 3], 'b-3': [0, 1, 2, 4], 'b-4': [3], 'b-capstone': [2, 3, 4],
-  'i-5': [2], 'i-capstone': [1, 9],
+  'i-5': [2], 'i-7': [2], 'i-capstone': [1, 9, 11],
   'a-4': [1, 2, 3], 'a-7': [0, 1, 2, 3, 4], 'a-capstone': [4, 5, 6, 11],
 };
 export const GUIDE = 'https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know';

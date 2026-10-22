@@ -22,93 +22,9 @@ needs: [jq python3]
 - payoff: "get a repository ready for a new teammate"
 - need: "`jq` and `python3` for hook scripts, and Chrome for the MCP server."
 
-## warm-up
-
-### R1 | Warm-up | Only Edit and Write
-- tier: challenge
-- skill: write-hook
-- from: i-5
-- where: editor
-- beat: type
-- ask: Which matcher makes a hook watch only Claude's Edit and Write tools?
-- accept: Edit|Write
-- wrong: Bash
-- because: "An `Edit|Write` hook doesn't see shell commands: `echo X >> .env` goes through Bash."
-- reveal: "A matcher picks the tools a hook watches: `Edit|Write` runs it for those two tools only"
-
-### R2 | Warm-up | Still wrong after trying
-- tier: challenge
-- skill: set-model
-- from: i-3
-- where: claude
-- beat: ask
-- ask: Claude had the context, tried, and was still wrong. What do you change?
-- wrong: A higher effort
-- because: "Claude didn't try hard enough: it skipped a file or didn't run the tests"
-- wrong: The context
-- because: "Claude lacked context: a vague prompt, a missing tool or skill"
-- right: A larger model
-- reveal: "A larger model, such as `opus`"
-
-### R3 | Warm-up | After the teammate pulls
-- tier: challenge
-- skill: install-plugin
-- from: i-8
-- where: terminal
-- beat: ask
-- ask: You committed a project-scope plugin entry. What does each teammate still do, once?
-- right: Install the plugin on their machine
-- wrong: Nothing, the commit installs it
-- because: "it may not be installed on their machines yet"
-- wrong: Turn it on in their own settings
-- because: "Committing a project-scope entry turns the plugin on for your collaborators"
-- reveal: "each of them runs `claude plugin install <plugin>@<marketplace> --scope project` once."
-
-### R4 | Warm-up | Off, but still installed
-- tier: challenge
-- skill: manage-plugin
-- from: i-8
-- where: terminal
-- beat: type
-- ask: Which claude plugin command turns a plugin off, but keeps it installed?
-- accept: disable
-- accept: plugin disable
-- accept: claude plugin disable
-- wrong: uninstall
-- because: "`disable` turns it off and keeps it installed; `uninstall` removes it."
-- wrong: claude plugin uninstall
-- because: "`disable` turns it off and keeps it installed; `uninstall` removes it."
-- reveal: "claude plugin disable commit-commands@claude-plugins-official"
-
-### R5 | Warm-up | Asked again
-- tier: challenge
-- skill: approve-mcp
-- from: i-7
-- where: shell
-- beat: type
-- ask: You declined a project's MCP server by mistake. Which command lets Claude Code ask you about it again?
-- accept: claude mcp reset-project-choices
-- accept: mcp reset-project-choices
-- accept: reset-project-choices
-- reveal: "To be asked about a project's servers again, run `claude mcp reset-project-choices`."
-
-### R6 | Warm-up | Who gets the server
-- tier: challenge
-- skill: share-mcp
-- from: i-7
-- where: editor
-- beat: ask
-- ask: You commit an MCP server at project scope. Who gets it?
-- wrong: Only you, in this project
-- because: "Share the server with your team at project scope."
-- right: Everyone who works in the project
-- wrong: You, in every project
-- because: "Share the server with your team at project scope."
-- reveal: "Share the server with your team at project scope."
-
 ## steps
 
-### T1 | The task step 1 of 7 | A link-checker skill
+### T1 | The task step 1 of 8 | A link-checker skill
 - tier: challenge
 - skill: write-skill
 - where: editor
@@ -126,7 +42,7 @@ needs: [jq python3]
 - hint: "It runs by name and loads on its own when someone asks to check links ([lesson 1](01-first-skill.md))."
 - hint: "The brief is in `capstone/intermediate-brief.md` in your practice copy"
 
-### T2 | The task step 2 of 7 | Project memory and a test rule
+### T2 | The task step 2 of 8 | Project memory and a test rule
 - tier: challenge
 - skill: write-rule
 - where: editor
@@ -142,7 +58,7 @@ needs: [jq python3]
 - goal: "testing conventions live in a rule in `.claude/rules/` scoped to the files under `test/`"
 - hint: "A committed rule in `.claude/rules/` is scoped with `paths:`, and every scoped rule matches a file in the repository."
 
-### T3 | The task step 3 of 7 | Team settings
+### T3 | The task step 3 of 8 | Team settings
 - tier: challenge
 - skill: edit-settings
 - where: editor
@@ -165,7 +81,7 @@ needs: [jq python3]
 - say: Done when the shared file turns the sandbox on.
 - hint: "`/sandbox` saves to your local file, which teammates don't get, so add `"sandbox": {"enabled": true}` to the shared one."
 
-### T4 | The task step 4 of 7 | A hook for samples
+### T4 | The task step 4 of 8 | A hook for samples
 - tier: challenge
 - skill: write-hook
 - where: editor
@@ -181,7 +97,7 @@ needs: [jq python3]
 - say: Write the script the settings file runs, and make it executable.
 - hint: "A committed, executable `PreToolUse` hook for Edit and Write blocks `samples/` and nothing else."
 
-### T5 | The task step 5 of 7 | A reviewer subagent
+### T5 | The task step 5 of 8 | A reviewer subagent
 - tier: challenge
 - skill: write-subagent
 - where: editor
@@ -191,7 +107,7 @@ needs: [jq python3]
 - goal: "**A reviewer subagent** with read-only tools ([lesson 6](06-subagents.md))."
 - hint: "A committed reviewer subagent has only read-only tools."
 
-### T6 | The task step 6 of 7 | A pinned browser server
+### T6 | The task step 6 of 8 | A pinned browser server
 - tier: challenge
 - skill: share-mcp
 - where: editor
@@ -213,7 +129,7 @@ needs: [jq python3]
 - say: Done when update checks are off.
 - hint: "with usage statistics, CrUX lookups and update checks off"
 
-### T7 | The task step 7 of 7 | The setup plugin
+### T7 | The task step 7 of 8 | The setup plugin
 - tier: challenge
 - skill: install-plugin
 - where: editor
@@ -229,24 +145,39 @@ needs: [jq python3]
 - say: Then install it, as a teammate does.
 - bottom: "claude plugin install claude-code-setup@claude-plugins-official --scope project"
 
+### T8 | The task step 8 of 8 | Fix the malformed link bug
+- tier: challenge
+- skill: run-skill
+- where: claude
+- beat: do
+- verify: self
+- done-label: I reproduced it
+- goal: "Reproduce the malformed-percent bug in `capstone/intermediate-bug.md`."
+- hint: "A link such as `[broken](bad%.md)` crashes the checker instead of producing its normal broken-link report."
+- beat: do
+- verify: self
+- done-label: I saw red and green
+- say: Use your setup to fix the bug. Inspect a regression test failing before the repair and passing after it.
+- hint: "Malformed percent escapes are broken links; valid percent-encoded paths must still resolve."
+- beat: do
+- where: terminal
+- skill: commit
+- verify: self
+- done-label: I reviewed the commit
+- say: Review the source and test diff, run the tests, and commit the repair.
+- hint: "Commit the source fix and its regression test together."
+
 ### C | Check | Check
 - tier: challenge
 - skill: check
 - where: claude
-- beat: predict
-- skill: approve-mcp
-- safety: mcp-approval
-- ask: Guess: if the session asks you to approve the project's MCP server, what do you do?
-- right: Approve it, then use one of its tools
-- option: Decline it, so its tools stay off
-- reveal: "Then, in a session, try each part: run the skill by name, ask Claude to edit a file in `samples/` with its Edit tool, delegate a review, approve the MCP server and use one of its tools."
 - beat: do
 - where: terminal
 - skill: start
 - verify: self
 - done-label: it's running
-- goal: "Then, in a session, try each part"
-- say: Start Claude Code in your practice copy.
+- goal: "try each part"
+- say: Start Claude Code in your practice copy in auto mode.
 - beat: self
 - skill: use-mcp
 - done-label: yes, I did
@@ -299,11 +230,6 @@ needs: [jq python3]
 - verify: check all
 - run: "npm run check -- i-capstone"
 - hint: "Each item that fails prints what to fix."
-- beat: type
-- skill: write-hook
-- ask: Which hook event does your samples/ hook run on?
-- accept: PreToolUse
-- reveal: "A committed, executable `PreToolUse` hook for Edit and Write blocks `samples/` and nothing else."
 - beat: self
 - skill: install-plugin
 - done-label: yes, I did
@@ -317,11 +243,13 @@ needs: [jq python3]
 ## ladder
 
 ### a committed project skill that runs the link checker by name and can load on its own
+- back: T1 Review the skill here.
 - narrow "Commit a skill in": Is the skill committed, does its body run the link checker on a folder, does its description say what it does and when to use it, and is the line that stops it loading on its own gone?
 - hint: "A committed project skill runs the link checker by name and can load on its own."
 - hint: "It runs by name and loads on its own when someone asks to check links ([lesson 1](01-first-skill.md))."
 
 ### a committed, executable `PreToolUse` hook for Edit and Write blocks `samples/` and nothing else
+- back: T4 Review the sample protection here.
 - narrow "Commit an executable script": Is the script committed and executable, and does the committed settings file run it before Edit and Write?
 - narrow "A hook needs `jq`": Is jq installed on this machine?
 - narrow "No Edit|Write hook exits with 2": Does your committed script exit with 2 for a path inside samples/?
@@ -330,10 +258,12 @@ needs: [jq python3]
 - hint: "the tests depend on those exact files"
 
 ### a committed reviewer subagent with only read-only tools
+- back: T5 Review the reviewer here.
 - narrow "Commit a reviewer in": Is the reviewer committed, does its name or description say it reviews, and does its tools line list only tools that read?
 - hint: "A committed reviewer subagent has only read-only tools."
 
 ### the committed `.mcp.json` runs chrome-devtools-mcp at an exact version, with usage statistics, CrUX lookups and update checks off
+- back: T6 Review the browser server here.
 - narrow ".mcp.json is not committed": Does git status still list the server file as new or changed?
 - narrow "There is no .mcp.json": Is the server file saved at the root of your practice copy?
 - narrow "is not valid JSON": Is a comma or a bracket missing, or one too many, in the server file?
@@ -345,11 +275,13 @@ needs: [jq python3]
 - hint: "The committed `.mcp.json` runs chrome-devtools-mcp at an exact version, with usage statistics, CrUX lookups and update checks off."
 
 ### the committed `.claude/settings.json` enables a plugin from one of Anthropic's marketplaces
+- back: T7 Review the plugin setup here.
 - narrow "There is no committed .claude/settings.json that parses": Is the shared settings file committed, and does it still parse after your last edit?
 - narrow "turns on no plugin from Anthropic's marketplaces": Does the plugin's name end with the official marketplace's name, after the @?
 - hint: "The committed `.claude/settings.json` turns on a plugin from one of Anthropic's marketplaces."
 
 ### the committed `.claude/settings.json` denies reading `.env` files and allows a narrow test command
+- back: T3 Review the team rules here.
 - narrow "is not committed. Run": Does git status still list the shared settings file as new or changed?
 - narrow "There is no .claude/settings.json": Is the file saved at that path in your practice copy?
 - narrow "is not valid JSON": Is a comma or a bracket missing, or one too many, around the rules?
@@ -361,22 +293,26 @@ needs: [jq python3]
 - hint: "The committed `.claude/settings.json` denies reading `.env` files and allows a narrow test command."
 
 ### the committed `.claude/settings.json` turns the sandbox on, and `.claude/settings.local.json` stays out of git
+- back: T3 Review the shared sandbox choice.
 - narrow "is committed, but it holds your own settings": Did your personal settings file get committed along with the shared one?
 - narrow "doesn't turn the sandbox on": Is the sandbox on in the shared file, the one teammates get, and is that change committed?
 - hint: "`/sandbox` saves to your local file, which teammates don't get, so add `"sandbox": {"enabled": true}` to the shared one."
 
 ### a committed CLAUDE.md imports a file with `@path`, and the file exists
+- back: T2 Review the memory import here.
 - narrow "There is no committed CLAUDE.md": Is CLAUDE.md committed at the root of your practice copy?
 - narrow "has no @path import outside backticks": Is the import on a line of its own text, not inside backticks or a code block?
 - narrow "An import path runs until the first space": Does a period or a comma follow the import path with no space between?
 - hint: "A committed `CLAUDE.md` imports a file with `@path`, and the file exists."
 
 ### a committed rule in `.claude/rules/` is scoped with `paths:`, and every scoped rule matches a file in the repository
+- back: T2 Review the testing rule here.
 - narrow "No committed file in .claude/rules/ has": Is the rule committed, with its scope in the front matter at the top of the file?
 - narrow "which matches no file in the repository": Does the rule's pattern match the test files as git lists them?
 - hint: "A committed rule in `.claude/rules/` is scoped with `paths:`, and every scoped rule matches a file in the repository."
 
 ### the tests pass
+- back: T8 Review the repair and its tests.
 - narrow "`npm test` fails": What is the first failure the tests print?
 - narrow "has no `npm test` script": Is the check reading your practice copy?
 - narrow "not an exit code": What does the saved test result file hold now?
@@ -387,6 +323,13 @@ needs: [jq python3]
 - narrow "These changes are uncommitted": Which files does the check list, and do they belong in a commit?
 - hint: "commit all of it, because they get only what's in git"
 - bottom: "git status --porcelain"
+
+### the committed CLI reports malformed percent escapes as broken links and still resolves valid encoded paths
+- narrow "Commit the CLI source": Is the source repair committed in the practice copy?
+- narrow "could not run": Does the committed CLI finish promptly when you reproduce the bug?
+- narrow "mishandles malformed percent": Does the repair report malformed targets and continue scanning, while valid encoded paths still resolve?
+- back: T8 Review the bug fix here.
+- hint: "Malformed percent escapes are broken links; valid percent-encoded paths must still resolve."
 
 ## card
 - skill: check

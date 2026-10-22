@@ -48,4 +48,13 @@ export const scenarios = [
     },
   },
   { item: 1, name: 'the sandbox never turned on', setup: team },
+  {
+    item: 1,
+    name: 'a local disable overrides the shared sandbox enable',
+    setup(dir, helpers) {
+      helpers.write(dir, { [SHARED]: JSON.stringify({ permissions: { allow: ['Bash(npm test)'], deny: ['Read(./.env)', 'Read(./.env.*)'] }, sandbox: { enabled: true } }) });
+      helpers.commit(dir, 'Share sandbox settings', [SHARED]);
+      helpers.write(dir, { [LOCAL]: JSON.stringify({ sandbox: { enabled: false } }) });
+    },
+  },
 ];

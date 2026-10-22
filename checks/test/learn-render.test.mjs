@@ -965,8 +965,21 @@ test('in a tall window nothing is cut and nothing stretches: the tallest screen 
 // only: the blank over the card and its spacers, never a teaching line, the
 // toast or a kept row (spec 9.1, design 4.5). The 120x60 window, whose
 // 80-column box fits every screen, says what each screen shows whole.
+// The rework's i-5 W2 sends its code block to the lesson page, so no lesson
+// screen is that tall now: a made-up i-5 puts the block back on the card, as
+// the screen this measures.
+const TALL_I5_W2 = '- code: point 3\n```json\n"hooks": {\n  "PreToolUse": [\n    { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-files.sh", "args": [] } ] }\n  ],\n  "PostToolUse": [\n    { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/format-after-edit.sh", "args": [] } ] }\n  ]\n}\n```\n';
+const tallScreens = async () => {
+  const { lessonScreens, threeLevels } = await import('./learn-drive.mjs');
+  const say = "- say: Add the page's hooks block beside permissions. Press p for the lesson page.\n";
+  const file = readFileSync(join(root, 'learn', 'lessons', 'i-5.md'), 'utf8');
+  assert.ok(file.includes(say), 'i-5 W2 still opens with its lesson-page line');
+  const lessons = threeLevels({ 'i-5': file.replace(say, TALL_I5_W2) });
+  return lessonScreens('i-5', lessons, { skipped: true }).filter(([label]) => label.startsWith('i-5 W2.')).map(([label, s]) => [`${label} (made-up, skipped)`, s]);
+};
+
 test('below 80 columns a tall window gives up only blank rows: a screen taller than the box keeps its teaching, its toast and its kept rows', async () => {
-  const all = (await everyScreen()).filter(([, s]) => s.view === 'step' && !s.overlay);
+  const all = [...await everyScreen(), ...await tallScreens()].filter(([, s]) => s.view === 'step' && !s.overlay);
   // A wrong pick's "not this one" tag sits inside its option where the
   // option wraps, which differs by width: the words are read without it.
   const read = (ls) => flatText(ls.map((l) => l.replace(/ +(←|<-) not this one/, '')).join(''));
@@ -1666,24 +1679,18 @@ test('b-2\'s real FAIL messages at "The check says:" keep the card\'s title, Goa
 const CUT_AT_60X20 = {
   full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4',
     // Intermediate's long hints and code blocks at 60x20.
-    'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y3.0 hint 1',
-    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1',
+    'i-5 W1.0 hint 1',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.1 hint 1 (skipped)',
-    'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
-    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)'],
+    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)'],
   ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
     'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
-    'i-5 W1.0 hint 1', 'i-5 W2.0 hint 1', 'i-5 W2.0 hint 2', 'i-5 W2.1 hint 1', 'i-6 W1.1 wrong', 'i-6 Y1.0 hint 1', 'i-6 Y3.0 hint 1',
-    'i-7 Y2.1 hint 1', 'i-7 Y2.2 hint 1',
+    'i-5 W1.0 hint 1',
     'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
     'b-capstone T1.2 hint 1 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.1 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)',
-    'i-6 W1.0 bottom (skipped)', 'i-6 W1.1 wrong (skipped)', 'i-6 Y1.0 hint 1 (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
-    'i-7 Y2.1 hint 1 (skipped)', 'i-7 Y2.2 hint 1 (skipped)'],
+    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
@@ -1774,7 +1781,7 @@ const explains = (d, cols = 80, rows = 24) => flatText(plainAt(d, cols, rows)).i
 // answer the lesson didn't list names the empty line instead; an ask beat
 // keeps its s.
 test('a wrong typed answer says enter on an empty line shows the answer, not s', () => {
-  for (const [id, skill, lessons] of [['b-4', 'exit', bareExit], ['i-3', 'run-skill', allCourse]]) {
+  for (const [id, skill, lessons] of [['b-4', 'exit', bareExit]]) {
     const d = firstWarmup(id, { missed: [skill] }, lessons);
     assert.equal(beatOf(d.state).kind, 'type', id);
     for (const c of 'nope') d.key(c, c);
@@ -1783,8 +1790,8 @@ test('a wrong typed answer says enter on an empty line shows the answer, not s',
     assert.ok(text.includes(flatText(C.lookAgainTyped)), `${id}\n${plainAt(d, 80, 24)}`);
     assert.ok(!text.includes(flatText(C.lookAgain)), id);
   }
-  // i-3 R2, an ask beat, with the same bare wrong answer keeps s.
-  const ask = firstWarmup('i-3', { missed: ['write-rule'] });
+  // i-3 R1, an ask beat, with the same bare wrong answer keeps s.
+  const ask = firstWarmup('i-3', { missed: ['run-skill'] });
   assert.equal(beatOf(ask.state).kind, 'ask');
   ask.state.beat.feedback = { kind: 'wrong' };
   assert.ok(flatText(plainAt(ask, 80, 24)).includes(flatText(C.lookAgain)), plainAt(ask, 80, 24));
@@ -2213,30 +2220,28 @@ test('b-3 opened from the map with nothing done shows W1 (plan-mode) at GUIDED w
 // others no room. This list keeps the count from growing unseen, as
 // CUT_AT_60X20 does for cuts.
 const WHY_DROPS = {
-  '60x20': ['W3 waiting', 'W3 not yet', 'W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 confirm', 'W3 bottom', 'W3 done', 'W5 wrong', 'W5 revealed',
-    'W3 broken', 'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom', 'b-5 W4.0 checking, hint open',
-    // Intermediate's Worked examples: a code block or a two-row command
-    // takes the room.
-    'i-1 W1.1 open', 'i-1 W3.0 open', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done', 'i-3 W4.0 waiting',
-    'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-7 W3.0 wrong', 'i-7 W3.0 answered', 'i-8 W3.0 hint 1',
+  '60x20': [
+    'W3 waiting', 'W3 not yet', 'W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 confirm', 'W3 bottom', 'W3 done', 'W5 wrong', 'W5 revealed', 'W3 broken',
+    'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom', 'b-5 W4.0 checking, hint open',
+    // Intermediate's Worked examples: a code block, a two-row command or a
+    // hint box takes the room.
+    'i-1 W4.1 open', 'i-1 W4.1 hint 1', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W2.0 done', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done',
+    'i-3 W3.1 hint 1', 'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W2.0 done', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-4 W5.0 hint 1',
+    'i-5 W3.0 hint 1', 'i-5 W3.0 hint 2', 'i-6 W4.0 hint 1', 'i-6 W4.0 hint 2', 'i-8 W3.0 hint 1',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
-    'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)', 'b-5 W4.0 checking, hint open (skipped)',
-    'i-1 W1.1 open (skipped)', 'i-1 W3.0 open (skipped)', 'i-2 W1.0 hint 1 (skipped)', 'i-2 W2.0 open (skipped)', 'i-2 W2.0 waiting (skipped)',
-    'i-2 W3.0 open (skipped)', 'i-2 W3.0 waiting (skipped)', 'i-2 W3.0 done (skipped)', 'i-3 W4.0 waiting (skipped)', 'i-3 W4.0 done (skipped)',
-    'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)',
-    'i-5 W2.0 open (skipped)', 'i-5 W2.0 waiting (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.0 done (skipped)',
-    'i-5 W2.1 open (skipped)', 'i-5 W2.1 waiting (skipped)', 'i-5 W2.1 hint 1 (skipped)', 'i-5 W2.1 done (skipped)', 'i-7 W3.0 wrong (skipped)',
-    'i-7 W3.0 answered (skipped)', 'i-8 W3.0 hint 1 (skipped)',
-    'W3 opening', 'b-3 W1.2 bottom (skipped)'],
-  // i-5 W2 met at GUIDED: its code block's long pointed line takes four rows.
-  '80x24': ['W3 hint 2', 'i-5 W2.0 open (skipped)', 'i-5 W2.0 waiting (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 hint 2 (skipped)', 'i-5 W2.0 done (skipped)',
-    'i-5 W2.1 open (skipped)', 'i-5 W2.1 waiting (skipped)', 'i-5 W2.1 hint 1 (skipped)', 'i-5 W2.1 done (skipped)'],
+    'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
+    'b-5 W4.0 checking, hint open (skipped)', 'i-1 W4.1 open (skipped)', 'i-1 W4.1 hint 1 (skipped)', 'i-2 W1.0 hint 1 (skipped)',
+    'i-2 W2.0 open (skipped)', 'i-2 W2.0 waiting (skipped)', 'i-2 W2.0 done (skipped)', 'i-2 W3.0 open (skipped)', 'i-2 W3.0 waiting (skipped)',
+    'i-2 W3.0 done (skipped)', 'i-3 W3.1 hint 1 (skipped)', 'i-3 W4.0 done (skipped)', 'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)',
+    'i-4 W2.0 done (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)', 'i-4 W5.0 hint 1 (skipped)', 'i-5 W3.0 hint 1 (skipped)',
+    'i-5 W3.0 hint 2 (skipped)', 'i-6 W4.0 hint 1 (skipped)', 'i-6 W4.0 hint 2 (skipped)', 'i-8 W3.0 hint 1 (skipped)', 'W3 opening',
+    'i-5 W3.0 open', 'b-3 W1.2 bottom (skipped)', 'i-5 W3.0 open (skipped)'],
+  '80x24': ['W3 hint 2'],
 };
 // Below 80 columns the key bar keeps its main keys first (spec 3.1), so `w`
 // gives way only where the whole bar is wider than the window: a wrong
-// answer's bar with "s show answer", as on i-7 W3's.
-const NO_W_KEY = ['W5 wrong at 60x20 (full)', 'i-7 W3.0 wrong at 60x20 (full)', 'i-7 W3.0 wrong (skipped) at 60x20 (full)',
-  'W5 wrong at 60x20 (ascii)', 'i-7 W3.0 wrong at 60x20 (ascii)', 'i-7 W3.0 wrong (skipped) at 60x20 (ascii)'];
+// answer's bar with "s show answer", as on W5's.
+const NO_W_KEY = ['W5 wrong at 60x20 (full)', 'W5 wrong at 60x20 (ascii)'];
 
 test('the Why line is an optional row: it drops whole before any teaching line is cut, and w why stays in the key bar', async () => {
   const all = (await everyScreen()).filter(([, s]) => s.view === 'step' && !s.overlay && tierOf(s) === 'guided' && ['do', 'ask'].includes(beatOf(s).kind) && beatOf(s).why.length);
@@ -2353,7 +2358,6 @@ const GO_FURTHER_GIVES = {
   'i-3 next at 60x20': NOTCH,
   'i-4 next at 60x20': NOTCH_ONE,
   'i-7 next at 60x20': NOTCH_ONE,
-  'i-8 next at 60x20': NOTCH_ONE,
 };
 
 test('every next screen but a capstone\'s shows its Go further line whole at 60x20 and 80x24, in every mode', () => {
@@ -2451,12 +2455,12 @@ const URLS = {
   'b-5': 'https://code.claude.com/docs/en/best-practices#write-an-effective-claude-md',
   'i-1': 'https://code.claude.com/docs/en/skills',
   'i-2': 'https://code.claude.com/docs/en/claude-directory',
-  'i-3': 'https://claude.com/blog/claude-model-and-effort-level-in-claude-code',
+  'i-3': 'https://code.claude.com/docs/en/model-config',
   'i-4': 'https://www.anthropic.com/engineering/claude-code-sandboxing',
   'i-5': 'https://code.claude.com/docs/en/hooks',
   'i-6': 'https://code.claude.com/docs/en/sub-agents',
   'i-7': 'https://code.claude.com/docs/en/mcp-quickstart',
-  'i-8': 'https://code.claude.com/docs/en/plugins/anthropic-marketplaces',
+  'i-8': 'https://code.claude.com/docs/en/plugins/code-intelligence',
 };
 
 test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
@@ -3861,21 +3865,21 @@ test('the same-answer note: no row above it moves, nothing cut, the same words i
 // command, drawn above the command on the bottom rung and inline.
 test('a bottom line\'s lead-in shows above its command, on the bottom rung and inline, at 60x20 and 80x24', () => {
   const file = readFileSync(join(root, 'learn', 'lessons', 'i-1.md'), 'utf8');
-  const tdd = parseLesson(file, 'i-1.md').steps.find((x) => x.id === 'Y4').beats[1].bottom[0];
-  assert.equal(tdd.leadIn, 'In the practice template:');
+  const tdd = parseLesson(file, 'i-1.md').steps.find((x) => x.id === 'Y4').beats[0].bottom[0];
+  assert.equal(tdd.leadIn, 'For example, in the practice copy:');
   // The parser names the form.
-  const lead = '- lead-in: "In the practice template:"';
-  assert.throws(() => parseLesson(file.replace(lead, '').replace('- hint: "Approve its edits and test runs, and let it commit."', `$&\n${lead}`), 'i-1.md'), /a lead-in line with no bottom line above it/);
+  const lead = '- lead-in: "For example, in the practice copy:"';
+  assert.throws(() => parseLesson(file.replace(lead, '').replace('- hint: "Keep auto mode. It can approve edits and test runs without a prompt; if Claude Code asks, review the action before approving"', `$&\n${lead}`), 'i-1.md'), /a lead-in line with no bottom line above it/);
   assert.throws(() => parseLesson(file.replace(lead, `${lead}\n${lead}`), 'i-1.md'), /a second lead-in line on one bottom line/);
-  assert.throws(() => parseLesson(file.replace(lead, '- lead-in: In the practice template:'), 'i-1.md'), /lead-in must be a quote of the lesson/);
+  assert.throws(() => parseLesson(file.replace(lead, '- lead-in: For example, in the practice copy:'), 'i-1.md'), /lead-in must be a quote of the lesson/);
   // Its place, rows above the first row of the command it frames.
   const above = (lines, where) => {
     const text = lines.map(strip);
-    const at = text.findIndex((l) => l.includes('In the practice template:'));
+    const at = text.findIndex((l) => l.includes('For example, in the practice copy:'));
     const cmd = text.findIndex((l) => l.includes('/tdd a slugify'));
     assert.ok(at >= 0 && cmd > at, `${where}\n${text.join('\n')}`);
   };
-  const bottom = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('i-1'), 'i-1': { warm: ['R1', 'R2', 'R3'], step: 'Y4', beat: 1, levels: ['challenge'] } } } });
+  const bottom = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('i-1'), 'i-1': { warm: ['R1', 'R2', 'R3'], step: 'Y4', beat: 0, levels: ['challenge'] } } } });
   bottom.key('enter');
   for (let i = 0; i < 8 && !bottom.state.beat.confirm; i++) bottom.key('h');
   bottom.key('y');
@@ -3894,7 +3898,7 @@ test('a bottom line\'s lead-in shows above its command, on the bottom rung and i
       for (const line of lines) assert.ok(width(line) <= cols - 1, `${where}: ${strip(line)}`);
       above(lines, `bottom rung at ${where}`);
       const card = render(inline.state, { cols, rows }, t).map(strip);
-      const at = card.findIndex((l) => l.includes('In the practice template:'));
+      const at = card.findIndex((l) => l.includes('For example, in the practice copy:'));
       const cmd = card.findIndex((l) => l.includes('mkdir -p .claude/skills/tdd'));
       assert.ok(at >= 0 && cmd > at, `inline at ${where}\n${card.join('\n')}`);
     }

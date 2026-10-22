@@ -4,6 +4,7 @@
 // narrow question matches its message.
 import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
+import { buggyApp } from '../fixtures/intermediate-app.mjs';
 
 const SHARED = '.claude/settings.json';
 const LOCAL = '.claude/settings.local.json';
@@ -110,4 +111,8 @@ export const scenarios = [
   { item: 9, name: 'a saved exit code that is not 0', files: { '.practice/b-3-tests.txt': '1\n' } },
 
   { item: 10, name: 'a new file not committed', files: { '.claude/agents/reviewer.md': REVIEWER('Read, Grep, Glob') } },
+  { item: 11, name: 'no committed CLI source', files: {} },
+  { item: 11, name: 'committed CLI output exceeds the bound', setup: committed({ 'src/cli.js': 'process.stdout.write("x".repeat(1000000));\n' }) },
+  { item: 11, name: 'the original malformed-percent crash', setup: committed(buggyApp) },
+
 ];

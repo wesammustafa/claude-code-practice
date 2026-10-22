@@ -114,7 +114,7 @@ export const items = [
       if (!found.length) return `The committed ${memory.path} has no @path import outside backticks. Add a line such as \`- npm scripts: @package.json\` and commit it.`;
       const missing = found.filter((target) => !importExists(repo, memory.path, target));
       if (missing.length < found.length) return true;
-      return `${memory.path} imports ${missing.map((m) => `@${m}`).join(', ')}, but ${missing[0]} doesn't exist. An import path runs until the first space, so a period or comma right after it becomes part of the path: put the import at the end of a line, or follow it with a space.`;
+      return `${memory.path} imports ${missing.map((m) => `@${m}`).join(', ')}, but ${missing[0]} doesn't exist. An import path runs until the first space; remove trailing punctuation or fix the target.`;
     },
   },
   {
@@ -125,7 +125,7 @@ export const items = [
       const files = repo.git('ls-files').split('\n').filter(Boolean);
       const dead = rules.filter((r) => !r.globs.some((g) => files.some(globMatcher(g))));
       if (!dead.length) return true;
-      return dead.map((r) => `${r.path} is scoped to ${r.globs.join(', ')}, which matches no file in the repository, so it never loads.`).join(' ') + ' Fix the pattern to match the files the rule is for, and commit it.';
+      return dead.map((r) => `${r.path} is scoped to ${r.globs.join(', ')}, which matches no file in the repository.`).join(' ') + ' Fix the pattern and commit it.';
     },
   },
   {

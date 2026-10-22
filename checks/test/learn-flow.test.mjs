@@ -1131,7 +1131,7 @@ test('warm-ups set the help: b-3 R1 typed wrong twice opens W1 GUIDED, with the 
 // Ticket 187: a typing beat takes s as a letter of the answer; an empty
 // line is what shows it there.
 test('a typed warm-up: s types into the answer, and enter on an empty line shows it', () => {
-  for (const [id, skill, lessons] of [['b-4', 'exit', bareExit], ['i-3', 'run-skill', course]]) {
+  for (const [id, skill, lessons] of [['b-4', 'exit', bareExit]]) {
     const d = driver({ course: lessons, saved: { format: 1, welcomed: true, missed: [skill], lessons: finishedBefore(id, lessons) } });
     d.key('enter');
     if (d.state.view === 'intro') d.key('enter');

@@ -30,7 +30,7 @@ export const items = [
     check(repo) {
       const mode = committedMode(repo, HOOK);
       if (mode === null) return repo.exists(HOOK) ? `${HOOK} is not committed. Run \`git add ${HOOK}\` and commit it.` : `There is no ${HOOK}. Copy the hook from the lesson's Worked example there.`;
-      return mode === '100755' ? true : `${HOOK} isn't executable, so Claude Code can't run it. Run \`chmod +x ${HOOK}\`, then \`git add ${HOOK}\` and commit.`;
+      return mode === '100755' ? true : `${HOOK} isn't executable. Run \`chmod +x ${HOOK}\`, then stage it and commit.`;
     },
   },
   {
@@ -48,11 +48,11 @@ export const items = [
       } catch (error) {
         return `The committed ${SETTINGS} is not valid JSON: ${error.message}`;
       }
-      return editWriteScripts(value).includes(HOOK) ? true : `${SETTINGS} doesn't run protect-files.sh as a PreToolUse hook with a matcher for Edit and Write, such as \`"matcher": "Edit|Write"\`.`;
+      return editWriteScripts(value).includes(HOOK) ? true : `${SETTINGS} doesn't run protect-files.sh as a PreToolUse hook for Edit and Write. Use \`"matcher": "Edit|Write"\`.`;
     },
   },
   {
-    text: 'the committed hook blocks `.env` files, but not `.env.example`, anything in a `secrets/` folder, `package-lock.json` and `.git/`, and allows the rest',
+    text: 'the committed hook blocks `.env` files (except `.env.example`), anything in a `secrets/` folder, `package-lock.json` and `.git/`, and allows the rest',
     check(repo) {
       if (committedMode(repo, HOOK) === null) return `Commit ${HOOK}: the check runs the committed script, the one your teammates get.`;
       const wrong = [];
@@ -64,7 +64,7 @@ export const items = [
         if (run.status !== want) wrong.push(`${path} gave exit ${run.status}, expected ${want}`);
         else if (want === 2 && !run.stderr.trim()) quiet.push(path);
       }
-      if (quiet.length) wrong.push(`${quiet.join(', ')} ${quiet.length === 1 ? 'was' : 'were'} blocked without a reason on stderr for Claude`);
+      if (quiet.length) wrong.push(`${quiet.join(', ')} ${quiet.length === 1 ? 'was' : 'were'} blocked without a reason on stderr`);
       return wrong.length ? `${wrong.join('; ')}.` : true;
     },
   },
