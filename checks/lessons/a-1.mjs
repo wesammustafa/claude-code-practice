@@ -7,7 +7,7 @@
 // check can't see, so the lesson self-checks it. The Advanced capstone reuses these items with its own
 // listing.
 import { committedIgnore, ignoreHint } from '../ignore.mjs';
-import { claudeWorktrees, liveWorktrees, parseWorktrees } from '../worktrees.mjs';
+import { claudeWorktrees, CLAUDE_WORKTREES, liveWorktrees, parseWorktrees } from '../worktrees.mjs';
 
 export const title = 'Parallel sessions with worktrees';
 
@@ -110,14 +110,20 @@ export function removedWorktrees(snapshot) {
       const { worktrees, pair } = review(repo, snapshot);
       if (!worktrees.length) return `\`${snapshot}\` lists no worktree under \`.claude/worktrees/\`, so the check can't tell which worktrees should be gone. Save it as the item above says.`;
       // Paths as git printed them: one that isn't on this machine was saved elsewhere.
-      const live = new Map(liveWorktrees(repo).map((r) => [r.path, r]));
+      const records = liveWorktrees(repo);
+      const live = new Map(records.map((r) => [r.path, r]));
       const left = (pair ?? worktrees).map((r) => live.get(r.path)).filter(Boolean);
       if (!left.length) return true;
+      // A worktree under the main checkout's .claude/worktrees/, named from
+      // there, so a long repository path shows once, not three times.
+      const main = records[0]?.path ?? '';
+      const named = (p) => (main && p.startsWith(`${main}${CLAUDE_WORKTREES}`) ? p.slice(main.length + 1) : p);
       return left.map((r) => {
-        const path = shell(r.path);
-        if (r.locked) return `\`${r.path}\` still exists and is locked: run \`git worktree unlock ${path}\`, then \`git worktree remove ${path}\`.`;
+        const at = named(r.path);
+        const path = shell(at);
+        if (r.locked) return `\`${at}\` still exists and is locked: from your main checkout, run \`git worktree unlock ${path}\`, then \`git worktree remove ${path}\`.`;
         if (r.prunable) return `git still lists \`${r.path}\`, whose folder is gone: run \`git worktree prune\`.`;
-        return `\`${r.path}\` still exists: once its branch is merged, run \`git worktree remove ${path}\` from your main checkout.`;
+        return `\`${at}\` still exists: once its branch is merged, run \`git worktree remove ${path}\` from your main checkout.`;
       }).join(' ');
     },
   };

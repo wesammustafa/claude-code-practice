@@ -61,11 +61,12 @@ test('saved state: FORMAT stays 1, and a learn.json today\'s app wrote loads wit
 
 // ---- the reducer ---------------------------------------------------------------
 const COPY = FACTS.root;
-// The course with DEMO_I1 as i-1, and i-5 and i-capstone shown through their
-// checks: every Intermediate lesson has a file, and these tests need a
-// check-only lesson that practises in the level's folder and one pinned to
-// the copy.
-const CHECK_ONLY = new Set(['i-5', 'i-capstone']);
+// The course with DEMO_I1 as i-1, and i-5, i-capstone, a-1, a-5 and
+// a-capstone shown through their checks: every lesson has a file, and these
+// tests need a check-only lesson that practises in the level's folder, one
+// pinned to the copy, one in the Advanced folder and the two that run in a
+// new copy.
+const CHECK_ONLY = new Set(['i-5', 'i-capstone', 'a-1', 'a-5', 'a-capstone']);
 const withI1 = () => threeLevels({ 'i-1': DEMO_I1 }).map((l) => (CHECK_ONLY.has(l.id) ? { ...l, content: null } : l));
 // A learner past Beginner, on i-1's intro, with these folders saved.
 const atI1 = (folders, course = withI1()) => driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore('i-1', course), ...(folders ? { folders } : {}) } });

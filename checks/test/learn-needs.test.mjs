@@ -515,14 +515,19 @@ test('n opens the intro\'s notes whole, a note at a time where they are taller t
 // later level, as its level's first intro, asking and then answered there,
 // and in a saved work folder that isn't a git repository. A lesson pinned to
 // the copy (i-capstone) asks nothing, so enter starts it: it has no answered
-// intro.
+// intro. A lesson that runs in a new copy (a-5) asks for that folder's path,
+// which a prompt takes, so it has none either; its folder is saved under its
+// own id.
 test('every lesson file\'s intro fits at 60x20 and 80x24 with everything it needs missing: no teaching line cut', () => {
   const states = course.filter((l) => l.content).flatMap((l) => {
     // Every lesson before it finished, and no work folder saved yet.
     const lessons = Object.fromEntries(course.slice(0, course.indexOf(l)).map((x) => [x.id, { complete: true }]));
-    const modes = l.level === 'beginner' ? ['beginner'] : pinOf(l) === 'copy' ? ['asking', 'saved'] : ['asking', 'answered', 'saved'];
+    // A lesson pinned to a new copy (a-capstone) has no default to accept
+    // with enter: its folder is typed, then saved under its own id.
+    const modes = l.level === 'beginner' ? ['beginner'] : ['copy', 'new copy'].includes(pinOf(l)) ? ['asking', 'saved'] : ['asking', 'answered', 'saved'];
+    const key = pinOf(l) === 'new copy' ? l.id : l.level;
     return modes.map((mode) => {
-      const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons, ...(mode === 'saved' ? { folders: { [l.level]: MINE } } : {}) } });
+      const d = driver({ course, facts: { linux: true, win32: true }, saved: { format: 1, welcomed: true, lessons, ...(mode === 'saved' ? { folders: { [key]: MINE } } : {}) } });
       assert.deepEqual([d.state.view, d.state.lesson], ['intro', l.id]);
       if (mode === 'answered') d.key('enter');
       const dir = mode === 'saved' ? MINE : COPY;

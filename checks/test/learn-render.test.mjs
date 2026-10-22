@@ -14,7 +14,7 @@ import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
 import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
-import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lastInOrder, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 const CAPS = {
@@ -387,9 +387,18 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
   }
 });
 
-// The end of the last lesson with a lesson file: a play stops there.
-const lastWithFile = allCourse.filter((l) => l.content).at(-1).id;
-const atTheEnd = (s) => s.lesson === lastWithFile && s.view === 'complete';
+// The end of the last lesson a play in order from lesson `from` reaches: a
+// play stops there.
+const atTheEnd = (from) => (s) => s.lesson === lastInOrder(allCourse, from) && s.view === 'complete';
+// The folder of each lesson that runs in a new copy of the template (a-5,
+// a-capstone), as the learner gives it at its intro: a play that goes on to
+// the last lesson needs them, since the path passes over such a lesson until
+// its folder is saved.
+const NEW_COPY = '/home/sam/claude-capstone';
+const newCopies = () => Object.fromEntries(allCourse.filter((l) => l.newCopy).map((l) => [l.id, NEW_COPY]));
+// The save of a play of lesson `id` from its start: its new copy's folder,
+// where it runs in one.
+const ownCopy = (id) => (allCourse.find((l) => l.id === id)?.newCopy ? { folders: { [id]: NEW_COPY } } : {});
 
 // Every step a real bottom rung eases, in a real play from that rung on, with
 // and without less help: the "more help" line wraps whole, even where a 60x20
@@ -423,11 +432,11 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
     for (const step of lesson.content.steps) {
       step.beats.forEach((_, beat) => {
         for (const lessHelp of [false, true]) {
-          const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: step.id, beat, warm: [], lessHelp } } } });
+          const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: step.id, beat, warm: [], lessHelp } }, folders: newCopies() } });
           d.key('enter');
           bottomRung(d);
           if (!d.state.eased.length) continue;
-          playUntil(d, (s) => s.beat?.eased || atTheEnd(s));
+          playUntil(d, (s) => s.beat?.eased || atTheEnd(lesson.id)(s));
           if (d.state.view !== 'step') continue;
           const where = `${d.state.lesson} ${stepOf(d.state).id}${lessHelp ? ' (less help)' : ''}`;
           if (landed.has(where)) continue;
@@ -460,12 +469,12 @@ test('a missed warm-up: the "more help" line wraps whole where its ease lands', 
     if (!lesson.content) continue;
     const before = finishedBefore(lesson.id);
     for (const w of lesson.content.warmup) {
-      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: w.id, beat: 0, warm: [w.id] } } } });
+      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: w.id, beat: 0, warm: [w.id] } }, folders: newCopies() } });
       d.key('enter');
       d.key(beatOf(d.state).kind === 'type' ? 'enter' : 's');
       assert.equal(d.state.beat.revealed, true, `${lesson.id} ${w.id}`);
       assert.ok(d.state.eased.includes(w.skill), `${lesson.id} ${w.id} eases ${w.skill}`);
-      playUntil(d, (s) => s.beat?.eased || atTheEnd(s));
+      playUntil(d, (s) => s.beat?.eased || atTheEnd(lesson.id)(s));
       if (d.state.view !== 'step') continue;
       easedLineWhole(d, `${d.state.lesson} ${stepOf(d.state).id} from ${lesson.id} ${w.id}`, whole);
     }
@@ -930,6 +939,18 @@ const lessonWalks = async (keep = () => true) => {
 // the walk passes it first time, and lessonScreens also fails it.
 const everyScreen = async () => [...screens, ...await lessonWalks((label) => !label.startsWith('b-1 ') || label.startsWith('b-1 C.'))];
 const flatText = (text) => text.replace(/[^A-Za-z0-9]/g, '');
+// The rows of the while-it-runs box (ticket 150): it draws the hint box's
+// bar, but it is optional, giving way whole where the room runs out, and it
+// grades nothing. Its barred rows run up to a hint the card shows below it.
+// Indexes into `lines`.
+const whileBoxRows = (lines, t) => {
+  const rows = new Set();
+  const bar = `${t.glyph.rail}  ${t.glyph.bar}`;
+  const hint = (l) => l.includes(t.unicode ? '💡' : 'Hint:') || l.includes(t.unicode ? '▲' : '!');
+  const at = lines.findIndex((l) => l.includes(`${t.glyph.bar} ${C.whileItRuns}`));
+  for (let i = at; at >= 0 && i < lines.length && lines[i].includes(bar) && (i === at || !hint(lines[i])); i++) rows.add(i);
+  return rows;
+};
 
 test('in a tall window nothing is cut and nothing stretches: the tallest screen at 80 columns fits the box, and the map, the check-only card, your card, the comparison and Pip\'s slot measure the box', async () => {
   const all = await everyScreen();
@@ -1031,7 +1052,8 @@ test('rows that never drop: the question and its options, feedback, the hint box
         const text = flatText(lines.join(''));
         const show = `\n${lines.join('\n')}`;
         // The hint box and feedback on a wrong pick, row by row.
-        for (const row of tall.filter((l) => l.includes(box))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
+        const whileBox = whileBoxRows(tall, t);
+        for (const row of tall.filter((l, i) => l.includes(box) && !whileBox.has(i))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
         // The question, each option and the feedback, wherever a tall window
         // shows them whole (a "not this one" tag can sit inside an option).
         const beat = beatOf(state);
@@ -1069,7 +1091,15 @@ test('spacers drop one at a time from the bottom, and the map\'s lesson rows sta
 // After a later level's first lesson, the learner has answered its folder
 // question there: the practice copy. `top` adds to the save, such as the
 // skills missed before, which pick a warm-up (194).
-const foldersBefore = (l) => (WORK_LEVELS.includes(l.level) && allCourse.find((x) => x.level === l.level) !== l ? { folders: { [l.level]: FACTS.root } } : {});
+// A lesson that runs in a new copy of the template (a-5, a-capstone) has
+// that copy's folder saved too, as the learner gives it at its intro.
+const foldersBefore = (l) => {
+  const folders = {
+    ...(WORK_LEVELS.includes(l.level) && allCourse.find((x) => x.level === l.level) !== l ? { [l.level]: FACTS.root } : {}),
+    ...(l.newCopy ? { [l.id]: NEW_COPY } : {}),
+  };
+  return Object.keys(folders).length ? { folders } : {};
+};
 const endScreens = (top = {}) => allCourse.filter((l) => l.content).flatMap((l) => {
   const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id), ...foldersBefore(l), ...top } });
   assert.equal(d.state.view, 'intro', l.id);
@@ -1362,7 +1392,7 @@ const widthCut = (t, cols) => (l) => width(l) === cols - 1 && (t.unicode ? l.end
 
 test('at 60x20 and 80x24 no teaching line is cut on the intro, complete, next and level-up screens: long lines wrap', () => {
   const levelups = [...screens, ...allCourse.filter((l) => l.content).flatMap((l) => {
-    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id), ...ownCopy(l.id) } });
     const out = [];
     const end = (s) => s.view === 'next' && s.lesson === l.id;
     while (!end(d.state)) {
@@ -1583,7 +1613,8 @@ test('kept rows never drop for a toast: the toast gives up its blank row, then g
         const lines = render(state, { cols: 60, rows: 20 }, t).map(strip);
         const show = `\n${lines.join('\n')}`;
         assert.equal(lines.length, 20, where);
-        for (const row of tall.filter((l) => l.includes(box))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
+        const whileBox = whileBoxRows(tall, t);
+        for (const row of tall.filter((l, i) => l.includes(box) && !whileBox.has(i))) assert.ok(lines.includes(row), `${where}: "${row.trim()}" is gone${show}`);
         assert.equal(lines.filter(cardBottom(t)).length, 1, `${where}: the card's bottom border is gone${show}`);
         // The tall window's key bar is its box's last row, over the blank rows that center the box (191).
         assert.equal(lines.at(-1), tall.findLast(Boolean), `${where}: the key bar`);
@@ -1680,17 +1711,33 @@ const CUT_AT_60X20 = {
   full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4',
     // Intermediate's long hints and code blocks at 60x20.
     'i-5 W1.0 hint 1',
+    // Advanced: a-2's hook file, a code block with a link above it.
+    'a-2 Y2.0 hint 1', 'a-2 Y2.0 done',
+    // a-4 W1.0's `claude -p` command and its hint; a-7's long check items and hint ladders.
+    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 W3.0 hint 4', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2', 'a-7 C.0 hint 3',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)'],
+    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-2 Y2.0 hint 1 (skipped)', 'a-2 Y2.0 done (skipped)',
+    'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
+    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 hint 5 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.0 hint 1 (skipped)',
+    'a-7 W4.0 bottom (skipped)',
+    'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-7 C.0 hint 3 (skipped)'],
   ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
     'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
     'i-5 W1.0 hint 1',
+    'a-1 W1.0 hint 2', 'a-2 Y2.0 hint 1', 'a-2 Y2.0 done',
+    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 2', 'a-7 W3.0 hint 3', 'a-7 W3.0 hint 4', 'a-7 Y3.1 hint 1', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
+    'a-7 C.0 hint 3',
     'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
     'b-capstone T1.2 hint 1 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)'],
+    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)',
+    'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)', 'a-2 Y2.0 hint 1 (skipped)', 'a-2 Y2.0 done (skipped)',
+    'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
+    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 hint 5 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.0 hint 1 (skipped)',
+    'a-7 W4.0 bottom (skipped)',
+    'a-7 Y3.1 hint 1 (skipped)', 'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-7 C.0 hint 3 (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
@@ -2228,20 +2275,27 @@ const WHY_DROPS = {
     'i-1 W4.1 open', 'i-1 W4.1 hint 1', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W2.0 done', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done',
     'i-3 W3.1 hint 1', 'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W2.0 done', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-4 W5.0 hint 1',
     'i-5 W3.0 hint 1', 'i-5 W3.0 hint 2', 'i-6 W4.0 hint 1', 'i-6 W4.0 hint 2', 'i-8 W3.0 hint 1',
+    // Advanced: a-1's two merge commands and a-2's chart question with its feedback.
+    'a-1 W5.0 hint 1', 'a-2 W2.0 wrong', 'a-2 W2.0 answered',
+    // a-4's `claude -p` commands: each is one long line of the page's block.
+    'a-4 W2.0 open', 'a-4 W2.0 waiting', 'a-4 W2.0 hint 1', 'a-4 W2.0 done', 'a-4 W3.0 open',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
     'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
     'b-5 W4.0 checking, hint open (skipped)', 'i-1 W4.1 open (skipped)', 'i-1 W4.1 hint 1 (skipped)', 'i-2 W1.0 hint 1 (skipped)',
     'i-2 W2.0 open (skipped)', 'i-2 W2.0 waiting (skipped)', 'i-2 W2.0 done (skipped)', 'i-2 W3.0 open (skipped)', 'i-2 W3.0 waiting (skipped)',
     'i-2 W3.0 done (skipped)', 'i-3 W3.1 hint 1 (skipped)', 'i-3 W4.0 done (skipped)', 'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)',
     'i-4 W2.0 done (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)', 'i-4 W5.0 hint 1 (skipped)', 'i-5 W3.0 hint 1 (skipped)',
-    'i-5 W3.0 hint 2 (skipped)', 'i-6 W4.0 hint 1 (skipped)', 'i-6 W4.0 hint 2 (skipped)', 'i-8 W3.0 hint 1 (skipped)', 'W3 opening',
+    'i-5 W3.0 hint 2 (skipped)', 'i-6 W4.0 hint 1 (skipped)', 'i-6 W4.0 hint 2 (skipped)', 'i-8 W3.0 hint 1 (skipped)',
+    'a-1 W5.0 hint 1 (skipped)', 'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)',
+    'a-4 W2.0 open (skipped)', 'a-4 W2.0 waiting (skipped)', 'a-4 W2.0 hint 1 (skipped)', 'a-4 W2.0 done (skipped)', 'a-4 W3.0 open (skipped)', 'W3 opening',
     'i-5 W3.0 open', 'b-3 W1.2 bottom (skipped)', 'i-5 W3.0 open (skipped)'],
   '80x24': ['W3 hint 2'],
 };
 // Below 80 columns the key bar keeps its main keys first (spec 3.1), so `w`
 // gives way only where the whole bar is wider than the window: a wrong
 // answer's bar with "s show answer", as on W5's.
-const NO_W_KEY = ['W5 wrong at 60x20 (full)', 'W5 wrong at 60x20 (ascii)'];
+const NO_W_KEY = ['W5 wrong at 60x20 (full)', 'a-2 W2.0 wrong at 60x20 (full)', 'a-2 W2.0 wrong (skipped) at 60x20 (full)',
+  'W5 wrong at 60x20 (ascii)', 'a-2 W2.0 wrong at 60x20 (ascii)', 'a-2 W2.0 wrong (skipped) at 60x20 (ascii)'];
 
 test('the Why line is an optional row: it drops whole before any teaching line is cut, and w why stays in the key bar', async () => {
   const all = (await everyScreen()).filter(([, s]) => s.view === 'step' && !s.overlay && tierOf(s) === 'guided' && ['do', 'ask'].includes(beatOf(s).kind) && beatOf(s).why.length);
@@ -2358,6 +2412,9 @@ const GO_FURTHER_GIVES = {
   'i-3 next at 60x20': NOTCH,
   'i-4 next at 60x20': NOTCH_ONE,
   'i-7 next at 60x20': NOTCH_ONE,
+  'a-1 next at 60x20': NOTCH_ONE,
+  'a-2 next at 60x20': NOTCH_ONE,
+  'a-4 next at 60x20': NOTCH_ONE,
 };
 
 test('every next screen but a capstone\'s shows its Go further line whole at 60x20 and 80x24, in every mode', () => {
@@ -2441,7 +2498,7 @@ test('the Go further line is an optional row: it drops whole with its blank, bef
 // The page overlay, opened with p from the screen `stop` finds in a play of
 // lesson `id` on the path, with `top` added to the save.
 const pageOn = (id, stop, top = {}) => {
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...top } });
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...ownCopy(id), ...top } });
   playUntil(d, stop);
   d.key('p');
   assert.equal(d.state.overlay, 'page', id);
@@ -2461,6 +2518,13 @@ const URLS = {
   'i-6': 'https://code.claude.com/docs/en/sub-agents',
   'i-7': 'https://code.claude.com/docs/en/mcp-quickstart',
   'i-8': 'https://code.claude.com/docs/en/plugins/code-intelligence',
+  'a-1': 'https://code.claude.com/docs/en/worktrees#isolate-subagents-with-worktrees',
+  'a-2': 'https://code.claude.com/docs/en/agents',
+  'a-3': 'https://code.claude.com/docs/en/workflows#example-workflow-prompts',
+  'a-4': 'https://code.claude.com/docs/en/headless',
+  'a-5': 'https://code.claude.com/docs/en/github-actions#run-on-a-schedule',
+  'a-6': 'https://code.claude.com/docs/en/settings-example#a-teams-shared-settings',
+  'a-7': 'https://code.claude.com/docs/en/sandbox-environments',
 };
 
 test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
@@ -2929,7 +2993,10 @@ test('Pip tells the truth: the worried face only where the card shows a ▲ row,
     for (const [cols, rows] of SHORT) {
       const lines = render(s, { cols, rows }, t).map(strip);
       const face = pipOn(lines, t);
-      const shows = lines.some((l) => /^\s*│ {2}(▲ |▌ |Stuck\?)/.test(l));
+      // The while-it-runs box (ticket 150) draws the bar too, for a question
+      // that grades nothing: it is no hint box.
+      const box = whileBoxRows(lines, t);
+      const shows = lines.some((l, i) => !box.has(i) && /^\s*│ {2}(▲ |▌ |Stuck\?)/.test(l));
       const why = `${label} at ${cols}x${rows}: ${face}\n${lines.join('\n')}`;
       if (face === FACES.worried) {
         assert.ok(shows, why);
@@ -3316,7 +3383,7 @@ test('the arrows move your card only where it scrolls: while it fits, they move 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
 const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4',
-  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC' };
+  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC', 'a-1': 'A1', 'a-2': 'A2', 'a-3': 'A3', 'a-4': 'A4', 'a-5': 'A5', 'a-6': 'A6', 'a-7': 'A7', 'a-capstone': 'AC' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];
@@ -3435,7 +3502,7 @@ const comparePlaces = (d, cols, rows) => {
 
 test('every lesson\'s comparison fits at 60x20 and 80x24, and shows each of its entries whole, beside its command or under it', () => {
   for (const id of Object.keys(RECALL)) {
-    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...ownCopy(id) } });
     playUntil(d, (s) => s.view === 'next' && s.lesson === id);
     d.key('space');
     assert.equal(d.state.overlay, 'compare', id);
@@ -3505,7 +3572,7 @@ test('the comparison, as your card (173): it spells the Commands by level link o
     for (const caps of [CAPS.full, CAPS.ascii]) {
       const t = theme(caps);
       for (const size of SHORT) {
-        const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+        const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...ownCopy(id) } });
         playUntil(d, (s) => s.view === 'next' && s.lesson === id);
         d.key('space');
         const at = `${id} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}`;

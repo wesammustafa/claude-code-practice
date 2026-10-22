@@ -24,6 +24,9 @@ export const course = liveCourse.map((l) => {
 // The course with b-4's /exit warm-up (R2) holding no hint of its own, so a
 // wrong answer it doesn't list gets the app's own line (ticket 187).
 export const bareExit = course.map((l) => (l.id === 'b-4' ? { ...l, content: parseLesson(readFileSync(join(root, 'checks/test/fixtures/reducer-course/b-4.md'), 'utf8').replace('- hint: "End the session with `/exit`."\n', ''), 'fixture/b-4.md') } : l));
+// The folder a learner gives for a lesson that runs in a new copy of the
+// template.
+export const NEW_COPY = '/home/sam/claude-actions-practice';
 export const FACTS = { root: '/home/sam/claude-code-practice', name: 'Sam', gitError: null, practiceDir: true, codespace: false, win32: false };
 
 // The b-1 item's real result for a version.txt holding `text` (null: no file).
@@ -209,6 +212,15 @@ export const DEMO_I1_INDEX = DEMO_I1.replace(/### R2 \| Warm-up \| Compact\n[^#]
 // done. Help fades only for what the learner did, so a seed without `done`
 // is a learner who skipped the lesson.
 export const finished = (l) => ({ complete: true, done: l.content.steps.map((x) => x.id) });
+// The last lesson a learner reaches by playing the lessons in order from
+// `from` (the first lesson by default): the one before the next lesson with
+// no lesson file, whose check-only view the next screen doesn't open. A
+// later lesson with a file is reached from the map, not in order.
+export const lastInOrder = (lessons = course, from = lessons[0].id) => {
+  const start = lessons.findIndex((l) => l.id === from);
+  const gap = lessons.findIndex((l, i) => i > start && !l.content);
+  return lessons[(gap < 0 ? lessons.length : gap) - 1].id;
+};
 // Every lesson in the app before `id`, finished.
 export const finishedBefore = (id, lessons = course) => Object.fromEntries(lessons.slice(0, lessons.findIndex((l) => l.id === id)).filter((l) => l.content).map((l) => [l.id, finished(l)]));
 
@@ -341,9 +353,23 @@ const readsRight = (v) => (v.kind === 'json' ? jsonFor(v.key, v.value) : v.kind 
 // right pick, the answer typed, every check failing once then passing, a
 // file that reads wrong once then right, a clean tree or the change git
 // status should list, enter past every level-up and lesson end.
+// A count across plays, so each new commit or probe state differs from every
+// one before it, even where a play takes one action at a time.
+let moves = 0;
 export function playUntil(d, stop) {
   for (let i = 0; i < 2_000 && !stop(d.state); i++) {
     const s = d.state;
+    // A lesson that runs in a new copy (a-5) asks for its folder: the
+    // learner gives one, and main finds a git repository there.
+    if (s.overlay === 'folder') {
+      const a = s.folderAsk;
+      if (a.asked) d.send({ type: 'probed', key: a.key, asked: a.asked, path: NEW_COPY, missing: false, git: true, practice: true });
+      else {
+        d.send({ type: 'paste', text: NEW_COPY });
+        d.key('enter');
+      }
+      continue;
+    }
     if (s.view !== 'step') {
       d.key('enter');
       continue;
@@ -379,11 +405,11 @@ export function playUntil(d, stop) {
     else if (['git-changed', 'git-only'].includes(v.kind)) d.send(gitLists([`${v.path.replace(/\/+$/, '')}/new.txt`]));
     // Ticket 105: a new commit; the same paths as the stamp, or none where
     // there is no stamp; a probe that fails once, then passes on new work.
-    else if (v.kind === 'head-moved') d.send({ type: 'git', paths: [], head: `new-${i}` });
+    else if (v.kind === 'head-moved') d.send({ type: 'git', paths: [], head: `new-${++moves}` });
     else if (v.kind === 'git-unchanged') d.send({ type: 'git', paths: [] });
     else if (v.kind === 'probe') {
-      d.send({ type: 'probe', name: v.name, args: v.args, pass: false, hint: 'Not yet.', state: `a${i}` });
-      d.send({ type: 'probe', name: v.name, args: v.args, pass: true, hint: '', evidence: 'Found.', state: `b${i}` });
+      d.send({ type: 'probe', name: v.name, args: v.args, pass: false, hint: 'Not yet.', state: `a${++moves}` });
+      d.send({ type: 'probe', name: v.name, args: v.args, pass: true, hint: '', evidence: 'Found.', state: `b${moves}` });
     } else d.key('space');
   }
   if (!stop(d.state)) throw new Error(`playUntil: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);

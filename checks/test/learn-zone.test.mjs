@@ -9,7 +9,7 @@ import { render } from '../../learn/lib/render.mjs';
 import { strip } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
-import { course, driver, failCheck, playUntil } from './learn-drive.mjs';
+import { course, driver, failCheck, NEW_COPY, playUntil } from './learn-drive.mjs';
 
 const contents = course.map((l) => l.content);
 const rank = (t) => TIERS.indexOf(t);
@@ -40,7 +40,8 @@ const watched = (d, look) => ({
 // once as each beat opens, until `stop(state)` holds.
 function play(d, stop, atBeat) {
   const seen = new Set();
-  while (!stop(d.state)) {
+  for (let n = 0; !stop(d.state); n++) {
+    if (n > 20_000) throw new Error(`play: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);
     const s = d.state;
     const at = s.view === 'step' && `${where(s)}.${s.pos.beat}`;
     if (at && !seen.has(at)) {
@@ -64,18 +65,23 @@ function exactCommand(d) {
 }
 
 // The learners. Each starts afresh and calls `look` after every event.
-// The end of the last lesson with a lesson file.
+// The end of the last lesson with a lesson file, or the map, where a play
+// that has no next lesson to open goes: a lesson with no lesson file before
+// it ends the play there.
 const last = course.filter((l) => l.content).at(-1).id;
-const finale = (s) => s.lesson === last && s.view === 'complete';
+const finale = (s) => (s.lesson === last && s.view === 'complete') || s.view === 'map';
+// A learner who plays every lesson in order: one that runs in a new copy
+// (a-5) has its folder, as the learner gives it at its intro.
+const inOrderDriver = () => driver({ course, saved: { format: 1, folders: Object.fromEntries(course.filter((l) => l.newCopy).map((l) => [l.id, NEW_COPY])) } });
 // Every lesson in order, needing no help.
 function inOrder(look) {
-  playUntil(watched(driver({ course }), look), finale);
+  playUntil(watched(inOrderDriver(), look), finale);
 }
 // Every lesson in order, climbing to the exact command on every beat of a
 // step that isn't GUIDED. Returns the steps where it was shown.
 function exactEverywhere(look) {
   const taken = [];
-  play(watched(driver({ course }), look), finale, (d) => {
+  play(watched(inOrderDriver(), look), finale, (d) => {
     if (tierOf(d.state) !== 'guided' && exactCommand(d)) taken.push(where(d.state));
   });
   return taken;
@@ -116,7 +122,8 @@ test('in order, with no hints: every tier equals the course plan', () => {
     assert.deepEqual(tiersOf(s), plan(s), where(s));
     met.add(where(s));
   });
-  for (const l of course.filter((x) => x.content)) for (const step of l.content.steps) assert.ok(met.has(`${l.id} ${step.id}`), `${l.id} ${step.id} was met`);
+  const played = course.slice(0, course.findIndex((l) => l.id === last) + 1);
+  for (const l of played.filter((x) => x.content)) for (const step of l.content.steps) assert.ok(met.has(`${l.id} ${step.id}`), `${l.id} ${step.id} was met`);
 });
 
 test('in order, taking the exact command on every non-guided step: no step ever gets less help than the plan', () => {
