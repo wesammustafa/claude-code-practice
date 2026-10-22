@@ -1,15 +1,15 @@
 // Asking the lesson's own check, and git, without blocking the screen. Both
 // run in child processes; the app writes nothing to the practice copy.
 import { execFile } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STUB_RUNS } from '../../checks/lessons/a-4.mjs';
 import { NPM_TEST_LIMIT } from '../../checks/lessons/b-3.mjs';
 import { lessons } from '../../checks/lessons/index.mjs';
 import { statusEntries } from '../../checks/paths.mjs';
 import { TIME_LIMIT } from '../../checks/stub-claude.mjs';
-import { SLOW } from './content.mjs';
+import { globName, isGlob, SLOW } from './content.mjs';
 import { stampFor } from './holds.mjs';
 import { isStaged, listing } from './status.mjs';
 
@@ -164,11 +164,31 @@ export function gitFirstName(dir) {
   });
 }
 
+// The file a path names: itself, or for a glob the newest file that matches
+// it (the last one written, so the one Claude just made), null when none
+// does. Named as the beat names it, from the work folder.
+export function matchOf(dir, path) {
+  if (!isGlob(path)) return path;
+  const folder = posix.dirname(path);
+  const name = globName(posix.basename(path));
+  let best = null;
+  try {
+    for (const e of readdirSync(join(dir, folder), { withFileTypes: true })) {
+      if (!e.isFile() || !name.test(e.name)) continue;
+      const at = statSync(join(dir, folder, e.name)).mtimeMs;
+      if (!best || at > best.at || (at === best.at && e.name < best.name)) best = { at, name: e.name };
+    }
+  } catch {
+    return null;
+  }
+  return best && posix.join(folder, best.name);
+}
+
 // A file's bytes as they are now, for the reducer to read what it holds
 // (holds.mjs); null when it isn't there or can't be read just now.
 export function bytesOf(dir, path) {
   try {
-    return readFileSync(join(dir, path));
+    return readFileSync(join(dir, matchOf(dir, path) ?? path));
   } catch {
     return null;
   }
@@ -179,7 +199,9 @@ export function bytesOf(dir, path) {
 // read just now (another program holds it, or its permissions changed).
 export function stampOf(dir, path) {
   try {
-    const file = join(dir, path);
+    const found = matchOf(dir, path);
+    if (found === null) return '';
+    const file = join(dir, found);
     return stampFor(statSync(file).mtimeMs, readFileSync(file));
   } catch (error) {
     return error.code === 'ENOENT' || error.code === 'ENOTDIR' ? '' : null;

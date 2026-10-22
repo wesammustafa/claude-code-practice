@@ -1553,8 +1553,10 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
   // Room for text beside the burst.
   const room = inner - (t.unicode ? 21 : 7);
   // What the file holds, in `max` columns: on two lines when one is too long.
-  const holds = (max) => (width(`${beat.evidence} holds ${st.evidence}`) <= max ? [`${t.fg('code', beat.evidence)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
-    : [t.fg('code', cut(beat.evidence, max, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, max - 6, t.unicode ? '…' : '.'))}`]);
+  // A glob's file is the one it matched.
+  const shownPath = st.found ?? beat.evidence;
+  const holds = (max) => (width(`${shownPath} holds ${st.evidence}`) <= max ? [`${t.fg('code', shownPath)}${t.fg('text', ' holds ')}${t.fg('code', st.evidence)}`]
+    : [t.fg('code', cut(shownPath, max, t.unicode ? '…' : '.')), `${t.fg('text', 'holds ')}${t.fg('code', cut(st.evidence, max - 6, t.unicode ? '…' : '.'))}`]);
   const celebrate = (lines) => {
     const count = s.session + (firstPass(s) ? 1 : 0);
     // The check mark draws in strokes, then the sparks.

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -21,7 +21,7 @@ import { pipSlot, render } from '../../learn/lib/render.mjs';
 import { ENTER, LEAVE } from '../../learn/lib/screen.mjs';
 import { loadState, sanitize, saveState, storePath } from '../../learn/lib/store.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
-import { childEnv, gitStatus, ITEM_LIMIT, owing, probeFolder, runCheck, singleFlight, stampOf } from '../../learn/lib/verify.mjs';
+import { bytesOf, childEnv, gitStatus, ITEM_LIMIT, matchOf, owing, probeFolder, runCheck, singleFlight, stampOf } from '../../learn/lib/verify.mjs';
 import { grewFrom } from '../../learn/lib/holds.mjs';
 import { judgeGit, listedUnder } from '../../learn/lib/status.mjs';
 import { watchDirs } from '../../learn/lib/watch.mjs';
@@ -2211,4 +2211,21 @@ test("Pip's artwork is the pip-terminal package's pip.mjs, unedited, beside its 
   assert.deepEqual(readdirSync(dir).sort(), ['LICENSE', 'pip.mjs']);
   assert.equal(sha('pip.mjs'), '25e2f3132c2fda60608351441eb565924b9c28ab5080271682aaa9c472561f0f');
   assert.equal(sha('LICENSE'), 'd46d50acb422b8ac0c16a2d78e50515b1e007e61a6c0d0cf22dbb904bcabf5ea');
+});
+
+test('a glob path reads the newest file it matches, by its path, and none is no file (106)', () => {
+  withRepo(() => repo({ '.claude/workflows/old.js': 'export const a = 1;\n', '.claude/workflows/notes.md': 'x\n' }), (dir) => {
+    const glob = '.claude/workflows/*.js';
+    assert.equal(matchOf(dir, glob), '.claude/workflows/old.js');
+    writeFileSync(join(dir, '.claude/workflows/review.js'), 'export const b = 2;\n');
+    utimesSync(join(dir, '.claude/workflows/old.js'), 1000, 1000);
+    assert.equal(matchOf(dir, glob), '.claude/workflows/review.js', 'the newest match');
+    assert.equal(bytesOf(dir, glob).toString(), 'export const b = 2;\n');
+    assert.equal(stampOf(dir, glob), stampOf(dir, '.claude/workflows/review.js'));
+    assert.equal(matchOf(dir, '.claude/workflows/*.ts'), null);
+    assert.equal(matchOf(dir, '.claude/none/*.js'), null, 'no folder');
+    assert.equal(stampOf(dir, '.claude/none/*.js'), '', 'no match stamps as no file');
+    assert.equal(bytesOf(dir, '.claude/none/*.js'), null);
+    assert.equal(matchOf(dir, '.claude/workflows/notes.md'), '.claude/workflows/notes.md', 'a plain path is itself');
+  });
 });
