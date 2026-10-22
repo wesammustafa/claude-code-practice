@@ -44,8 +44,16 @@ export const BEAT_KEYS = {
   say: false, ask: false, other: false, decoy: false, 'reveal-at': false, recall: false, accept: false, code: false,
   goal: true, do: true, run: true, win: true, expect: true, note: true, rule: true, after: true, why: true,
   codespace: true, 'win-note': true, hint: true, bottom: true, 'lead-in': true, because: true, point: true, reveal: true, self: true,
-  right: null, wrong: null, option: null, stuck: null, back: null,
+  right: null, wrong: null, option: null, stuck: null, back: null, when: false,
 };
+// `when: <step id>.<beat>=<option>` (ticket 104): the beat shows only while
+// the learner's pick on that choice, an ask beat whose every option is an
+// `option`, is that option's text. <beat> counts the step's beats from 0, as
+// the saved answers' keys do.
+export const WHEN = /^([WYTDC]\d*)\.(\d+)=(\S.*)$/;
+// A choice: an ask beat whose every option is an `option`, so no pick on it
+// is right or wrong, and none is graded.
+export const isChoice = (b) => b?.kind === 'ask' && b.options.length > 0 && b.options.every((o) => o.kind === 'option');
 // `why`: why the lesson matters; `payoff`: the one `can` line the intro and
 // complete screens flag as what the lesson builds to; `read`: one line of
 // the page's Go further list, with its Markdown link, to read next. At most
@@ -299,6 +307,13 @@ export function parseLesson(text, file = 'lesson') {
       if (step.part === 'Warm-up') fail(i, 'a back line on a warm-up: only a lesson step goes back to an earlier one');
       if (beat.back) fail(i, 'a second back line on one beat');
       beat.back = backLine(raw, i, fail);
+    } else if (key === 'when') {
+      if (beat.when) fail(i, 'a second when line on one beat');
+      if (step.part === 'Warm-up') fail(i, 'a when line on a warm-up: only a lesson step follows a choice');
+      const m = raw.match(WHEN);
+      if (!m) fail(i, 'a when line is <step id>.<beat>=<option>: the choice, its beat counted from 0, and the option the beat shows for');
+      if (step.beats.length === 1) fail(i, "a when line on a step's first beat: the first beat always shows");
+      beat.when = { step: m[1], beat: Number(m[2]), option: m[3], line: i + 1 };
     } else if (key === 'tick') {
       const last = beat.lines.at(-1);
       if (last?.key !== 'run') fail(i, 'a tick line with no run line above it');
@@ -338,6 +353,7 @@ export function parseLesson(text, file = 'lesson') {
     }
   }
   backsOf(lesson, file);
+  whensOf(lesson, file);
   return lesson;
 }
 
@@ -370,6 +386,23 @@ function backsOf(lesson, file) {
     const first = item < 0 ? -1 : lesson.steps.findIndex((s) => s.beats.some((b) => b.verify.kind === 'check' && (b.verify.all || b.verify.items.includes(item))));
     check(rung.back, first < 0 ? null : first, `step ${lesson.steps[first]?.id}, the first step that checks this item`);
   }
+}
+
+// Each when line names a choice made before its beat, in this lesson's
+// steps, and one of that choice's options (ticket 104). A choice is an ask
+// beat whose every option is an `option`: no pick on it is right or wrong.
+function whensOf(lesson, file) {
+  lesson.steps.forEach((s, k) => s.beats.forEach((b, n) => {
+    if (!b.when) return;
+    const { step, beat, option, line } = b.when;
+    const at = `${file}:${line}: when ${step}.${beat}`;
+    const from = lesson.steps.findIndex((x) => x.id === step);
+    if (from < 0) throw new Error(`${at}: this lesson has no step ${step}`);
+    if (from > k || (from === k && beat >= n)) throw new Error(`${at}: that beat is not before this one; a when follows a choice made earlier`);
+    const q = lesson.steps[from].beats[beat];
+    if (!isChoice(q)) throw new Error(`${at}: names no choice, an ask beat whose every option is an option line`);
+    if (!q.options.some((o) => o.text === option)) throw new Error(`${at}: "${option}" is none of its options: ${q.options.map((o) => `"${o.text}"`).join(', ')}`);
+  }));
 }
 
 // A front matter list: an inline or block list, or one item alone.
