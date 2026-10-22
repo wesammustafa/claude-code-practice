@@ -828,7 +828,7 @@ function noteRows(ctx, w) {
     repo ? kept(para(t, repo, w, 'text', { quote: true, label: { text: C.youNeed, color: 'muted' } })) : [],
     win && t.caps.win32 ? quoted(win) : [],
     missing.length ? warnNote(t, quotes, w, 'text', { label: { text: C.notOnPath(...missing.flatMap((n) => n.names)), color: 'warn' } }) : [],
-    ...unmet(s).map((r) => warnNote(t, (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
+    ...unmet(s).map((r) => warnNote(t, r.probe ? C.folderLacks(r.hint) : (r.path ? C.buildsOnFile : C.buildsOnCheck)(lessonLabel(r.lesson), r.hint), w))].filter((n) => n.length);
 }
 
 // ---- views -------------------------------------------------------------------
@@ -1489,7 +1489,7 @@ function stepView(ctx) {
   const where = numbered ? C.terminalN(numbered) : place && ['terminal', 'shell'].includes(whereKey) ? C.terminalInFolder : C.where[whereKey];
   const tint = done ? 'ok' : style.tint;
   const head = lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length));
-  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, where, place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind)), rows: withFooter(note) });
+  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, where, place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind) || needsChange(beat.verify)), rows: withFooter(note) });
   let body = cardWith(null);
   // The same-answer note (ticket 192) takes the rows the screen pads with,
   // and the row of a "Press h" line the key bar repeats, and no more: the

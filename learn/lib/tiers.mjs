@@ -12,9 +12,9 @@ const rank = (t) => TIERS.indexOf(t);
 const at = (i) => TIERS[Math.max(0, Math.min(2, i))];
 
 // A step the app checks: a check item, git status (the whole tree or part
-// of it, ticket 88), or what a file holds (ticket 87). A `file` beat, done
-// once its file holds any line, is not one.
-const CHECKED = new Set(['check', ...GIT, ...HOLDS]);
+// of it, ticket 88), what a file holds (ticket 87), or a git probe (ticket
+// 105). A `file` beat, done once its file holds any line, is not one.
+const CHECKED = new Set(['check', ...GIT, ...HOLDS, 'probe']);
 const verifiable = (step) => step.beats.some((b) => CHECKED.has(b.verify.kind));
 
 // The tier the course's rule gives each step of `lessonIndex`, from the

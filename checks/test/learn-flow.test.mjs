@@ -12,6 +12,7 @@ import { nextChange, phases, pipGates } from '../../learn/lib/motion.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { strip, width } from '../../learn/lib/text.mjs';
 import { C } from '../../learn/lib/copy.mjs';
+import { statusStamp } from '../../learn/lib/status.mjs';
 import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, bareExit, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
@@ -404,7 +405,7 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   const file = parseLesson(DEMO_B2.replace('- verify: check 0 fresh\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', '- verify: file .practice/b-2-plan.txt fresh'), 'demo');
   assert.deepEqual(file.steps[1].beats[0].verify, { kind: 'file', path: '.practice/b-2-plan.txt', fresh: true, since: null });
   assert.equal(file.steps[1].beats[0].evidence, '.practice/b-2-plan.txt');
-  assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check 0 fresh', '- verify: self fresh'), 'demo'), /only a check or a file can be fresh/);
+  assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check 0 fresh', '- verify: self fresh'), 'demo'), /only a check, a file or a probe can be fresh/);
   assert.equal(l.steps[0].beats[0].where, 'shell');
   assert.throws(() => parseLesson(DEMO_B2.replace('### R1 | Warm-up |', '### W9 | Worked example step 1 of 1 |'), 'demo'), /step heading in the warm-up section/);
   assert.throws(() => parseLesson(DEMO_B2.replace('### C | Check | Check', '### C | Warm-up | Check'), 'demo'), /warm-up heading in the steps section/);
@@ -2943,4 +2944,116 @@ test('choices: a recall shows the guess it recalls, not a choice of the same ste
   const text = screenText(d.state).join('\n');
   assert.ok(text.includes(C.youGuessed('Yes')), text);
   assert.ok(!text.includes(C.youGuessed('A token')), text);
+});
+
+// ---- git probes, head-moved and git-unchanged (ticket 105) ------------------
+// DEMO_B2's Y1, step 5 after three warm-ups and W1, verified by `verify`.
+const onY1 = (verify, extra = {}) => onReading(verify, extra);
+// The same, but entered from W1, so Y1's opening stamps what it compares with.
+const intoY1 = (verify) => {
+  const d = driver({ course: courseWith({ 'b-2': DEMO_B2.replace('- verify: check 0 fresh\n', `- verify: ${verify}\n`) }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { warm: ['R1', 'R2', 'R3'], done: ['R1', 'R2', 'R3'], step: 'W1', beat: 0 } } } });
+  d.key('enter');
+  d.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: true, hint: '' }] });
+  d.key('enter');
+  if (d.state.view === 'levelup') d.key('enter');
+  if (stepOf(d.state)?.id !== 'Y1') throw new Error(`intoY1: on ${d.state.view} ${stepOf(d.state)?.id}`);
+  return d;
+};
+const probeResult = (name, args, pass, state, extra = {}) => ({ type: 'probe', name, args, pass, state, hint: pass ? '' : `No ${name} yet.`, evidence: pass ? `${name} found` : null, dir: FACTS.root, ...extra });
+
+test('probes: the verify line names a probe and its arguments; branch-ahead is always fresh; a bad one fails to parse (105)', () => {
+  const v = (line) => beatOf(onY1(line).state);
+  assert.deepEqual(v('probe worktrees 2').verify, { kind: 'probe', name: 'worktrees', args: ['2'] });
+  assert.equal(v('probe worktrees 2').watching, 'git worktree list', 'the card watches what the probe reads');
+  assert.equal(v('probe worktrees 2\n- watching: the worktrees').watching, 'the worktrees');
+  assert.deepEqual(v('probe branch-ahead docs-pass').verify, { kind: 'probe', name: 'branch-ahead', args: ['docs-pass'], fresh: true, since: null });
+  assert.deepEqual(v('probe merged docs-pass test-pass fresh since W1').verify, { kind: 'probe', name: 'merged', args: ['docs-pass', 'test-pass'], fresh: true, since: 'W1' });
+  assert.deepEqual(v('probe pushed').verify, { kind: 'probe', name: 'pushed', args: [] });
+  assert.deepEqual(v('head-moved since W1').verify, { kind: 'head-moved', since: 'W1' });
+  assert.deepEqual(v('git-unchanged').verify, { kind: 'git-unchanged', since: null });
+  const bad = (line, error) => assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check 0 fresh\n', `- verify: ${line}\n`), 'b-2.md'), error, line);
+  bad('probe nope', /unknown probe nope/);
+  bad('probe worktrees', /probe worktrees takes <n>/);
+  bad('probe gone ../x', /probe gone takes <path>, not \.\.\/x/);
+  bad('probe pushed origin', /probe pushed takes no arguments/);
+  bad('head-moved since later', /head-moved since a step id/);
+  bad('git-unchanged fresh', /only a check, a file or a probe can be fresh/);
+});
+
+test('probes: the beat runs its probe in the work folder, on r too, and passes, fails or breaks as it answers (105)', () => {
+  const d = onY1('probe worktrees 2');
+  assert.deepEqual(d.effects.filter((e) => e.type === 'probe').at(-1), { type: 'probe', name: 'worktrees', args: ['2'], dir: FACTS.root });
+  assert.deepEqual(watching(d.state), { probe: { name: 'worktrees', args: ['2'] }, dir: FACTS.root });
+  assert.equal(tierOf(d.state), 'challenge', 'a probe beat counts as checked');
+  d.send(probeResult('worktrees', ['2'], false, 'a'));
+  assert.equal(d.state.beat.status, 'waiting', 'the first answer is where the learner starts');
+  d.key('r');
+  assert.deepEqual(d.effects.at(-1), { type: 'probe', asked: d.state.beat.asked, name: 'worktrees', args: ['2'], dir: FACTS.root });
+  d.send(probeResult('worktrees', ['2'], false, 'a', { asked: d.state.beat.asked }));
+  assert.deepEqual([d.state.beat.status, d.state.beat.fail.hint], ['fail', 'No worktrees yet.']);
+  fitsBoth(d.state);
+  // Another probe's answer, or one from another folder, decides nothing.
+  d.send(probeResult('gone', ['x'], true, 'b'));
+  d.send(probeResult('worktrees', ['2'], true, 'b', { dir: '/elsewhere' }));
+  assert.equal(d.state.beat.status, 'fail');
+  d.send(probeResult('worktrees', ['2'], true, 'b'));
+  assert.deepEqual([d.state.beat.status, d.state.beat.evidence], ['done', 'worktrees found']);
+  fitsBoth(d.state);
+  const broken = onY1('probe pushed');
+  broken.send({ type: 'probe-error', message: 'The probe could not run: git is not installed', dir: FACTS.root });
+  assert.deepEqual([broken.state.beat.status, broken.state.beat.error], ['broken', 'The probe could not run: git is not installed']);
+  playUntil(onY1('probe merged docs-pass'), (s) => stepOf(s)?.id === 'C');
+});
+
+test('probes: a fresh probe stamps its state as its step opens, and passes only once that changed (105)', () => {
+  const d = intoY1('probe branch-ahead docs-pass');
+  assert.deepEqual(d.effects.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', probe: { name: 'branch-ahead', args: ['docs-pass'] }, dir: FACTS.root });
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'sha-1', dir: FACTS.root });
+  d.send(probeResult('branch-ahead', ['docs-pass'], true, 'sha-1'));
+  assert.deepEqual([d.state.beat.status, d.state.beat.stale], ['waiting', true], 'the branch is there, but has not moved');
+  d.send(probeResult('branch-ahead', ['docs-pass'], true, 'sha-2'));
+  assert.equal(d.state.beat.status, 'done');
+});
+
+test('head-moved: HEAD another commit than when its step opened, with git status listing nothing (105)', () => {
+  const d = intoY1('head-moved');
+  assert.deepEqual(d.effects.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', git: 'head', dir: FACTS.root });
+  assert.deepEqual(d.effects.filter((e) => e.type === 'git').at(-1), { type: 'git', dir: FACTS.root, head: true });
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'aaaaaaa1', dir: FACTS.root });
+  // A result that doesn't say where HEAD is decides nothing.
+  d.send({ type: 'git', paths: [] });
+  assert.equal(d.state.beat.status, 'opening');
+  d.send({ type: 'git', paths: [], head: 'aaaaaaa1' });
+  assert.equal(d.state.beat.status, 'waiting');
+  d.key('r');
+  d.send({ type: 'git', paths: [], head: 'aaaaaaa1', asked: d.state.beat.asked });
+  assert.equal(d.state.beat.fail.hint, C.headSame(5));
+  d.send({ type: 'git', paths: ['src/a.js'], head: 'bbbbbbb2' });
+  assert.equal(d.state.beat.fail.hint, C.headDirty(1, 'src/a.js', 0));
+  fitsBoth(d.state);
+  d.send({ type: 'git', paths: [], head: 'bbbbbbb2' });
+  assert.deepEqual([d.state.beat.status, d.state.beat.evidence], ['done', C.headMoved('bbbbbbb')]);
+  fitsBoth(d.state);
+  assert.equal(d.state.progress['b-2'].stamps['Y1.0'], 'aaaaaaa1', 'the stamp is saved');
+  playUntil(onY1('head-moved since W1'), (s) => stepOf(s)?.id === 'C');
+});
+
+test('git-unchanged: git status lists the same paths as when the step it names opened; that step stamps them (105)', () => {
+  const text = DEMO_B2.replace('- verify: check 0 fresh\n', '- verify: git-unchanged since W1\n');
+  const atW1 = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { warm: ['R1'], step: 'R1', beat: 0 } } } });
+  atW1.key('enter');
+  atW1.key('1');
+  const out = atW1.key('enter');
+  assert.equal(stepOf(atW1.state).id, 'W1');
+  assert.deepEqual(out.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', git: 'status', dir: FACTS.root });
+  const d = onY1('git-unchanged since W1', { stamps: { 'Y1.0': statusStamp(['notes.md']) } });
+  assert.deepEqual(watching(d.state), { git: true, dir: FACTS.root }, 'the whole tree, as git status shows it');
+  d.send({ type: 'git', paths: ['notes.md', 'src/a.js'] });
+  assert.deepEqual([d.state.beat.status, d.state.beat.fail.hint], ['fail', C.changedSince(4, 2, 'notes.md, src/a.js', 0)], 'a change is a not yet at once');
+  fitsBoth(d.state);
+  d.send({ type: 'git', paths: ['notes.md'] });
+  assert.deepEqual([d.state.beat.status, d.state.beat.evidence], ['done', C.unchanged(4)]);
+  fitsBoth(d.state);
+  assert.equal(statusStamp(['b', 'a', 'a']), statusStamp(['a', 'b']), 'the stamp is the same for the same paths');
+  playUntil(onY1('git-unchanged'), (s) => stepOf(s)?.id === 'C');
 });
