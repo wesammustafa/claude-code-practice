@@ -1,6 +1,7 @@
 // What git status lists, for the beats that read it (ticket 88): the whole
 // tree clean, or part of it. Main runs git; these decide what its answer
 // means. Pure: nothing here reads the disk or starts a process.
+import { createHash } from 'node:crypto';
 import { GIT } from './content.mjs';
 import { C } from './copy.mjs';
 
@@ -28,11 +29,17 @@ export function listing(entries, prefix = '') {
 // folder: an untracked .claude/ listed whole can't say whether
 // .claude/settings.local.json is in it. A whole-tree git-clean lists what
 // `git status` itself shows.
-export const eachFile = (verify) => verify.kind !== 'git-clean' || Boolean(verify.paths);
+// head-moved and git-unchanged read the whole tree too (ticket 105).
+export const eachFile = (verify) => !['git-clean', 'head-moved', 'git-unchanged'].includes(verify.kind) || Boolean(verify.paths);
 
-// A beat that needs git status to list something: git-changed, git-only,
-// git-staged. A git-clean beat needs it to list nothing.
-export const needsChange = (verify) => GIT.has(verify.kind) && verify.kind !== 'git-clean';
+// A beat that needs git to show something: git-changed, git-only,
+// git-staged, head-moved, git-unchanged, or a probe (ticket 105). A
+// git-clean beat needs git status to list nothing.
+export const needsChange = (verify) => (GIT.has(verify.kind) && verify.kind !== 'git-clean') || verify.kind === 'probe';
+
+// What git status lists, as a stamp short enough to save: a digest of its
+// paths in order, the same for the same paths.
+export const statusStamp = (paths) => createHash('sha1').update([...new Set(paths)].sort().join('\n')).digest('hex').slice(0, 16);
 
 // Whether a path git lists is `scope` or inside it: `secrets/` and `secrets`
 // both hold secrets/key.txt, and neither holds secrets-old.txt.
@@ -54,8 +61,19 @@ const some = (paths) => [paths.slice(0, 3).join(', '), Math.max(0, paths.length 
 // Whether what git status lists passes a beat that needs something to
 // happen (git-changed, git-only, git-staged), with the evidence a pass shows
 // or the not-yet line a miss gets. `paths` lists each untracked file, and
-// `staged` the paths whose index column says staged.
-export function judgeGit(verify, { paths, staged = [] }) {
+// `staged` the paths whose index column says staged. head-moved and
+// git-unchanged compare with `since`, how git was when step `since.n`
+// opened: `head`, where HEAD is now, against its stamp, or the paths'.
+export function judgeGit(verify, { paths, staged = [], head = null }, since = null) {
+  if (verify.kind === 'head-moved') {
+    if (!head || head === since.stamp) return { pass: false, hint: C.headSame(since.n) };
+    if (paths.length) return { pass: false, hint: C.headDirty(paths.length, ...some(paths)) };
+    return { pass: true, evidence: C.headMoved(head.slice(0, 7)) };
+  }
+  if (verify.kind === 'git-unchanged') {
+    if (statusStamp(paths) === since.stamp) return { pass: true, evidence: C.unchanged(since.n) };
+    return { pass: false, hint: C.changedSince(since.n, paths.length, ...some(paths)) };
+  }
   if (verify.kind === 'git-staged') return staged.length ? { pass: true, evidence: C.stagedShows(...some(staged)) } : { pass: false, hint: C.nothingStaged };
   const hits = listedUnder(paths, [verify.path]);
   if (verify.kind === 'git-only') {

@@ -377,7 +377,14 @@ export function playUntil(d, stop) {
       d.send(v.paths ? gitLists([]) : { type: 'git', paths: [] });
     } else if (v.kind === 'git-staged') d.send(gitLists(['a.txt'], ['a.txt']));
     else if (['git-changed', 'git-only'].includes(v.kind)) d.send(gitLists([`${v.path.replace(/\/+$/, '')}/new.txt`]));
-    else d.key('space');
+    // Ticket 105: a new commit; the same paths as the stamp, or none where
+    // there is no stamp; a probe that fails once, then passes on new work.
+    else if (v.kind === 'head-moved') d.send({ type: 'git', paths: [], head: `new-${i}` });
+    else if (v.kind === 'git-unchanged') d.send({ type: 'git', paths: [] });
+    else if (v.kind === 'probe') {
+      d.send({ type: 'probe', name: v.name, args: v.args, pass: false, hint: 'Not yet.', state: `a${i}` });
+      d.send({ type: 'probe', name: v.name, args: v.args, pass: true, hint: '', evidence: 'Found.', state: `b${i}` });
+    } else d.key('space');
   }
   if (!stop(d.state)) throw new Error(`playUntil: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);
 }
@@ -553,6 +560,26 @@ export function lessonScreens(id, lessons = course, { skipped = false, folders =
       climb(d, at, out);
       d.send(lists([]));
       out.push([`${at} clean`, d.state]);
+    } else if (v.kind === 'probe') {
+      const answer = (pass, state, extra = {}) => ({ type: 'probe', name: v.name, args: v.args, pass, state, hint: pass ? '' : 'git worktree list shows 1 worktree under .claude/worktrees/ (docs-pass); this step needs 2.', evidence: pass ? 'Worktrees under .claude/worktrees/: docs-pass, test-pass' : null, ...extra });
+      d.send(answer(false, 'a'));
+      out.push([`${at} waiting`, d.state]);
+      d.key('r');
+      d.send(answer(false, 'a', { asked: d.state.beat.asked }));
+      out.push([`${at} fail`, d.state]);
+      climb(d, at, out);
+      d.send(answer(true, 'b'));
+      out.push([`${at} done`, d.state]);
+    } else if (v.kind === 'head-moved' || v.kind === 'git-unchanged') {
+      const head = v.kind === 'head-moved' ? { head: '0123456789abcdef' } : {};
+      d.send({ type: 'git', paths: ['src/config.js'], ...head });
+      out.push([`${at} waiting`, d.state]);
+      d.key('r');
+      d.send({ type: 'git', paths: ['src/config.js', 'test/config.test.js'], ...head, asked: d.state.beat.asked });
+      out.push([`${at} fail`, d.state]);
+      climb(d, at, out);
+      d.send({ type: 'git', paths: v.kind === 'head-moved' ? [] : ['src/config.js'], ...(v.kind === 'head-moved' ? { head: 'fedcba9876543210' } : {}) });
+      out.push([`${at} done`, d.state]);
     } else if (v.kind.startsWith('git-')) {
       d.send(gitLists(['README.md']));
       out.push([`${at} waiting`, d.state]);

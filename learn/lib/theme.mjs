@@ -43,7 +43,7 @@ const EMOJI = {
   wave: ['👋', ''], terminal: ['💻', '[TERMINAL]'], claude: ['💬', '[CLAUDE CODE]'], watch: ['👀', '[..]'],
   verified: ['✅', '[ok]'], guess: ['🤔', '?'], hint: ['💡', 'Hint:'], goal: ['🎯', 'Goal:'], safety: ['🔒', 'Safety:'],
   self: ['🙋', '[you]'], level: ['🚀', '>>'], fire: ['🔥', '**'], party: ['🎉', '***'], badge: ['🏅', '[badge]'],
-  cup: ['🏆', '[cup]'], map: ['🧭', ''], broken: ['🚧', '[!!]'], editor: ['📝', '[EDITOR]'],
+  cup: ['🏆', '[cup]'], map: ['🧭', ''], broken: ['🚧', '[!!]'], editor: ['📝', '[EDITOR]'], browser: ['🌐', '[BROWSER]'],
   payoff: ['🏁', '[win]'], read: ['📖', '[read]'],
 };
 

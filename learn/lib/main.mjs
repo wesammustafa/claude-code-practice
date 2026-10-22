@@ -18,9 +18,10 @@ import { createPip } from './pip/pip.mjs';
 import { plainProgress } from './plain.mjs';
 import { bootFrame, cardMax, itemsMax, lessonLabel, pipSlot, pipTarget, render } from './render.mjs';
 import { openScreen } from './screen.mjs';
+import { statusStamp } from './status.mjs';
 import { loadState, saveState, snapshot } from './store.mjs';
 import { theme } from './theme.mjs';
-import { bytesOf, gitFirstName, gitReady, gitStatus, onPath, owing, probeFolder, runCheck, singleFlight, stampOf, stopChildren } from './verify.mjs';
+import { bytesOf, gitFirstName, gitReady, gitStatus, matchOf, onPath, owing, probeFolder, runCheck, runProbe, singleFlight, stampOf, stopChildren } from './verify.mjs';
 import { watchDirs } from './watch.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -160,7 +161,7 @@ function parseArgs(argv) {
   return dir === '' ? null : { dir };
 }
 
-export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, perf = PERF, pipSlot: slotFor = pipSlot, timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
+export async function main({ argv = [], stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, env = process.env, platform = process.platform, root = ROOT, perf = PERF, pipSlot: slotFor = pipSlot, timers = TIMERS, watch = watchDirs, askGit = ASK_GIT, runCheck: checkChild = runCheck, runProbe: probeChild = runProbe, signals = stdin === process.stdin ? process : null, exit = (code) => process.exit(code) } = {}) {
   const args = parseArgs(argv);
   if (!args) {
     stderr.write(`${C.usage}\n`);
@@ -396,26 +397,53 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     if (closed) return;
     if (r.error) return dispatch({ type: 'check-error', lesson, message: r.error, asked, dir });
     if (ev && stampOf(dir, ev) !== before) return queueMicrotask(() => !closed && check({ slow, asked }, lesson, items, ev, dir));
-    dispatch({ type: 'check', lesson, items: r.items, read: ev ? bytesOf(dir, ev) : null, path: ev ?? null, stamp: before, asked, dir });
+    dispatch({ type: 'check', lesson, items: r.items, read: ev ? bytesOf(dir, ev) : null, path: ev ?? null, found: ev ? matchOf(dir, ev) : null, stamp: before, asked, dir });
   });
   // `files`: git lists each untracked file, for a beat on part of the tree.
-  const git = owing(async ({ asked }, dir, files) => {
+  // `head`: and where HEAD is, for a head-moved beat (ticket 105).
+  const git = owing(async ({ asked }, dir, files, head) => {
     runStart();
-    const r = await gitStatus(dir, { files });
+    const r = await gitStatus(dir, { files, head });
     if (closed) return;
-    dispatch(r.error ? { type: 'git-error', message: r.error, asked, dir } : { type: 'git', paths: r.paths, staged: r.staged, files: Boolean(files), asked, dir });
+    dispatch(r.error ? { type: 'git-error', message: r.error, asked, dir } : { type: 'git', paths: r.paths, staged: r.staged, files: Boolean(files), ...(head ? { head: r.head } : {}), asked, dir });
   });
+  // A git probe (ticket 105), in the check child.
+  const probe = owing(async ({ asked }, dir, name, args) => {
+    runStart();
+    const r = await probeChild(dir, name, args);
+    if (closed) return;
+    dispatch(r.error ? { type: 'probe-error', message: r.error, asked, dir } : { type: 'probe', name, args, pass: r.pass, hint: r.hint, evidence: r.evidence, state: r.state, asked, dir });
+  });
+  // The state a stamp effect asks for: a file's, a probe's, where HEAD is or
+  // what git status lists; null where it can't be known just now.
+  async function stampNow(e) {
+    if (e.probe) {
+      const r = await probeChild(e.dir, e.probe.name, e.probe.args);
+      return r.error ? null : r.state;
+    }
+    if (e.git) {
+      const r = await gitStatus(e.dir, { head: e.git === 'head' });
+      return r.error ? null : e.git === 'head' ? r.head ?? '' : statusStamp(r.paths);
+    }
+    return stampOf(e.dir, e.path);
+  }
 
   // A file's bytes and its state, read now in the lesson's folder: local and
   // quick, with no process. The reducer decides what they mean.
-  const file = (path, asked, dir) => queueMicrotask(() => !closed && dispatch({ type: 'file', path, read: bytesOf(dir, path), stamp: stampOf(dir, path), asked: asked ?? 0, dir }));
+  // A glob reads the file it matches now, and says which (`found`).
+  const file = (path, asked, dir) => queueMicrotask(() => {
+    if (closed) return;
+    const found = matchOf(dir, path);
+    dispatch({ type: 'file', path, found, read: found && bytesOf(dir, found), stamp: found ? stampOf(dir, found) : '', asked: asked ?? 0, dir });
+  });
 
   function run(effects) {
     for (const e of effects) {
       if (e.type === 'check') check(e, e.lesson, e.items, e.evidence, e.dir);
       else if (e.type === 'file') file(e.path, e.asked, e.dir);
-      else if (e.type === 'stamp') queueMicrotask(() => !closed && dispatch({ type: 'stamp', key: e.key, stamp: stampOf(e.dir, e.path), dir: e.dir }));
-      else if (e.type === 'git') git(e, e.dir, e.files);
+      else if (e.type === 'stamp') stampNow(e).then((stamp) => !closed && dispatch({ type: 'stamp', key: e.key, stamp, dir: e.dir }));
+      else if (e.type === 'git') git(e, e.dir, e.files, e.head);
+      else if (e.type === 'probe') probe(e, e.dir, e.name, e.args);
       else if (e.type === 'folder') look(e);
       else if (e.type === 'prereqs') prereqs(e);
       else if (e.type === 'commands') queueMicrotask(() => !closed && dispatch({ type: 'commands', found: Object.fromEntries(e.names.map((n) => [n, onPath(n, env, platform)])) }));
@@ -434,7 +462,7 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
   // already waiting (singleFlight), and each answer carries its ask's number.
   const prereqs = singleFlight(async (e) => {
     for (const [at, req] of e.requires.entries()) {
-      const found = await (req.path ? { read: bytesOf(e.dir, req.path) } : checkChild(e.dir, req.lesson, [req.item]).then((r) => {
+      const found = await (req.path ? { read: bytesOf(e.dir, req.path) } : req.probe ? probeChild(e.dir, req.probe, req.args).then((r) => ({ pass: r.error ? null : r.pass, hint: r.hint ?? '' })) : checkChild(e.dir, req.lesson, [req.item]).then((r) => {
         const item = r.items?.find((it) => it.index === req.item);
         return { pass: item ? item.pass : null };
       }));
@@ -483,7 +511,8 @@ export async function main({ argv = [], stdin = process.stdin, stdout = process.
     const w = watching(state);
     if (w?.check) check({}, w.check.lesson, w.check.items, state.view === 'step' ? stepsOf(state)[state.pos.step].beats[state.pos.beat].evidence : null, w.dir);
     if (w?.file) file(w.file, 0, w.dir);
-    if (w?.git) git({}, w.dir, w.files);
+    if (w?.git) git({}, w.dir, w.files, w.head);
+    if (w?.probe) probe({}, w.dir, w.probe.name, w.probe.args);
   }
 
   // The copy is always watched: its .practice/ decides whether progress

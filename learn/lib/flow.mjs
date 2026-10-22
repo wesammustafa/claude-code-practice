@@ -2,10 +2,10 @@
 // returns { state, effects }. Effects ask the wiring in main.mjs to run a
 // check, read git status, save progress or quit; their results come back as
 // events. Nothing here reads a file, a clock or the terminal.
-import { GIT, PATH_MAX, READS, WORK_LEVELS } from './content.mjs';
+import { GIT, isChoice, PATH_MAX, READS, SINCE_GIT, WORK_LEVELS } from './content.mjs';
 import { C } from './copy.mjs';
 import { evidenceOf, grewFrom, judge } from './holds.mjs';
-import { cleanListed, eachFile, judgeGit, needsChange } from './status.mjs';
+import { cleanListed, eachFile, judgeGit, needsChange, statusStamp } from './status.mjs';
 import { effectiveTier, ruleTiers, TIERS } from './tiers.mjs';
 
 export const IDLE_MS = 120_000;
@@ -44,6 +44,7 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
       const step = steps.find((x) => x.id === pr.step);
       if (!step) Object.assign(pr, { step: null, beat: 0 });
       else if (!(pr.beat >= 0 && pr.beat < step.beats.length)) pr.beat = 0;
+      else if (!beatShown(pr, step.beats[pr.beat])) pr.beat = shownBefore(pr, step, pr.beat);
     }
   }
   const open = course.find((l) => l.content && progress[l.id].step && !progress[l.id].complete)
@@ -70,6 +71,9 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     missed: saved?.missed ?? [],
     missedNow: [],
     answeredNow,
+    // The warm-ups a long wait's box asked in this sitting (ticket 150), in
+    // memory only: `lesson.id`.
+    whileShown: [],
     welcomed,
     view,
     overlay: null, lesson: next.id, pos: { step: 0, beat: 0 }, beat: null,
@@ -164,6 +168,12 @@ export function stepHere(s) {
 // The folder of what the screen shows (ticket 183): its step's where there
 // is one, else the lesson's. The header, the watcher and a card's place read it.
 export const folderHere = (s) => folderOf(s, s.lesson, stepHere(s));
+// A lesson whose Check passed with its Tear down still to do (ticket 102):
+// it completes only after its last Tear down step.
+export const tearDownLeft = (s, id = s.lesson) => {
+  const p = s.progress[id];
+  return Boolean(contentOf(s, id)?.steps.some((x) => x.part === 'Tear down')) && !p.complete && p.done.includes('C');
+};
 // A lesson the learner can still finish: not complete, and not one that
 // runs in a new copy of the template while that copy's folder is not saved,
 // as no check of it runs until then. The next lesson the map marks and
@@ -177,6 +187,16 @@ const playOrder = (content, p) => [...p.warm.map((id) => content.warmup.find((w)
 export const stepsOf = (s, id = s.lesson) => (contentOf(s, id) ? playOrder(contentOf(s, id), s.progress[id]) : []);
 export const stepOf = (s) => stepsOf(s)[s.pos.step];
 export const beatOf = (s) => stepOf(s).beats[s.pos.beat];
+// Whether a beat shows (ticket 104): one with a when line only while the
+// saved pick on its choice is its option. The store keeps 200 characters of
+// a pick, so a pick made in this sitting compares as a saved one does.
+export const beatShown = (p, beat) => !beat.when || p.answers[`${beat.when.step}.${beat.when.beat}`]?.slice(0, 200) === beat.when.option.slice(0, 200);
+// The step's next beat that shows after beat `at`, or -1; and its last one
+// that shows before `at`, or -1. A step's first beat always shows.
+const shownAfter = (p, step, at) => step.beats.findIndex((b, i) => i > at && beatShown(p, b));
+const shownBefore = (p, step, at) => step.beats.findLastIndex((b, i) => i < at && beatShown(p, b));
+// Whether the beat on screen is the last of its step that shows.
+export const isLastBeat = (s) => shownAfter(s.progress[s.lesson], stepOf(s), s.pos.beat) < 0;
 
 // What this learner did with each skill: `steps` holds "k skill" for each
 // lesson k where they finished one of its own steps on it (warm-ups aside),
@@ -231,7 +251,7 @@ export function doneBefore(s) {
   const { finished } = history(s);
   if (!s.lesson.endsWith('capstone')) return finished.has(stepOf(s).skill);
   const idx = s.course.findIndex((l) => l.id === s.lesson);
-  return s.course.slice(0, idx).every((l) => (l.content?.steps ?? []).every((x) => finished.has(x.skill)));
+  return s.course.slice(0, idx).every((l) => (l.content?.steps ?? []).every((x) => x.optional || finished.has(x.skill)));
 }
 
 // Each step's tier in play order. A warm-up recalls an earlier lesson from
@@ -290,15 +310,19 @@ export function watching(s) {
   const v = beatOf(s).verify;
   if (v.kind === 'check') return { check: { lesson: s.lesson, items: v.all ? null : v.items }, dir };
   if (READS.has(v.kind)) return { file: v.path, dir };
-  if (GIT.has(v.kind)) return { git: true, dir, ...(eachFile(v) ? { files: true } : {}) };
+  if (GIT.has(v.kind)) return { git: true, dir, ...(eachFile(v) ? { files: true } : {}), ...(v.kind === 'head-moved' ? { head: true } : {}) };
+  if (v.kind === 'probe') return { probe: { name: v.name, args: v.args }, dir };
   return null;
 }
 // The effect that asks git about what `w` watches, in its folder.
-const gitAsk = (w, extra = {}) => ({ type: 'git', ...extra, dir: w.dir, ...(w.files ? { files: true } : {}) });
+const gitAsk = (w, extra = {}) => ({ type: 'git', ...extra, dir: w.dir, ...(w.files ? { files: true } : {}), ...(w.head ? { head: true } : {}) });
+// The effect that runs the probe `w` watches (ticket 105).
+const probeAsk = (w, extra = {}) => ({ type: 'probe', ...extra, name: w.probe.name, args: w.probe.args, dir: w.dir });
 // Whether a git result answers what `w` watches: a beat on part of the tree
 // reads only one that lists each untracked file, and a whole-tree beat only
-// one that lists what git status shows.
-const answersGit = (w, ev) => Boolean(w?.git) && Boolean(ev.files) === Boolean(w.files);
+// one that lists what git status shows; a head-moved beat only one that
+// says where HEAD is.
+const answersGit = (w, ev) => Boolean(w?.git) && Boolean(ev.files) === Boolean(w.files) && ('head' in ev) === Boolean(w.head);
 
 // The intro that holds the folder question: a lesson that runs in a new
 // copy; for a level, the first of its intros the learner opens while it has
@@ -404,7 +428,7 @@ function onPrereq(s, ev) {
   if (s.prereqs[ev.lesson]?.dir !== ev.dir) s.prereqs[ev.lesson] = { dir: ev.dir, met: {} };
   const asked = ev.asked ?? 0;
   if (asked < (s.prereqs[ev.lesson].met[ev.at]?.asked ?? 0)) return;
-  const r = req.path ? judge({ kind: 'file', path: req.path }, ev.read) : { pass: ev.pass ?? null, hint: lessonOf(s, req.lesson).items[req.item] };
+  const r = req.path ? judge({ kind: 'file', path: req.path }, ev.read) : { pass: ev.pass ?? null, hint: req.probe ? ev.hint ?? '' : lessonOf(s, req.lesson).items[req.item] };
   s.prereqs[ev.lesson].met[ev.at] = { pass: r.pass, hint: r.hint, asked };
   // An offer that goes takes the cursor on it back to the first option.
   if (s.view === 'intro' && s.lesson === ev.lesson && !asksFolder(s) && s.cursor >= introOptions(s).length) s.cursor = 0;
@@ -416,7 +440,7 @@ function onPrereq(s, ev) {
 export function unmet(s) {
   const r = s.prereqs[s.lesson];
   if (!r || r.dir !== folderOf(s) || asksFolder(s)) return [];
-  return (contentOf(s)?.requires ?? []).flatMap((req, k) => (r.met[k]?.pass === false ? [{ ...req, hint: r.met[k].hint, offer: folderOf(s, req.lesson) === r.dir }] : []));
+  return (contentOf(s)?.requires ?? []).flatMap((req, k) => (r.met[k]?.pass === false ? [{ ...req, hint: r.met[k].hint, offer: Boolean(req.lesson) && folderOf(s, req.lesson) === r.dir }] : []));
 }
 // The lesson the intro offers to open first: the first failed
 // prerequisite's that can set it right.
@@ -555,10 +579,35 @@ export function copyable(s) {
 // where nothing can fail, so h answers at once.
 export function tryFirst(s) {
   const beat = beatOf(s);
-  if (beat.verify.kind === 'check' || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind)) return 'r';
+  if (beat.verify.kind === 'check' || beat.verify.kind === 'probe' || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind)) return 'r';
   const canMiss = beat.options.some((o) => o.kind === 'wrong' || o.kind === 'decoy');
   return beat.ask && beat.kind !== 'predict' && beat.kind !== 'type' && canMiss ? 'pick' : null;
 }
+
+// A beat on screen that waits on a long run (ticket 103): the idle offer
+// never fires there, so the motion layer never goes still for it.
+export const longWait = (s) => s.view === 'step' && Boolean(s.beat) && !['done', 'already'].includes(s.beat.status) && Boolean(beatOf(s).wait);
+
+// Recall while a long run works (ticket 150): the warm-up a long wait's box
+// offers, one of this lesson's pool that its warm-ups did not show and the
+// box has not asked, on a missed skill first, then in the file's order. Only
+// a question with options: typing would take the card's keys. Never a choice
+// (ticket 104): it has no right answer to recall. Never scored.
+function whileRunsPick(s) {
+  const p = s.progress[s.lesson];
+  const missed = (w) => w.beats.some((b) => s.missed.includes(b.skill ?? w.skill));
+  const pool = contentOf(s).warmup.filter((w) => !p.warm.includes(w.id) && !s.whileShown.includes(`${s.lesson}.${w.id}`) && w.beats[0].ask && w.beats[0].kind !== 'type' && w.beats[0].options.length && !isChoice(w.beats[0]));
+  return [...pool.filter(missed), ...pool.filter((w) => !missed(w))][0]?.id ?? null;
+}
+// The box's warm-up step, its first beat and the answer picked (an option's
+// index, or null), while the long wait lasts; else null.
+export function whileRunsOf(s) {
+  const id = longWait(s) ? s.beat.whileRuns?.id : null;
+  const step = id && contentOf(s).warmup.find((w) => w.id === id);
+  return step ? { step, beat: step.beats[0], answer: s.beat.whileRuns.answer } : null;
+}
+// A question still open in the box: rule 3 holds ambient motion beside it.
+export const whileRunsOpen = (s) => whileRunsOf(s)?.answer === null;
 
 export function hintAvailable(s) {
   if (s.view !== 'step' || !s.beat || ['done', 'already'].includes(s.beat.status)) return false;
@@ -579,6 +628,8 @@ function openBeat(s, effects) {
   p.beat = s.pos.beat;
   markEased(s, s.pos.step);
   s.beat = { status: 'waiting', rung: -1, lockUntil: 0, confirm: false, wrongs: [], answer: null, revealed: false, typed: '', typedWrong: 0, feedback: null, idle: false, unlocked: false, explicit: false, ended: false, opened: s.now, eased: Boolean(p.easedSteps[step.id]) };
+  const offer = beat.wait ? whileRunsPick(s) : null;
+  if (offer) s.beat.whileRuns = { id: offer, answer: null };
   s.lastActivity = s.now;
   // Nothing is picked until the learner picks: an Enter meant for the screen
   // before can't answer a question.
@@ -595,20 +646,32 @@ function openBeat(s, effects) {
   } else if (GIT.has(beat.verify.kind)) {
     s.beat.status = 'opening';
     effects.push(gitAsk(watching(s)));
+  } else if (beat.verify.kind === 'probe') {
+    s.beat.status = 'opening';
+    effects.push(probeAsk(watching(s)));
   }
   effects.push({ type: 'save' });
 }
 
 // A fresh check compares its file with how it was when its step opened (or
 // the step it names): ask for that file's state now, once, in the folder
-// the fresh beat's own step reads it in (ticket 183).
+// the fresh beat's own step reads it in (ticket 183). A fresh probe stamps
+// what its probe answers, and head-moved and git-unchanged where HEAD is
+// or what git status lists (ticket 105).
+const stampOf = (b) => {
+  const v = b.verify;
+  if (v.kind === 'probe') return v.fresh ? { probe: { name: v.name, args: v.args } } : null;
+  if (SINCE_GIT.has(v.kind)) return { git: v.kind === 'head-moved' ? 'head' : 'status' };
+  return v.fresh ? { path: b.evidence } : null;
+};
 function stampFresh(s, effects) {
   const step = stepOf(s);
   const stamps = s.progress[s.lesson].stamps;
   for (const other of stepsOf(s)) {
     other.beats.forEach((b, i) => {
       const key = `${other.id}.${i}`;
-      if (b.verify.fresh && (b.verify.since ?? other.id) === step.id && !(key in stamps)) effects.push({ type: 'stamp', key, path: b.evidence, dir: folderOf(s, s.lesson, other) });
+      const what = stampOf(b);
+      if (what && (b.verify.since ?? other.id) === step.id && !(key in stamps)) effects.push({ type: 'stamp', key, ...what, dir: folderOf(s, s.lesson, other) });
     });
   }
 }
@@ -725,7 +788,8 @@ export function startLesson(s, id, effects) {
   const steps = stepsOf(s, id);
   const at = steps.findIndex((x) => x.id === p.step);
   if (at !== -1 && !p.complete) {
-    s.pos = { step: at, beat: p.beat >= 0 && p.beat < steps[at].beats.length ? p.beat : 0 };
+    const beat = p.beat >= 0 && p.beat < steps[at].beats.length ? p.beat : 0;
+    s.pos = { step: at, beat: beatShown(p, steps[at].beats[beat]) ? beat : shownBefore(p, steps[at], beat) };
     s.view = 'step';
     openBeat(s, effects);
   } else {
@@ -741,6 +805,26 @@ function finishStep(s, effects) {
     p.done.push(step.id);
     s.session += 1;
   }
+  nextStep(s, effects);
+}
+
+// x on an optional step (ticket 102): on to the next step, or the lesson's
+// end, with the step not done. Skipping changes no eased or missed state: an
+// ease that landed on this step waits for the next step on its skill.
+function skipStep(s, effects) {
+  const step = stepOf(s);
+  const p = s.progress[s.lesson];
+  if (p.easedSteps[step.id] && !p.done.includes(step.id)) {
+    delete p.easedSteps[step.id];
+    if (!s.eased.includes(step.skill)) s.eased.push(step.skill);
+  }
+  nextStep(s, effects);
+}
+
+// The step after the one on screen, or, after the last (the Check, or the
+// last Tear down step after it), the lesson's end.
+function nextStep(s, effects) {
+  const p = s.progress[s.lesson];
   const steps = stepsOf(s);
   if (s.pos.step + 1 >= steps.length) {
     p.complete = true;
@@ -753,19 +837,23 @@ function finishStep(s, effects) {
   openStep(s, s.pos.step + 1, effects);
 }
 
+// On and back pass over the beats that don't show (ticket 104).
 function advance(s, effects) {
-  if (s.pos.beat + 1 < stepOf(s).beats.length) {
-    s.pos.beat += 1;
+  const next = shownAfter(s.progress[s.lesson], stepOf(s), s.pos.beat);
+  if (next >= 0) {
+    s.pos.beat = next;
     openBeat(s, effects);
   } else finishStep(s, effects);
 }
 
 function back(s, effects) {
+  const p = s.progress[s.lesson];
   if (s.pos.beat > 0) {
-    s.pos.beat -= 1;
+    s.pos.beat = shownBefore(p, stepOf(s), s.pos.beat);
     openBeat(s, effects);
   } else if (s.pos.step > 0) {
-    s.pos = { step: s.pos.step - 1, beat: stepsOf(s)[s.pos.step - 1].beats.length - 1 };
+    const prev = stepsOf(s)[s.pos.step - 1];
+    s.pos = { step: s.pos.step - 1, beat: shownBefore(p, prev, prev.beats.length) };
     s.view = 'step';
     openBeat(s, effects);
   }
@@ -843,6 +931,9 @@ function pick(s, index, effects) {
   }
   if (opt.kind === 'right' || opt.kind === 'option' || opt.kind === 'other') {
     st.answer = { index, kind: opt.kind };
+    // Saved as a guess is (ticket 104): a when line reads a choice's pick,
+    // and a changed pick changes which beats after it show.
+    p.answers[answerKey(s)] = opt.text;
     st.feedback = opt.kind === 'right' ? { kind: 'right' } : { kind: opt.kind, because: opt.because };
     st.status = 'done';
     if (opt.kind === 'right') recalled(s);
@@ -903,7 +994,7 @@ function submitTyped(s, effects) {
 }
 
 // ---- checks and git ----------------------------------------------------------
-const RESULTS = ['check', 'check-error', 'file', 'git', 'git-error'];
+const RESULTS = ['check', 'check-error', 'file', 'git', 'git-error', 'probe', 'probe-error'];
 
 // `read` is the bytes of the beat's evidence file, as main read it.
 function onCheck(s, ev, effects, rRuns) {
@@ -1015,6 +1106,8 @@ function decide(s, ev, effects, failing) {
   if (!failing) {
     st.status = st.baseline === undefined ? 'already' : 'done';
     st.evidence = ev.evidence ?? null;
+    // The file a glob matched, for the card to name (106).
+    st.found = ev.found ?? null;
     st.feedback = null;
     st.rung = -1;
     st.confirm = false;
@@ -1063,7 +1156,9 @@ function onGit(s, ev, effects, rRuns) {
   // A beat that needs git status to list something starts from what it
   // lists first, as a check does.
   if (needsChange(beat.verify)) {
-    const r = judgeGit(beat.verify, ev);
+    const r = judgeGit(beat.verify, ev, SINCE_GIT.has(beat.verify.kind) ? gitSince(s, ev, effects) : undefined);
+    // Nothing changing is the work: the first look can say not yet.
+    if (beat.verify.kind === 'git-unchanged' && st.baseline === undefined) st.baseline = null;
     return decide(s, { ...ev, evidence: r.evidence }, effects, r.pass ? null : { hint: r.hint });
   }
   const listed = cleanListed(beat.verify, ev.paths);
@@ -1086,6 +1181,30 @@ function onGit(s, ev, effects, rRuns) {
   st.unlocked = true;
   st.fail = { paths: listed };
   st.explicit = false;
+}
+
+// How git was when a head-moved or git-unchanged beat's step (or the step
+// it names) opened: the stamp taken then, or, where none was, this result,
+// kept as the stamp. `n` is that step's number on screen.
+function gitSince(s, ev, effects) {
+  const v = beatOf(s).verify;
+  const stamps = s.progress[s.lesson].stamps;
+  const key = answerKey(s);
+  if (!(key in stamps)) {
+    stamps[key] = v.kind === 'head-moved' ? ev.head ?? '' : statusStamp(ev.paths);
+    effects.push({ type: 'save' });
+  }
+  return { stamp: stamps[key], n: stepsOf(s).findIndex((x) => x.id === (v.since ?? stepOf(s).id)) + 1 };
+}
+
+// What a git probe answered (ticket 105), for the probe beat on screen. A
+// fresh one passes only once its `state` changed since its step opened.
+function onProbe(s, ev, effects, rRuns) {
+  if (rRuns || s.view !== 'step' || !s.beat) return;
+  const beat = beatOf(s);
+  const v = beat.verify;
+  if (v.kind !== 'probe' || ev.name !== v.name || !sameJson(ev.args, v.args) || ['done', 'already'].includes(s.beat.status)) return;
+  decide(s, { ...ev, path: beat.evidence, stamp: ev.state ?? null, evidence: ev.evidence ?? null }, effects, ev.pass ? null : { hint: ev.hint });
 }
 
 // ---- the reducer -------------------------------------------------------------
@@ -1145,6 +1264,14 @@ export function reduce(prev, ev) {
     case 'git':
       onGit(s, ev, effects, rRuns);
       break;
+    case 'probe':
+      onProbe(s, ev, effects, rRuns);
+      break;
+    case 'probe-error':
+      if (!rRuns && s.view === 'step' && s.beat && beatOf(s).verify.kind === 'probe' && !['done', 'already'].includes(s.beat.status)) {
+        Object.assign(s.beat, { status: 'broken', error: ev.message, rung: -1, confirm: false });
+      }
+      break;
     case 'file':
       onFile(s, ev, effects, rRuns);
       break;
@@ -1170,7 +1297,8 @@ export function reduce(prev, ev) {
         s.held = null;
         onKey(s, held, effects);
       }
-      if (ev.type === 'tick' && s.view === 'step' && s.beat && !['done', 'already'].includes(s.beat.status) && s.now - s.lastActivity >= IDLE_MS) {
+      // A long wait (ticket 103) is quiet by design: no offer, no unlock.
+      if (ev.type === 'tick' && s.view === 'step' && s.beat && !['done', 'already'].includes(s.beat.status) && !longWait(s) && s.now - s.lastActivity >= IDLE_MS) {
         s.beat.idle = true;
         s.beat.unlocked = true;
       }
@@ -1253,7 +1381,7 @@ export function cardMood(s) {
   const st = s.beat;
   if (s.view !== 'step' || !st) return null;
   const beat = beatOf(s);
-  if (isDone(st)) return s.pos.beat === stepOf(s).beats.length - 1 ? 'done' : 'rest';
+  if (isDone(st)) return isLastBeat(s) ? 'done' : 'rest';
   if (st.status === 'opening') return 'checking';
   if (st.status === 'broken') return 'broken';
   const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && cleanListed(beat.verify, s.git?.paths ?? []).length > 0;
@@ -1304,7 +1432,7 @@ function stampFx(prev, s, ev) {
       if (!st.revealed && beatOf(s).kind !== 'predict') fx.pass = t;
       // `passLast`: the step's last beat turned done, by any route. The step
       // is done all the same, so it cheers all the same.
-      if (s.pos.beat === stepOf(s).beats.length - 1) fx.passLast = t;
+      if (isLastBeat(s)) fx.passLast = t;
     }
   }
   // A look: a result for what the screen watched, and whether it differs
@@ -1313,9 +1441,9 @@ function stampFx(prev, s, ev) {
   const w = watching(prev);
   // A git result the beat doesn't read (onGit) is no look; one on part of
   // the tree also differs when another path is staged.
-  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && answersGit(w, ev));
+  const looked = (ev.type === 'check' && w?.check?.lesson === ev.lesson) || (ev.type === 'file' && w?.file === ev.path) || (ev.type === 'git' && answersGit(w, ev)) || (ev.type === 'probe' && w?.probe?.name === ev.name);
   if (looked) {
-    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read, readFrom(prev, ev)) : ev.files ? [ev.paths, ev.staged] : ev.paths);
+    const seen = JSON.stringify(ev.type === 'check' ? [ev.items, evidenceOf(ev.read)] : ev.type === 'file' ? judge(beatOf(prev).verify, ev.read, readFrom(prev, ev)) : ev.type === 'probe' ? [ev.pass, ev.state] : 'head' in ev ? [ev.paths, ev.head] : ev.files ? [ev.paths, ev.staged] : ev.paths);
     fx.changed = fx.seen !== undefined && fx.seen !== seen;
     if (fx.changed) fx.changedAt = t;
     fx.seen = seen;
@@ -1455,6 +1583,7 @@ function closeMap(s, effects) {
     if (w?.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beatOf(s).evidence ?? null, dir: w.dir });
     if (w?.file) effects.push({ type: 'file', path: w.file, dir: w.dir });
     if (w?.git) effects.push(gitAsk(w));
+    if (w?.probe) effects.push(probeAsk(w));
   }
 }
 
@@ -1560,6 +1689,7 @@ const VIEWS = {
       return true;
     }
     if (name === 'b') return back(s, effects), true;
+    if (name === 'x' && stepOf(s).optional) return skipStep(s, effects), true;
     const earlier = name === 'e' && backOffered(s);
     if (earlier) return goBack(s, earlier, effects), true;
     if (name === 'w' && beat.why.length) {
@@ -1590,6 +1720,7 @@ const VIEWS = {
       if (w.check) effects.push({ type: 'check', lesson: w.check.lesson, items: w.check.items, evidence: beat.evidence ?? null, slow: true, asked: s.asks, dir: w.dir });
       if (w.file) effects.push({ type: 'file', path: w.file, asked: s.asks, dir: w.dir });
       if (w.git) effects.push(gitAsk(w, { asked: s.asks }));
+      if (w.probe) effects.push(probeAsk(w, { asked: s.asks }));
       return true;
     }
     // At CHALLENGE, hints wait for a first try: name it instead of ignoring h.
@@ -1608,6 +1739,13 @@ const VIEWS = {
       return true;
     }
     if (done) return false;
+    // The long wait's box: a number answers it, once, and scores nothing.
+    const box = whileRunsOpen(s) && whileRunsOf(s);
+    if (box && DIGIT.test(ch ?? '') && Number(ch) <= box.beat.options.length) {
+      st.whileRuns.answer = Number(ch) - 1;
+      s.whileShown.push(`${s.lesson}.${box.step.id}`);
+      return true;
+    }
     const q = questionOf(beat);
     if (q && !st.answer) {
       const n = beat.options.length;

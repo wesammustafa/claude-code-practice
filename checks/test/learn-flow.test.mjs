@@ -2,11 +2,18 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asStarted, backOffered, beatOf, DEFER_MS, HINT_LOCK_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
-import { GIT, parseLesson, READS } from '../../learn/lib/content.mjs';
+import { answerKey, asStarted, backOffered, beatOf, beatShown, cardMood, DEFER_MS, HINT_LOCK_MS, hintAvailable, IDLE_MS, isLastBeat, longWait, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching, whileRunsOf, whileRunsOpen } from '../../learn/lib/flow.mjs';
+import { GIT, OWN_PARTS, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { stampFor } from '../../learn/lib/holds.mjs';
-import { mix } from '../../learn/lib/tiers.mjs';
+import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
+import { render } from '../../learn/lib/render.mjs';
+import { nextChange, phases, pipGates } from '../../learn/lib/motion.mjs';
+import { theme } from '../../learn/lib/theme.mjs';
+import { strip, width } from '../../learn/lib/text.mjs';
+import { C } from '../../learn/lib/copy.mjs';
+import { statusStamp } from '../../learn/lib/status.mjs';
+import { plainProgress } from '../../learn/lib/plain.mjs';
 import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, bareExit, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
@@ -399,12 +406,14 @@ test('the grammar: warm-ups in their own section, a fresh check names its file, 
   const file = parseLesson(DEMO_B2.replace('- verify: check 0 fresh\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', '- verify: file .practice/b-2-plan.txt fresh'), 'demo');
   assert.deepEqual(file.steps[1].beats[0].verify, { kind: 'file', path: '.practice/b-2-plan.txt', fresh: true, since: null });
   assert.equal(file.steps[1].beats[0].evidence, '.practice/b-2-plan.txt');
-  assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check 0 fresh', '- verify: self fresh'), 'demo'), /only a check or a file can be fresh/);
+  assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check 0 fresh', '- verify: self fresh'), 'demo'), /only a check, a file or a probe can be fresh/);
   assert.equal(l.steps[0].beats[0].where, 'shell');
   assert.throws(() => parseLesson(DEMO_B2.replace('### R1 | Warm-up |', '### W9 | Worked example step 1 of 1 |'), 'demo'), /step heading in the warm-up section/);
   assert.throws(() => parseLesson(DEMO_B2.replace('### C | Check | Check', '### C | Warm-up | Check'), 'demo'), /warm-up heading in the steps section/);
   assert.throws(() => parseLesson(DEMO_B2.replace('- evidence: .practice/b-2-before.txt\n- goal', '- goal'), 'demo'), /a fresh check needs an evidence file/);
-  assert.throws(() => parseLesson(DEMO_B2.replace('- where: shell', '- where: browser'), 'demo'), /unknown where browser/);
+  assert.throws(() => parseLesson(DEMO_B2.replace('- where: shell', '- where: moon'), 'demo'), /unknown where moon/);
+  // The app can't see a browser: W1's check there is refused (ticket 103).
+  assert.throws(() => parseLesson(DEMO_B2.replace('- where: shell', '- where: browser'), 'demo'), /a browser beat verifies with self/);
   assert.throws(() => parseLesson(DEMO_B2.replace('- skill: snapshot\n- where: shell', '- skill: snapshot\n- from: b-1\n- where: shell'), 'demo'), /only a warm-up names the lesson it comes from/);
   // A "Done when" in the app's words is a check's or a file's expectation.
   const said = parseLesson(DEMO_B2.replace('- goal: "Save it again."', '- goal: "Save it again."\n- say: Done when the file lists it.\n- say: Then press r.'), 'demo');
@@ -2558,4 +2567,654 @@ test('the back key: the steps from there on check again as they are met, and a q
   assert.deepEqual([r.state.beat.status, r.state.beat.stale], ['waiting', true], 'the snapshot from before the back waits');
   r.send({ type: 'check', lesson: 'b-2', items: pass, path: '.practice/b-2-before.txt', stamp: 'NEW' });
   assert.equal(r.state.beat.status, 'done', 'a new snapshot passes');
+});
+
+// ---- Your turn parts, Tear down steps and optional steps (ticket 102) -------
+// DEMO_B2 with its Your turn in two parts, the second optional, and two Tear
+// down steps after the Check, the last of which completes the lesson.
+const PARTS_B2 = DEMO_B2
+  .replace('next: b-3\n', 'next: b-3\nbadge: Tidy\n')
+  .replace('### Y1 | Your turn step 1 of 1 | Save it again', '### Y1 | Your turn part 1 of 2 | Save it again')
+  .replace('### C | Check | Check', `### Y2 | Your turn part 2 of 2 | Look around
+- tier: challenge
+- skill: look-around
+- where: terminal
+- optional: Skip this part in the cheap variant.
+- beat: do
+- verify: self
+- done-label: it's done
+- goal: "Look around."
+
+### C | Check | Check`)
+  .concat(`
+### D1 | Tear down step 1 of 2 | Remove the snapshot
+- tier: challenge
+- skill: tear-down
+- where: shell
+- beat: do
+- verify: self
+- done-label: it's gone
+- goal: "Remove the snapshot."
+
+### D2 | Tear down step 2 of 2 | Check once more
+- tier: challenge
+- skill: tear-down
+- where: terminal
+- optional: Skip this step if the check already ran.
+- beat: do
+- verify: self
+- done-label: it still passes
+- goal: "Run the check once more."
+`);
+const partsCourse = () => courseWith({ 'b-2': PARTS_B2 });
+const b2Saved = (extra = {}) => ({ format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1', 'Y1', 'Y2'], step: 'C', beat: 0, ...extra } } });
+const onPartsB2 = (step, extra = {}) => {
+  const d = driver({ course: partsCourse(), saved: b2Saved({ step, ...extra }) });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== step) throw new Error(`onPartsB2: on ${d.state.view} ${stepOf(d.state)?.id}, not ${step}`);
+  return d;
+};
+const screenText = (state, cols = 80, rows = 24, unicode = true) => render(state, { cols, rows }, theme({ tty: true, depth: unicode ? 8 : 1, unicode, links: false, win32: !unicode })).map(strip);
+// Every line of the screen fits 60x20 and 80x24, in full color and in ASCII.
+const fitsBoth = (state) => {
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    for (const unicode of [true, false]) {
+      const lines = screenText(state, cols, rows, unicode);
+      assert.equal(lines.length, rows);
+      assert.ok(lines.every((l) => width(l) <= cols - 1), `${cols}x${rows}${unicode ? '' : ' ascii'}:\n${lines.join('\n')}`);
+    }
+  }
+};
+
+test('parts and Tear down: the headings parse, a part is own work, and D steps only follow the Check (102)', () => {
+  const l = parseLesson(PARTS_B2, 'b-2.md');
+  assert.deepEqual(l.steps.map((s) => [s.id, s.part, s.unit, s.n, s.of]), [
+    ['W1', 'Worked example', 'step', 1, 1], ['Y1', 'Your turn', 'part', 1, 2], ['Y2', 'Your turn', 'part', 2, 2],
+    ['C', 'Check', null, null, null], ['D1', 'Tear down', 'step', 1, 2], ['D2', 'Tear down', 'step', 2, 2],
+  ]);
+  assert.ok(OWN_PARTS.has(l.steps[1].part), 'a part is own work');
+  const bad = (from, to) => assert.throws(() => parseLesson(PARTS_B2.replace(from, to), 'b-2.md'), Error, `${to}`);
+  bad('### W1 | Worked example step 1 of 1', '### W1 | Worked example part 1 of 1');
+  bad('### D1 | Tear down step 1 of 2', '### D1 | Tear down part 1 of 2');
+  bad('### D1 | Tear down step 1 of 2', '### Y3 | Tear down step 1 of 2');
+  bad('### Y2 | Your turn part 2 of 2', '### D9 | Your turn part 2 of 2');
+  // A Tear down step before the Check, or a step after a Tear down step.
+  const early = DEMO_B2.replace('### C | Check | Check', '### D1 | Tear down step 1 of 1 | Early\n- tier: challenge\n- skill: x\n- where: shell\n- beat: do\n- verify: self\n\n### C | Check | Check');
+  assert.throws(() => parseLesson(early, 'b-2.md'), /a Tear down step only follows the Check/);
+  const after = `${PARTS_B2}\n### Y3 | Your turn part 3 of 3 | Late\n- tier: challenge\n- skill: x\n- where: shell\n- beat: do\n- verify: self\n`;
+  assert.throws(() => parseLesson(after, 'b-2.md'), /only Tear down steps follow the Check/);
+});
+
+test('parts and Tear down: a D id works wherever a step id does (102)', () => {
+  const fresh = parseLesson(PARTS_B2.replace("- done-label: it's gone\n", "- verify: file .practice/gone.txt fresh since D1\n").replace("- beat: do\n- verify: self\n- verify: file", '- beat: do\n- verify: file'), 'b-2.md');
+  assert.equal(fresh.steps.find((s) => s.id === 'D1').beats[0].verify.since, 'D1');
+  const back = parseLesson(PARTS_B2.replace('- goal: "Run the check once more."', '- goal: "Run the check once more."\n- back: D1 Remove it first.'), 'b-2.md');
+  assert.equal(back.steps.find((s) => s.id === 'D2').beats[0].back.step, 'D1');
+  const saved = snapshot({ welcomed: true, eased: [], missed: [], progress: { 'b-2': { step: 'D2', bottomAt: 'D1', moreHelpAt: 'D2', done: ['D1'] } } });
+  assert.deepEqual([saved.lessons['b-2'].step, saved.lessons['b-2'].bottomAt, saved.lessons['b-2'].moreHelpAt], ['D2', 'D1', 'D2']);
+  const d = onPartsB2('D2', { done: ['W1', 'Y1', 'Y2', 'C', 'D1'] });
+  assert.equal(stepOf(d.state).id, 'D2', 'a saved D step resumes');
+});
+
+test('parts and Tear down: the Check runs check all, and the lesson completes, badge and all, only after its last D step (102)', () => {
+  const d = onPartsB2('C');
+  assert.deepEqual(d.effects.find((e) => e.type === 'check'), { type: 'check', lesson: 'b-2', items: null, evidence: null, dir: FACTS.root });
+  playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'D1');
+  const p = d.state.progress['b-2'];
+  assert.ok(p.done.includes('C'));
+  assert.equal(p.complete, false, 'the Check passing does not complete the lesson');
+  d.key('space');
+  assert.equal(stepOf(d.state).id, 'D2');
+  assert.equal(d.state.progress['b-2'].complete, false);
+  assert.ok(!screenText(d.state).some((l) => l.includes(C.badge('Tidy'))));
+  d.key('space');
+  assert.equal(d.state.view, 'complete');
+  assert.equal(d.state.progress['b-2'].complete, true);
+  assert.deepEqual(d.state.progress['b-2'].done.slice(-3), ['C', 'D1', 'D2']);
+  assert.ok(screenText(d.state).some((l) => l.includes(C.badge('Tidy'))), 'the badge comes after the last D step');
+});
+
+test('parts and Tear down: the map and the resume screen say the tear down is still to do (102)', () => {
+  const d = driver({ course: partsCourse(), saved: b2Saved({ step: 'D1', done: ['W1', 'Y1', 'Y2', 'C'] }) });
+  assert.equal(d.state.view, 'resume');
+  assert.ok(tearDownLeft(d.state, 'b-2'));
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const resume = screenText(d.state, cols, rows).join('\n');
+    assert.ok(resume.replace(/\s+/g, ' ').includes(C.tearDownLeft), `${cols}x${rows} resume:\n${resume}`);
+  }
+  fitsBoth(d.state);
+  d.key('m');
+  assert.equal(d.state.view, 'map');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const map = screenText(d.state, cols, rows);
+    const row = map.find((l) => l.includes(' B2 '));
+    assert.ok(row?.includes(C.mapTearDown), `${cols}x${rows} map:\n${map.join('\n')}`);
+  }
+  fitsBoth(d.state);
+  // Before the Check passes, and once the lesson is complete, it says nothing of it.
+  assert.equal(tearDownLeft(driver({ course: partsCourse(), saved: b2Saved() }).state, 'b-2'), false);
+  assert.equal(tearDownLeft(driver({ course: partsCourse(), saved: b2Saved({ complete: true, step: null }) }).state, 'b-2'), false);
+});
+
+test('optional steps: the card says when to skip, x skips, and skipping changes no eased or missed state (102)', () => {
+  const l = parseLesson(PARTS_B2, 'b-2.md');
+  assert.equal(l.steps.find((s) => s.id === 'Y2').optional, 'Skip this part in the cheap variant.');
+  assert.throws(() => parseLesson(PARTS_B2.replace('- optional: Skip this part in the cheap variant.', '- optional: "Skip this part."'), 'b-2.md'), /optional holds the app's own words/);
+  // The look-around skill waits to be eased, so Y2 opens eased.
+  const d = driver({ course: partsCourse(), saved: { ...b2Saved({ step: 'Y2', done: ['W1', 'Y1'] }), eased: ['look-around'], missed: ['look-around'] } });
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'Y2');
+  assert.equal(d.state.progress['b-2'].easedSteps.Y2, true, 'the ease landed on Y2');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const card = screenText(d.state, cols, rows).map((l) => l.replace(/^\s*│|│\s*$/g, '')).join(' ').replace(/\s+/g, ' ');
+    assert.ok(card.includes(C.optional('Skip this part in the cheap variant.')), `${cols}x${rows}: ${card}`);
+  }
+  assert.ok(screenText(d.state, 60, 20).join('\n').includes('x skip') || screenText(d.state, 80, 24).join('\n').includes('x skip'), 'the key bar offers x');
+  fitsBoth(d.state);
+  d.key('x');
+  assert.equal(stepOf(d.state).id, 'C', 'x goes on to the next step');
+  const p = d.state.progress['b-2'];
+  assert.ok(!p.done.includes('Y2'), 'a skipped step is not done');
+  assert.equal(p.easedSteps.Y2, undefined, 'the ease it took waits again');
+  assert.deepEqual([d.state.eased, d.state.missed], [['look-around'], ['look-around']]);
+  // x does nothing on a step that is not optional.
+  d.key('x');
+  assert.equal(stepOf(d.state).id, 'C');
+  // Skipping the last step completes the lesson.
+  const last = onPartsB2('D2', { done: ['W1', 'Y1', 'Y2', 'C', 'D1'] });
+  last.key('x');
+  assert.equal(last.state.view, 'complete');
+  assert.equal(last.state.progress['b-2'].complete, true);
+  assert.ok(!last.state.progress['b-2'].done.includes('D2'));
+});
+
+test('optional steps: ruleTiers never counts an optional step\'s skill (102)', () => {
+  const contents = partsCourse().map((x) => x.content);
+  const later = parseLesson(PARTS_B2.replace('lesson: b-2', 'lesson: b-3').replace('### W1 | Worked example step 1 of 1 | Save the list\n- tier: guided\n- skill: snapshot', '### W1 | Worked example step 1 of 1 | Save the list\n- tier: guided\n- skill: look-around'), 'b-3.md');
+  const at = contents.findIndex((c) => c?.lesson === 'b-2') + 1;
+  contents[at] = later;
+  assert.equal(ruleTiers(contents, at)[0], 'guided', 'the optional Y2 of b-2 does not count toward look-around');
+  const counted = [...contents];
+  counted[at - 1] = parseLesson(PARTS_B2.replace('- optional: Skip this part in the cheap variant.\n', ''), 'b-2.md');
+  assert.equal(ruleTiers(counted, at)[0], 'hinted', 'a step that is not optional counts');
+});
+
+// ---- a second session, the browser and long waits (ticket 103) ---------------
+// DEMO_B2 with its terminals numbered as a page numbers them, and a Your
+// turn step 2 that opens a run in the browser, then waits on it in the
+// second Claude Code session until a local file says it ended.
+const WAIT_B2 = DEMO_B2
+  .replace('next: b-3\n', 'next: b-3\nterminals: [terminal claude, claude-2, shell]\n')
+  .replace('### Y1 | Your turn step 1 of 1 | Save it again', '### Y1 | Your turn step 1 of 2 | Save it again')
+  .replace('### C | Check | Check', `### Y2 | Your turn step 2 of 2 | Watch the run
+- tier: challenge
+- skill: long-run
+- beat: do
+- where: browser
+- verify: none
+- do: "Open the run."
+- beat: do
+- where: claude-2
+- verify: file .practice/run.txt
+- wait: long
+- goal: "Wait for the run to finish."
+
+### C | Check | Check`);
+const onWaitB2 = (step, beat = 0, text = WAIT_B2) => {
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1', 'Y1'].slice(0, ['W1', 'Y1', 'Y2'].indexOf(step)), step, beat } } } });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== step || d.state.pos.beat !== beat) throw new Error(`onWaitB2: on ${d.state.view} ${stepOf(d.state)?.id} beat ${d.state.pos.beat}`);
+  return d;
+};
+const cardTop = (state, cols = 80, rows = 24, unicode = true) => screenText(state, cols, rows, unicode).find((l) => /[╭+]-/.test(l.trim().slice(0, 2)) || l.trim().startsWith('╭'));
+
+test('a second session, the browser and long waits: the grammar (103)', () => {
+  const l = parseLesson(WAIT_B2, 'b-2.md');
+  assert.deepEqual(l.terminals, { terminal: 1, claude: 1, 'claude-2': 2, shell: 3 });
+  const y2 = l.steps.find((s) => s.id === 'Y2');
+  assert.deepEqual(y2.beats.map((b) => [b.where, b.verify.kind, b.wait ?? null]), [['browser', 'none', null], ['claude-2', 'file', { text: null }]]);
+  assert.equal(parseLesson(DEMO_B2, 'b-2.md').terminals, null, 'without the key, nothing is numbered');
+  const quoted = parseLesson(WAIT_B2.replace('- wait: long', '- wait: "The run can take several minutes."'), 'b-2.md');
+  assert.deepEqual(quoted.steps.find((s) => s.id === 'Y2').beats[1].wait, { text: 'The run can take several minutes.' });
+  const bad = (from, to, re) => assert.throws(() => parseLesson(WAIT_B2.replace(from, to), 'b-2.md'), re);
+  bad('- wait: long', '- wait: a few minutes', /wait: long, or the page's words in quotes/);
+  bad('- wait: long', '- wait: long\n- wait: long', /a second wait line/);
+  bad('terminals: [terminal claude, claude-2, shell]', 'terminals: [terminal claude, claude-2, editor]', /editor is none of terminal, claude, claude-2, shell/);
+  bad('terminals: [terminal claude, claude-2, shell]', 'terminals: [terminal claude, claude claude-2, shell]', /terminals names claude twice/);
+  bad('terminals: [terminal claude, claude-2, shell]', 'terminals: [terminal claude, claude-2]', /where shell, which terminals doesn't number/);
+  // A browser beat: self, or none with a later beat of its step that reads a local file.
+  bad('- verify: file .practice/run.txt\n', '- verify: self\n', /a browser beat verifies with self, or with none and a later beat/);
+  bad('- where: browser\n- verify: none', '- where: browser\n- verify: check 0', /a browser beat verifies with self/);
+  assert.doesNotThrow(() => parseLesson(WAIT_B2.replace('- where: browser\n- verify: none', '- where: browser\n- verify: self'), 'b-2.md'));
+  // A later git probe (105) reads only local refs: it may verify for the browser.
+  assert.doesNotThrow(() => parseLesson(WAIT_B2.replace('- verify: file .practice/run.txt\n', '- verify: probe pushed\n'), 'b-2.md'));
+  // The later beat must show whenever the browser beat does (104): not one
+  // a when line may hide, unless the browser beat has the same when.
+  const choiceFirst = (browserWhen, laterWhen) => WAIT_B2.replace('- skill: long-run\n- beat: do\n- where: browser', `- skill: long-run\n- beat: ask\n- ask: Which run?\n- option: CI\n- option: Local\n- beat: do${browserWhen}\n- where: browser`)
+    .replace('- where: claude-2\n', `- where: claude-2${laterWhen}\n`);
+  assert.throws(() => parseLesson(choiceFirst('', '\n- when: Y2.0=CI'), 'b-2.md'), /a browser beat verifies with self, or with none and a later beat/);
+  assert.throws(() => parseLesson(choiceFirst('\n- when: Y2.0=Local', '\n- when: Y2.0=CI'), 'b-2.md'), /a browser beat verifies with self, or with none and a later beat/);
+  assert.doesNotThrow(() => parseLesson(choiceFirst('\n- when: Y2.0=CI', '\n- when: Y2.0=CI'), 'b-2.md'));
+  assert.doesNotThrow(() => parseLesson(choiceFirst('\n- when: Y2.0=CI', ''), 'b-2.md'));
+  // Only a do or self beat waits.
+  assert.throws(() => parseLesson(DEMO_B2.replace('- because: "Usage is something else."', '- because: "Usage is something else."\n- wait: long'), 'b-2.md'), /a wait line on the ask beat/);
+});
+
+test('a second session, the browser and long waits: the card labels its window as the page does (103)', () => {
+  const w1 = onWaitB2('W1');
+  assert.ok(cardTop(w1.state).includes(C.terminalN(3)), cardTop(w1.state));
+  fitsBoth(w1.state);
+  const browser = onWaitB2('Y2');
+  assert.ok(cardTop(browser.state).includes(`🌐 ${C.where.browser}`), cardTop(browser.state));
+  assert.ok(cardTop(browser.state, 60, 20, false).includes(`[BROWSER] ${C.where.browser}`), cardTop(browser.state, 60, 20, false));
+  fitsBoth(browser.state);
+  const second = onWaitB2('Y2', 1);
+  assert.ok(cardTop(second.state).includes(`💬 ${C.terminalN(2)}`), cardTop(second.state));
+  fitsBoth(second.state);
+  // Without numbers, the second session says what it is.
+  const plain = onWaitB2('Y2', 1, WAIT_B2.replace('terminals: [terminal claude, claude-2, shell]\n', ''));
+  assert.ok(cardTop(plain.state).includes(C.where['claude-2']), cardTop(plain.state));
+  fitsBoth(plain.state);
+  // The welcome promises no single other window.
+  assert.ok(!/two windows|other terminal\b/.test([C.twoWindows, C.otherWindow, ...C.otherWindowLines].join(' ')));
+});
+
+test('a second session, the browser and long waits: a long wait claims nothing the app cannot see (103)', () => {
+  const d = onWaitB2('Y2', 1);
+  // The app's own look at the file, which finds nothing yet.
+  d.send({ type: 'file', path: '.practice/run.txt', read: null, stamp: 'A' });
+  assert.equal(d.state.beat.status, 'waiting');
+  assert.equal(longWait(d.state), true);
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const card = screenText(d.state, cols, rows).map((l) => l.replace(/^\s*[│|]|[│|]\s*$/g, '')).join(' ').replace(/\s+/g, ' ');
+    assert.ok(card.includes(C.waitLong), `${cols}x${rows}: ${card}`);
+  }
+  // The box's question answered (150), so rule 3 no longer holds motion.
+  d.key('1');
+  const quiet = d.state.lastActivity;
+  // Ten quiet minutes: no idle offer, no CHALLENGE unlock, no "Stuck?".
+  for (let k = 0; k < 10; k++) d.send({ type: 'tick', wait: 60_000 });
+  assert.equal(d.state.beat.idle, false);
+  assert.equal(d.state.beat.unlocked, false);
+  assert.equal(cardMood(d.state), 'rest', 'Pip never wears the checking face for the run');
+  const at = quiet + 10 * 60_000;
+  const ON = { motion: true };
+  assert.equal(phases(d.state, at, ON).spinner, null, 'no spinner: no check child runs');
+  assert.equal(pipGates(d.state, at, { motion: true, truecolor: true, remote: false }).motion, true, 'the screen never goes still');
+  assert.notEqual(nextChange(d.state, at, ON), null, 'its next frame still comes');
+  fitsBoth(d.state);
+  // The file the run leaves ends the wait like any other file beat.
+  d.send({ type: 'file', path: '.practice/run.txt', read: Buffer.from('ok'), stamp: 'B' });
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(longWait(d.state), false);
+  // A beat with no wait goes idle as before.
+  const w = onWaitB2('Y2', 1, WAIT_B2.replace('- wait: long\n', ''));
+  w.send({ type: 'file', path: '.practice/run.txt', read: null, stamp: 'A' });
+  w.send({ type: 'tick', wait: IDLE_MS + 1_000 });
+  assert.equal(longWait(w.state), false);
+  assert.equal(w.state.beat.idle, true);
+  assert.equal(pipGates(w.state, w.now, { motion: true, truecolor: true, remote: false }).motion, false);
+});
+
+// ---- choices and the beats that depend on them (ticket 104) -----------------
+// DEMO_B2 with its Your turn opening on a choice: Y1.1 shows for everyone,
+// Y1.2 only for a key and Y1.3 only for a token, the step's last beat.
+const CHOICE_B2 = DEMO_B2.replace(`- beat: do
+- verify: check 0 fresh
+- watching: .practice/b-2-before.txt
+- evidence: .practice/b-2-before.txt
+- goal: "Save it again."`, `- beat: ask
+- ask: Which credential do you use?
+- option: An API key
+- option: A token
+- beat: do
+- verify: self
+- done-label: it's saved
+- goal: "Save it again."
+- beat: do
+- when: Y1.0=An API key
+- verify: self
+- done-label: it's set
+- goal: "Add the key."
+- beat: do
+- when: Y1.0=A token
+- verify: self
+- done-label: it's set
+- goal: "Add the token."`);
+const onChoice = (extra = {}) => {
+  const d = driver({ course: courseWith({ 'b-2': CHOICE_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1'], step: 'Y1', beat: 0, ...extra } } } });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== 'Y1') throw new Error(`onChoice: on ${d.state.view} ${stepOf(d.state)?.id}`);
+  return d;
+};
+const where = (d) => (d.state.view === 'step' ? `${stepOf(d.state).id}.${d.state.pos.beat}` : d.state.view);
+
+test('choices: a pick on a choice is saved as a guess is, and never counts as missed (104)', () => {
+  const d = onChoice();
+  assert.equal(where(d), 'Y1.0');
+  assert.equal(answerKey(d.state), 'Y1.0');
+  const missed = [...d.state.missed];
+  d.key('2');
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.progress['b-2'].answers['Y1.0'], 'A token');
+  assert.deepEqual(d.state.missed, missed, 'no pick on a choice is missed');
+  assert.ok(d.effects.some((e) => e.type === 'save'));
+  assert.deepEqual(snapshot(d.state).lessons['b-2'].answers, { 'Y1.0': 'A token' }, 'the pick is in the saved file');
+  fitsBoth(d.state);
+  // A right pick on a graded question is saved too.
+  const w = driver({ course: courseWith({ 'b-2': DEMO_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { step: 'R1', beat: 0, warm: ['R1'] } } } });
+  w.key('enter');
+  assert.equal(where(w), 'R1.0');
+  w.key('1');
+  assert.equal(w.state.progress['b-2'].answers['R1.0'], '`/status`');
+});
+
+test('choices: on and back pass over the beats whose when does not match, and a changed pick re-decides them (104)', () => {
+  const d = onChoice();
+  d.key('2');
+  d.key('enter');
+  assert.equal(where(d), 'Y1.1');
+  assert.equal(isLastBeat(d.state), false);
+  d.key('space');
+  assert.equal(where(d), 'Y1.3', 'a token skips the key beat');
+  assert.equal(isLastBeat(d.state), true);
+  d.key('b');
+  assert.equal(where(d), 'Y1.1', 'back skips it too');
+  d.key('b');
+  assert.equal(where(d), 'Y1.0');
+  // The choice opens again: a new pick replaces the saved one.
+  d.key('1');
+  assert.equal(d.state.progress['b-2'].answers['Y1.0'], 'An API key');
+  d.key('enter');
+  d.key('space');
+  assert.equal(where(d), 'Y1.2', 'a key shows the key beat');
+  assert.equal(isLastBeat(d.state), true, 'the token beat after it does not show');
+  d.key('space');
+  assert.equal(stepOf(d.state).id, 'C', 'the step ends at its last beat that shows');
+  if (d.state.view === 'levelup') d.key('enter');
+  assert.ok(d.state.progress['b-2'].done.includes('Y1'));
+  d.key('b');
+  assert.equal(where(d), 'Y1.2', 'back from the next step lands on the last beat that shows');
+  // Before any pick, no beat with a when shows.
+  const p = { answers: {} };
+  const beats = parseLesson(CHOICE_B2, 'b-2.md').steps.find((x) => x.id === 'Y1').beats;
+  assert.deepEqual(beats.map((b) => beatShown(p, b)), [true, true, false, false]);
+});
+
+test('choices: a saved place on a beat that no longer shows resumes on the one before it (104)', () => {
+  const d = onChoice({ beat: 3, answers: { 'Y1.0': 'An API key' } });
+  assert.equal(where(d), 'Y1.2');
+  const t = onChoice({ beat: 3, answers: { 'Y1.0': 'A token' } });
+  assert.equal(where(t), 'Y1.3');
+});
+
+test('choices: a pick longer than the 200 characters the store keeps shows its beats before and after a restart (104)', () => {
+  const long = `An API key ${'that lives in a secret store '.repeat(8)}`.trim();
+  assert.ok(long.length > 200);
+  const text = CHOICE_B2.replaceAll('An API key', long);
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1'], step: 'Y1', beat: 0 } } } });
+  d.key('enter');
+  d.key('1');
+  d.key('enter');
+  d.key('space');
+  assert.equal(where(d), 'Y1.2', 'the key beat shows in this sitting');
+  const again = driver({ course: courseWith({ 'b-2': text }), saved: snapshot(d.state) });
+  again.key('enter');
+  assert.equal(where(again), 'Y1.2', 'and after a restart');
+});
+
+test('choices: a recall shows the guess it recalls, not a choice of the same step (104)', () => {
+  const recalled = CHOICE_B2.replace('- option: A token\n', '- option: A token\n- beat: predict\n- ask: Guess: does it pass?\n- right: "Yes"\n- option: "No"\n')
+    .concat('- beat: ask\n- recall: Y1\n- ask: Did it pass?\n- right: "Yes"\n- wrong: "No"\n- because: "It did."\n');
+  const d = driver({ course: courseWith({ 'b-2': recalled }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1', 'Y1'], step: 'C', beat: 1, answers: { 'Y1.0': 'A token', 'Y1.1': 'Yes' } } } } });
+  d.key('enter');
+  assert.equal(where(d), 'C.1');
+  const text = screenText(d.state).join('\n');
+  assert.ok(text.includes(C.youGuessed('Yes')), text);
+  assert.ok(!text.includes(C.youGuessed('A token')), text);
+});
+
+// ---- git probes, head-moved and git-unchanged (ticket 105) ------------------
+// DEMO_B2's Y1, step 5 after three warm-ups and W1, verified by `verify`.
+const onY1 = (verify, extra = {}) => onReading(verify, extra);
+// The same, but entered from W1, so Y1's opening stamps what it compares with.
+const intoY1 = (verify) => {
+  const d = driver({ course: courseWith({ 'b-2': DEMO_B2.replace('- verify: check 0 fresh\n', `- verify: ${verify}\n`) }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { warm: ['R1', 'R2', 'R3'], done: ['R1', 'R2', 'R3'], step: 'W1', beat: 0 } } } });
+  d.key('enter');
+  d.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: true, hint: '' }] });
+  d.key('enter');
+  if (d.state.view === 'levelup') d.key('enter');
+  if (stepOf(d.state)?.id !== 'Y1') throw new Error(`intoY1: on ${d.state.view} ${stepOf(d.state)?.id}`);
+  return d;
+};
+const probeResult = (name, args, pass, state, extra = {}) => ({ type: 'probe', name, args, pass, state, hint: pass ? '' : `No ${name} yet.`, evidence: pass ? `${name} found` : null, dir: FACTS.root, ...extra });
+
+test('probes: the verify line names a probe and its arguments; branch-ahead is always fresh; a bad one fails to parse (105)', () => {
+  const v = (line) => beatOf(onY1(line).state);
+  assert.deepEqual(v('probe worktrees 2').verify, { kind: 'probe', name: 'worktrees', args: ['2'] });
+  assert.equal(v('probe worktrees 2').watching, 'git worktree list', 'the card watches what the probe reads');
+  assert.equal(v('probe worktrees 2\n- watching: the worktrees').watching, 'the worktrees');
+  assert.deepEqual(v('probe branch-ahead docs-pass').verify, { kind: 'probe', name: 'branch-ahead', args: ['docs-pass'], fresh: true, since: null });
+  assert.deepEqual(v('probe merged docs-pass test-pass fresh since W1').verify, { kind: 'probe', name: 'merged', args: ['docs-pass', 'test-pass'], fresh: true, since: 'W1' });
+  assert.deepEqual(v('probe pushed').verify, { kind: 'probe', name: 'pushed', args: [] });
+  assert.deepEqual(v('head-moved since W1').verify, { kind: 'head-moved', since: 'W1' });
+  assert.deepEqual(v('git-unchanged').verify, { kind: 'git-unchanged', since: null });
+  const bad = (line, error) => assert.throws(() => parseLesson(DEMO_B2.replace('- verify: check 0 fresh\n', `- verify: ${line}\n`), 'b-2.md'), error, line);
+  bad('probe nope', /unknown probe nope/);
+  bad('probe worktrees', /probe worktrees takes <n>/);
+  bad('probe gone ../x', /probe gone takes <path>, not \.\.\/x/);
+  bad('probe pushed origin', /probe pushed takes no arguments/);
+  bad('head-moved since later', /head-moved since a step id/);
+  bad('git-unchanged fresh', /only a check, a file or a probe can be fresh/);
+});
+
+test('probes: the beat runs its probe in the work folder, on r too, and passes, fails or breaks as it answers (105)', () => {
+  const d = onY1('probe worktrees 2');
+  assert.deepEqual(d.effects.filter((e) => e.type === 'probe').at(-1), { type: 'probe', name: 'worktrees', args: ['2'], dir: FACTS.root });
+  assert.deepEqual(watching(d.state), { probe: { name: 'worktrees', args: ['2'] }, dir: FACTS.root });
+  assert.equal(tierOf(d.state), 'challenge', 'a probe beat counts as checked');
+  d.send(probeResult('worktrees', ['2'], false, 'a'));
+  assert.equal(d.state.beat.status, 'waiting', 'the first answer is where the learner starts');
+  d.key('r');
+  assert.deepEqual(d.effects.at(-1), { type: 'probe', asked: d.state.beat.asked, name: 'worktrees', args: ['2'], dir: FACTS.root });
+  d.send(probeResult('worktrees', ['2'], false, 'a', { asked: d.state.beat.asked }));
+  assert.deepEqual([d.state.beat.status, d.state.beat.fail.hint], ['fail', 'No worktrees yet.']);
+  fitsBoth(d.state);
+  // Another probe's answer, or one from another folder, decides nothing.
+  d.send(probeResult('gone', ['x'], true, 'b'));
+  d.send(probeResult('worktrees', ['2'], true, 'b', { dir: '/elsewhere' }));
+  assert.equal(d.state.beat.status, 'fail');
+  d.send(probeResult('worktrees', ['2'], true, 'b'));
+  assert.deepEqual([d.state.beat.status, d.state.beat.evidence], ['done', 'worktrees found']);
+  fitsBoth(d.state);
+  const broken = onY1('probe pushed');
+  broken.send({ type: 'probe-error', message: 'The probe could not run: git is not installed', dir: FACTS.root });
+  assert.deepEqual([broken.state.beat.status, broken.state.beat.error], ['broken', 'The probe could not run: git is not installed']);
+  playUntil(onY1('probe merged docs-pass'), (s) => stepOf(s)?.id === 'C');
+});
+
+test('probes: a fresh probe stamps its state as its step opens, and passes only once that changed (105)', () => {
+  const d = intoY1('probe branch-ahead docs-pass');
+  assert.deepEqual(d.effects.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', probe: { name: 'branch-ahead', args: ['docs-pass'] }, dir: FACTS.root });
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'sha-1', dir: FACTS.root });
+  d.send(probeResult('branch-ahead', ['docs-pass'], true, 'sha-1'));
+  assert.deepEqual([d.state.beat.status, d.state.beat.stale], ['waiting', true], 'the branch is there, but has not moved');
+  d.send(probeResult('branch-ahead', ['docs-pass'], true, 'sha-2'));
+  assert.equal(d.state.beat.status, 'done');
+});
+
+test('head-moved: HEAD another commit than when its step opened, with git status listing nothing (105)', () => {
+  const d = intoY1('head-moved');
+  assert.deepEqual(d.effects.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', git: 'head', dir: FACTS.root });
+  assert.deepEqual(d.effects.filter((e) => e.type === 'git').at(-1), { type: 'git', dir: FACTS.root, head: true });
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'aaaaaaa1', dir: FACTS.root });
+  // A result that doesn't say where HEAD is decides nothing.
+  d.send({ type: 'git', paths: [] });
+  assert.equal(d.state.beat.status, 'opening');
+  d.send({ type: 'git', paths: [], head: 'aaaaaaa1' });
+  assert.equal(d.state.beat.status, 'waiting');
+  d.key('r');
+  d.send({ type: 'git', paths: [], head: 'aaaaaaa1', asked: d.state.beat.asked });
+  assert.equal(d.state.beat.fail.hint, C.headSame(5));
+  d.send({ type: 'git', paths: ['src/a.js'], head: 'bbbbbbb2' });
+  assert.equal(d.state.beat.fail.hint, C.headDirty(1, 'src/a.js', 0));
+  fitsBoth(d.state);
+  d.send({ type: 'git', paths: [], head: 'bbbbbbb2' });
+  assert.deepEqual([d.state.beat.status, d.state.beat.evidence], ['done', C.headMoved('bbbbbbb')]);
+  fitsBoth(d.state);
+  assert.equal(d.state.progress['b-2'].stamps['Y1.0'], 'aaaaaaa1', 'the stamp is saved');
+  playUntil(onY1('head-moved since W1'), (s) => stepOf(s)?.id === 'C');
+});
+
+test('git-unchanged: git status lists the same paths as when the step it names opened; that step stamps them (105)', () => {
+  const text = DEMO_B2.replace('- verify: check 0 fresh\n', '- verify: git-unchanged since W1\n');
+  const atW1 = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { warm: ['R1'], step: 'R1', beat: 0 } } } });
+  atW1.key('enter');
+  atW1.key('1');
+  const out = atW1.key('enter');
+  assert.equal(stepOf(atW1.state).id, 'W1');
+  assert.deepEqual(out.find((e) => e.type === 'stamp'), { type: 'stamp', key: 'Y1.0', git: 'status', dir: FACTS.root });
+  const d = onY1('git-unchanged since W1', { stamps: { 'Y1.0': statusStamp(['notes.md']) } });
+  assert.deepEqual(watching(d.state), { git: true, dir: FACTS.root }, 'the whole tree, as git status shows it');
+  d.send({ type: 'git', paths: ['notes.md', 'src/a.js'] });
+  assert.deepEqual([d.state.beat.status, d.state.beat.fail.hint], ['fail', C.changedSince(4, 2, 'notes.md, src/a.js', 0)], 'a change is a not yet at once');
+  fitsBoth(d.state);
+  d.send({ type: 'git', paths: ['notes.md'] });
+  assert.deepEqual([d.state.beat.status, d.state.beat.evidence], ['done', C.unchanged(4)]);
+  fitsBoth(d.state);
+  assert.equal(statusStamp(['b', 'a', 'a']), statusStamp(['a', 'b']), 'the stamp is the same for the same paths');
+  playUntil(onY1('git-unchanged'), (s) => stepOf(s)?.id === 'C');
+});
+
+// A file whose name Claude picks: the beat names a glob, and the card shows
+// the file it matched (106).
+const GLOB_B2 = DEMO_B2.replace('- verify: check 0 fresh\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt', '- verify: file .practice/plans/*.txt fresh');
+
+test('file globs: a file check takes a glob in its last part, and shows the path it matched (106)', () => {
+  const beat = parseLesson(GLOB_B2, 'demo').steps[1].beats[0];
+  assert.deepEqual(beat.verify, { kind: 'file', path: '.practice/plans/*.txt', fresh: true, since: null });
+  assert.equal(beat.evidence, '.practice/plans/*.txt');
+  assert.throws(() => parseLesson(GLOB_B2.replace('.practice/plans/*.txt', '.practice/*/plan.txt'), 'demo'), /a glob goes in the file name only/);
+  const d = driver({ course: courseWith({ 'b-2': GLOB_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R2'], done: ['R1', 'R2', 'W1'], step: 'Y1', beat: 0 } } } });
+  assert.ok(d.key('enter').some((e) => e.type === 'file' && e.path === '.practice/plans/*.txt'));
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: '' });
+  d.key('r');
+  d.send({ type: 'file', path: '.practice/plans/*.txt', read: null, stamp: '', found: null, asked: d.state.beat.asked });
+  assert.equal(d.state.beat.status, 'fail');
+  assert.equal(d.state.beat.fail.hint, C.noMatch('.practice/plans/*.txt'));
+  d.send({ type: 'file', path: '.practice/plans/*.txt', read: Buffer.from('src/config.js\n'), stamp: 'C', found: '.practice/plans/review-plan.txt' });
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.beat.found, '.practice/plans/review-plan.txt');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const text = screenText(d.state, cols, rows).join('\n');
+    assert.ok(text.includes('review-plan.txt'), `${cols}x${rows}: the matched path is the evidence\n${text}`);
+    assert.ok(!text.includes('*.txt'), `${cols}x${rows}: not the glob\n${text}`);
+  }
+  fitsBoth(d.state);
+});
+
+test('a lesson done in the app whose check now fails: the map keeps it done, and plain output says a later lesson may have changed it (106)', () => {
+  const b1 = course.find((l) => l.id === 'b-1');
+  const failing = { items: b1.items.map((text, index) => ({ index, text, pass: index !== 0, hint: '' })) };
+  const passing = { items: b1.items.map((text, index) => ({ index, text, pass: true, hint: '' })) };
+  const lines = (results, complete) => plainProgress(course, { 'b-1': results }, { lessons: { 'b-1': { complete } } }).split('\n');
+  const after = (out) => out[out.findIndex((l) => l.startsWith('B1 ')) + 1];
+  assert.equal(after(lines(failing, true)), `     ${C.plainChanged}`);
+  assert.notEqual(after(lines(passing, true)), `     ${C.plainChanged}`, 'a passing check needs no word');
+  assert.notEqual(after(lines(failing, false)), `     ${C.plainChanged}`, 'nor one not done in the app');
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done } } });
+  d.key('m');
+  assert.equal(d.state.view, 'map');
+  d.send({ type: 'check', lesson: 'b-1', ...failing });
+  assert.equal(d.state.progress['b-1'].complete, true, 'a failing check never takes back a finished lesson');
+  const row = screenText(d.state).find((l) => / B1 /.test(l));
+  assert.ok(row.includes(C.mapDone), row);
+});
+
+// ---- recall while a long run works (ticket 150) ------------------------------
+// WAIT_B2's long wait, with `extra` saved: the learner's missed skills and
+// the lesson's warm-ups, as a play that chose them saved them.
+const onWaitWith = ({ missed = [], warm = [] } = {}, text = WAIT_B2) => {
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, missed, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1', 'Y1'], step: 'Y2', beat: 1, warm } } } });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== 'Y2' || d.state.pos.beat !== 1) throw new Error(`onWaitWith: on ${d.state.view} ${stepOf(d.state)?.id} beat ${d.state.pos.beat}`);
+  return d;
+};
+const flat = (state, cols, rows, unicode = true) => screenText(state, cols, rows, unicode).map((l) => l.replace(/^\s*[│|]|[│|]\s*$/g, '')).join(' ').replace(/\s+/g, ' ');
+
+test('recall while a long run works: one unshown warm-up, missed skills first, the same every time (150)', () => {
+  // Nothing missed and no warm-up shown: the pool's first question with
+  // options, R1 (R2 is typed from memory, which the box never asks).
+  const d = onWaitWith();
+  assert.equal(whileRunsOf(d.state).step.id, 'R1');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const card = flat(d.state, cols, rows);
+    assert.ok(card.includes(C.whileItRuns), `${cols}x${rows}: ${card}`);
+    assert.ok(card.includes('Which command shows the account?'), `${cols}x${rows}: ${card}`);
+  }
+  fitsBoth(d.state);
+  // R1 shown as the lesson's warm-up, and exit and status missed: R3, the
+  // unshown one on a missed skill, comes before nothing else.
+  const m = onWaitWith({ missed: ['status', 'exit'], warm: ['R1'] });
+  assert.equal(whileRunsOf(m.state).step.id, 'R3');
+  assert.equal(onWaitWith({ missed: ['status', 'exit'], warm: ['R1'] }).state.beat.whileRuns.id, 'R3', 'the same choice every time');
+  // A missed skill wins over the file order.
+  assert.equal(whileRunsOf(onWaitWith({ missed: ['exit'] }).state).step.id, 'R3');
+  // Every question with options shown: no box.
+  const none = onWaitWith({ missed: [], warm: ['R1'] }, WAIT_B2.replace(/### R3[\s\S]*?(?=## steps)/, ''));
+  assert.equal(whileRunsOf(none.state), null);
+  assert.ok(!flat(none.state, 80, 24).includes(C.whileItRuns));
+  // A choice (104) has no right answer to recall: the box passes it by.
+  const CHOICE_R1 = WAIT_B2.replace('- right: "`/status`"\n- wrong: "`/usage`"\n- because: "Usage is something else."', '- option: "`/status`"\n- option: "`/usage`"');
+  assert.notEqual(CHOICE_R1, WAIT_B2);
+  const choice = onWaitWith({}, CHOICE_R1);
+  assert.equal(whileRunsOf(choice.state).step.id, 'R3');
+  // A beat with no wait never offers one.
+  const plain = onWaitB2('Y2', 1, WAIT_B2.replace('- wait: long\n', ''));
+  assert.equal(whileRunsOf(plain.state), null);
+  assert.ok(!flat(plain.state, 80, 24).includes(C.whileItRuns));
+});
+
+test('recall while a long run works: never scored, still, and dropped when the result lands (150)', () => {
+  const d = onWaitWith({ missed: ['exit'] });
+  d.send({ type: 'file', path: '.practice/run.txt', read: null, stamp: 'A' });
+  const before = JSON.stringify([d.state.missed, d.state.eased, d.state.progress['b-2'].recalled, d.state.progress['b-2'].answers, d.state.missedNow]);
+  // Rule 3: nothing ambient beside its open question, the look marker too.
+  const ON = { motion: true };
+  const later = d.now + 60_000;
+  d.send({ type: 'tick', wait: 60_000 });
+  assert.equal(pipGates(d.state, later, { motion: true, truecolor: true, remote: false }).ambient, false, 'no ambient motion beside the question');
+  assert.equal(phases(d.state, later, ON).spinner, null);
+  // Its options are drawn the same in every frame: the box is still.
+  const frame = (at) => render(d.state, { cols: 80, rows: 24 }, theme({ tty: true, depth: 8, unicode: true, links: false, win32: false }), { at }).map(strip).filter((l) => l.includes('/exit') || l.includes('/clear'));
+  assert.deepEqual(frame(later), frame(later + 5_000));
+  // A wrong answer: shown, never scored.
+  d.key('2');
+  assert.equal(d.state.beat.whileRuns.answer, 1);
+  assert.equal(d.state.beat.status, 'waiting', 'the beat still waits on the run');
+  assert.equal(JSON.stringify([d.state.missed, d.state.eased, d.state.progress['b-2'].recalled, d.state.progress['b-2'].answers, d.state.missedNow]), before, 'missed, eased and recalled are untouched');
+  assert.equal(whileRunsOpen(d.state), false);
+  assert.ok(flat(d.state, 80, 24).includes(C.whileItRuns), 'the answer stays until the result lands');
+  fitsBoth(d.state);
+  // With the question answered, the long wait's motion runs again.
+  assert.equal(pipGates(d.state, d.now + 30_000, { motion: true, truecolor: true, remote: false }).ambient, true);
+  // A right answer is not scored either: a skill it recalls stays missed.
+  const r = onWaitWith({ missed: ['exit'] });
+  r.key('1');
+  assert.deepEqual([r.state.missed, r.state.eased, r.state.progress['b-2'].recalled], [['exit'], [], []]);
+  // The result lands with a question still open: it goes quietly, and the
+  // green result never waited for it.
+  const open = onWaitWith({ missed: ['exit'] });
+  assert.equal(whileRunsOpen(open.state), true);
+  open.send({ type: 'file', path: '.practice/run.txt', read: null, stamp: 'A' });
+  open.send({ type: 'file', path: '.practice/run.txt', read: Buffer.from('ok'), stamp: 'B' });
+  assert.equal(open.state.beat.status, 'done');
+  assert.equal(whileRunsOpen(open.state), false);
+  assert.ok(!flat(open.state, 80, 24).includes(C.whileItRuns));
+  assert.equal(open.state.toast, null, 'dropped quietly');
+  assert.deepEqual([open.state.missed, open.state.eased], [['exit'], []]);
+  fitsBoth(open.state);
+  // A digit after the result is no answer.
+  open.key('1');
+  assert.equal(open.state.beat.whileRuns.answer, null);
 });

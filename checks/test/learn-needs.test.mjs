@@ -211,7 +211,9 @@ test('front matter names a prerequisite: an earlier lesson\'s check item, or a f
   assert.deepEqual(parse().requires, []);
   // Each error names the front matter's requires line, the sixth.
   const bad = [
-    ['requires: [b-5]', /i-1\.md:6: requires item "b-5" is <lesson> check <item> or <lesson> file <path>/],
+    ['requires: [b-5]', /i-1\.md:6: requires item "b-5" is <lesson> check <item>, <lesson> file <path> or probe todos <n>/],
+    ['requires: [probe todos x]', /requires item "probe todos x": probe todos takes a count/],
+    ['requires: [probe pushed]', /requires item "probe pushed" is <lesson> check/],
     ['requires: [b-5 check]', /requires item "b-5 check"/],
     ['requires: [b-5 check x]', /requires item "b-5 check x"/],
     ['requires: [b-5 check 9]', /i-1\.md:6: requires item "b-5 check 9": b-5 has no check item 9/],
@@ -561,4 +563,21 @@ test('what main finds, on the PATH and in the work folder, is never saved', () =
   d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: null });
   assert.ok(flat(screen(d.state)).includes(C.openFirst('B5')));
   assert.equal(JSON.stringify(snapshot(d.state)), before);
+});
+
+test('a prerequisite can be the work folder\'s own: probe todos <n>, run as a probe, says what the folder lacks and offers no lesson (105)', () => {
+  const opts = { front: ['requires: [probe todos 2]'] };
+  assert.deepEqual(parse(opts).requires, [{ probe: 'todos', args: ['2'] }]);
+  const d = atIntro(opts, {}, { intermediate: COPY });
+  assert.deepEqual(introAsks(d.state), [{ type: 'prereqs', lesson: 'i-1', dir: COPY, requires: [{ probe: 'todos', args: ['2'] }] }]);
+  const hint = 'git grep finds TODO or FIXME in 1 top-level folder (src/) here; this needs 2.';
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: false, hint });
+  for (const size of SIZES) {
+    const text = flat(screen(d.state, size));
+    if (!text.includes(C.notesShort)) assert.ok(text.includes(C.folderLacks(hint)), `${size}\n${text}`);
+    assert.ok(!text.includes(C.openFirst('B5')), text);
+    for (const l of screen(d.state, size)) assert.ok(width(l) <= size[0] - 1, l);
+  }
+  d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 0, pass: true, hint: '' });
+  assert.ok(!flat(screen(d.state)).includes(C.folderLacks('')));
 });

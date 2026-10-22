@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GUIDE, indexLevel, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
+import { GUIDE, indexLevel, isChoice, PART_IDS, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { TYPED_MAX, WARMUPS } from '../../learn/lib/flow.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
@@ -26,9 +26,9 @@ const quotesOf = (step) => step.beats.flatMap((b) => [
 ].filter(Boolean)).join('\n');
 // Every step a lesson can show: its warm-ups, then its own steps.
 const allSteps = (l) => [...l.warmup, ...l.steps];
-const appWords = (step) => step.beats.flatMap((b) => [
+const appWords = (step) => [step.optional, ...step.beats.flatMap((b) => [
   ...b.lines.filter((l) => !l.quoted).map((l) => l.text), b.ask, b.doneLabel, ...b.options.filter((o) => !o.quoted && o.kind !== 'decoy').map((o) => o.text),
-].filter(Boolean));
+])].filter(Boolean);
 
 test('every lesson file belongs to a lesson on PATH, in its file, and parses', () => {
   assert.ok(files.length > 0);
@@ -125,23 +125,51 @@ const SPLIT = {
   'i-8 W2': 'page step 1 ("In a session in your repository") splits as b-5\'s does, so i-8 opens on starting Claude Code at CHALLENGE, not on its GUIDED install',
 };
 
+// What is wrong with the numbering of lesson `id`'s steps: each part's
+// steps (or Your turn's parts) numbered 1 to M in order, its ids W, Y, T or D
+// and the number, and the Check last but for the Tear down steps after it
+// (ticket 102). `split` collects the SPLIT steps met.
+function numberingOff(id, l, split = []) {
+  const off = [];
+  for (const [part, prefix] of Object.entries(PART_IDS)) {
+    const steps = l.steps.filter((s) => s.part === part);
+    steps.forEach((s, i) => {
+      const before = i ? steps[i - 1].n : 0;
+      if (SPLIT[`${id} ${s.id}`]) {
+        if (s.n !== before) off.push(`${id} ${s.id}: a split step keeps step ${before}`);
+        split.push(`${id} ${s.id}`);
+      } else if (s.n !== before + 1) off.push(`${id} ${s.id}: ${s.unit} ${s.n} after ${s.unit} ${before}`);
+      if (s.of !== steps.at(-1).n) off.push(`${id} ${s.id}: says "of ${s.of}"`);
+      if (s.unit !== steps[0].unit) off.push(`${id} ${s.id}: a ${s.unit} among ${steps[0].unit}s`);
+      if (s.id !== `${prefix}${i + 1}`) off.push(`${id} ${s.id}: not ${prefix}${i + 1}`);
+    });
+  }
+  const check = l.steps.findIndex((s) => s.id === 'C');
+  if (check < 0 || !l.steps.slice(check + 1).every((s) => s.part === 'Tear down')) off.push(`${id}: the Check comes last, but for Tear down steps`);
+  return off;
+}
+
+test('numbering: Your turn parts and Tear down steps after the Check count as steps do (102)', () => {
+  const steps = (headings, lesson = 'a-9') => parseLesson(`---\nlesson: ${lesson}\n---\n\n## steps\n${headings.map((h) => `\n${h}\n- tier: challenge\n- skill: x\n- where: shell\n- beat: do\n- verify: self`).join('\n')}`, 'a-9.md');
+  const good = steps(['### Y1 | Your turn part 1 of 2 | One', '### Y2 | Your turn part 2 of 2 | Two', '### C | Check | Check', '### D1 | Tear down step 1 of 2 | Undo', '### D2 | Tear down step 2 of 2 | Again']);
+  assert.deepEqual(numberingOff('a-9', good), []);
+  const bad = steps(['### Y1 | Your turn part 1 of 2 | One', '### Y2 | Your turn step 2 of 2 | Two', '### C | Check | Check', '### D1 | Tear down step 1 of 2 | Undo', '### D2 | Tear down step 3 of 3 | Again']);
+  assert.deepEqual(numberingOff('a-9', bad), ['a-9 Y2: a step among parts', 'a-9 D1: says "of 2"', 'a-9 D2: step 3 after step 1']);
+  // In a capstone every step is CHALLENGE, Tear down steps too; elsewhere a
+  // Tear down step gets a Your turn step's help.
+  const headings = ['### Y1 | Your turn part 1 of 1 | One', '### C | Check | Check', '### D1 | Tear down step 1 of 1 | Undo'];
+  const course = PATH.map(() => null);
+  const at = (id) => PATH.findIndex((p) => p.id === id);
+  course[at('a-capstone')] = steps(headings, 'a-capstone');
+  course[at('a-1')] = steps(headings, 'a-1');
+  assert.deepEqual(ruleTiers(course, at('a-capstone')), ['challenge', 'challenge', 'challenge']);
+  assert.deepEqual(ruleTiers(course, at('a-1')), ['hinted', 'challenge', 'hinted'], 'D1 is hinted, as Y1 is');
+});
+
 test('steps are numbered as on the page, one part after the other', () => {
-  const prefix = { 'Worked example': 'W', 'Your turn': 'Y', 'The task': 'T' };
   const split = [];
   for (const [id, l] of Object.entries(parsed)) {
-    for (const part of Object.keys(prefix)) {
-      const steps = l.steps.filter((s) => s.part === part);
-      steps.forEach((s, i) => {
-        const before = i ? steps[i - 1].n : 0;
-        if (SPLIT[`${id} ${s.id}`]) {
-          assert.equal(s.n, before, `${id} ${s.id}: a split step keeps step ${before}`);
-          split.push(`${id} ${s.id}`);
-        } else assert.equal(s.n, before + 1, `${id} ${s.id}: step ${s.n} after step ${before}`);
-        assert.equal(s.of, steps.at(-1).n, `${id} ${s.id}: says "of ${s.of}"`);
-        assert.equal(s.id, `${prefix[part]}${i + 1}`);
-      });
-    }
-    assert.equal(l.steps.at(-1).id, 'C', `${id}: the Check comes last`);
+    assert.deepEqual(numberingOff(id, l, split), []);
     for (const s of allSteps(l)) {
       if (s.part !== 'Warm-up') assert.ok(WHERE.has(s.where), `${id} ${s.id}: where`);
       assert.ok(/^[a-z][a-z-]*$/.test(s.skill ?? ''), `${id} ${s.id}: skill`);
@@ -373,7 +401,9 @@ test('questions: one right answer, a reason for every wrong one, real files in d
         }
         assert.match(b.ask, /\?$/, `${where}: a question ends with ?`);
         const rights = b.options.filter((o) => o.kind === 'right');
-        assert.equal(rights.length, 1, `${where}: ${rights.length} right options`);
+        // A choice (ticket 104), an ask beat whose every option is an
+        // option line, has no right answer; any other question has one.
+        if (!isChoice(b)) assert.equal(rights.length, 1, `${where}: ${rights.length} right options`);
         assert.ok(b.options.length >= 2 && b.options.length <= 9, `${where}: ${b.options.length} options`);
         for (const o of b.options) {
           if (o.kind === 'wrong' || o.kind === 'stuck') assert.ok(o.because, `${where}: "${o.text}" needs a because`);
@@ -385,7 +415,7 @@ test('questions: one right answer, a reason for every wrong one, real files in d
           }
         }
         // An unquoted right answer is a claim only through a quote that reveals it.
-        if (!rights[0].quoted) {
+        if (rights.length && !rights[0].quoted) {
           const at = b.revealAt ? l.steps.find((s) => s.id === b.revealAt) : step;
           assert.ok(at?.beats.some((x) => x.reveal), `${where}: no reveal for its right answer`);
         }
@@ -426,7 +456,7 @@ function climb(course) {
     c.steps.forEach((s, k) => {
       if (s.tier !== rule[k]) off.push(`${c.lesson} ${s.id} is ${s.tier}; the course rule says ${rule[k]}`);
     });
-    if (c.steps.at(-1).tier !== 'challenge') off.push(`${c.lesson}: the Check is not CHALLENGE`);
+    if (c.steps.find((s) => s.part === 'Check').tier !== 'challenge') off.push(`${c.lesson}: the Check is not CHALLENGE`);
     if (c.lesson.endsWith('capstone') && !c.steps.every((s) => s.tier === 'challenge')) off.push(`${c.lesson}: a capstone step is not CHALLENGE`);
     const shares = levels.get(PATH[i].level) ?? [];
     levels.set(PATH[i].level, shares);
@@ -834,8 +864,9 @@ const BEFORE_REWORK = {
 const BUDGET = 3;
 // The questions a lesson grades outside its warm-ups, as [step, beat index]:
 // every predict, ask and type beat, safety guesses included, and a do beat
-// that asks (its verify is answer). Your turn's decision is one of these.
-const gradedOf = (l) => l.steps.flatMap((s) => s.beats.flatMap((b, n) => (['predict', 'ask', 'type'].includes(b.kind) || b.ask ? [[s, n]] : [])));
+// that asks (its verify is answer). Your turn's decision is one of these. A
+// choice (ticket 104) asks which path the learner is on, and grades nothing.
+const gradedOf = (l) => l.steps.flatMap((s) => s.beats.flatMap((b, n) => (!isChoice(b) && (['predict', 'ask', 'type'].includes(b.kind) || b.ask) ? [[s, n]] : [])));
 const bare = (text) => text.replace(/\*\*|`/g, '').trim();
 
 function budgetOff(id, l) {
@@ -998,4 +1029,34 @@ test('the rework\'s warm-ups: a new lesson fails a warm-up whose answer is a key
     right('Shift the task to a subagent'), right('`.claude/skills/<name>/SKILL.md`'), right('Undo the last turn and/or restore the code')]) {
     assert.deepEqual(warmupFormOff('a-1', ruled('a-1', { warm: [beat] })), [], beat.join('\n'));
   }
+});
+
+// ---- choices and the beats that depend on them (ticket 104) -----------------
+const CHOICE = ['- beat: ask', '- ask: Which credential do you use?', '- option: An API key', '- option: "A token"'];
+const WHEN_KEY = (when) => ['- beat: do', `- when: ${when}`, '- verify: self', '- goal: "Add it."'];
+
+test('choices: a question with no right answer is allowed, and grades nothing, not even in a capstone (104)', () => {
+  const l = ruled('a-capstone', { beats: [CHOICE] });
+  assert.ok(isChoice(l.steps[0].beats[1]));
+  assert.deepEqual(budgetOff('a-capstone', l), []);
+  // A question with a wrong option is no choice: it still needs its right one.
+  assert.ok(!isChoice(ruled('a-1', { beats: [PICK] }).steps[0].beats[1]));
+  assert.ok(!isChoice(ruled('a-1', { beats: [[...CHOICE, '- wrong: neither', '- because: "Because."']] }).steps[0].beats[1]));
+});
+
+test('choices: every when names a real choice made before it, and one of its options (104)', () => {
+  const l = ruled('a-1', { beats: [CHOICE, WHEN_KEY('W1.1=An API key'), WHEN_KEY('W1.1=A token')] });
+  assert.deepEqual(l.steps[0].beats.slice(2).map((b) => [b.when.step, b.when.beat, b.when.option]), [['W1', 1, 'An API key'], ['W1', 1, 'A token']]);
+  const bad = (beats, re) => assert.throws(() => ruled('a-1', { beats }), re);
+  bad([CHOICE, WHEN_KEY('W1.1=A key')], /"A key" is none of its options: "An API key", "A token"/);
+  bad([CHOICE, WHEN_KEY('Y1.1=An API key')], /this lesson has no step Y1/);
+  bad([CHOICE, WHEN_KEY('W1.0=An API key')], /names no choice/);
+  bad([PICK, WHEN_KEY('W1.1=this one')], /names no choice/);
+  bad([WHEN_KEY('W1.2=An API key'), CHOICE], /not before this one/);
+  bad([CHOICE, WHEN_KEY('W1.1')], /a when line is <step id>\.<beat>=<option>/);
+  bad([CHOICE, WHEN_KEY('"W1.1=An API key"')], /when holds the app's own words/);
+  bad([CHOICE, [...WHEN_KEY('W1.1=An API key'), '- when: W1.1=A token']], /a second when line/);
+  // A step's first beat always shows; a warm-up follows no choice.
+  assert.throws(() => parseLesson(`---\nlesson: a-1\ntitle: "Demo"\n---\n\n## intro\n- can: "do it"\n\n## steps\n\n### W1 | Worked example step 1 of 1 | Do it\n- tier: guided\n- skill: s\n- where: claude\n${WHEN_KEY('C.0=x').join('\n')}\n\n### C | Check | Check\n- tier: challenge\n- skill: check\n- where: terminal\n- beat: do\n- verify: check all\n- goal: "Run it."`, 'a-1.md'), /first beat always shows/);
+  assert.throws(() => ruled('a-1', { warm: [[...CHOICE, ...WHEN_KEY('R1.0=An API key')]] }), /a when line on a warm-up/);
 });

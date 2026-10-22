@@ -3,7 +3,7 @@
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
 import { C } from './copy.mjs';
 import { faceCells, facePose } from './face.mjs';
-import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, stepOf, watching } from './flow.mjs';
+import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, isLastBeat, lessonOf, longWait, stepOf, watching, whileRunsOpen } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -167,7 +167,9 @@ const AMBIENT = ['welcome', 'step', 'checkonly'];
 // An overlay, or idle: no one-shot and no ambient loop moves. Only an
 // overlay stops the spinner, its seconds and the bounce: they show a child
 // that is still running (for at most 150 s an item).
-const idle = (s, at) => Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
+// A long wait (ticket 103) is never idle: the marker keeps stepping, one
+// frame for each look the app really takes.
+const idle = (s, at) => !longWait(s) && Boolean(s.beat?.idle || at - s.lastActivity >= IDLE_MS);
 export const frozen = (s, at) => Boolean(s.overlay) || idle(s, at);
 
 // The words of the newest text: on a step card a "Not yet" line or feedback
@@ -194,8 +196,9 @@ function newestWords(s) {
 }
 
 // Reading that needs an answer: a question with its options, a typed
-// answer, the y/n before the exact command, or the hint box.
-const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat) && (Boolean(beatOf(s).ask) || s.beat.rung >= 0 || s.beat.confirm);
+// answer, the y/n before the exact command, the hint box, or a long wait's
+// box with its question open (ticket 150).
+const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat) && (Boolean(beatOf(s).ask) || s.beat.rung >= 0 || s.beat.confirm || whileRunsOpen(s));
 
 // Whether ambient loops (look marker, blink, Pip's look to the side) may
 // draw: not during the reading grace (400 ms a word of the newest text, 3 s
@@ -243,7 +246,7 @@ function lookNotch(s) {
 function blinks(s) {
   if (s.view === 'welcome' || s.view === 'checkonly') return true;
   if (s.view !== 'step' || !s.beat) return false;
-  return !(isDone(s.beat) && s.pos.beat === stepOf(s).beats.length - 1);
+  return !(isDone(s.beat) && isLastBeat(s));
 }
 // Where Pip also looks to the side now and then (189): a step card whose
 // beat watches a file, the check or git, and the check-only card that
@@ -680,6 +683,6 @@ export function nextChange(s, at, caps) {
   const quiet = quietFrom(s);
   if (!still && AMBIENT.includes(s.view) && !answering(s) && quiet > at) times.push(quiet - at);
   const life = !still && !caps.raster && ambientAllowed(s, at) && !childAt(s, at) ? lifeIn(s, at) : null;
-  if (life !== null && at + life < s.lastActivity + IDLE_MS) times.push(life);
+  if (life !== null && (longWait(s) || at + life < s.lastActivity + IDLE_MS)) times.push(life);
   return times.length ? Math.min(...times) : null;
 }

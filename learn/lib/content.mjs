@@ -6,35 +6,71 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { frontmatter } from '../../checks/frontmatter.mjs';
 import { lessons as checks } from '../../checks/lessons/index.mjs';
+import { probeError, PROBES } from '../../checks/probes.mjs';
 import { inline } from './text.mjs';
 
-export const STEP_HEADING = /^### (W\d+|Y\d+|T\d+|C|R\d+) \| (?:(Worked example|Your turn|The task) step (\d+) of (\d+)|(Check|Warm-up)) \| (\S.*)$/;
+// `### <id> | <part> step N of M | <title>`, or `### C | Check | <title>`
+// and `### R<n> | Warm-up | <title>`. A page whose Your turn is parts, not
+// numbered steps, says `### Y<n> | Your turn part N of M | <title>`; a page
+// with a Tear down after its Check says `### D<n> | Tear down step N of M |
+// <title>` there, after the Check only (ticket 102).
+export const STEP_HEADING = /^### (W\d+|Y\d+|T\d+|D\d+|C|R\d+) \| (?:(Worked example|Your turn|The task|Tear down) (step|part) (\d+) of (\d+)|(Check|Warm-up)) \| (\S.*)$/;
+// Each numbered part's id letter.
+export const PART_IDS = { 'Worked example': 'W', 'Your turn': 'Y', 'The task': 'T', 'Tear down': 'D' };
 // Parts whose steps the learner does on their own, with the goal in front.
 export const OWN_PARTS = new Set(['Your turn', 'The task']);
-export const STEP_KEYS = new Set(['tier', 'skill', 'where', 'from']);
+// `optional: <when to skip it>` (ticket 102), the app's own words: the card
+// shows them, and x skips the step.
+export const STEP_KEYS = new Set(['tier', 'skill', 'where', 'from', 'optional']);
+// A step id, as a fresh check's `since`, a back line or the saved place name it.
+export const STEP_ID = /^[WYTDCR]\d*$/;
 // Where a step's work happens: the other terminal, Claude Code, a third
-// terminal for shell commands while Claude Code is still open, or an editor.
-export const WHERE = new Set(['terminal', 'claude', 'shell', 'editor']);
+// terminal for shell commands while Claude Code is still open, or an editor;
+// since ticket 103 also a second Claude Code session (`claude-2`) and a
+// browser, whose beats verify with self, or with `none` and a later beat of
+// the step that reads a local file.
+export const WHERE = new Set(['terminal', 'claude', 'claude-2', 'shell', 'editor', 'browser']);
+// The windows a page may number, "In terminal 1", "In terminal 2": the front
+// matter's `terminals: [claude, claude-2, shell]` names them in the page's
+// order, one item a terminal, and an item may name two that share one
+// (`terminal claude`). Each beat in one of them is then labelled "in
+// terminal <n>" (ticket 103).
+export const NUMBERED = ['terminal', 'claude', 'claude-2', 'shell'];
 // Verify kinds the app answers by reading the beat's file itself, with no
 // process: `file`, and HOLDS, what a file holds (ticket 87).
 export const HOLDS = new Set(['json', 'match', 'no-match']);
 export const READS = new Set(['file', ...HOLDS]);
 // Verify kinds the app answers with git status (ticket 88): the whole tree
-// clean, or part of it.
-export const GIT = new Set(['git-clean', 'git-changed', 'git-only', 'git-staged']);
+// clean, or part of it; and, against how git was when a step opened (ticket
+// 105), HEAD moved with the tree clean, or the same paths listed.
+export const GIT = new Set(['git-clean', 'git-changed', 'git-only', 'git-staged', 'head-moved', 'git-unchanged']);
+// The verify kinds that compare git with how it was when a step opened.
+export const SINCE_GIT = new Set(['head-moved', 'git-unchanged']);
 export const BEAT_KINDS = new Set(['do', 'predict', 'ask', 'type', 'self']);
 // Keys a beat may hold, and whether their value must be a quote of the page.
+// `wait` (ticket 103) marks a long wait, for an agent, workflow or CI run:
+// `- wait: long` in the app's words, or `- wait: "<the page's words>"` where
+// the page says how long. No idle offer, and no CHALLENGE hint unlock, while
+// it waits.
 // `lead-in` (ticket 188): the page's words that frame the bottom line just
 // above it, such as "In the practice template:", drawn above its command
 // wherever the bottom line shows; at most one a bottom line. Like `win`, it
 // goes under its bottom line, before or after that line's `win`.
 export const BEAT_KEYS = {
-  where: false, verify: false, 'done-label': false, watching: false, evidence: false, safety: false, tick: false, skill: false,
+  where: false, verify: false, wait: null, 'done-label': false, watching: false, evidence: false, safety: false, tick: false, skill: false,
   say: false, ask: false, other: false, decoy: false, 'reveal-at': false, recall: false, accept: false, code: false,
   goal: true, do: true, run: true, win: true, expect: true, note: true, rule: true, after: true, why: true,
   codespace: true, 'win-note': true, hint: true, bottom: true, 'lead-in': true, because: true, point: true, reveal: true, self: true,
-  right: null, wrong: null, option: null, stuck: null, back: null,
+  right: null, wrong: null, option: null, stuck: null, back: null, when: false,
 };
+// `when: <step id>.<beat>=<option>` (ticket 104): the beat shows only while
+// the learner's pick on that choice, an ask beat whose every option is an
+// `option`, is that option's text. <beat> counts the step's beats from 0, as
+// the saved answers' keys do.
+export const WHEN = /^([WYTDC]\d*)\.(\d+)=(\S.*)$/;
+// A choice: an ask beat whose every option is an `option`, so no pick on it
+// is right or wrong, and none is graded.
+export const isChoice = (b) => b?.kind === 'ask' && b.options.length > 0 && b.options.every((o) => o.kind === 'option');
 // `why`: why the lesson matters; `payoff`: the one `can` line the intro and
 // complete screens flag as what the lesson builds to; `read`: one line of
 // the page's Go further list, with its Markdown link, to read next. At most
@@ -166,8 +202,13 @@ export function parseLesson(text, file = 'lesson') {
     if ((section === 'steps' || section === 'warm-up') && line.startsWith('### ')) {
       const m = line.match(STEP_HEADING);
       if (!m) fail(i, `a step heading the app can't read: ${line}`);
-      if ((section === 'warm-up') !== (m[5] === 'Warm-up')) fail(i, `a ${section === 'warm-up' ? 'step' : 'warm-up'} heading in the ${section} section: ${line}`);
-      step = { id: m[1], part: m[2] ?? m[5], n: m[3] ? Number(m[3]) : null, of: m[4] ? Number(m[4]) : null, title: m[6], beats: [], line: i + 1 };
+      if ((section === 'warm-up') !== (m[6] === 'Warm-up')) fail(i, `a ${section === 'warm-up' ? 'step' : 'warm-up'} heading in the ${section} section: ${line}`);
+      if (m[2] && m[1][0] !== PART_IDS[m[2]]) fail(i, `a ${m[2]} step's id is ${PART_IDS[m[2]]}<n>, not ${m[1]}: ${line}`);
+      if (m[3] === 'part' && m[2] !== 'Your turn') fail(i, `only Your turn has parts; ${m[2]} has steps: ${line}`);
+      const checked = lesson.steps.some((x) => x.part === 'Check');
+      if (m[2] === 'Tear down' && !checked) fail(i, `a Tear down step only follows the Check: ${line}`);
+      if (lesson.steps.at(-1)?.part === 'Tear down' && m[2] !== 'Tear down') fail(i, `only Tear down steps follow the Check: ${line}`);
+      step = { id: m[1], part: m[2] ?? m[6], unit: m[3] ?? null, n: m[4] ? Number(m[4]) : null, of: m[5] ? Number(m[5]) : null, title: m[7], beats: [], line: i + 1 };
       (section === 'warm-up' ? lesson.warmup : lesson.steps).push(step);
       beat = null;
       continue;
@@ -238,6 +279,8 @@ export function parseLesson(text, file = 'lesson') {
       if (!STEP_KEYS.has(key)) fail(i, `unknown step key ${key}`);
       if (key === 'from' && step.part !== 'Warm-up') fail(i, 'only a warm-up names the lesson it comes from');
       if (key === 'from' && raw.endsWith('-index') && !indexLevel(raw)) fail(i, `from ${raw}: a level index is ${LEVELS.map((l) => `${l}-index`).join(', ').replace(/, (?=[^,]*$)/, ' or ')}`);
+      if (key === 'optional' && v.quoted) fail(i, "optional holds the app's own words, saying when to skip the step: no quotes");
+      if (key === 'optional' && ['Warm-up', 'Check'].includes(step.part)) fail(i, `a ${step.part} step can't be optional`);
       step[key] = raw;
       continue;
     }
@@ -281,6 +324,13 @@ export function parseLesson(text, file = 'lesson') {
       if (step.part === 'Warm-up') fail(i, 'a back line on a warm-up: only a lesson step goes back to an earlier one');
       if (beat.back) fail(i, 'a second back line on one beat');
       beat.back = backLine(raw, i, fail);
+    } else if (key === 'when') {
+      if (beat.when) fail(i, 'a second when line on one beat');
+      if (step.part === 'Warm-up') fail(i, 'a when line on a warm-up: only a lesson step follows a choice');
+      const m = raw.match(WHEN);
+      if (!m) fail(i, 'a when line is <step id>.<beat>=<option>: the choice, its beat counted from 0, and the option the beat shows for');
+      if (step.beats.length === 1) fail(i, "a when line on a step's first beat: the first beat always shows");
+      beat.when = { step: m[1], beat: Number(m[2]), option: m[3], line: i + 1 };
     } else if (key === 'tick') {
       const last = beat.lines.at(-1);
       if (last?.key !== 'run') fail(i, 'a tick line with no run line above it');
@@ -289,6 +339,12 @@ export function parseLesson(text, file = 'lesson') {
     else if (key === 'bottom') beat.bottom.push({ text: v.text });
     else if (key === 'why') beat.why.push(v.text);
     else if (key === 'accept') beat.accept.push(raw);
+    else if (key === 'wait') {
+      if (!['do', 'self'].includes(beat.kind)) fail(i, `a wait line on the ${beat.kind} beat: only a do or self beat waits`);
+      if (!v.quoted && raw !== 'long') fail(i, 'a wait line is wait: long, or the page\'s words in quotes');
+      if (beat.wait) fail(i, 'a second wait line on one beat');
+      beat.wait = v.quoted ? { text: v.text } : { text: null };
+    }
     else if (['goal', 'say', 'do', 'run', 'note', 'rule', 'after', 'expect'].includes(key)) {
       // A `say` that opens "Done when" is a check's expectation in the app's
       // words, for a step whose page has none to quote: like `expect`, a done
@@ -306,6 +362,7 @@ export function parseLesson(text, file = 'lesson') {
   };
   lesson.needs = needsOf(fm.fields.needs, needLines, fmLine('needs'), fail);
   lesson.requires = requiresOf(fm.fields.requires, fm.fields.lesson, fmLine('requires'), fail);
+  lesson.terminals = terminalsOf(fm.fields.terminals, fmLine('terminals'), fail);
   lesson.card.forEach((e, k) => {
     if (!e.show || !e.does) fail(cardLines[k], 'a card entry needs a show and a does line');
     if (!lesson.steps.some((s) => s.skill === e.skill)) fail(cardLines[k], `the card entry's skill ${e.skill} is no step of this lesson`);
@@ -315,12 +372,43 @@ export function parseLesson(text, file = 'lesson') {
     for (const b of s.beats) {
       b.where = b.where ?? s.where;
       if (b.where !== undefined && !WHERE.has(b.where)) throw new Error(`${file}:${b.line}: unknown where ${b.where}`);
+      if (lesson.terminals && NUMBERED.includes(b.where) && !(b.where in lesson.terminals)) throw new Error(`${file}:${b.line}: where ${b.where}, which terminals doesn't number`);
       b.verify = parseVerify(b, file);
       if (b.lines.some((l) => l.doneWhen) && b.verify.kind !== 'check' && !READS.has(b.verify.kind)) throw new Error(`${file}:${b.line}: a "Done when" say line needs a check beat or a beat that reads a file`);
     }
   }
+  // The app can't see a browser: its beat is the learner's word, or a
+  // later beat of the step reads the local file it leaves (a git probe,
+  // ticket 105, reads only local refs too). That later beat shows whenever
+  // the browser beat does: it has no when line (104), or the same one.
+  const sameWhen = (a, b) => !a.when || (b.when && a.when.step === b.when.step && a.when.beat === b.when.beat && a.when.option === b.when.option);
+  for (const s of lesson.steps) {
+    s.beats.forEach((b, k) => {
+      if (b.where !== 'browser' || b.verify.kind === 'self') return;
+      const later = s.beats.slice(k + 1).some((x) => sameWhen(x, b) && (x.verify.kind === 'check' || READS.has(x.verify.kind) || GIT.has(x.verify.kind) || x.verify.kind === 'probe'));
+      if (b.verify.kind !== 'none' || !later) throw new Error(`${file}:${b.line}: a browser beat verifies with self, or with none and a later beat of its step that reads a local file`);
+    });
+  }
   backsOf(lesson, file);
+  whensOf(lesson, file);
   return lesson;
+}
+
+// `terminals: [claude, claude-2, shell]` (ticket 103): each where the page
+// numbers, to its terminal's number, or null without the key.
+function terminalsOf(raw, at, fail) {
+  if (raw === undefined) return null;
+  const items = listOf(raw);
+  if (!items.length) fail(at, 'terminals names at least one terminal');
+  const out = {};
+  items.forEach((item, k) => {
+    for (const w of item.trim().split(/\s+/)) {
+      if (!NUMBERED.includes(w)) fail(at, `terminals item "${item}": ${w} is none of ${NUMBERED.join(', ')}`);
+      if (w in out) fail(at, `terminals names ${w} twice`);
+      out[w] = k + 1;
+    }
+  });
+  return out;
 }
 
 // `back: <step id> <why>` (ticket 192): the step, then why its state is
@@ -354,6 +442,23 @@ function backsOf(lesson, file) {
   }
 }
 
+// Each when line names a choice made before its beat, in this lesson's
+// steps, and one of that choice's options (ticket 104). A choice is an ask
+// beat whose every option is an `option`: no pick on it is right or wrong.
+function whensOf(lesson, file) {
+  lesson.steps.forEach((s, k) => s.beats.forEach((b, n) => {
+    if (!b.when) return;
+    const { step, beat, option, line } = b.when;
+    const at = `${file}:${line}: when ${step}.${beat}`;
+    const from = lesson.steps.findIndex((x) => x.id === step);
+    if (from < 0) throw new Error(`${at}: this lesson has no step ${step}`);
+    if (from > k || (from === k && beat >= n)) throw new Error(`${at}: that beat is not before this one; a when follows a choice made earlier`);
+    const q = lesson.steps[from].beats[beat];
+    if (!isChoice(q)) throw new Error(`${at}: names no choice, an ask beat whose every option is an option line`);
+    if (!q.options.some((o) => o.text === option)) throw new Error(`${at}: "${option}" is none of its options: ${q.options.map((o) => `"${o.text}"`).join(', ')}`);
+  }));
+}
+
 // A front matter list: an inline or block list, or one item alone.
 const listOf = (raw) => (raw === undefined ? [] : Array.isArray(raw) ? raw : [raw]);
 
@@ -384,8 +489,9 @@ function needsOf(raw, lines, at, fail) {
 // lesson's work folder. `<lesson> check <item>` passes when that lesson's
 // check item does, `<lesson> file <path>` once the file holds a line. A
 // check item that starts another process (SLOW) runs only on r, so it is no
-// prerequisite; a file is a file, not a folder. Errors name the front
-// matter's requires line.
+// prerequisite; a file is a file, not a folder. `probe todos <n>` (ticket
+// 105) is what the work folder itself must hold, from no lesson: TODO or
+// FIXME in n top-level folders. Errors name the front matter's requires line.
 function requiresOf(raw, id, at, fail) {
   const items = listOf(raw);
   const here = PATH.findIndex((p) => p.id === id);
@@ -393,8 +499,13 @@ function requiresOf(raw, id, at, fail) {
   const before = PATH.slice(0, here).map((p) => p.id);
   const seen = new Set();
   return items.map((item) => {
+    const todos = item.trim().match(/^probe todos (\S+)$/);
+    if (todos) {
+      if (probeError('todos', [todos[1]])) fail(at, `requires item "${item}": probe todos takes a count, like 2`);
+      return { probe: 'todos', args: [todos[1]] };
+    }
     const m = item.trim().match(/^(\S+) (?:check (\d+)|file (\S+))$/);
-    if (!m) fail(at, `requires item "${item}" is <lesson> check <item> or <lesson> file <path>`);
+    if (!m) fail(at, `requires item "${item}" is <lesson> check <item>, <lesson> file <path> or probe todos <n>`);
     const [, lesson, n, path] = m;
     if (!before.includes(lesson)) fail(at, `requires item "${item}": ${lesson} is no lesson before ${id}`);
     if (seen.has(m[0])) fail(at, `requires item "${item}" is named twice`);
@@ -445,6 +556,13 @@ const closes = (fence, line) => {
   return Boolean(m) && m[1][0] === fence[0] && m[1].length >= fence.length;
 };
 
+// A path a reading beat names may end in a glob, for a file whose name
+// Claude picks: `*` stands for any characters and `?` for one, in the file
+// name only (`file .claude/workflows/*.js fresh`). It reads the newest file
+// that matches (verify.mjs matchOf), and the card shows that file's path.
+export const isGlob = (path) => /[*?]/.test(path);
+export const globName = (name) => new RegExp(`^${name.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+
 const camel = (k) => k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
 function parseVerify(beat, file) {
@@ -456,12 +574,13 @@ function parseVerify(beat, file) {
   // an earlier one can't pass on what the earlier one left behind. On a match
   // or no-match, a file that only grew since then is read for what was added
   // (a no-match whole when nothing was), and a rewritten one whole.
-  const fresh = v.match(/ fresh(?: since ([WYTCR]\d*))?$/);
+  const fresh = v.match(/ fresh(?: since ([WYTDCR]\d*))?$/);
   const base = fresh ? v.slice(0, fresh.index) : v;
   const extra = fresh ? { fresh: true, since: fresh[1] ?? null } : {};
   // The beats that read a file themselves: its evidence is its own file.
   const own = (path) => {
     if (beat.evidence && beat.evidence !== path) throw new Error(`${file}:${beat.line}: a file check's evidence is its own file`);
+    if (isGlob(path.slice(0, path.lastIndexOf('/') + 1))) throw new Error(`${file}:${beat.line}: a glob goes in the file name only, like .claude/workflows/*.js, not ${path}`);
     beat.evidence = path;
   };
   // `file <path>`: a file no check item covers, done once it holds a line.
@@ -485,10 +604,29 @@ function parseVerify(beat, file) {
     own(lines[2]);
     return { kind: lines[1], path: lines[2], regex: lines[3], ...extra };
   }
+  // `probe <name> [args]` (ticket 105): a git probe, checks/probes.mjs, run
+  // in the check child. branch-ahead is always fresh: it passes once the
+  // branch moved since its step opened (or the step `since` names).
+  const probe = base.match(/^probe (\S+)((?: \S+)*)$/);
+  if (probe) {
+    const args = probe[2].split(' ').filter(Boolean);
+    const error = probeError(probe[1], args);
+    if (error) throw new Error(`${file}:${beat.line}: ${error}`);
+    beat.watching = beat.watching ?? PROBES[probe[1]].watching;
+    return { kind: 'probe', name: probe[1], args, ...(PROBES[probe[1]].fresh ? { fresh: true, since: null, ...extra } : extra) };
+  }
   if (fresh && !beat.evidence) throw new Error(`${file}:${beat.line}: a fresh check needs an evidence file`);
   const check = base.match(/^check (\d+(?: \d+)*)$/);
   if (check) return { kind: 'check', items: check[1].split(' ').map(Number), ...extra };
-  if (fresh) throw new Error(`${file}:${beat.line}: only a check or a file can be fresh`);
+  if (fresh) throw new Error(`${file}:${beat.line}: only a check, a file or a probe can be fresh`);
+  // `head-moved [since <step>]`: HEAD is another commit than when that step
+  // (by default its own) opened, and git status lists nothing.
+  // `git-unchanged [since <step>]`: git status lists the same paths as then.
+  const since = v.match(/^(head-moved|git-unchanged)(?: since (\S+))?$/);
+  if (since) {
+    if (since[2] !== undefined && !STEP_ID.test(since[2])) throw new Error(`${file}:${beat.line}: ${since[1]} since a step id, like W2, not ${since[2]}`);
+    return { kind: since[1], since: since[2] ?? null };
+  }
   // A path git status is asked about, as it names one: from the work folder.
   const gitPath = (path) => {
     if (!workPath(path)) {
@@ -516,7 +654,7 @@ export function loadCourse(root, path = PATH) {
     const file = join(root, 'learn', 'lessons', `${entry.id}.md`);
     const content = existsSync(file) ? parseLesson(readFileSync(file, 'utf8'), `learn/lessons/${entry.id}.md`) : null;
     // A prerequisite comes from a lesson this course puts first.
-    const late = content?.requires.find((r) => !path.slice(0, at).some((p) => p.id === r.lesson));
+    const late = content?.requires.find((r) => r.lesson && !path.slice(0, at).some((p) => p.id === r.lesson));
     if (late) throw new Error(`learn/lessons/${entry.id}.md: requires ${late.lesson}, no lesson before ${entry.id} here`);
     // A lesson its PATH entry pins, with no folder of its own, places every
     // step there: its Worked example can't move (ticket 183).
