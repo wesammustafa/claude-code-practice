@@ -6,7 +6,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tearDownLeft, tierOf, tiersOf, toFinish, tryFirst, unmet,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, isLastBeat as lastShown, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tearDownLeft, tierOf, tiersOf, toFinish, tryFirst, unmet,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -573,7 +573,7 @@ function planned(state) {
 
 // The step on screen has its last beat done: it is passed before enter adds
 // it to `done`.
-const passedNow = (s) => s.view === 'step' && isDone(s.beat) && s.pos.beat === stepOf(s).beats.length - 1;
+const passedNow = (s) => s.view === 'step' && isDone(s.beat) && lastShown(s);
 
 // The step on screen is passed and was not done before: a first pass, which
 // counts toward the session and grows the progress rule.
@@ -1365,7 +1365,7 @@ function stepView(ctx) {
   const authored = authoredTier(s);
   const style = TIER_STYLE[tier];
   const done = ['done', 'already'].includes(st.status);
-  const isLastBeat = s.pos.beat === step.beats.length - 1;
+  const isLastBeat = lastShown(s);
   const hideRuns = tier !== 'guided' && authored === 'guided';
   const inlineBottom = tier === 'guided' && authored !== 'guided';
   const words = wordsOf(s);
@@ -1459,7 +1459,10 @@ function stepView(ctx) {
       ...kept([`  ${t.fg('muted', '›')} ${t.fg('code', st.status === 'done' && st.revealed ? '' : st.typed)}${st.status === 'done' ? '' : t.inverse(' ')}`]));
     if (st.status !== 'done') rows.push(SPACER, ...para(t, C.emptyShows, inner, 'muted'));
   } else if (beat.ask) {
-    const recall = beat.recall ? Object.entries(s.progress[s.lesson].answers).find(([k]) => k.startsWith(`${beat.recall}.`)) : null;
+    // The guess it recalls: a predict beat's pick, not a choice's, now that
+    // ask picks are saved too (ticket 104).
+    const guessed = stepsOf(s).find((x) => x.id === beat.recall)?.beats ?? [];
+    const recall = beat.recall ? Object.entries(s.progress[s.lesson].answers).find(([k]) => k.startsWith(`${beat.recall}.`) && guessed[Number(k.slice(k.lastIndexOf('.') + 1))]?.kind === 'predict') : null;
     rows.push(SPACER);
     if (recall) rows.push(t.fg('muted', C.youGuessed(plainText(recall[1]))));
     // A safety choice says so on its own line; the question wraps under its lead.

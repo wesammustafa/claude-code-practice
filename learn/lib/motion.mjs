@@ -3,7 +3,7 @@
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
 import { C } from './copy.mjs';
 import { faceCells, facePose } from './face.mjs';
-import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, lessonOf, longWait, stepOf, watching } from './flow.mjs';
+import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, isLastBeat, lessonOf, longWait, stepOf, watching } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -245,7 +245,7 @@ function lookNotch(s) {
 function blinks(s) {
   if (s.view === 'welcome' || s.view === 'checkonly') return true;
   if (s.view !== 'step' || !s.beat) return false;
-  return !(isDone(s.beat) && s.pos.beat === stepOf(s).beats.length - 1);
+  return !(isDone(s.beat) && isLastBeat(s));
 }
 // Where Pip also looks to the side now and then (189): a step card whose
 // beat watches a file, the check or git, and the check-only card that

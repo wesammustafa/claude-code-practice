@@ -44,6 +44,7 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
       const step = steps.find((x) => x.id === pr.step);
       if (!step) Object.assign(pr, { step: null, beat: 0 });
       else if (!(pr.beat >= 0 && pr.beat < step.beats.length)) pr.beat = 0;
+      else if (!beatShown(pr, step.beats[pr.beat])) pr.beat = shownBefore(pr, step, pr.beat);
     }
   }
   const open = course.find((l) => l.content && progress[l.id].step && !progress[l.id].complete)
@@ -183,6 +184,16 @@ const playOrder = (content, p) => [...p.warm.map((id) => content.warmup.find((w)
 export const stepsOf = (s, id = s.lesson) => (contentOf(s, id) ? playOrder(contentOf(s, id), s.progress[id]) : []);
 export const stepOf = (s) => stepsOf(s)[s.pos.step];
 export const beatOf = (s) => stepOf(s).beats[s.pos.beat];
+// Whether a beat shows (ticket 104): one with a when line only while the
+// saved pick on its choice is its option. The store keeps 200 characters of
+// a pick.
+export const beatShown = (p, beat) => !beat.when || p.answers[`${beat.when.step}.${beat.when.beat}`] === beat.when.option.slice(0, 200);
+// The step's next beat that shows after beat `at`, or -1; and its last one
+// that shows before `at`, or -1. A step's first beat always shows.
+const shownAfter = (p, step, at) => step.beats.findIndex((b, i) => i > at && beatShown(p, b));
+const shownBefore = (p, step, at) => step.beats.findLastIndex((b, i) => i < at && beatShown(p, b));
+// Whether the beat on screen is the last of its step that shows.
+export const isLastBeat = (s) => shownAfter(s.progress[s.lesson], stepOf(s), s.pos.beat) < 0;
 
 // What this learner did with each skill: `steps` holds "k skill" for each
 // lesson k where they finished one of its own steps on it (warm-ups aside),
@@ -735,7 +746,8 @@ export function startLesson(s, id, effects) {
   const steps = stepsOf(s, id);
   const at = steps.findIndex((x) => x.id === p.step);
   if (at !== -1 && !p.complete) {
-    s.pos = { step: at, beat: p.beat >= 0 && p.beat < steps[at].beats.length ? p.beat : 0 };
+    const beat = p.beat >= 0 && p.beat < steps[at].beats.length ? p.beat : 0;
+    s.pos = { step: at, beat: beatShown(p, steps[at].beats[beat]) ? beat : shownBefore(p, steps[at], beat) };
     s.view = 'step';
     openBeat(s, effects);
   } else {
@@ -783,19 +795,23 @@ function nextStep(s, effects) {
   openStep(s, s.pos.step + 1, effects);
 }
 
+// On and back pass over the beats that don't show (ticket 104).
 function advance(s, effects) {
-  if (s.pos.beat + 1 < stepOf(s).beats.length) {
-    s.pos.beat += 1;
+  const next = shownAfter(s.progress[s.lesson], stepOf(s), s.pos.beat);
+  if (next >= 0) {
+    s.pos.beat = next;
     openBeat(s, effects);
   } else finishStep(s, effects);
 }
 
 function back(s, effects) {
+  const p = s.progress[s.lesson];
   if (s.pos.beat > 0) {
-    s.pos.beat -= 1;
+    s.pos.beat = shownBefore(p, stepOf(s), s.pos.beat);
     openBeat(s, effects);
   } else if (s.pos.step > 0) {
-    s.pos = { step: s.pos.step - 1, beat: stepsOf(s)[s.pos.step - 1].beats.length - 1 };
+    const prev = stepsOf(s)[s.pos.step - 1];
+    s.pos = { step: s.pos.step - 1, beat: shownBefore(p, prev, prev.beats.length) };
     s.view = 'step';
     openBeat(s, effects);
   }
@@ -873,6 +889,9 @@ function pick(s, index, effects) {
   }
   if (opt.kind === 'right' || opt.kind === 'option' || opt.kind === 'other') {
     st.answer = { index, kind: opt.kind };
+    // Saved as a guess is (ticket 104): a when line reads a choice's pick,
+    // and a changed pick changes which beats after it show.
+    p.answers[answerKey(s)] = opt.text;
     st.feedback = opt.kind === 'right' ? { kind: 'right' } : { kind: opt.kind, because: opt.because };
     st.status = 'done';
     if (opt.kind === 'right') recalled(s);
@@ -1284,7 +1303,7 @@ export function cardMood(s) {
   const st = s.beat;
   if (s.view !== 'step' || !st) return null;
   const beat = beatOf(s);
-  if (isDone(st)) return s.pos.beat === stepOf(s).beats.length - 1 ? 'done' : 'rest';
+  if (isDone(st)) return isLastBeat(s) ? 'done' : 'rest';
   if (st.status === 'opening') return 'checking';
   if (st.status === 'broken') return 'broken';
   const gitLine = beat.verify.kind === 'git-clean' && st.status === 'waiting' && cleanListed(beat.verify, s.git?.paths ?? []).length > 0;
@@ -1335,7 +1354,7 @@ function stampFx(prev, s, ev) {
       if (!st.revealed && beatOf(s).kind !== 'predict') fx.pass = t;
       // `passLast`: the step's last beat turned done, by any route. The step
       // is done all the same, so it cheers all the same.
-      if (s.pos.beat === stepOf(s).beats.length - 1) fx.passLast = t;
+      if (isLastBeat(s)) fx.passLast = t;
     }
   }
   // A look: a result for what the screen watched, and whether it differs

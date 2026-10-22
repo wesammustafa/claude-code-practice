@@ -2,7 +2,7 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asStarted, backOffered, beatOf, cardMood, DEFER_MS, HINT_LOCK_MS, hintAvailable, IDLE_MS, longWait, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { answerKey, asStarted, backOffered, beatOf, beatShown, cardMood, DEFER_MS, HINT_LOCK_MS, hintAvailable, IDLE_MS, isLastBeat, longWait, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
 import { GIT, OWN_PARTS, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { stampFor } from '../../learn/lib/holds.mjs';
@@ -2840,4 +2840,107 @@ test('a second session, the browser and long waits: a long wait claims nothing t
   assert.equal(longWait(w.state), false);
   assert.equal(w.state.beat.idle, true);
   assert.equal(pipGates(w.state, w.now, { motion: true, truecolor: true, remote: false }).motion, false);
+});
+
+// ---- choices and the beats that depend on them (ticket 104) -----------------
+// DEMO_B2 with its Your turn opening on a choice: Y1.1 shows for everyone,
+// Y1.2 only for a key and Y1.3 only for a token, the step's last beat.
+const CHOICE_B2 = DEMO_B2.replace(`- beat: do
+- verify: check 0 fresh
+- watching: .practice/b-2-before.txt
+- evidence: .practice/b-2-before.txt
+- goal: "Save it again."`, `- beat: ask
+- ask: Which credential do you use?
+- option: An API key
+- option: A token
+- beat: do
+- verify: self
+- done-label: it's saved
+- goal: "Save it again."
+- beat: do
+- when: Y1.0=An API key
+- verify: self
+- done-label: it's set
+- goal: "Add the key."
+- beat: do
+- when: Y1.0=A token
+- verify: self
+- done-label: it's set
+- goal: "Add the token."`);
+const onChoice = (extra = {}) => {
+  const d = driver({ course: courseWith({ 'b-2': CHOICE_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1'], step: 'Y1', beat: 0, ...extra } } } });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== 'Y1') throw new Error(`onChoice: on ${d.state.view} ${stepOf(d.state)?.id}`);
+  return d;
+};
+const where = (d) => (d.state.view === 'step' ? `${stepOf(d.state).id}.${d.state.pos.beat}` : d.state.view);
+
+test('choices: a pick on a choice is saved as a guess is, and never counts as missed (104)', () => {
+  const d = onChoice();
+  assert.equal(where(d), 'Y1.0');
+  assert.equal(answerKey(d.state), 'Y1.0');
+  const missed = [...d.state.missed];
+  d.key('2');
+  assert.equal(d.state.beat.status, 'done');
+  assert.equal(d.state.progress['b-2'].answers['Y1.0'], 'A token');
+  assert.deepEqual(d.state.missed, missed, 'no pick on a choice is missed');
+  assert.ok(d.effects.some((e) => e.type === 'save'));
+  assert.deepEqual(snapshot(d.state).lessons['b-2'].answers, { 'Y1.0': 'A token' }, 'the pick is in the saved file');
+  fitsBoth(d.state);
+  // A right pick on a graded question is saved too.
+  const w = driver({ course: courseWith({ 'b-2': DEMO_B2 }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { step: 'R1', beat: 0, warm: ['R1'] } } } });
+  w.key('enter');
+  assert.equal(where(w), 'R1.0');
+  w.key('1');
+  assert.equal(w.state.progress['b-2'].answers['R1.0'], '`/status`');
+});
+
+test('choices: on and back pass over the beats whose when does not match, and a changed pick re-decides them (104)', () => {
+  const d = onChoice();
+  d.key('2');
+  d.key('enter');
+  assert.equal(where(d), 'Y1.1');
+  assert.equal(isLastBeat(d.state), false);
+  d.key('space');
+  assert.equal(where(d), 'Y1.3', 'a token skips the key beat');
+  assert.equal(isLastBeat(d.state), true);
+  d.key('b');
+  assert.equal(where(d), 'Y1.1', 'back skips it too');
+  d.key('b');
+  assert.equal(where(d), 'Y1.0');
+  // The choice opens again: a new pick replaces the saved one.
+  d.key('1');
+  assert.equal(d.state.progress['b-2'].answers['Y1.0'], 'An API key');
+  d.key('enter');
+  d.key('space');
+  assert.equal(where(d), 'Y1.2', 'a key shows the key beat');
+  assert.equal(isLastBeat(d.state), true, 'the token beat after it does not show');
+  d.key('space');
+  assert.equal(stepOf(d.state).id, 'C', 'the step ends at its last beat that shows');
+  if (d.state.view === 'levelup') d.key('enter');
+  assert.ok(d.state.progress['b-2'].done.includes('Y1'));
+  d.key('b');
+  assert.equal(where(d), 'Y1.2', 'back from the next step lands on the last beat that shows');
+  // Before any pick, no beat with a when shows.
+  const p = { answers: {} };
+  const beats = parseLesson(CHOICE_B2, 'b-2.md').steps.find((x) => x.id === 'Y1').beats;
+  assert.deepEqual(beats.map((b) => beatShown(p, b)), [true, true, false, false]);
+});
+
+test('choices: a saved place on a beat that no longer shows resumes on the one before it (104)', () => {
+  const d = onChoice({ beat: 3, answers: { 'Y1.0': 'An API key' } });
+  assert.equal(where(d), 'Y1.2');
+  const t = onChoice({ beat: 3, answers: { 'Y1.0': 'A token' } });
+  assert.equal(where(t), 'Y1.3');
+});
+
+test('choices: a recall shows the guess it recalls, not a choice of the same step (104)', () => {
+  const recalled = CHOICE_B2.replace('- option: A token\n', '- option: A token\n- beat: predict\n- ask: Guess: does it pass?\n- right: "Yes"\n- option: "No"\n')
+    .concat('- beat: ask\n- recall: Y1\n- ask: Did it pass?\n- right: "Yes"\n- wrong: "No"\n- because: "It did."\n');
+  const d = driver({ course: courseWith({ 'b-2': recalled }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1', 'Y1'], step: 'C', beat: 1, answers: { 'Y1.0': 'A token', 'Y1.1': 'Yes' } } } } });
+  d.key('enter');
+  assert.equal(where(d), 'C.1');
+  const text = screenText(d.state).join('\n');
+  assert.ok(text.includes(C.youGuessed('Yes')), text);
+  assert.ok(!text.includes(C.youGuessed('A token')), text);
 });

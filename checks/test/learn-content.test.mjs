@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GUIDE, indexLevel, PART_IDS, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
+import { GUIDE, indexLevel, isChoice, PART_IDS, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { TYPED_MAX, WARMUPS } from '../../learn/lib/flow.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
@@ -401,7 +401,9 @@ test('questions: one right answer, a reason for every wrong one, real files in d
         }
         assert.match(b.ask, /\?$/, `${where}: a question ends with ?`);
         const rights = b.options.filter((o) => o.kind === 'right');
-        assert.equal(rights.length, 1, `${where}: ${rights.length} right options`);
+        // A choice (ticket 104), an ask beat whose every option is an
+        // option line, has no right answer; any other question has one.
+        if (!isChoice(b)) assert.equal(rights.length, 1, `${where}: ${rights.length} right options`);
         assert.ok(b.options.length >= 2 && b.options.length <= 9, `${where}: ${b.options.length} options`);
         for (const o of b.options) {
           if (o.kind === 'wrong' || o.kind === 'stuck') assert.ok(o.because, `${where}: "${o.text}" needs a because`);
@@ -413,7 +415,7 @@ test('questions: one right answer, a reason for every wrong one, real files in d
           }
         }
         // An unquoted right answer is a claim only through a quote that reveals it.
-        if (!rights[0].quoted) {
+        if (rights.length && !rights[0].quoted) {
           const at = b.revealAt ? l.steps.find((s) => s.id === b.revealAt) : step;
           assert.ok(at?.beats.some((x) => x.reveal), `${where}: no reveal for its right answer`);
         }
@@ -862,8 +864,9 @@ const BEFORE_REWORK = {
 const BUDGET = 3;
 // The questions a lesson grades outside its warm-ups, as [step, beat index]:
 // every predict, ask and type beat, safety guesses included, and a do beat
-// that asks (its verify is answer). Your turn's decision is one of these.
-const gradedOf = (l) => l.steps.flatMap((s) => s.beats.flatMap((b, n) => (['predict', 'ask', 'type'].includes(b.kind) || b.ask ? [[s, n]] : [])));
+// that asks (its verify is answer). Your turn's decision is one of these. A
+// choice (ticket 104) asks which path the learner is on, and grades nothing.
+const gradedOf = (l) => l.steps.flatMap((s) => s.beats.flatMap((b, n) => (!isChoice(b) && (['predict', 'ask', 'type'].includes(b.kind) || b.ask) ? [[s, n]] : [])));
 const bare = (text) => text.replace(/\*\*|`/g, '').trim();
 
 function budgetOff(id, l) {
@@ -1026,4 +1029,34 @@ test('the rework\'s warm-ups: a new lesson fails a warm-up whose answer is a key
     right('Shift the task to a subagent'), right('`.claude/skills/<name>/SKILL.md`'), right('Undo the last turn and/or restore the code')]) {
     assert.deepEqual(warmupFormOff('a-1', ruled('a-1', { warm: [beat] })), [], beat.join('\n'));
   }
+});
+
+// ---- choices and the beats that depend on them (ticket 104) -----------------
+const CHOICE = ['- beat: ask', '- ask: Which credential do you use?', '- option: An API key', '- option: "A token"'];
+const WHEN_KEY = (when) => ['- beat: do', `- when: ${when}`, '- verify: self', '- goal: "Add it."'];
+
+test('choices: a question with no right answer is allowed, and grades nothing, not even in a capstone (104)', () => {
+  const l = ruled('a-capstone', { beats: [CHOICE] });
+  assert.ok(isChoice(l.steps[0].beats[1]));
+  assert.deepEqual(budgetOff('a-capstone', l), []);
+  // A question with a wrong option is no choice: it still needs its right one.
+  assert.ok(!isChoice(ruled('a-1', { beats: [PICK] }).steps[0].beats[1]));
+  assert.ok(!isChoice(ruled('a-1', { beats: [[...CHOICE, '- wrong: neither', '- because: "Because."']] }).steps[0].beats[1]));
+});
+
+test('choices: every when names a real choice made before it, and one of its options (104)', () => {
+  const l = ruled('a-1', { beats: [CHOICE, WHEN_KEY('W1.1=An API key'), WHEN_KEY('W1.1=A token')] });
+  assert.deepEqual(l.steps[0].beats.slice(2).map((b) => [b.when.step, b.when.beat, b.when.option]), [['W1', 1, 'An API key'], ['W1', 1, 'A token']]);
+  const bad = (beats, re) => assert.throws(() => ruled('a-1', { beats }), re);
+  bad([CHOICE, WHEN_KEY('W1.1=A key')], /"A key" is none of its options: "An API key", "A token"/);
+  bad([CHOICE, WHEN_KEY('Y1.1=An API key')], /this lesson has no step Y1/);
+  bad([CHOICE, WHEN_KEY('W1.0=An API key')], /names no choice/);
+  bad([PICK, WHEN_KEY('W1.1=this one')], /names no choice/);
+  bad([WHEN_KEY('W1.2=An API key'), CHOICE], /not before this one/);
+  bad([CHOICE, WHEN_KEY('W1.1')], /a when line is <step id>\.<beat>=<option>/);
+  bad([CHOICE, WHEN_KEY('"W1.1=An API key"')], /when holds the app's own words/);
+  bad([CHOICE, [...WHEN_KEY('W1.1=An API key'), '- when: W1.1=A token']], /a second when line/);
+  // A step's first beat always shows; a warm-up follows no choice.
+  assert.throws(() => parseLesson(`---\nlesson: a-1\ntitle: "Demo"\n---\n\n## intro\n- can: "do it"\n\n## steps\n\n### W1 | Worked example step 1 of 1 | Do it\n- tier: guided\n- skill: s\n- where: claude\n${WHEN_KEY('C.0=x').join('\n')}\n\n### C | Check | Check\n- tier: challenge\n- skill: check\n- where: terminal\n- beat: do\n- verify: check all\n- goal: "Run it."`, 'a-1.md'), /first beat always shows/);
+  assert.throws(() => ruled('a-1', { warm: [[...CHOICE, ...WHEN_KEY('R1.0=An API key')]] }), /a when line on a warm-up/);
 });
