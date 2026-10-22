@@ -133,13 +133,14 @@ test('the check-only view of every lesson fits at 60x20 and 80x24, and the arrow
 
 // Every Beginner lesson finished, the way a learner leaves them.
 const beginnerDone = () => finishedBefore('i-1');
-// Every lesson before Advanced complete: Beginner and Intermediate. Advanced
-// has no lesson file yet, so its lessons show their checks.
+// Every lesson before Advanced complete: Beginner and Intermediate. With
+// Advanced's lesson files left out, its lessons show their checks.
+const noAdvanced = course.map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 const throughIntermediate = () => ({ ...finishedBefore('a-1'), ...Object.fromEntries(PATH.filter((p) => p.level === 'intermediate').map((p) => [p.id, { complete: true }])) });
 const mapRow = (ls, label) => ls.find((l) => new RegExp(`^\\s*[❯ ] [✔○] +${label} `).test(l)) ?? '';
 
 test('a check-only lesson is complete once a full check passes, slow items included: saved, counted, and the map\'s next marker moves on', () => {
-  const d = checkOnly('a-4', course, throughIntermediate());
+  const d = checkOnly('a-4', noAdvanced, throughIntermediate());
   const all = () => true;
   // A poll leaves the slow items out: everything it ran passes, but that is no full check.
   d.send(result('a-4', all));
@@ -163,12 +164,12 @@ test('a check-only lesson is complete once a full check passes, slow items inclu
   d.key('m');
   assert.match(lines(d.state, [80, 24])[0], /Advanced path +1 of 8 done$/);
   assert.match(mapRow(lines(d.state, [80, 24]), 'A4'), /done/);
-  const w = driver({ course, saved: { format: 1, welcomed: false, lessons: { ...throughIntermediate(), 'a-1': { complete: true } } } });
+  const w = driver({ course: noAdvanced, saved: { format: 1, welcomed: false, lessons: { ...throughIntermediate(), 'a-1': { complete: true } } } });
   assert.match(lines(w.state, [80, 24])[0], /Advanced path · 1 of 8 done$/);
 });
 
 test('a check-only lesson with no slow item is complete on any result where every item passes, and the next marker moves to the lesson after it', () => {
-  const d = checkOnly('a-1', course, throughIntermediate());
+  const d = checkOnly('a-1', noAdvanced, throughIntermediate());
   assert.match(mapRow(lines((d.key('m'), d.state), [80, 24]), 'A1'), /next/);
   d.key('m');
   assert.equal(d.state.view, 'checkonly');
@@ -179,7 +180,7 @@ test('a check-only lesson with no slow item is complete on any result where ever
   assert.match(mapRow(ls, 'A1'), /done/, ls.join('\n'));
   assert.match(mapRow(ls, 'A2'), /next/, ls.join('\n'));
   // The app opens on the next lesson's map row after a restart.
-  const again = driver({ course, saved: snapshot(d.state) });
+  const again = driver({ course: noAdvanced, saved: snapshot(d.state) });
   assert.deepEqual([again.state.view, again.state.course[again.state.mapCursor].id], ['map', 'a-2']);
 });
 
@@ -187,7 +188,7 @@ test('a check-only lesson with no slow item is complete on any result where ever
 const TIER_MARKS = /[●◆★]/;
 
 test('a lesson with no lesson file shows no tier bar on the map, and a page with no bar has no legend or footer about them', () => {
-  const d = checkOnly('a-1', course, throughIntermediate());
+  const d = checkOnly('a-1', noAdvanced, throughIntermediate());
   d.key('m');
   for (const size of SIZES) {
     const ls = lines(d.state, size);
@@ -272,7 +273,7 @@ test('a learner who starts at Intermediate or Advanced reaches its first lesson 
   assert.deepEqual([done.state.view, done.state.lesson], ['intro', 'i-1']);
   // Every lesson before Advanced done: the app opens on the map at a-1,
   // which has no lesson file, and enter shows its check.
-  const advanced = driver({ course, saved: { format: 1, welcomed: true, lessons: throughIntermediate() } });
+  const advanced = driver({ course: noAdvanced, saved: { format: 1, welcomed: true, lessons: throughIntermediate() } });
   assert.deepEqual([advanced.state.view, advanced.state.course[advanced.state.mapCursor].id], ['map', 'a-1']);
   advanced.key('enter');
   assert.deepEqual([advanced.state.view, advanced.state.lesson], ['checkonly', 'a-1']);
@@ -304,7 +305,7 @@ test('the check-only card has Pip on its top border, at rest, in every lesson, a
 });
 
 test('an item\'s mark pops ○ ◉ ✔ as a poll finds it passing; nothing else on the card moves, and the rest frame is the calm one', () => {
-  const d = checkOnly('a-1', course, throughIntermediate());
+  const d = checkOnly('a-1', noAdvanced, throughIntermediate());
   d.send(result('a-1', (i) => i === 0));
   // Long after the card opened: its entrance and reading grace are over.
   d.send({ type: 'tick', wait: 30_000 });
@@ -329,7 +330,7 @@ test('an item\'s mark pops ○ ◉ ✔ as a poll finds it passing; nothing else 
     });
   }
   // The first look pops nothing: the app saw no item fail before it.
-  const fresh = checkOnly('a-1', course, throughIntermediate());
+  const fresh = checkOnly('a-1', noAdvanced, throughIntermediate());
   fresh.send({ type: 'tick', wait: 30_000 });
   fresh.send(result('a-1', () => true));
   assert.equal(markOf(render(fresh.state, { cols: 80, rows: 24 }, MOVING, { at: fresh.now }).map(strip), first), '✔');
@@ -399,7 +400,7 @@ function slowRow(at, frame, label) {
 }
 
 test('r on the check-only card says its run is going until its own result lands: the spinner and bounce, slower after 10 s, and the seconds from 3 s', () => {
-  const ids = slowHere.filter((id) => !course.find((l) => l.id === id).content);
+  const ids = slowHere.filter((id) => !noAdvanced.find((l) => l.id === id).content);
   assert.deepEqual(ids, ['a-4', 'a-7']);
   for (const id of ids) {
     const d = checkOnly(id);
@@ -474,7 +475,7 @@ test('r\'s run on the check-only card goes on through a trip to the map and back
 
 test('on a step card, r\'s run of a slow item spins as any check does: the seconds from 3 s, slower after 10 s', () => {
   const ids = slowHere.filter((id) => liveCourse.find((l) => l.id === id).content);
-  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-7', 'i-capstone']);
+  assert.deepEqual(ids, ['b-1', 'b-2', 'b-3', 'b-4', 'b-capstone', 'i-5', 'i-7', 'i-capstone', 'a-4']);
   for (const id of ids) {
     const l = liveCourse.find((x) => x.id === id);
     // The cards r put "Checking" over, for a beat whose check has a slow item.

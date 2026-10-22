@@ -36,7 +36,8 @@ test('every lesson has a label unique in the course, and plain output shows each
 });
 
 test('titles show no literal backticks: a-4\'s in the header, on the map and in plain output', () => {
-  const course = threeLevels();
+  // a-4's check-only view: Advanced's lesson files left out.
+  const course = threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
   const plain = plainProgress(course, {}, null).split('\n');
   assert.ok(plain.includes('A4   Script Claude Code with claude -p: 0 of 0 check items pass'), plain.join('\n'));
   // Every lesson before a-4 done: the map opens at a-4, and enter opens its check.
