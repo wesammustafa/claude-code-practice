@@ -161,6 +161,8 @@ export const C = {
   notQuite: 'Not quite.',
   trueOfElse: "That's true of something else. The lesson says:",
   lookAgain: 'Look again, or press s to see the answer.',
+  // On a typing beat s is a letter of the answer (ticket 187).
+  lookAgainTyped: 'Look again, or press enter on an empty line to see the answer.',
   lookFor: 'Look for',
   theAnswer: "The answer, in the lesson's words:",
   theAnswerIs: (n) => `It's option ${n}.`,

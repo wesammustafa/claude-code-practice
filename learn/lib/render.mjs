@@ -1633,7 +1633,7 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
         box.push(...para(t, `**${C.notQuite}** ${words.trueOfElse}`, inner - 2, 'text'), ...quoted(f.because));
         if (f.point) box.push(`${t.lead('hint')}${t.fg('text', C.lookFor)} ${para(t, f.point, inner - 14, 'warn', { quote: true })[0]}`);
       } else if (f.hint) box.push(`${t.bold(t.fg('warn', C.notQuite))}`, ...quoted(f.hint));
-      else box.push(...para(t, `**${C.notQuite}** ${C.lookAgain}`, inner - 2, 'text'));
+      else box.push(...para(t, `**${C.notQuite}** ${beat.kind === 'type' ? C.lookAgainTyped : C.lookAgain}`, inner - 2, 'text'));
       rows.push(...hintBox(t, box));
     } else if (f.kind === 'stuck') rows.push(...hintBox(t, [...para(t, words.fixFirst, inner - 2, 'warn'), ...quoted(f.because), ...para(t, C.fixThenPick, inner - 2, 'muted')]));
   }
