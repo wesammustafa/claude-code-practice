@@ -18,6 +18,9 @@ const FULL = theme({ tty: true, depth: 8, unicode: true, links: true, win32: fal
 const ASCII = theme({ tty: true, depth: 1, unicode: false, links: false, win32: true });
 const MODES = { full: FULL, sixteen: theme({ tty: true, depth: 4, unicode: true, links: false, win32: false }), noColor: theme({ tty: true, depth: 1, unicode: true, links: false, win32: false }), ascii: ASCII };
 const screen = (state, [cols, rows] = [80, 24], t = FULL) => render(state, { cols, rows }, t).map((l) => strip(l).trimEnd());
+// The course with the Advanced lessons check-only, as they were before their
+// lesson files: the tests of a check-only Advanced lesson's screens use it.
+const advancedCheckOnly = () => threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 // Every lesson before `id` complete.
 const doneBefore = (course, id) => Object.fromEntries(course.slice(0, course.findIndex((l) => l.id === id)).map((l) => [l.id, { complete: true }]));
 // The course with every Advanced lesson shown through its check, as before

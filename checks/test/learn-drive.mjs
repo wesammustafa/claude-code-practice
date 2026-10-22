@@ -212,6 +212,15 @@ export const DEMO_I1_INDEX = DEMO_I1.replace(/### R2 \| Warm-up \| Compact\n[^#]
 // done. Help fades only for what the learner did, so a seed without `done`
 // is a learner who skipped the lesson.
 export const finished = (l) => ({ complete: true, done: l.content.steps.map((x) => x.id) });
+// The last lesson a learner reaches by playing the lessons in order from
+// `from` (the first lesson by default): the one before the next lesson with
+// no lesson file, whose check-only view the next screen doesn't open. A
+// later lesson with a file is reached from the map, not in order.
+export const lastInOrder = (lessons = course, from = lessons[0].id) => {
+  const start = lessons.findIndex((l) => l.id === from);
+  const gap = lessons.findIndex((l, i) => i > start && !l.content);
+  return lessons[(gap < 0 ? lessons.length : gap) - 1].id;
+};
 // Every lesson in the app before `id`, finished.
 export const finishedBefore = (id, lessons = course) => Object.fromEntries(lessons.slice(0, lessons.findIndex((l) => l.id === id)).filter((l) => l.content).map((l) => [l.id, finished(l)]));
 

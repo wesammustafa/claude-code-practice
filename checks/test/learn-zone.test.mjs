@@ -121,7 +121,8 @@ test('in order, with no hints: every tier equals the course plan', () => {
     assert.deepEqual(tiersOf(s), plan(s), where(s));
     met.add(where(s));
   });
-  for (const l of course.filter((x) => x.content)) for (const step of l.content.steps) assert.ok(met.has(`${l.id} ${step.id}`), `${l.id} ${step.id} was met`);
+  const played = course.slice(0, course.findIndex((l) => l.id === last) + 1);
+  for (const l of played.filter((x) => x.content)) for (const step of l.content.steps) assert.ok(met.has(`${l.id} ${step.id}`), `${l.id} ${step.id} was met`);
 });
 
 test('in order, taking the exact command on every non-guided step: no step ever gets less help than the plan', () => {

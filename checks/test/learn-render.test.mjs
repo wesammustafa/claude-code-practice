@@ -14,7 +14,7 @@ import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
 import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
-import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
+import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lastInOrder, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
 // A state without its while-it-runs box (ticket 150): an optional box that
@@ -391,13 +391,9 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
   }
 });
 
-// The end of the last lesson a play reaches: a play stops there. A lesson
-// that runs in a new copy (a-5) waits for its folder, which a play from an
-// earlier lesson never gives, so the next screens pass it by; a play that
-// starts in it ends with the course's last lesson file.
-const lastReached = allCourse.filter((l) => l.content && !l.newCopy).at(-1).id;
-const lastWithFile = allCourse.filter((l) => l.content).at(-1).id;
-const atTheEnd = (s) => [lastReached, lastWithFile].includes(s.lesson) && s.view === 'complete';
+// The end of the last lesson a play in order from lesson `from` reaches: a
+// play stops there.
+const atTheEnd = (from) => (s) => s.lesson === lastInOrder(allCourse, from) && s.view === 'complete';
 
 // Every step a real bottom rung eases, in a real play from that rung on, with
 // and without less help: the "more help" line wraps whole, even where a 60x20
@@ -435,7 +431,7 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
           d.key('enter');
           bottomRung(d);
           if (!d.state.eased.length) continue;
-          playUntil(d, (s) => s.beat?.eased || atTheEnd(s));
+          playUntil(d, (s) => s.beat?.eased || atTheEnd(lesson.id)(s));
           if (d.state.view !== 'step') continue;
           const where = `${d.state.lesson} ${stepOf(d.state).id}${lessHelp ? ' (less help)' : ''}`;
           if (landed.has(where)) continue;
@@ -473,7 +469,7 @@ test('a missed warm-up: the "more help" line wraps whole where its ease lands', 
       d.key(beatOf(d.state).kind === 'type' ? 'enter' : 's');
       assert.equal(d.state.beat.revealed, true, `${lesson.id} ${w.id}`);
       assert.ok(d.state.eased.includes(w.skill), `${lesson.id} ${w.id} eases ${w.skill}`);
-      playUntil(d, (s) => s.beat?.eased || atTheEnd(s));
+      playUntil(d, (s) => s.beat?.eased || atTheEnd(lesson.id)(s));
       if (d.state.view !== 'step') continue;
       easedLineWhole(d, `${d.state.lesson} ${stepOf(d.state).id} from ${lesson.id} ${w.id}`, whole);
     }
@@ -938,6 +934,16 @@ const lessonWalks = async (keep = () => true) => {
 // the walk passes it first time, and lessonScreens also fails it.
 const everyScreen = async () => [...screens, ...await lessonWalks((label) => !label.startsWith('b-1 ') || label.startsWith('b-1 C.'))];
 const flatText = (text) => text.replace(/[^A-Za-z0-9]/g, '');
+// The rows of the while-it-runs box (ticket 150): it draws the hint box's
+// bar, but it is optional, giving way whole where the room runs out, and it
+// grades nothing. Indexes into `lines`.
+const whileBoxRows = (lines, t) => {
+  const rows = new Set();
+  const bar = `${t.glyph.rail}  ${t.glyph.bar}`;
+  const at = lines.findIndex((l) => l.includes(`${t.glyph.bar} ${C.whileItRuns}`));
+  for (let i = at; at >= 0 && i < lines.length && lines[i].includes(bar); i++) rows.add(i);
+  return rows;
+};
 
 test('in a tall window nothing is cut and nothing stretches: the tallest screen at 80 columns fits the box, and the map, the check-only card, your card, the comparison and Pip\'s slot measure the box', async () => {
   const all = await everyScreen();
@@ -2497,6 +2503,8 @@ const URLS = {
   'a-3': 'https://code.claude.com/docs/en/workflows#example-workflow-prompts',
   'a-4': 'https://code.claude.com/docs/en/headless',
   'a-5': 'https://code.claude.com/docs/en/github-actions#run-on-a-schedule',
+  'a-6': 'https://code.claude.com/docs/en/settings-example#a-teams-shared-settings',
+  'a-7': 'https://code.claude.com/docs/en/sandbox-environments',
 };
 
 test('p on the next screen shows the Go further line and its full URL, so a terminal with no links still has the address', () => {
@@ -2977,6 +2985,8 @@ test('Pip tells the truth: the worried face only where the card shows a ▲ row,
     for (const [cols, rows] of SHORT) {
       const lines = render(s, { cols, rows }, t).map(strip);
       const face = pipOn(lines, t);
+      // The while-it-runs box (ticket 150) draws the bar too, for a question
+      // that grades nothing: it is no hint box.
       const box = whileBoxRows(lines, t);
       const shows = lines.some((l, i) => !box.has(i) && /^\s*│ {2}(▲ |▌ |Stuck\?)/.test(l));
       const why = `${label} at ${cols}x${rows}: ${face}\n${lines.join('\n')}`;
@@ -3365,7 +3375,7 @@ test('the arrows move your card only where it scrolls: while it fits, they move 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
 const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4',
-  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC', 'a-1': 'A1', 'a-2': 'A2', 'a-3': 'A3', 'a-4': 'A4', 'a-5': 'A5' };
+  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC', 'a-1': 'A1', 'a-2': 'A2', 'a-3': 'A3', 'a-4': 'A4', 'a-5': 'A5', 'a-6': 'A6', 'a-7': 'A7' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];

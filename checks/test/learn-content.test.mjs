@@ -622,6 +622,10 @@ const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'p
 // Skills a question can mark missed that no later lesson's pool recalls, each
 // with its reason.
 const NO_LATER_WARMUP = {
+  'gh-secret': 'a-6\'s warm-up recalls it, and the level\'s last lessons recall into the capstone, which has no warm-up (194)',
+  'team-marketplace': 'a-7\'s warm-up recalls it, and the capstone after a-7 has no warm-up (194)',
+  'limit-run': 'a-7\'s warm-up recalls it, and the capstone after a-7 has no warm-up (194); drop this once an earlier lesson\'s question can mark it missed',
+  'check-cost': 'a-7\'s warm-up recalls it, and the capstone after a-7 has no warm-up (194); drop this once an earlier lesson\'s question can mark it missed',
 };
 
 // The skills a question in `contents` (in PATH order) can mark missed that
