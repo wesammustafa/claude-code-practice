@@ -8,10 +8,21 @@ import { frontmatter } from '../../checks/frontmatter.mjs';
 import { lessons as checks } from '../../checks/lessons/index.mjs';
 import { inline } from './text.mjs';
 
-export const STEP_HEADING = /^### (W\d+|Y\d+|T\d+|C|R\d+) \| (?:(Worked example|Your turn|The task) step (\d+) of (\d+)|(Check|Warm-up)) \| (\S.*)$/;
+// `### <id> | <part> step N of M | <title>`, or `### C | Check | <title>`
+// and `### R<n> | Warm-up | <title>`. A page whose Your turn is parts, not
+// numbered steps, says `### Y<n> | Your turn part N of M | <title>`; a page
+// with a Tear down after its Check says `### D<n> | Tear down step N of M |
+// <title>` there, after the Check only (ticket 102).
+export const STEP_HEADING = /^### (W\d+|Y\d+|T\d+|D\d+|C|R\d+) \| (?:(Worked example|Your turn|The task|Tear down) (step|part) (\d+) of (\d+)|(Check|Warm-up)) \| (\S.*)$/;
+// Each numbered part's id letter.
+export const PART_IDS = { 'Worked example': 'W', 'Your turn': 'Y', 'The task': 'T', 'Tear down': 'D' };
 // Parts whose steps the learner does on their own, with the goal in front.
 export const OWN_PARTS = new Set(['Your turn', 'The task']);
-export const STEP_KEYS = new Set(['tier', 'skill', 'where', 'from']);
+// `optional: <when to skip it>` (ticket 102), the app's own words: the card
+// shows them, and x skips the step.
+export const STEP_KEYS = new Set(['tier', 'skill', 'where', 'from', 'optional']);
+// A step id, as a fresh check's `since`, a back line or the saved place name it.
+export const STEP_ID = /^[WYTDCR]\d*$/;
 // Where a step's work happens: the other terminal, Claude Code, a third
 // terminal for shell commands while Claude Code is still open, or an editor.
 export const WHERE = new Set(['terminal', 'claude', 'shell', 'editor']);
@@ -166,8 +177,13 @@ export function parseLesson(text, file = 'lesson') {
     if ((section === 'steps' || section === 'warm-up') && line.startsWith('### ')) {
       const m = line.match(STEP_HEADING);
       if (!m) fail(i, `a step heading the app can't read: ${line}`);
-      if ((section === 'warm-up') !== (m[5] === 'Warm-up')) fail(i, `a ${section === 'warm-up' ? 'step' : 'warm-up'} heading in the ${section} section: ${line}`);
-      step = { id: m[1], part: m[2] ?? m[5], n: m[3] ? Number(m[3]) : null, of: m[4] ? Number(m[4]) : null, title: m[6], beats: [], line: i + 1 };
+      if ((section === 'warm-up') !== (m[6] === 'Warm-up')) fail(i, `a ${section === 'warm-up' ? 'step' : 'warm-up'} heading in the ${section} section: ${line}`);
+      if (m[2] && m[1][0] !== PART_IDS[m[2]]) fail(i, `a ${m[2]} step's id is ${PART_IDS[m[2]]}<n>, not ${m[1]}: ${line}`);
+      if (m[3] === 'part' && m[2] !== 'Your turn') fail(i, `only Your turn has parts; ${m[2]} has steps: ${line}`);
+      const checked = lesson.steps.some((x) => x.part === 'Check');
+      if (m[2] === 'Tear down' && !checked) fail(i, `a Tear down step only follows the Check: ${line}`);
+      if (lesson.steps.at(-1)?.part === 'Tear down' && m[2] !== 'Tear down') fail(i, `only Tear down steps follow the Check: ${line}`);
+      step = { id: m[1], part: m[2] ?? m[6], unit: m[3] ?? null, n: m[4] ? Number(m[4]) : null, of: m[5] ? Number(m[5]) : null, title: m[7], beats: [], line: i + 1 };
       (section === 'warm-up' ? lesson.warmup : lesson.steps).push(step);
       beat = null;
       continue;
@@ -238,6 +254,8 @@ export function parseLesson(text, file = 'lesson') {
       if (!STEP_KEYS.has(key)) fail(i, `unknown step key ${key}`);
       if (key === 'from' && step.part !== 'Warm-up') fail(i, 'only a warm-up names the lesson it comes from');
       if (key === 'from' && raw.endsWith('-index') && !indexLevel(raw)) fail(i, `from ${raw}: a level index is ${LEVELS.map((l) => `${l}-index`).join(', ').replace(/, (?=[^,]*$)/, ' or ')}`);
+      if (key === 'optional' && v.quoted) fail(i, "optional holds the app's own words, saying when to skip the step: no quotes");
+      if (key === 'optional' && ['Warm-up', 'Check'].includes(step.part)) fail(i, `a ${step.part} step can't be optional`);
       step[key] = raw;
       continue;
     }
@@ -456,7 +474,7 @@ function parseVerify(beat, file) {
   // an earlier one can't pass on what the earlier one left behind. On a match
   // or no-match, a file that only grew since then is read for what was added
   // (a no-match whole when nothing was), and a rewritten one whole.
-  const fresh = v.match(/ fresh(?: since ([WYTCR]\d*))?$/);
+  const fresh = v.match(/ fresh(?: since ([WYTDCR]\d*))?$/);
   const base = fresh ? v.slice(0, fresh.index) : v;
   const extra = fresh ? { fresh: true, since: fresh[1] ?? null } : {};
   // The beats that read a file themselves: its evidence is its own file.

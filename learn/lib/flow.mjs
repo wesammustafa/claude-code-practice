@@ -164,6 +164,12 @@ export function stepHere(s) {
 // The folder of what the screen shows (ticket 183): its step's where there
 // is one, else the lesson's. The header, the watcher and a card's place read it.
 export const folderHere = (s) => folderOf(s, s.lesson, stepHere(s));
+// A lesson whose Check passed with its Tear down still to do (ticket 102):
+// it completes only after its last Tear down step.
+export const tearDownLeft = (s, id = s.lesson) => {
+  const p = s.progress[id];
+  return Boolean(contentOf(s, id)?.steps.some((x) => x.part === 'Tear down')) && !p.complete && p.done.includes('C');
+};
 // A lesson the learner can still finish: not complete, and not one that
 // runs in a new copy of the template while that copy's folder is not saved,
 // as no check of it runs until then. The next lesson the map marks and
@@ -231,7 +237,7 @@ export function doneBefore(s) {
   const { finished } = history(s);
   if (!s.lesson.endsWith('capstone')) return finished.has(stepOf(s).skill);
   const idx = s.course.findIndex((l) => l.id === s.lesson);
-  return s.course.slice(0, idx).every((l) => (l.content?.steps ?? []).every((x) => finished.has(x.skill)));
+  return s.course.slice(0, idx).every((l) => (l.content?.steps ?? []).every((x) => x.optional || finished.has(x.skill)));
 }
 
 // Each step's tier in play order. A warm-up recalls an earlier lesson from
@@ -741,6 +747,26 @@ function finishStep(s, effects) {
     p.done.push(step.id);
     s.session += 1;
   }
+  nextStep(s, effects);
+}
+
+// x on an optional step (ticket 102): on to the next step, or the lesson's
+// end, with the step not done. Skipping changes no eased or missed state: an
+// ease that landed on this step waits for the next step on its skill.
+function skipStep(s, effects) {
+  const step = stepOf(s);
+  const p = s.progress[s.lesson];
+  if (p.easedSteps[step.id] && !p.done.includes(step.id)) {
+    delete p.easedSteps[step.id];
+    if (!s.eased.includes(step.skill)) s.eased.push(step.skill);
+  }
+  nextStep(s, effects);
+}
+
+// The step after the one on screen, or, after the last (the Check, or the
+// last Tear down step after it), the lesson's end.
+function nextStep(s, effects) {
+  const p = s.progress[s.lesson];
   const steps = stepsOf(s);
   if (s.pos.step + 1 >= steps.length) {
     p.complete = true;
@@ -1560,6 +1586,7 @@ const VIEWS = {
       return true;
     }
     if (name === 'b') return back(s, effects), true;
+    if (name === 'x' && stepOf(s).optional) return skipStep(s, effects), true;
     const earlier = name === 'e' && backOffered(s);
     if (earlier) return goBack(s, earlier, effects), true;
     if (name === 'w' && beat.why.length) {

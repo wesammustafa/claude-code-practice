@@ -78,6 +78,9 @@ export const C = {
   done: 'DONE',
   doneWhen: 'Done when ',
   noCommands: 'No commands this time.',
+  // An optional step's card (ticket 102): the lesson file's words for when
+  // to skip it, then the key.
+  optional: (when) => `Optional. ${when} Press x to skip it.`,
   doneEachPart: "You've done each part before.",
   watching: (what) => [`Watching `, what, ". I'll turn green the moment it's right."],
   staleWatch: (what) => [`Watching `, what, ". It's from an earlier step: I'll turn green once you make it again."],
@@ -220,6 +223,9 @@ export const C = {
   mapFooter: 'Each lesson reuses what came before, so it starts with less help.',
   mapDone: 'done',
   mapNext: 'next',
+  // A lesson whose Check passed with its Tear down still to do (ticket 102).
+  mapTearDown: 'tear down',
+  tearDownLeft: 'The check passes. The tear down is still to do.',
   ofDone: (n, m) => `${n} of ${m} done`,
 
   checkOnly: ["This lesson isn't in the app yet. Follow the lesson page,", "and I'll watch its check for you:"],
@@ -328,6 +334,6 @@ export const C = {
     bringIt: 'bring it on', whatsNext: "what's next", startN: (label) => `start ${label}`, open: 'open',
     useIt: 'use it', cancel: 'cancel', folder: 'folder', giveFolder: 'give its folder',
     continue: 'continue', startOver: 'start over', yesStartOver: 'yes, start over', keep: 'no, keep it', close: 'close', scroll: 'scroll', level: 'level', card: 'card', yes: 'show it', no: 'not yet', page: 'page', clear: 'clear',
-    copy: 'copy', earlier: 'earlier step', earlierShort: 'earlier',
+    copy: 'copy', earlier: 'earlier step', earlierShort: 'earlier', skip: 'skip',
   },
 };

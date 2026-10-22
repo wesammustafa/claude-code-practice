@@ -21,12 +21,14 @@ const verifiable = (step) => step.beats.some((b) => CHECKED.has(b.verify.kind));
 // content of the lessons before it. `contents` is every lesson's parsed
 // content (or null), in course order. An earlier lesson k counts toward a
 // skill only when `counted(k, skill)`: by default the course plan counts
-// them all.
+// them all. An optional step, which a learner may skip, counts toward no
+// skill (ticket 102). A Tear down step after the Check gets the help a Your
+// turn step does, and CHALLENGE in a capstone.
 export function ruleTiers(contents, lessonIndex, counted = () => true) {
   const lesson = contents[lessonIndex];
   const before = new Map();
   contents.slice(0, lessonIndex).forEach((c, k) => {
-    for (const skill of new Set((c?.steps ?? []).map((s) => s.skill))) if (counted(k, skill)) before.set(skill, (before.get(skill) ?? 0) + 1);
+    for (const skill of new Set((c?.steps ?? []).filter((s) => !s.optional).map((s) => s.skill))) if (counted(k, skill)) before.set(skill, (before.get(skill) ?? 0) + 1);
   });
   const lastYour = [...lesson.steps].reverse().find((s) => s.part === 'Your turn' && verifiable(s));
   const capstone = lesson.lesson?.endsWith('capstone');

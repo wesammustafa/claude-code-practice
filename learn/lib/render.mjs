@@ -6,7 +6,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tierOf, tiersOf, toFinish, tryFirst, unmet,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tearDownLeft, tierOf, tiersOf, toFinish, tryFirst, unmet,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -899,6 +899,7 @@ const VIEWS = {
         withPip(ctx, bigPip(ctx, BIG_PIP.resume, ...greeting(ctx)), [
           () => [lead(t, 'wave', t.bold(t.fg('white', C.welcomeBack)))],
           (w) => para(t, C.youreOn(lessonLabel(s.lesson), index + 1, steps.length, steps[index].title), w, 'text'),
+          ...(tearDownLeft(s) ? [(w) => para(t, C.tearDownLeft, w, 'muted')] : []),
         ]),
         ...(s.confirmRestart ? [SPACER, ...kept(hang(mark, para(t, C.restartAsk, ctx.W - width(mark), 'white').map((x) => t.bold(x))))] : []),
       ],
@@ -1120,7 +1121,9 @@ const VIEWS = {
     }
     // The titles give way to the marks, which are wider in ASCII, and to the
     // bars and their gap, on a page that has them.
-    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 + (bars ? 0 : BAR + 2) - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
+    // A lesson with its Tear down still to do says so, in a wider column.
+    const stateW = lessons.some((l) => tearDownLeft(s, l.id)) ? Math.max(5, width(C.mapTearDown)) : 5;
+    const titleW = Math.min(Math.max(...lessons.map((l) => width(titleOf(l)))), W - 30 - (stateW - 5) + (bars ? 0 : BAR + 2) - width(t.glyph.check) - Math.max(width(t.emoji('cup')), width(t.emoji('badge'))));
     // Where the level's rows don't fit even closed up, with the footer gone,
     // the list scrolls: the rows that fit, the cursor's as near their middle
     // as the ends allow.
@@ -1133,10 +1136,10 @@ const VIEWS = {
       const mark = `${sel ? t.fg('key', t.bold(t.glyph.pointer)) : ' '} ${p.complete ? t.fg('ok', t.glyph.check) : t.fg('faint', t.glyph.dotOff)}`;
       const pillBg = sel ? 'accentBg' : p.complete ? 'okBg' : 'dimBg';
       const name = sel ? t.bold(t.fg('key', titleOf(l))) : t.fg(p.complete ? 'text' : 'muted', titleOf(l));
-      const state = p.complete ? t.fg('ok', C.mapDone) : l === next ? t.fg('accent', t.bold(C.mapNext)) : '';
+      const state = p.complete ? t.fg('ok', C.mapDone) : tearDownLeft(s, l.id) ? t.fg('warn', C.mapTearDown) : l === next ? t.fg('accent', t.bold(C.mapNext)) : '';
       const medal = l.id.endsWith('capstone') ? t.emoji('cup') : p.complete && l.content?.badge ? t.emoji('badge') : '';
       const fitTitle = pad(cut(name, titleW + 1, t.unicode ? '…' : '.'), titleW + 1);
-      const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${bars ? `${mixBar(ctx, l, BAR)}  ` : ''}${pad(state, 5)}${medal ? ` ${medal}` : ''}`;
+      const line = `${mark} ${t.pill(pad(lessonLabel(l.id), 3), pillBg, sel || p.complete ? 'white' : 'dimText')} ${fitTitle} ${bars ? `${mixBar(ctx, l, BAR)}  ` : ''}${pad(state, stateW)}${medal ? ` ${medal}` : ''}`;
       return i ? [spacer('', 'lessons'), line] : [line];
     });
     return {
@@ -1440,6 +1443,8 @@ function stepView(ctx) {
     const before = doneBefore(s);
     if (tier === 'challenge' && OWN_PARTS.has(step.part) && s.pos.beat === firstBeat) rows.push(SPACER, ...para(t, before ? `${C.noCommands} ${C.doneEachPart}` : C.noCommands, inner, 'muted'));
     else if (before && stepNote(s) && s.pos.beat === firstBeat && !done) rows.push(SPACER, ...para(t, hintAvailable(s) ? C.doneBefore.hinted : C.doneBefore.challenge, inner, 'muted'));
+    // An optional step says when to skip it, and how, until it is done (102).
+    if (step.optional && !done) rows.push(...kept(para(t, C.optional(step.optional), inner, 'muted')));
     if (hideRuns && beat.lines.some((l) => ['run', 'code'].includes(l.key)) && !done) rows.push(...para(t, C.pressH, inner, 'muted'));
   }
   // A Windows note never drops: without it the step breaks there.
@@ -1780,18 +1785,20 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   // e comes in before q, so the keys already on the bar keep their places,
   // and it stays when a narrow bar drops keys: the note names it (192).
   const earlier = backOffered(s) ? { ...key('e', C.k.earlier), short: C.k.earlierShort, stays: true } : null;
+  // x skips an optional step (102); the card names it, so a narrow bar may drop it.
+  const skip = step.optional ? key('x', C.k.skip) : null;
   if (beat.ask && !st.answer) {
-    return [key(t.glyph.up, C.k.choose), key('enter', C.k.answer), st.wrongs.length && beat.kind !== 'predict' ? key('s', C.k.showAnswer) : null, hint, why, copy, earlier, key('q', C.k.quit)];
+    return [key(t.glyph.up, C.k.choose), key('enter', C.k.answer), st.wrongs.length && beat.kind !== 'predict' ? key('s', C.k.showAnswer) : null, hint, why, copy, earlier, skip, key('q', C.k.quit)];
   }
   const v = beat.verify.kind;
   if (v === 'self' || v === 'none' || beat.kind === 'self' || (v === 'git-clean' && beat.doneLabel)) {
     const k = v === 'none' ? 'enter' : 'space';
     // A done-label git beat at CHALLENGE: r is the try that opens h, so offer it.
     const r = !hint && tier === 'challenge' && tryFirst(s) === 'r' && !st.unlocked && rungsOf(s).length ? key('r', C.k.checkNow) : null;
-    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, copy, key('m', C.k.map), card, earlier, key('q', C.k.quit)];
+    return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, copy, key('m', C.k.map), card, earlier, skip, key('q', C.k.quit)];
   }
   const r = hintStatus(st) === 'fail' ? key('r', C.k.checkAgain) : key('r', C.k.checkNow);
-  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), copy, card, earlier, key('q', C.k.quit)];
+  return [hint, r, why, key('m', C.k.map), hint ? null : key('?', C.k.more), copy, card, earlier, skip, key('q', C.k.quit)];
 }
 // The next screen's enter: the next lesson, or the map after the last.
 const nextKey = (s) => {

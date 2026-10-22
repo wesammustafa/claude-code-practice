@@ -2,11 +2,15 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asStarted, backOffered, beatOf, DEFER_MS, HINT_LOCK_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
-import { GIT, parseLesson, READS } from '../../learn/lib/content.mjs';
+import { asStarted, backOffered, beatOf, DEFER_MS, HINT_LOCK_MS, hintAvailable, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { GIT, OWN_PARTS, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { stampFor } from '../../learn/lib/holds.mjs';
-import { mix } from '../../learn/lib/tiers.mjs';
+import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
+import { render } from '../../learn/lib/render.mjs';
+import { theme } from '../../learn/lib/theme.mjs';
+import { strip, width } from '../../learn/lib/text.mjs';
+import { C } from '../../learn/lib/copy.mjs';
 import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, bareExit, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
@@ -2558,4 +2562,174 @@ test('the back key: the steps from there on check again as they are met, and a q
   assert.deepEqual([r.state.beat.status, r.state.beat.stale], ['waiting', true], 'the snapshot from before the back waits');
   r.send({ type: 'check', lesson: 'b-2', items: pass, path: '.practice/b-2-before.txt', stamp: 'NEW' });
   assert.equal(r.state.beat.status, 'done', 'a new snapshot passes');
+});
+
+// ---- Your turn parts, Tear down steps and optional steps (ticket 102) -------
+// DEMO_B2 with its Your turn in two parts, the second optional, and two Tear
+// down steps after the Check, the last of which completes the lesson.
+const PARTS_B2 = DEMO_B2
+  .replace('next: b-3\n', 'next: b-3\nbadge: Tidy\n')
+  .replace('### Y1 | Your turn step 1 of 1 | Save it again', '### Y1 | Your turn part 1 of 2 | Save it again')
+  .replace('### C | Check | Check', `### Y2 | Your turn part 2 of 2 | Look around
+- tier: challenge
+- skill: look-around
+- where: terminal
+- optional: Skip this part in the cheap variant.
+- beat: do
+- verify: self
+- done-label: it's done
+- goal: "Look around."
+
+### C | Check | Check`)
+  .concat(`
+### D1 | Tear down step 1 of 2 | Remove the snapshot
+- tier: challenge
+- skill: tear-down
+- where: shell
+- beat: do
+- verify: self
+- done-label: it's gone
+- goal: "Remove the snapshot."
+
+### D2 | Tear down step 2 of 2 | Check once more
+- tier: challenge
+- skill: tear-down
+- where: terminal
+- optional: Skip this step if the check already ran.
+- beat: do
+- verify: self
+- done-label: it still passes
+- goal: "Run the check once more."
+`);
+const partsCourse = () => courseWith({ 'b-2': PARTS_B2 });
+const b2Saved = (extra = {}) => ({ format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1', 'Y1', 'Y2'], step: 'C', beat: 0, ...extra } } });
+const onPartsB2 = (step, extra = {}) => {
+  const d = driver({ course: partsCourse(), saved: b2Saved({ step, ...extra }) });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== step) throw new Error(`onPartsB2: on ${d.state.view} ${stepOf(d.state)?.id}, not ${step}`);
+  return d;
+};
+const screenText = (state, cols = 80, rows = 24, unicode = true) => render(state, { cols, rows }, theme({ tty: true, depth: unicode ? 8 : 1, unicode, links: false, win32: !unicode })).map(strip);
+// Every line of the screen fits 60x20 and 80x24, in full color and in ASCII.
+const fitsBoth = (state) => {
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    for (const unicode of [true, false]) {
+      const lines = screenText(state, cols, rows, unicode);
+      assert.equal(lines.length, rows);
+      assert.ok(lines.every((l) => width(l) <= cols - 1), `${cols}x${rows}${unicode ? '' : ' ascii'}:\n${lines.join('\n')}`);
+    }
+  }
+};
+
+test('parts and Tear down: the headings parse, a part is own work, and D steps only follow the Check (102)', () => {
+  const l = parseLesson(PARTS_B2, 'b-2.md');
+  assert.deepEqual(l.steps.map((s) => [s.id, s.part, s.unit, s.n, s.of]), [
+    ['W1', 'Worked example', 'step', 1, 1], ['Y1', 'Your turn', 'part', 1, 2], ['Y2', 'Your turn', 'part', 2, 2],
+    ['C', 'Check', null, null, null], ['D1', 'Tear down', 'step', 1, 2], ['D2', 'Tear down', 'step', 2, 2],
+  ]);
+  assert.ok(OWN_PARTS.has(l.steps[1].part), 'a part is own work');
+  const bad = (from, to) => assert.throws(() => parseLesson(PARTS_B2.replace(from, to), 'b-2.md'), Error, `${to}`);
+  bad('### W1 | Worked example step 1 of 1', '### W1 | Worked example part 1 of 1');
+  bad('### D1 | Tear down step 1 of 2', '### D1 | Tear down part 1 of 2');
+  bad('### D1 | Tear down step 1 of 2', '### Y3 | Tear down step 1 of 2');
+  bad('### Y2 | Your turn part 2 of 2', '### D9 | Your turn part 2 of 2');
+  // A Tear down step before the Check, or a step after a Tear down step.
+  const early = DEMO_B2.replace('### C | Check | Check', '### D1 | Tear down step 1 of 1 | Early\n- tier: challenge\n- skill: x\n- where: shell\n- beat: do\n- verify: self\n\n### C | Check | Check');
+  assert.throws(() => parseLesson(early, 'b-2.md'), /a Tear down step only follows the Check/);
+  const after = `${PARTS_B2}\n### Y3 | Your turn part 3 of 3 | Late\n- tier: challenge\n- skill: x\n- where: shell\n- beat: do\n- verify: self\n`;
+  assert.throws(() => parseLesson(after, 'b-2.md'), /only Tear down steps follow the Check/);
+});
+
+test('parts and Tear down: a D id works wherever a step id does (102)', () => {
+  const fresh = parseLesson(PARTS_B2.replace("- done-label: it's gone\n", "- verify: file .practice/gone.txt fresh since D1\n").replace("- beat: do\n- verify: self\n- verify: file", '- beat: do\n- verify: file'), 'b-2.md');
+  assert.equal(fresh.steps.find((s) => s.id === 'D1').beats[0].verify.since, 'D1');
+  const back = parseLesson(PARTS_B2.replace('- goal: "Run the check once more."', '- goal: "Run the check once more."\n- back: D1 Remove it first.'), 'b-2.md');
+  assert.equal(back.steps.find((s) => s.id === 'D2').beats[0].back.step, 'D1');
+  const saved = snapshot({ welcomed: true, eased: [], missed: [], progress: { 'b-2': { step: 'D2', bottomAt: 'D1', moreHelpAt: 'D2', done: ['D1'] } } });
+  assert.deepEqual([saved.lessons['b-2'].step, saved.lessons['b-2'].bottomAt, saved.lessons['b-2'].moreHelpAt], ['D2', 'D1', 'D2']);
+  const d = onPartsB2('D2', { done: ['W1', 'Y1', 'Y2', 'C', 'D1'] });
+  assert.equal(stepOf(d.state).id, 'D2', 'a saved D step resumes');
+});
+
+test('parts and Tear down: the Check runs check all, and the lesson completes, badge and all, only after its last D step (102)', () => {
+  const d = onPartsB2('C');
+  assert.deepEqual(d.effects.find((e) => e.type === 'check'), { type: 'check', lesson: 'b-2', items: null, evidence: null, dir: FACTS.root });
+  playUntil(d, (s) => s.view === 'step' && stepOf(s).id === 'D1');
+  const p = d.state.progress['b-2'];
+  assert.ok(p.done.includes('C'));
+  assert.equal(p.complete, false, 'the Check passing does not complete the lesson');
+  d.key('space');
+  assert.equal(stepOf(d.state).id, 'D2');
+  assert.equal(d.state.progress['b-2'].complete, false);
+  assert.ok(!screenText(d.state).some((l) => l.includes(C.badge('Tidy'))));
+  d.key('space');
+  assert.equal(d.state.view, 'complete');
+  assert.equal(d.state.progress['b-2'].complete, true);
+  assert.deepEqual(d.state.progress['b-2'].done.slice(-3), ['C', 'D1', 'D2']);
+  assert.ok(screenText(d.state).some((l) => l.includes(C.badge('Tidy'))), 'the badge comes after the last D step');
+});
+
+test('parts and Tear down: the map and the resume screen say the tear down is still to do (102)', () => {
+  const d = driver({ course: partsCourse(), saved: b2Saved({ step: 'D1', done: ['W1', 'Y1', 'Y2', 'C'] }) });
+  assert.equal(d.state.view, 'resume');
+  assert.ok(tearDownLeft(d.state, 'b-2'));
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const resume = screenText(d.state, cols, rows).join('\n');
+    assert.ok(resume.replace(/\s+/g, ' ').includes(C.tearDownLeft), `${cols}x${rows} resume:\n${resume}`);
+  }
+  fitsBoth(d.state);
+  d.key('m');
+  assert.equal(d.state.view, 'map');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const map = screenText(d.state, cols, rows);
+    const row = map.find((l) => l.includes(' B2 '));
+    assert.ok(row?.includes(C.mapTearDown), `${cols}x${rows} map:\n${map.join('\n')}`);
+  }
+  fitsBoth(d.state);
+  // Before the Check passes, and once the lesson is complete, it says nothing of it.
+  assert.equal(tearDownLeft(driver({ course: partsCourse(), saved: b2Saved() }).state, 'b-2'), false);
+  assert.equal(tearDownLeft(driver({ course: partsCourse(), saved: b2Saved({ complete: true, step: null }) }).state, 'b-2'), false);
+});
+
+test('optional steps: the card says when to skip, x skips, and skipping changes no eased or missed state (102)', () => {
+  const l = parseLesson(PARTS_B2, 'b-2.md');
+  assert.equal(l.steps.find((s) => s.id === 'Y2').optional, 'Skip this part in the cheap variant.');
+  assert.throws(() => parseLesson(PARTS_B2.replace('- optional: Skip this part in the cheap variant.', '- optional: "Skip this part."'), 'b-2.md'), /optional holds the app's own words/);
+  // The look-around skill waits to be eased, so Y2 opens eased.
+  const d = driver({ course: partsCourse(), saved: { ...b2Saved({ step: 'Y2', done: ['W1', 'Y1'] }), eased: ['look-around'], missed: ['look-around'] } });
+  d.key('enter');
+  assert.equal(stepOf(d.state).id, 'Y2');
+  assert.equal(d.state.progress['b-2'].easedSteps.Y2, true, 'the ease landed on Y2');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const card = screenText(d.state, cols, rows).map((l) => l.replace(/^\s*│|│\s*$/g, '')).join(' ').replace(/\s+/g, ' ');
+    assert.ok(card.includes(C.optional('Skip this part in the cheap variant.')), `${cols}x${rows}: ${card}`);
+  }
+  assert.ok(screenText(d.state, 60, 20).join('\n').includes('x skip') || screenText(d.state, 80, 24).join('\n').includes('x skip'), 'the key bar offers x');
+  fitsBoth(d.state);
+  d.key('x');
+  assert.equal(stepOf(d.state).id, 'C', 'x goes on to the next step');
+  const p = d.state.progress['b-2'];
+  assert.ok(!p.done.includes('Y2'), 'a skipped step is not done');
+  assert.equal(p.easedSteps.Y2, undefined, 'the ease it took waits again');
+  assert.deepEqual([d.state.eased, d.state.missed], [['look-around'], ['look-around']]);
+  // x does nothing on a step that is not optional.
+  d.key('x');
+  assert.equal(stepOf(d.state).id, 'C');
+  // Skipping the last step completes the lesson.
+  const last = onPartsB2('D2', { done: ['W1', 'Y1', 'Y2', 'C', 'D1'] });
+  last.key('x');
+  assert.equal(last.state.view, 'complete');
+  assert.equal(last.state.progress['b-2'].complete, true);
+  assert.ok(!last.state.progress['b-2'].done.includes('D2'));
+});
+
+test('optional steps: ruleTiers never counts an optional step\'s skill (102)', () => {
+  const contents = partsCourse().map((x) => x.content);
+  const later = parseLesson(PARTS_B2.replace('lesson: b-2', 'lesson: b-3').replace('### W1 | Worked example step 1 of 1 | Save the list\n- tier: guided\n- skill: snapshot', '### W1 | Worked example step 1 of 1 | Save the list\n- tier: guided\n- skill: look-around'), 'b-3.md');
+  const at = contents.findIndex((c) => c?.lesson === 'b-2') + 1;
+  contents[at] = later;
+  assert.equal(ruleTiers(contents, at)[0], 'guided', 'the optional Y2 of b-2 does not count toward look-around');
+  const counted = [...contents];
+  counted[at - 1] = parseLesson(PARTS_B2.replace('- optional: Skip this part in the cheap variant.\n', ''), 'b-2.md');
+  assert.equal(ruleTiers(counted, at)[0], 'hinted', 'a step that is not optional counts');
 });
