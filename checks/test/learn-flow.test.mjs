@@ -2,7 +2,7 @@
 // what a wrong answer gets, how hints open, how help fades and comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { answerKey, asStarted, backOffered, beatOf, beatShown, cardMood, DEFER_MS, HINT_LOCK_MS, hintAvailable, IDLE_MS, isLastBeat, longWait, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching } from '../../learn/lib/flow.mjs';
+import { answerKey, asStarted, backOffered, beatOf, beatShown, cardMood, DEFER_MS, HINT_LOCK_MS, hintAvailable, IDLE_MS, isLastBeat, longWait, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching, whileRunsOf, whileRunsOpen } from '../../learn/lib/flow.mjs';
 import { GIT, OWN_PARTS, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { stampFor } from '../../learn/lib/holds.mjs';
@@ -2819,6 +2819,8 @@ test('a second session, the browser and long waits: a long wait claims nothing t
     const card = screenText(d.state, cols, rows).map((l) => l.replace(/^\s*[│|]|[│|]\s*$/g, '')).join(' ').replace(/\s+/g, ' ');
     assert.ok(card.includes(C.waitLong), `${cols}x${rows}: ${card}`);
   }
+  // The box's question answered (150), so rule 3 no longer holds motion.
+  d.key('1');
   const quiet = d.state.lastActivity;
   // Ten quiet minutes: no idle offer, no CHALLENGE unlock, no "Stuck?".
   for (let k = 0; k < 10; k++) d.send({ type: 'tick', wait: 60_000 });
@@ -3102,4 +3104,87 @@ test('a lesson done in the app whose check now fails: the map keeps it done, and
   assert.equal(d.state.progress['b-1'].complete, true, 'a failing check never takes back a finished lesson');
   const row = screenText(d.state).find((l) => / B1 /.test(l));
   assert.ok(row.includes(C.mapDone), row);
+});
+
+// ---- recall while a long run works (ticket 150) ------------------------------
+// WAIT_B2's long wait, with `extra` saved: the learner's missed skills and
+// the lesson's warm-ups, as a play that chose them saved them.
+const onWaitWith = ({ missed = [], warm = [] } = {}, text = WAIT_B2) => {
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, missed, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1', 'Y1'], step: 'Y2', beat: 1, warm } } } });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== 'Y2' || d.state.pos.beat !== 1) throw new Error(`onWaitWith: on ${d.state.view} ${stepOf(d.state)?.id} beat ${d.state.pos.beat}`);
+  return d;
+};
+const flat = (state, cols, rows, unicode = true) => screenText(state, cols, rows, unicode).map((l) => l.replace(/^\s*[│|]|[│|]\s*$/g, '')).join(' ').replace(/\s+/g, ' ');
+
+test('recall while a long run works: one unshown warm-up, missed skills first, the same every time (150)', () => {
+  // Nothing missed and no warm-up shown: the pool's first question with
+  // options, R1 (R2 is typed from memory, which the box never asks).
+  const d = onWaitWith();
+  assert.equal(whileRunsOf(d.state).step.id, 'R1');
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const card = flat(d.state, cols, rows);
+    assert.ok(card.includes(C.whileItRuns), `${cols}x${rows}: ${card}`);
+    assert.ok(card.includes('Which command shows the account?'), `${cols}x${rows}: ${card}`);
+  }
+  fitsBoth(d.state);
+  // R1 shown as the lesson's warm-up, and exit and status missed: R3, the
+  // unshown one on a missed skill, comes before nothing else.
+  const m = onWaitWith({ missed: ['status', 'exit'], warm: ['R1'] });
+  assert.equal(whileRunsOf(m.state).step.id, 'R3');
+  assert.equal(onWaitWith({ missed: ['status', 'exit'], warm: ['R1'] }).state.beat.whileRuns.id, 'R3', 'the same choice every time');
+  // A missed skill wins over the file order.
+  assert.equal(whileRunsOf(onWaitWith({ missed: ['exit'] }).state).step.id, 'R3');
+  // Every question with options shown: no box.
+  const none = onWaitWith({ missed: [], warm: ['R1'] }, WAIT_B2.replace(/### R3[\s\S]*?(?=## steps)/, ''));
+  assert.equal(whileRunsOf(none.state), null);
+  assert.ok(!flat(none.state, 80, 24).includes(C.whileItRuns));
+  // A beat with no wait never offers one.
+  const plain = onWaitB2('Y2', 1, WAIT_B2.replace('- wait: long\n', ''));
+  assert.equal(whileRunsOf(plain.state), null);
+  assert.ok(!flat(plain.state, 80, 24).includes(C.whileItRuns));
+});
+
+test('recall while a long run works: never scored, still, and dropped when the result lands (150)', () => {
+  const d = onWaitWith({ missed: ['exit'] });
+  d.send({ type: 'file', path: '.practice/run.txt', read: null, stamp: 'A' });
+  const before = JSON.stringify([d.state.missed, d.state.eased, d.state.progress['b-2'].recalled, d.state.progress['b-2'].answers, d.state.missedNow]);
+  // Rule 3: nothing ambient beside its open question, the look marker too.
+  const ON = { motion: true };
+  const later = d.now + 60_000;
+  d.send({ type: 'tick', wait: 60_000 });
+  assert.equal(pipGates(d.state, later, { motion: true, truecolor: true, remote: false }).ambient, false, 'no ambient motion beside the question');
+  assert.equal(phases(d.state, later, ON).spinner, null);
+  // Its options are drawn the same in every frame: the box is still.
+  const frame = (at) => render(d.state, { cols: 80, rows: 24 }, theme({ tty: true, depth: 8, unicode: true, links: false, win32: false }), { at }).map(strip).filter((l) => l.includes('/exit') || l.includes('/clear'));
+  assert.deepEqual(frame(later), frame(later + 5_000));
+  // A wrong answer: shown, never scored.
+  d.key('2');
+  assert.equal(d.state.beat.whileRuns.answer, 1);
+  assert.equal(d.state.beat.status, 'waiting', 'the beat still waits on the run');
+  assert.equal(JSON.stringify([d.state.missed, d.state.eased, d.state.progress['b-2'].recalled, d.state.progress['b-2'].answers, d.state.missedNow]), before, 'missed, eased and recalled are untouched');
+  assert.equal(whileRunsOpen(d.state), false);
+  assert.ok(flat(d.state, 80, 24).includes(C.whileItRuns), 'the answer stays until the result lands');
+  fitsBoth(d.state);
+  // With the question answered, the long wait's motion runs again.
+  assert.equal(pipGates(d.state, d.now + 30_000, { motion: true, truecolor: true, remote: false }).ambient, true);
+  // A right answer is not scored either: a skill it recalls stays missed.
+  const r = onWaitWith({ missed: ['exit'] });
+  r.key('1');
+  assert.deepEqual([r.state.missed, r.state.eased, r.state.progress['b-2'].recalled], [['exit'], [], []]);
+  // The result lands with a question still open: it goes quietly, and the
+  // green result never waited for it.
+  const open = onWaitWith({ missed: ['exit'] });
+  assert.equal(whileRunsOpen(open.state), true);
+  open.send({ type: 'file', path: '.practice/run.txt', read: null, stamp: 'A' });
+  open.send({ type: 'file', path: '.practice/run.txt', read: Buffer.from('ok'), stamp: 'B' });
+  assert.equal(open.state.beat.status, 'done');
+  assert.equal(whileRunsOpen(open.state), false);
+  assert.ok(!flat(open.state, 80, 24).includes(C.whileItRuns));
+  assert.equal(open.state.toast, null, 'dropped quietly');
+  assert.deepEqual([open.state.missed, open.state.eased], [['exit'], []]);
+  fitsBoth(open.state);
+  // A digit after the result is no answer.
+  open.key('1');
+  assert.equal(open.state.beat.whileRuns.answer, null);
 });

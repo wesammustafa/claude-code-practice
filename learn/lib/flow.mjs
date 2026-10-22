@@ -71,6 +71,9 @@ export function initialState({ course, saved = null, facts, now = 0 }) {
     missed: saved?.missed ?? [],
     missedNow: [],
     answeredNow,
+    // The warm-ups a long wait's box asked in this sitting (ticket 150), in
+    // memory only: `lesson.id`.
+    whileShown: [],
     welcomed,
     view,
     overlay: null, lesson: next.id, pos: { step: 0, beat: 0 }, beat: null,
@@ -585,6 +588,26 @@ export function tryFirst(s) {
 // never fires there, so the motion layer never goes still for it.
 export const longWait = (s) => s.view === 'step' && Boolean(s.beat) && !['done', 'already'].includes(s.beat.status) && Boolean(beatOf(s).wait);
 
+// Recall while a long run works (ticket 150): the warm-up a long wait's box
+// offers, one of this lesson's pool that its warm-ups did not show and the
+// box has not asked, on a missed skill first, then in the file's order. Only
+// a question with options: typing would take the card's keys. Never scored.
+function whileRunsPick(s) {
+  const p = s.progress[s.lesson];
+  const missed = (w) => w.beats.some((b) => s.missed.includes(b.skill ?? w.skill));
+  const pool = contentOf(s).warmup.filter((w) => !p.warm.includes(w.id) && !s.whileShown.includes(`${s.lesson}.${w.id}`) && w.beats[0].ask && w.beats[0].kind !== 'type' && w.beats[0].options.length);
+  return [...pool.filter(missed), ...pool.filter((w) => !missed(w))][0]?.id ?? null;
+}
+// The box's warm-up step, its first beat and the answer picked (an option's
+// index, or null), while the long wait lasts; else null.
+export function whileRunsOf(s) {
+  const id = longWait(s) ? s.beat.whileRuns?.id : null;
+  const step = id && contentOf(s).warmup.find((w) => w.id === id);
+  return step ? { step, beat: step.beats[0], answer: s.beat.whileRuns.answer } : null;
+}
+// A question still open in the box: rule 3 holds ambient motion beside it.
+export const whileRunsOpen = (s) => whileRunsOf(s)?.answer === null;
+
 export function hintAvailable(s) {
   if (s.view !== 'step' || !s.beat || ['done', 'already'].includes(s.beat.status)) return false;
   if (beatOf(s).kind === 'type') return false;
@@ -604,6 +627,8 @@ function openBeat(s, effects) {
   p.beat = s.pos.beat;
   markEased(s, s.pos.step);
   s.beat = { status: 'waiting', rung: -1, lockUntil: 0, confirm: false, wrongs: [], answer: null, revealed: false, typed: '', typedWrong: 0, feedback: null, idle: false, unlocked: false, explicit: false, ended: false, opened: s.now, eased: Boolean(p.easedSteps[step.id]) };
+  const offer = beat.wait ? whileRunsPick(s) : null;
+  if (offer) s.beat.whileRuns = { id: offer, answer: null };
   s.lastActivity = s.now;
   // Nothing is picked until the learner picks: an Enter meant for the screen
   // before can't answer a question.
@@ -1713,6 +1738,13 @@ const VIEWS = {
       return true;
     }
     if (done) return false;
+    // The long wait's box: a number answers it, once, and scores nothing.
+    const box = whileRunsOpen(s) && whileRunsOf(s);
+    if (box && DIGIT.test(ch ?? '') && Number(ch) <= box.beat.options.length) {
+      st.whileRuns.answer = Number(ch) - 1;
+      s.whileShown.push(`${s.lesson}.${box.step.id}`);
+      return true;
+    }
     const q = questionOf(beat);
     if (q && !st.answer) {
       const n = beat.options.length;

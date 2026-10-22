@@ -3,7 +3,7 @@
 // random. The time comes in as `at`, the stamps as `s.fx` (flow.mjs).
 import { C } from './copy.mjs';
 import { faceCells, facePose } from './face.mjs';
-import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, isLastBeat, lessonOf, longWait, stepOf, watching } from './flow.mjs';
+import { beatOf, cardMood, checkOnlyWords, childSince, GRACE_MAX_MS, hidesRuns, IDLE_MS, isDone, isLastBeat, lessonOf, longWait, stepOf, watching, whileRunsOpen } from './flow.mjs';
 
 // The frame at rest: what every screen draws when nothing moves.
 export const REST = { at: Infinity };
@@ -196,8 +196,9 @@ function newestWords(s) {
 }
 
 // Reading that needs an answer: a question with its options, a typed
-// answer, the y/n before the exact command, or the hint box.
-const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat) && (Boolean(beatOf(s).ask) || s.beat.rung >= 0 || s.beat.confirm);
+// answer, the y/n before the exact command, the hint box, or a long wait's
+// box with its question open (ticket 150).
+const answering = (s) => s.view === 'step' && Boolean(s.beat) && !isDone(s.beat) && (Boolean(beatOf(s).ask) || s.beat.rung >= 0 || s.beat.confirm || whileRunsOpen(s));
 
 // Whether ambient loops (look marker, blink, Pip's look to the side) may
 // draw: not during the reading grace (400 ms a word of the newest text, 3 s

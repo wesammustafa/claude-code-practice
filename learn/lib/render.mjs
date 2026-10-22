@@ -6,7 +6,7 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, isLastBeat as lastShown, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tearDownLeft, tierOf, tiersOf, toFinish, tryFirst, unmet,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, isLastBeat as lastShown, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tearDownLeft, tierOf, tiersOf, toFinish, tryFirst, unmet, whileRunsOf,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
@@ -1448,6 +1448,10 @@ function stepView(ctx) {
     if (step.optional && !done) rows.push(...kept(para(t, C.optional(step.optional), inner, 'muted')));
     // A long wait says so, in the page's words or as the app's own (103).
     if (beat.wait && !done) rows.push(...kept(beat.wait.text ? quoted(beat.wait.text) : para(t, C.waitLong, inner, 'muted')));
+    // Recall while it runs (150): a still box, never scored, that gives way
+    // whole before any teaching row and goes when the result lands.
+    const box = whileRunsOf(s);
+    if (box) rows.push(...optional(['', ...whileRunsBox(ctx, box)]));
     if (hideRuns && beat.lines.some((l) => ['run', 'code'].includes(l.key)) && !done) rows.push(...para(t, C.pressH, inner, 'muted'));
   }
   // A Windows note never drops: without it the step breaks there.
@@ -1530,6 +1534,31 @@ function options(ctx, beat) {
     const text = para(t, o.text, inner - 10 - width(tag), color);
     return text.map((x, k) => (k ? `       ${x}` : ` ${mark} ${num}  ${cursor ? t.bold(x) : x}${tag}`));
   }).flat();
+}
+
+// A long wait's warm-up (ticket 150), behind a muted bar: its question and
+// numbered options, then, once picked, the right one ticked, a wrong pick
+// marked, and the page's words for it. Nothing in it moves.
+function whileRunsBox(ctx, { beat, answer }) {
+  const { t, inner } = ctx;
+  const w = inner - 2;
+  // Every mark takes the widest one's columns, so the numbers line up.
+  const markW = Math.max(width(t.glyph.check), width(t.glyph.warnMark));
+  const rows = [`${t.bold(t.fg('white', C.whileItRuns))}  ${t.fg('muted', C.whileNotScored)}`, ...para(t, beat.ask, w, 'white')];
+  beat.options.forEach((o, i) => {
+    const right = answer !== null && o.kind === 'right';
+    const wrong = answer === i && !right;
+    const glyph = right ? t.glyph.check : wrong ? t.glyph.warnMark : '';
+    const mark = `${' '.repeat(markW - width(glyph))}${t.fg(right ? 'ok' : 'warn', glyph)}`;
+    const indent = ' '.repeat(markW + 6);
+    const text = para(t, o.text, w - width(indent), right ? 'ok' : wrong ? 'muted' : 'text');
+    rows.push(...text.map((x, k) => (k ? `${indent}${x}` : ` ${mark} ${t.fg('muted', `${i + 1}`)}   ${x}`)));
+  });
+  const picked = answer === null ? null : beat.options[answer];
+  const words = picked && (picked.kind !== 'right' && picked.because ? picked.because : beat.reveal);
+  if (answer === null) rows.push(...para(t, C.whilePress, w, 'muted'));
+  else if (words) rows.push(...para(t, words, w, 'text', { quote: true }));
+  return rows.map((l) => prefixed(`${t.fg('muted', t.glyph.bar)} `, l));
 }
 
 // A run's checking label: how far the child has got where it runs several
