@@ -7,7 +7,7 @@ import { GIT, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
 import { stampFor } from '../../learn/lib/holds.mjs';
 import { mix } from '../../learn/lib/tiers.mjs';
-import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
+import { b1Item, b1Only, bottomRung, course, courseWith, DEMO_B2, DEMO_I1, DEMO_I1_INDEX, bareExit, driver, FACTS, finished, finishedBefore, gitLists, mapTo, onReading, playUntil, tryNow } from './learn-drive.mjs';
 
 const at = (step, extra = {}) => {
   const d = driver({ saved: { format: 1, welcomed: true, lessons: { 'b-1': { step, beat: 0, ...extra } } }, ...extra.driver });
@@ -1126,6 +1126,26 @@ test('warm-ups set the help: b-3 R1 typed wrong twice opens W1 GUIDED, with the 
   playUntil(right, atStep('W1'));
   assert.equal(tierOf(right.state), 'hinted');
   assert.equal(right.state.beat.eased, false);
+});
+
+// Ticket 187: a typing beat takes s as a letter of the answer; an empty
+// line is what shows it there.
+test('a typed warm-up: s types into the answer, and enter on an empty line shows it', () => {
+  for (const [id, skill, lessons] of [['b-4', 'exit', bareExit], ['i-3', 'run-skill', course]]) {
+    const d = driver({ course: lessons, saved: { format: 1, welcomed: true, missed: [skill], lessons: finishedBefore(id, lessons) } });
+    d.key('enter');
+    if (d.state.view === 'intro') d.key('enter');
+    assert.equal(beatOf(d.state).kind, 'type', id);
+    assert.deepEqual(beatOf(d.state).hints, [], id);
+    typeIn(d, 'nope');
+    assert.deepEqual(d.state.beat.feedback, { kind: 'wrong', hint: undefined }, id);
+    d.key('s', 's');
+    assert.equal(d.state.beat.typed, 's', );
+    assert.equal(d.state.beat.revealed, false, id);
+    d.key('backspace');
+    d.key('enter');
+    assert.equal(d.state.beat.revealed, true, );
+  }
 });
 
 test('warm-ups set the help: b-2 R1 (start) shown with s opens W1 GUIDED, with the line', () => {

@@ -709,6 +709,7 @@ function card(ctx, { tint, where, short = null, done, rows }) {
   // A blank row that is part of a sentence, such as the Why line's, is the
   // rail alone too.
   const row = (r) => (r === '' || r?.spacer ? spacer(rail, r?.group) : typeof r === 'string' ? { text: `${rail}  ${r}`, rail }
+    : r.block ? { ...r, rows: r.rows.map(row), alt: r.alt.map(row) }
     : r.text === '' ? { ...r, text: rail, blank: true } : { ...r, text: `${rail}  ${r.text}`, rail });
   // A spacer next to another, where a line between them shows nothing, is
   // one; a sentence's blank row above a spacer leaves the blank to it.
@@ -1073,10 +1074,13 @@ const VIEWS = {
       const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
       const mixed = `   ${mixBar(ctx, nextLesson, BAR)}  `;
       const upRows = hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x)));
-      // Its climb beside "A notch harder", where it has a lesson file to
-      // climb. Help fades within a level: the first lesson of the next may
-      // start with more help, so neither the bar nor the line shows there.
-      if (nextLesson.content && levelOf(s, nextLesson.id) === levelOf(s)) upRows.push(...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
+      // Its climb, where it has a lesson file to climb, beside "A notch
+      // harder" when it plans a larger share of steps with less help than
+      // this lesson (ticket 186). Help fades within a level: the first lesson
+      // of the next may start with more help, so neither shows there.
+      if (nextLesson.content && levelOf(s, nextLesson.id) === levelOf(s)) {
+        upRows.push(...(lessHelpShare(s, nextLesson.id) > lessHelpShare(s, s.lesson) ? hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')) : [mixed.trimEnd()]));
+      }
       // After the optional rows and before any teaching row is cut, Next up
       // gives way whole: the key bar's enter still names the lesson.
       body.push(SPACER, notes(upRows, []));
@@ -1330,6 +1334,12 @@ function mixBar(ctx, lesson, cells) {
   return bar(t, scaleMix(mix(ruleTiers(s.course.map((l) => l.content), idx)), cells));
 }
 
+// The share of a lesson's planned steps above GUIDED.
+function lessHelpShare(s, id) {
+  const m = mix(ruleTiers(s.course.map((l) => l.content), s.course.findIndex((l) => l.id === id)));
+  return (m[1] + m[2]) / (m[0] + m[1] + m[2]);
+}
+
 // ---- the step card -----------------------------------------------------------
 // The level's first warm-up: the first step a lesson plays, on a warm-up,
 // when no other lesson of its level played one. Since 194 a lesson plays a
@@ -1419,6 +1429,8 @@ function stepView(ctx) {
     if (inlineBottom) {
       for (const b of beat.bottom) {
         const text = (t.caps.win32 && b.win) || b.text;
+        // A lead-in, the page's words that frame the command, goes above it.
+        if (b.leadIn) rows.push(...para(t, b.leadIn, inner, 'text'));
         rows.push(...(text.includes('`') ? para(t, text, inner, 'text') : chip(t, text, beat.where, chipWidth(ctx, beat))));
       }
     }
@@ -1621,7 +1633,13 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
     // A beat that reads its file itself, or git status, has a not-yet line
     // in the app's own words, whole; a check's FAIL message is cut to what
     // is wrong.
-    rows.push(...para(t, `${C.notYet} ${READS.has(beat.verify.kind) || needsChange(beat.verify) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`)));
+    const notYet = para(t, `${C.notYet} ${READS.has(beat.verify.kind) || needsChange(beat.verify) ? st.fail.hint : diagnosis(st.fail.hint)}`, inner - 2, 'text').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', t.bold(warnMark))} ${x}`));
+    // "The check says:" repeats the message whole, so below 24 rows the
+    // line folds to its mark, as a repeat does, before the card loses its
+    // title or Goal (ticket 198).
+    const says = st.rung >= 0 && rungsOf(s)[st.rung]?.kind === 'check';
+    if (says) rows.push(repeat(kept(notYet), kept([`${t.fg('warn', t.bold(warnMark))} ${t.fg('text', C.notYetShort)}`])));
+    else rows.push(...notYet);
   }
 
   // Feedback on a pick that wasn't right, before the answer.
@@ -1633,7 +1651,7 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
         box.push(...para(t, `**${C.notQuite}** ${words.trueOfElse}`, inner - 2, 'text'), ...quoted(f.because));
         if (f.point) box.push(`${t.lead('hint')}${t.fg('text', C.lookFor)} ${para(t, f.point, inner - 14, 'warn', { quote: true })[0]}`);
       } else if (f.hint) box.push(`${t.bold(t.fg('warn', C.notQuite))}`, ...quoted(f.hint));
-      else box.push(...para(t, `**${C.notQuite}** ${C.lookAgain}`, inner - 2, 'text'));
+      else box.push(...para(t, `**${C.notQuite}** ${beat.kind === 'type' ? C.lookAgainTyped : C.lookAgain}`, inner - 2, 'text'));
       rows.push(...hintBox(t, box));
     } else if (f.kind === 'stuck') rows.push(...hintBox(t, [...para(t, words.fixFirst, inner - 2, 'warn'), ...quoted(f.because), ...para(t, C.fixThenPick, inner - 2, 'muted')]));
   }
@@ -1652,7 +1670,8 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
       else box.push(...r.lines.flatMap((b) => {
         if (b.key === 'code' && !(t.caps.win32 && b.win)) return codeRows(t, b, hw, words);
         const text = (t.caps.win32 && b.win) || withRoot(b.text, s.facts.root, t.caps.win32, folderOf(s));
-        return text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat, r.lines), hw));
+        const lead = b.leadIn ? para(t, b.leadIn, hw, 'text') : [];
+        return [...lead, ...(text.includes('`') ? para(t, text, hw, 'text') : chip(t, text, beat.where, Math.min(chipWidth(ctx, beat, r.lines), hw)))];
       }));
       const more = st.rung < rungs.length - 1;
       // The last rung offers the earlier step a back line names, with its

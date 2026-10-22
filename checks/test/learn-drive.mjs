@@ -21,6 +21,9 @@ export const course = liveCourse.map((l) => {
   const slow = l.id === 'b-3' ? [1] : l.id === 'b-capstone' ? [3, 4] : [];
   return { ...l, items: content.ladder.map(r => r.item), slow, content };
 });
+// The course with b-4's /exit warm-up (R2) holding no hint of its own, so a
+// wrong answer it doesn't list gets the app's own line (ticket 187).
+export const bareExit = course.map((l) => (l.id === 'b-4' ? { ...l, content: parseLesson(readFileSync(join(root, 'checks/test/fixtures/reducer-course/b-4.md'), 'utf8').replace('- hint: "End the session with `/exit`."\n', ''), 'fixture/b-4.md') } : l));
 export const FACTS = { root: '/home/sam/claude-code-practice', name: 'Sam', gitError: null, practiceDir: true, codespace: false, win32: false };
 
 // The b-1 item's real result for a version.txt holding `text` (null: no file).
