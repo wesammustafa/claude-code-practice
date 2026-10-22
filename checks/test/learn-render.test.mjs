@@ -13,6 +13,7 @@ import { bootFrame, BOX_ROWS, cardMax, itemsMax, pipSlot, render } from '../../l
 import { snapshot } from '../../learn/lib/store.mjs';
 import { graphemes, isEmoji, strip, width } from '../../learn/lib/text.mjs';
 import { COLORS, theme, TIER_STYLE } from '../../learn/lib/theme.mjs';
+import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
 import { allScreens, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
@@ -1372,13 +1373,39 @@ test('at 60x20 and 80x24 no teaching line is cut on the intro, complete, next an
         const text = flatText(lines.join(''));
         const content = lessonById(state.lesson).content;
         // "A notch harder" shows only before a lesson with a lesson file in
-        // the same level (ticket 85).
+        // the same level (ticket 85) that plans a larger share of steps
+        // above GUIDED (ticket 186).
         const next = nextLessonOf(state);
-        const notch = next?.content && levelOf(state, next.id) === levelOf(state);
+        const notch = next?.content && levelOf(state, next.id) === levelOf(state) && lessHelp(next.id) > lessHelp(state.lesson);
         const words = state.view === 'levelup' ? (state.levelTo === 'challenge' ? C.toChallenge : C.toHinted)
           : state.view === 'next' ? [C.notchHarder, C.savedBreak].filter((w) => w !== C.notchHarder || notch) : content.intro.can;
         for (const word of words) assert.ok(text.includes(flatText(word)), `${where}: "${word}" is not whole${show}`);
       }
+    }
+  }
+});
+
+// A lesson's planned share of steps above GUIDED.
+const lessHelp = (id) => {
+  const m = mix(ruleTiers(allCourse.map((l) => l.content), allCourse.findIndex((l) => l.id === id)));
+  return (m[1] + m[2]) / (m[0] + m[1] + m[2]);
+};
+
+// i-2 plans 8 of 11 steps above GUIDED, i-3 6 of 9 and i-4 7 of 10.
+test('"A notch harder" shows only when the next lesson plans a larger share of steps above GUIDED: not i-2 to i-3, but i-3 to i-4 (ticket 186)', () => {
+  assert.ok(lessHelp('i-3') < lessHelp('i-2') && lessHelp('i-4') > lessHelp('i-3'));
+  const t = theme(CAPS.full);
+  for (const [id, notch] of [['i-2', false], ['i-3', true]]) {
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...foldersBefore(lessonById(id)) } });
+    playUntil(d, (s) => s.view === 'next' && s.lesson === id);
+    for (const [cols, rows] of SHORT) {
+      const lines = render(d.state, { cols, rows }, t).map(strip);
+      const where = `${id} next at ${cols}x${rows}\n${lines.join('\n')}`;
+      const up = lines.findIndex((l) => l.includes(C.nextUp));
+      assert.ok(up > 0, where);
+      assert.equal(flatText(lines.join('')).includes(flatText(C.notchHarder)), notch, where);
+      // The next lesson's climb still shows within the level.
+      assert.ok(lines.slice(up).some((l) => /[●◆★]{3}/.test(l)), where);
     }
   }
 });
@@ -2304,10 +2331,8 @@ const NOTCH_ONE = '"A notch harder" wraps to two rows, and its Go further line w
 const GO_FURTHER_GIVES = {
   'b-2 next at 60x20': 'its Next up title wraps to two rows and its Go further line to three, so no spacer is left for the recall row',
   'i-1 next at 60x20': NOTCH,
-  'i-2 next at 60x20': NOTCH,
   'i-3 next at 60x20': NOTCH,
   'i-4 next at 60x20': NOTCH_ONE,
-  'i-6 next at 60x20': NOTCH_ONE,
   'i-7 next at 60x20': NOTCH_ONE,
   'i-8 next at 60x20': NOTCH_ONE,
 };

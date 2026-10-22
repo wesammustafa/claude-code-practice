@@ -1073,10 +1073,13 @@ const VIEWS = {
       const up = `${t.fg('accent', t.glyph.right)} ${t.fg('muted', C.nextUp)}  ${t.pill(lessonLabel(nextLesson.id), 'accentBg')}  `;
       const mixed = `   ${mixBar(ctx, nextLesson, BAR)}  `;
       const upRows = hang(up, para(t, nextLesson.title, W - width(up), 'white').map((x) => t.bold(x)));
-      // Its climb beside "A notch harder", where it has a lesson file to
-      // climb. Help fades within a level: the first lesson of the next may
-      // start with more help, so neither the bar nor the line shows there.
-      if (nextLesson.content && levelOf(s, nextLesson.id) === levelOf(s)) upRows.push(...hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')));
+      // Its climb, where it has a lesson file to climb, beside "A notch
+      // harder" when it plans a larger share of steps with less help than
+      // this lesson (ticket 186). Help fades within a level: the first lesson
+      // of the next may start with more help, so neither shows there.
+      if (nextLesson.content && levelOf(s, nextLesson.id) === levelOf(s)) {
+        upRows.push(...(lessHelpShare(s, nextLesson.id) > lessHelpShare(s, s.lesson) ? hang(mixed, para(t, C.notchHarder, W - width(mixed), 'muted')) : [mixed.trimEnd()]));
+      }
       // After the optional rows and before any teaching row is cut, Next up
       // gives way whole: the key bar's enter still names the lesson.
       body.push(SPACER, notes(upRows, []));
@@ -1328,6 +1331,12 @@ function mixBar(ctx, lesson, cells) {
   if (!lesson.content) return ' '.repeat(cells);
   const idx = s.course.findIndex((l) => l.id === lesson.id);
   return bar(t, scaleMix(mix(ruleTiers(s.course.map((l) => l.content), idx)), cells));
+}
+
+// The share of a lesson's planned steps above GUIDED.
+function lessHelpShare(s, id) {
+  const m = mix(ruleTiers(s.course.map((l) => l.content), s.course.findIndex((l) => l.id === id)));
+  return (m[1] + m[2]) / (m[0] + m[1] + m[2]);
 }
 
 // ---- the step card -----------------------------------------------------------
