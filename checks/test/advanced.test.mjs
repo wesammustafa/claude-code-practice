@@ -922,6 +922,14 @@ test('a-3 fails for a report with no citation, and for paths written from inside
   });
 });
 
+test('a-3 fails for a report that cites only files its folder doesn\'t hold', () => {
+  withRepo(workflowRepo({ reports: ['src\n\n- src/missing.js:3: migrated\n', RUN2] }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.practice\/a-3-run1\.md` cites `src\/missing\.js:3`, but `src\/` holds no such file\. Cite the files the migration changed/);
+  });
+});
+
 test('a-3 says to save the pattern when there is none, or it is empty', () => {
   withRepo(workflowRepo({ pattern: null }), (dir) => {
     const { code, out } = a3(dir);

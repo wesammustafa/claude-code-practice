@@ -178,12 +178,15 @@ export const twoFolderReports = {
     if (a.folder && a.folder === b.folder) problems.push(`Both reports name ${code(a.folder)}. Run your saved workflow on a second, different folder, and save that report as \`${REPORTS[1]}\`.`);
     for (const r of reports.filter((x) => x.folder)) {
       const outside = r.cites.filter((c) => c.path && isFile(repo.dir, c.path) && !inside(c.path, r.folder)).map((c) => c.cited);
-      const within = r.cites.filter((c) => c.path && inside(c.path, r.folder));
+      const named = r.cites.filter((c) => c.path && inside(c.path, r.folder));
+      const within = named.filter((c) => isFile(repo.dir, c.path));
       const fromFolder = r.cites.find((c) => c.path && !isFile(repo.dir, c.path) && isFile(repo.dir, `${r.folder}/${c.path}`));
       if (outside.length) {
         problems.push(`${code(r.path)} cites ${some(outside)}, outside ${code(`${r.folder}/`)}, the folder on its first line. Check that the workflow reads the folder from \`args\` and reports only on files inside it, then run it again.`);
       } else if (!within.length && fromFolder) {
         problems.push(`${code(r.path)} cites ${code(fromFolder.raw)}, a path from inside ${code(`${r.folder}/`)}. Each \`path:line\` must start at the repository's root, as ${code(`${r.folder}/${fromFolder.path}:${fromFolder.line}`)} does: start \`claude\` at the root, or ask Claude to write the paths from there, and run the workflow again.`);
+      } else if (!within.length && named.length) {
+        problems.push(`${code(r.path)} cites ${some(named.map((c) => c.cited))}, but ${code(`${r.folder}/`)} holds no such file. Cite the files the migration changed, as they are now, and save the report again.`);
       } else if (!within.length) {
         problems.push(`${code(r.path)} cites no \`path:line\`${r.cites.length ? ` inside ${code(`${r.folder}/`)}` : ''}. Each file the report lists needs one, from the repository's root, such as ${code(`${r.folder}/<file>:<line>`)}.`);
       }
