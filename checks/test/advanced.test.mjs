@@ -253,7 +253,7 @@ test('a-1 fails while a worktree still exists, with the command that removes it'
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
     assert.match(out, /PASS {2}`\.practice\/a-1-worktrees\.txt` lists two worktrees/);
-    assert.match(out, /\/\.claude\/worktrees\/test-pass` still exists: once its branch is merged, run `git worktree remove [^`]*\/\.claude\/worktrees\/test-pass`/);
+    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists: once its branch is merged, run `git worktree remove \.claude\/worktrees\/test-pass` from your main checkout/);
   });
 });
 
@@ -261,7 +261,7 @@ test('a-1 says to unlock a locked worktree first, and to prune one whose folder 
   withRepo(parallelRepo({ lock: ['test-pass'] }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /is locked: run `git worktree unlock [^`]*test-pass`, then `git worktree remove [^`]*test-pass`/);
+    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists and is locked: from your main checkout, run `git worktree unlock \.claude\/worktrees\/test-pass`, then `git worktree remove \.claude\/worktrees\/test-pass`/);
   });
   withRepo(parallelRepo({ prune: ['test-pass'] }), (dir) => {
     const { code, out } = a1(dir);
@@ -275,7 +275,7 @@ test('a-1 reads a path with spaces, and quotes it in the command it gives', () =
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
     assert.match(out, /PASS {2}`\.practice\/a-1-worktrees\.txt` lists two worktrees/);
-    assert.match(out, /run `git worktree remove "[^`"]*\/\.claude\/worktrees\/docs pass"`/);
+    assert.match(out, /run `git worktree remove "\.claude\/worktrees\/docs pass"`/);
   });
 });
 

@@ -139,10 +139,6 @@ test('the check-only view of every lesson fits at 60x20 and 80x24, and the arrow
 const beginnerDone = () => finishedBefore('i-1');
 // Every lesson before Advanced complete: Beginner and Intermediate.
 const throughIntermediate = () => ({ ...finishedBefore('a-1'), ...Object.fromEntries(PATH.filter((p) => p.level === 'intermediate').map((p) => [p.id, { complete: true }])) });
-// The course with every Advanced lesson shown through its check, as each was
-// before its lesson file: these tests need check-only lessons, the first
-// with no slow item, first in its level.
-const advancedCheckOnly = course.map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 const mapRow = (ls, label) => ls.find((l) => new RegExp(`^\\s*[❯ ] [✔○] +${label} `).test(l)) ?? '';
 
 test('a check-only lesson is complete once a full check passes, slow items included: saved, counted, and the map\'s next marker moves on', () => {
@@ -266,7 +262,7 @@ test('a learner who starts at Intermediate or Advanced reaches its first lesson 
   // i-1 and a-1 open on their intros.
   for (const [keys, id, view] of [[['right', 'enter'], 'i-1', 'intro'], [['left', 'enter'], 'a-1', 'intro']]) {
     // A new learner: the app opens on the first lesson with a lesson file.
-    const d = driver({ course: advancedCheckOnly });
+    const d = driver({ course });
     d.key('enter');
     assert.deepEqual([d.state.view, d.state.lesson], ['intro', 'b-1']);
     d.key('m');
@@ -275,7 +271,7 @@ test('a learner who starts at Intermediate or Advanced reaches its first lesson 
   }
   // Every Beginner lesson done: the app opens on the next level's first
   // lesson, on its intro since it has a lesson file.
-  const done = driver({ course: advancedCheckOnly, saved: { format: 1, welcomed: true, lessons: beginnerDone() } });
+  const done = driver({ course, saved: { format: 1, welcomed: true, lessons: beginnerDone() } });
   assert.deepEqual([done.state.view, done.state.lesson], ['intro', 'i-1']);
   // Every lesson before Advanced done: the app opens on a-1's intro, as it
   // does on i-1's; with Advanced shown through its checks, on the map at a-1,

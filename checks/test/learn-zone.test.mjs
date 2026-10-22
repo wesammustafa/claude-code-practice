@@ -40,7 +40,8 @@ const watched = (d, look) => ({
 // once as each beat opens, until `stop(state)` holds.
 function play(d, stop, atBeat) {
   const seen = new Set();
-  while (!stop(d.state)) {
+  for (let n = 0; !stop(d.state); n++) {
+    if (n > 20_000) throw new Error(`play: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);
     const s = d.state;
     const at = s.view === 'step' && `${where(s)}.${s.pos.beat}`;
     if (at && !seen.has(at)) {

@@ -17,10 +17,6 @@ import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
 import { allScreens, bareExit, bottomRung, course as allCourse, courseWith, DEMO_I1_INDEX, driver, FACTS, failCheck, finished, finishedBefore, gitLists, lastInOrder, lessonScreens, mapTo, onReading, playUntil, root, tryNow } from './learn-drive.mjs';
 
 const SIZES = [[60, 20], [80, 24], [100, 30], [120, 40], [200, 50]];
-// A state without its while-it-runs box (ticket 150): an optional box that
-// gives way whole, so its rows are none of the kept rows below, and its
-// still bar is no hint box.
-const noWhileRuns = (state) => (state.beat?.whileRuns ? { ...state, beat: { ...state.beat, whileRuns: undefined } } : state);
 const CAPS = {
   full: { tty: true, depth: 8, unicode: true, links: true, win32: false },
   sixteen: { tty: true, depth: 4, unicode: true, links: false, win32: false },
@@ -945,12 +941,14 @@ const everyScreen = async () => [...screens, ...await lessonWalks((label) => !la
 const flatText = (text) => text.replace(/[^A-Za-z0-9]/g, '');
 // The rows of the while-it-runs box (ticket 150): it draws the hint box's
 // bar, but it is optional, giving way whole where the room runs out, and it
-// grades nothing. Indexes into `lines`.
+// grades nothing. Its barred rows run up to a hint the card shows below it.
+// Indexes into `lines`.
 const whileBoxRows = (lines, t) => {
   const rows = new Set();
   const bar = `${t.glyph.rail}  ${t.glyph.bar}`;
+  const hint = (l) => l.includes(t.unicode ? '💡' : 'Hint:') || l.includes(t.unicode ? '▲' : '!');
   const at = lines.findIndex((l) => l.includes(`${t.glyph.bar} ${C.whileItRuns}`));
-  for (let i = at; at >= 0 && i < lines.length && lines[i].includes(bar); i++) rows.add(i);
+  for (let i = at; at >= 0 && i < lines.length && lines[i].includes(bar) && (i === at || !hint(lines[i])); i++) rows.add(i);
   return rows;
 };
 
@@ -1038,18 +1036,6 @@ test('below 80 columns a tall window gives up only blank rows: a screen taller t
     assert.ok(gaveWay > 0, `no screen below 80 columns gives up a card spacer (${capName})`);
   }
 });
-
-// The rows of a long wait's while-it-runs box (ticket 150): its title row and
-// the barred rows under it, up to the blank row that ends it. It is an
-// unscored warm-up behind the hint box's bar, not a hint box: an optional
-// row group, which gives way where the window is short.
-function whileBoxRows(lines, t) {
-  const rows = new Set();
-  const bar = `${t.glyph.rail}  ${t.glyph.bar}`;
-  const start = lines.findIndex((l) => l.includes(`${t.glyph.bar} ${C.whileItRuns}`));
-  for (let i = start; start >= 0 && i < lines.length && lines[i].trim().startsWith(bar); i++) rows.add(i);
-  return rows;
-}
 
 test('rows that never drop: the question and its options, feedback, the hint box, the eased line and the key bar', async () => {
   const all = await everyScreen();
@@ -1727,19 +1713,31 @@ const CUT_AT_60X20 = {
     'i-5 W1.0 hint 1',
     // Advanced: a-2's hook file, a code block with a link above it.
     'a-2 Y2.0 hint 1', 'a-2 Y2.0 done',
+    // a-4 W1.0's `claude -p` command and its hint; a-7's long check items and hint ladders.
+    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 W3.0 hint 4', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2', 'a-7 C.0 hint 3',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-2 Y2.0 hint 1 (skipped)', 'a-2 Y2.0 done (skipped)'],
+    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-2 Y2.0 hint 1 (skipped)', 'a-2 Y2.0 done (skipped)',
+    'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
+    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 hint 5 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.0 hint 1 (skipped)',
+    'a-7 W4.0 bottom (skipped)',
+    'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-7 C.0 hint 3 (skipped)'],
   ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
     'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
     'i-5 W1.0 hint 1',
     'a-1 W1.0 hint 2', 'a-2 Y2.0 hint 1', 'a-2 Y2.0 done',
+    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 2', 'a-7 W3.0 hint 3', 'a-7 W3.0 hint 4', 'a-7 Y3.1 hint 1', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
+    'a-7 C.0 hint 3',
     'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
     'b-capstone T1.2 hint 1 (skipped)',
     'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)',
-    'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)', 'a-2 Y2.0 hint 1 (skipped)', 'a-2 Y2.0 done (skipped)'],
+    'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)', 'a-2 Y2.0 hint 1 (skipped)', 'a-2 Y2.0 done (skipped)',
+    'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
+    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 hint 5 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.0 hint 1 (skipped)',
+    'a-7 W4.0 bottom (skipped)',
+    'a-7 Y3.1 hint 1 (skipped)', 'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-7 C.0 hint 3 (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
@@ -2279,6 +2277,8 @@ const WHY_DROPS = {
     'i-5 W3.0 hint 1', 'i-5 W3.0 hint 2', 'i-6 W4.0 hint 1', 'i-6 W4.0 hint 2', 'i-8 W3.0 hint 1',
     // Advanced: a-1's two merge commands and a-2's chart question with its feedback.
     'a-1 W5.0 hint 1', 'a-2 W2.0 wrong', 'a-2 W2.0 answered',
+    // a-4's `claude -p` commands: each is one long line of the page's block.
+    'a-4 W2.0 open', 'a-4 W2.0 waiting', 'a-4 W2.0 hint 1', 'a-4 W2.0 done', 'a-4 W3.0 open',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
     'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
     'b-5 W4.0 checking, hint open (skipped)', 'i-1 W4.1 open (skipped)', 'i-1 W4.1 hint 1 (skipped)', 'i-2 W1.0 hint 1 (skipped)',
@@ -2286,7 +2286,8 @@ const WHY_DROPS = {
     'i-2 W3.0 done (skipped)', 'i-3 W3.1 hint 1 (skipped)', 'i-3 W4.0 done (skipped)', 'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)',
     'i-4 W2.0 done (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)', 'i-4 W5.0 hint 1 (skipped)', 'i-5 W3.0 hint 1 (skipped)',
     'i-5 W3.0 hint 2 (skipped)', 'i-6 W4.0 hint 1 (skipped)', 'i-6 W4.0 hint 2 (skipped)', 'i-8 W3.0 hint 1 (skipped)',
-    'a-1 W5.0 hint 1 (skipped)', 'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)', 'W3 opening',
+    'a-1 W5.0 hint 1 (skipped)', 'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)',
+    'a-4 W2.0 open (skipped)', 'a-4 W2.0 waiting (skipped)', 'a-4 W2.0 hint 1 (skipped)', 'a-4 W2.0 done (skipped)', 'a-4 W3.0 open (skipped)', 'W3 opening',
     'i-5 W3.0 open', 'b-3 W1.2 bottom (skipped)', 'i-5 W3.0 open (skipped)'],
   '80x24': ['W3 hint 2'],
 };
@@ -2412,6 +2413,8 @@ const GO_FURTHER_GIVES = {
   'i-4 next at 60x20': NOTCH_ONE,
   'i-7 next at 60x20': NOTCH_ONE,
   'a-1 next at 60x20': NOTCH_ONE,
+  'a-2 next at 60x20': NOTCH_ONE,
+  'a-4 next at 60x20': NOTCH_ONE,
 };
 
 test('every next screen but a capstone\'s shows its Go further line whole at 60x20 and 80x24, in every mode', () => {
@@ -2808,18 +2811,6 @@ const facesOf = (t) => (t.unicode ? FACES : ASCII_FACES);
 // The face at the end of the card's top border; null on a card without
 // Pip, undefined on a screen with no card.
 const cardTop = (lines) => lines.map((l) => strip(l).trimEnd()).find((l) => /^\s*(╭─|\+-) {2}/.test(l));
-// The card's rows less the while-it-runs box (150): its title row and the
-// barred rows under it, up to a hint the card shows below it. The box is
-// drawn with the hint box's bar, but it is an optional row that offers an
-// unscored question, not help.
-function withoutWhileItRuns(lines, t = theme(CAPS.full)) {
-  const barred = (l) => l.trimStart().startsWith(`${t.glyph.rail}  ${t.glyph.bar} `);
-  const at = lines.findIndex((l) => barred(l) && l.includes(C.whileItRuns));
-  if (at < 0) return lines;
-  let end = at + 1;
-  while (end < lines.length && barred(lines[end]) && !lines[end].includes(t.unicode ? '💡' : 'Hint:') && !lines[end].includes(t.unicode ? '▲' : '!')) end++;
-  return [...lines.slice(0, at), ...lines.slice(end)];
-}
 function pipOn(lines, t) {
   const top = cardTop(lines);
   if (top === undefined) return undefined;

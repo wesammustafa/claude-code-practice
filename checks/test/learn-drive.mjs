@@ -353,6 +353,9 @@ const readsRight = (v) => (v.kind === 'json' ? jsonFor(v.key, v.value) : v.kind 
 // right pick, the answer typed, every check failing once then passing, a
 // file that reads wrong once then right, a clean tree or the change git
 // status should list, enter past every level-up and lesson end.
+// A count across plays, so each new commit or probe state differs from every
+// one before it, even where a play takes one action at a time.
+let moves = 0;
 export function playUntil(d, stop) {
   for (let i = 0; i < 2_000 && !stop(d.state); i++) {
     const s = d.state;
@@ -402,11 +405,11 @@ export function playUntil(d, stop) {
     else if (['git-changed', 'git-only'].includes(v.kind)) d.send(gitLists([`${v.path.replace(/\/+$/, '')}/new.txt`]));
     // Ticket 105: a new commit; the same paths as the stamp, or none where
     // there is no stamp; a probe that fails once, then passes on new work.
-    else if (v.kind === 'head-moved') d.send({ type: 'git', paths: [], head: `new-${i}` });
+    else if (v.kind === 'head-moved') d.send({ type: 'git', paths: [], head: `new-${++moves}` });
     else if (v.kind === 'git-unchanged') d.send({ type: 'git', paths: [] });
     else if (v.kind === 'probe') {
-      d.send({ type: 'probe', name: v.name, args: v.args, pass: false, hint: 'Not yet.', state: `a${i}` });
-      d.send({ type: 'probe', name: v.name, args: v.args, pass: true, hint: '', evidence: 'Found.', state: `b${i}` });
+      d.send({ type: 'probe', name: v.name, args: v.args, pass: false, hint: 'Not yet.', state: `a${++moves}` });
+      d.send({ type: 'probe', name: v.name, args: v.args, pass: true, hint: '', evidence: 'Found.', state: `b${moves}` });
     } else d.key('space');
   }
   if (!stop(d.state)) throw new Error(`playUntil: stuck at ${d.state.view} ${d.state.lesson} ${stepOf(d.state)?.id}`);

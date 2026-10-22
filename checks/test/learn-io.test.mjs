@@ -530,6 +530,8 @@ test('a full run on a fake terminal: writing version.txt turns step 3 done, and 
 
 test('main sends each key with how far the check-only card scrolls in the window, so up moves the card at once after down went past the end', async () => {
   const dir = reducerRepo();
+  // a-capstone shown through its check: a card taller than the window.
+  rmSync(join(dir, 'learn/lessons/a-capstone.md'));
   const term = fakeTerminal();
   let exited = null;
   main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, runCheck: reducerCheck, exit: (code) => { exited = code; } });

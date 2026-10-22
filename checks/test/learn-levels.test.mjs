@@ -23,9 +23,6 @@ const screen = (state, [cols, rows] = [80, 24], t = FULL) => render(state, { col
 const advancedCheckOnly = () => threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 // Every lesson before `id` complete.
 const doneBefore = (course, id) => Object.fromEntries(course.slice(0, course.findIndex((l) => l.id === id)).map((l) => [l.id, { complete: true }]));
-// The course with every Advanced lesson shown through its check, as before
-// its lesson files, for the tests that open a check-only Advanced lesson.
-const advancedCheckOnly = () => threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 
 test('every PATH entry carries its level, the folder of its page, and the level names are the guide\'s', () => {
   for (const p of PATH) assert.equal(p.level, p.page.split('/')[1], p.id);
@@ -41,9 +38,6 @@ test('every lesson has a label unique in the course, and plain output shows each
   assert.deepEqual(labels, LABELS);
 });
 
-// The course with no Advanced lesson file, for the tests of Advanced lessons
-// shown through their checks: since ticket 119 a-capstone has a lesson file.
-const noAdvanced = () => threeLevels().map((l) => (l.level === 'advanced' ? { ...l, content: null } : l));
 
 test('titles show no literal backticks: a-4\'s in the header, on the map and in plain output', () => {
   const course = advancedCheckOnly();
