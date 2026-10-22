@@ -1393,8 +1393,8 @@ export function cardMood(s) {
 // Since when a check or git child has run for the beat on screen while it
 // is `opening`, or for r on the check-only card: a child that started
 // before the status became `opening`, or before r, is not this run, and a
-// file read starts none.
-const CHILD = ['check', ...GIT];
+// file read starts none. A git probe (ticket 105) runs in the check child.
+const CHILD = ['check', 'probe', ...GIT];
 const checkingChild = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
   || (s.view === 'checkonly' && s.checkOnlyRun?.lesson === s.lesson);
 export const childSince = (s) => (checkingChild(s) && s.fx.run >= s.fx.check ? s.fx.run : undefined);

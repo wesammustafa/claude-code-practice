@@ -78,7 +78,9 @@ test('--calm and --plain are known flags; anything else, --lesson too until it i
 // Each level-up and the complete screen of a lesson, played on the path from
 // its start by a learner who finished every lesson before it.
 function celebrations(id) {
-  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+  // A lesson that runs in a new copy (a-capstone) plays there once its folder is saved.
+  const copy = course.find((l) => l.id === id)?.newCopy ? { folders: { [id]: '/home/sam/claude-capstone' } } : {};
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...copy } });
   const out = [];
   playUntil(d, (s) => {
     if (s.lesson === id && ['levelup', 'complete'].includes(s.view) && out.at(-1)?.[1] !== s) out.push([`${id} ${s.view === 'levelup' ? `level up ${s.levelTo}` : 'complete'}`, s]);
@@ -1247,7 +1249,9 @@ test('a level-up: Pip opens its eyes as the banner wipes in, then the arrow fill
 });
 
 test("the complete screen's light runs every lesson's whole trail, from its first stop to its last, before it rests", () => {
-  const stops = (line) => [...line.replace(/\s+\d+ of \d+$/, '')].filter((c) => !'━─ '.includes(c));
+  // The row ends in its count, after the folder a lesson runs in where that
+  // is not the practice copy (a-capstone's new copy).
+  const stops = (line) => [...line.replace(/\s+(?:in \S+ · )?\d+ of \d+$/, '')].filter((c) => !'━─ '.includes(c));
   for (const { id } of lessons) {
     const s = screens.find(([l]) => l === `${id} complete`)[1];
     const at = (ms) => stops(frameAt(s, s.fx.view, ms)[1]);

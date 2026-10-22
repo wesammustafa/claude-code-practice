@@ -64,8 +64,13 @@ function exactCommand(d) {
 }
 
 // The learners. Each starts afresh and calls `look` after every event.
-// The end of the last lesson with a lesson file.
-const last = course.filter((l) => l.content).at(-1).id;
+// The lessons a learner plays in order from the start: every lesson up to
+// the first one with no lesson file, where the path hands over to the map
+// (a-capstone has a file since ticket 119, while a-1 to a-7 have none yet).
+const gap = course.findIndex((l) => !l.content);
+const reached = (gap < 0 ? course : course.slice(0, gap)).filter((l) => l.content);
+// The end of the last of them.
+const last = reached.at(-1).id;
 const finale = (s) => s.lesson === last && s.view === 'complete';
 // Every lesson in order, needing no help.
 function inOrder(look) {
@@ -116,7 +121,7 @@ test('in order, with no hints: every tier equals the course plan', () => {
     assert.deepEqual(tiersOf(s), plan(s), where(s));
     met.add(where(s));
   });
-  for (const l of course.filter((x) => x.content)) for (const step of l.content.steps) assert.ok(met.has(`${l.id} ${step.id}`), `${l.id} ${step.id} was met`);
+  for (const l of reached) for (const step of l.content.steps) assert.ok(met.has(`${l.id} ${step.id}`), `${l.id} ${step.id} was met`);
 });
 
 test('in order, taking the exact command on every non-guided step: no step ever gets less help than the plan', () => {

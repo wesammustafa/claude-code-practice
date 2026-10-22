@@ -389,7 +389,19 @@ test('h at CHALLENGE: a done-label git beat offers r, the try the toast names', 
 
 // The end of the last lesson with a lesson file: a play stops there.
 const lastWithFile = allCourse.filter((l) => l.content).at(-1).id;
-const atTheEnd = (s) => s.lesson === lastWithFile && s.view === 'complete';
+// A play also ends where the path hands over to the map: the next lesson has
+// no file yet, as i-capstone's next, a-1, has none while a later Advanced
+// lesson has one.
+const atTheEnd = (s) => (s.lesson === lastWithFile && s.view === 'complete') || s.view === 'map';
+// The folder of each lesson that runs in a new copy of the template (a-5,
+// a-capstone), as the learner gives it at its intro: a play that goes on to
+// the last lesson needs them, since the path passes over such a lesson until
+// its folder is saved.
+const NEW_COPY = '/home/sam/claude-capstone';
+const newCopies = () => Object.fromEntries(allCourse.filter((l) => l.newCopy).map((l) => [l.id, NEW_COPY]));
+// The save of a play of lesson `id` from its start: its new copy's folder,
+// where it runs in one.
+const ownCopy = (id) => (allCourse.find((l) => l.id === id)?.newCopy ? { folders: { [id]: NEW_COPY } } : {});
 
 // Every step a real bottom rung eases, in a real play from that rung on, with
 // and without less help: the "more help" line wraps whole, even where a 60x20
@@ -423,7 +435,7 @@ test('an eased step: the "more help" line wraps whole, even at 60x20', () => {
     for (const step of lesson.content.steps) {
       step.beats.forEach((_, beat) => {
         for (const lessHelp of [false, true]) {
-          const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: step.id, beat, warm: [], lessHelp } } } });
+          const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: step.id, beat, warm: [], lessHelp } }, folders: newCopies() } });
           d.key('enter');
           bottomRung(d);
           if (!d.state.eased.length) continue;
@@ -460,7 +472,7 @@ test('a missed warm-up: the "more help" line wraps whole where its ease lands', 
     if (!lesson.content) continue;
     const before = finishedBefore(lesson.id);
     for (const w of lesson.content.warmup) {
-      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: w.id, beat: 0, warm: [w.id] } } } });
+      const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: { ...before, [lesson.id]: { step: w.id, beat: 0, warm: [w.id] } }, folders: newCopies() } });
       d.key('enter');
       d.key(beatOf(d.state).kind === 'type' ? 'enter' : 's');
       assert.equal(d.state.beat.revealed, true, `${lesson.id} ${w.id}`);
@@ -1069,7 +1081,15 @@ test('spacers drop one at a time from the bottom, and the map\'s lesson rows sta
 // After a later level's first lesson, the learner has answered its folder
 // question there: the practice copy. `top` adds to the save, such as the
 // skills missed before, which pick a warm-up (194).
-const foldersBefore = (l) => (WORK_LEVELS.includes(l.level) && allCourse.find((x) => x.level === l.level) !== l ? { folders: { [l.level]: FACTS.root } } : {});
+// A lesson that runs in a new copy of the template (a-5, a-capstone) has
+// that copy's folder saved too, as the learner gives it at its intro.
+const foldersBefore = (l) => {
+  const folders = {
+    ...(WORK_LEVELS.includes(l.level) && allCourse.find((x) => x.level === l.level) !== l ? { [l.level]: FACTS.root } : {}),
+    ...(l.newCopy ? { [l.id]: NEW_COPY } : {}),
+  };
+  return Object.keys(folders).length ? { folders } : {};
+};
 const endScreens = (top = {}) => allCourse.filter((l) => l.content).flatMap((l) => {
   const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id), ...foldersBefore(l), ...top } });
   assert.equal(d.state.view, 'intro', l.id);
@@ -1362,7 +1382,7 @@ const widthCut = (t, cols) => (l) => width(l) === cols - 1 && (t.unicode ? l.end
 
 test('at 60x20 and 80x24 no teaching line is cut on the intro, complete, next and level-up screens: long lines wrap', () => {
   const levelups = [...screens, ...allCourse.filter((l) => l.content).flatMap((l) => {
-    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id) } });
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(l.id), ...ownCopy(l.id) } });
     const out = [];
     const end = (s) => s.view === 'next' && s.lesson === l.id;
     while (!end(d.state)) {
@@ -2441,7 +2461,7 @@ test('the Go further line is an optional row: it drops whole with its blank, bef
 // The page overlay, opened with p from the screen `stop` finds in a play of
 // lesson `id` on the path, with `top` added to the save.
 const pageOn = (id, stop, top = {}) => {
-  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...top } });
+  const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...ownCopy(id), ...top } });
   playUntil(d, stop);
   d.key('p');
   assert.equal(d.state.overlay, 'page', id);
@@ -3316,7 +3336,8 @@ test('the arrows move your card only where it scrolls: while it fits, they move 
 // Recall, then compare (152, design D8 (a)): the next screen asks for the
 // lesson's card entries from memory; space shows them whole.
 const RECALL = { 'b-1': 'B1', 'b-2': 'B2', 'b-3': 'B3', 'b-4': 'B4', 'b-5': 'B5', 'b-capstone': 'BC', 'i-1': 'I1', 'i-2': 'I2', 'i-3': 'I3', 'i-4': 'I4',
-  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC' };
+  'i-5': 'I5', 'i-6': 'I6', 'i-7': 'I7', 'i-8': 'I8', 'i-capstone': 'IC',
+  'a-capstone': 'AC' };
 const B4_CARD = [['/context', 'Shows how full the context window is, as a colored grid'], ['/compact', 'Summarizes the conversation so far, to free space'],
   ['/rewind', 'Goes back to an earlier prompt, restoring the code, the conversation or both'], ['/clear', 'Starts a new conversation with empty context'],
   ['/resume', 'Picks up an earlier conversation'], ['claude --continue', 'reopen the most recent conversation in this folder']];
@@ -3435,7 +3456,7 @@ const comparePlaces = (d, cols, rows) => {
 
 test('every lesson\'s comparison fits at 60x20 and 80x24, and shows each of its entries whole, beside its command or under it', () => {
   for (const id of Object.keys(RECALL)) {
-    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+    const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...ownCopy(id) } });
     playUntil(d, (s) => s.view === 'next' && s.lesson === id);
     d.key('space');
     assert.equal(d.state.overlay, 'compare', id);
@@ -3505,7 +3526,7 @@ test('the comparison, as your card (173): it spells the Commands by level link o
     for (const caps of [CAPS.full, CAPS.ascii]) {
       const t = theme(caps);
       for (const size of SHORT) {
-        const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id) } });
+        const d = driver({ course: allCourse, saved: { format: 1, welcomed: true, lessons: finishedBefore(id), ...ownCopy(id) } });
         playUntil(d, (s) => s.view === 'next' && s.lesson === id);
         d.key('space');
         const at = `${id} at ${size.join('x')}${t.unicode ? '' : ' (ASCII)'}`;

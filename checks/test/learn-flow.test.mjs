@@ -831,8 +831,8 @@ test('h at CHALLENGE: every beat waits for a try only where a try can show', () 
         d.key('enter');
         const where = `${l.id} ${step.id}.${b}`;
         if (tierOf(d.state) !== 'challenge' || beat.kind === 'type' || !rungsOf(d.state).length || ['done', 'already'].includes(d.state.beat.status)) return;
-        // What the app looks at: a check, git status or a file it reads.
-        const watched = beat.verify.kind === 'check' || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind);
+        // What the app looks at: a check, a git probe, git status or a file it reads.
+        const watched = ['check', 'probe'].includes(beat.verify.kind) || GIT.has(beat.verify.kind) || READS.has(beat.verify.kind);
         const scored = Boolean(beat.ask) && beat.kind !== 'predict' && beat.options.some((o) => ['wrong', 'decoy'].includes(o.kind));
         d.key('h');
         if (watched || scored) {
