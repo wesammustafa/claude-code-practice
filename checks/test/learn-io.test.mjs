@@ -533,7 +533,7 @@ test('main sends each key with how far the check-only card scrolls in the window
   const term = fakeTerminal();
   let exited = null;
   main({ argv: [], stdin: term.stdin, stdout: term.stdout, env: CALM_ENV, platform: 'linux', root: dir, runCheck: reducerCheck, exit: (code) => { exited = code; } });
-  const shown = () => term.lastFrame().match(/Items (\d+) to (\d+) of 13/);
+  const shown = () => term.lastFrame().match(/Items (\d+) to (\d+) of 14/);
   try {
     assert.ok(await until(() => term.lastFrame().includes("Let's learn Claude Code")), term.lastFrame());
     term.type('\r');
@@ -547,7 +547,7 @@ test('main sends each key with how far the check-only card scrolls in the window
     term.type('\r');
     assert.ok(await until(() => shown()?.[1] === '1'), term.lastFrame());
     for (let i = 0; i < 20; i++) term.type('\x1b[B');
-    assert.ok(await until(() => shown()?.[2] === '13'), term.lastFrame());
+    assert.ok(await until(() => shown()?.[2] === '14'), term.lastFrame());
     const end = Number(shown()[1]);
     term.type('\x1b[A');
     assert.ok(await until(() => Number(shown()?.[1]) === end - 1), term.lastFrame());

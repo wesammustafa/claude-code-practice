@@ -5,9 +5,9 @@
 // once; saves the `gh run list` JSON under .practice/; and then tears the
 // workflow down. The workflow items read the history, newest first, so they
 // pass before and after the teardown, and a later workflow on other events
-// never stands in for this one. That Claude answered the @claude issue and
-// explained each broken link shows only on GitHub, so the lesson self-checks
-// it. The Advanced capstone reuses the workflow items, as one item, with its
+// never stands in for this one. Who can start a run, and which issue or
+// comment text reaches Claude as input, is a judgment the check can't see, so
+// the lesson self-checks it. The Advanced capstone reuses the workflow items, as one item, with its
 // own events.
 import { claudeArgWords, claudeHistory, claudeWorkflowsAt, headBlob, uncommittedWorkflows } from '../actions.mjs';
 import { ruleList } from '../claude-args.mjs';

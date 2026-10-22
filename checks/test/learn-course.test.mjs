@@ -647,7 +647,7 @@ test('the check-only card names the lesson page as link text and points to p for
     }
     // Where every item fits with room to spare, the page row shows: in the
     // frame's box (191), 40 rows in a taller window, every lesson's items
-    // but a-capstone's 13, which scroll there as at 100x40.
+    // but a-capstone's 14, which scroll there as at 100x40.
     const roomy = lines(d.state, [100, 50]);
     if (id === 'a-capstone') assert.ok(roomy.findLast(Boolean).includes(C.k.scroll), id);
     else assert.ok(roomy.some((l) => l.includes(C.pageTitle + C.pageLink)), id);

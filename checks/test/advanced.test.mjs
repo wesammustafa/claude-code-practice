@@ -12,8 +12,8 @@ import { claudeArgWords, parseYaml, readWorkflow as readActions } from '../actio
 import { parseClaudeArgs, ruleList, scriptCalls } from '../claude-args.mjs';
 import { callHints, RESULT, SCRIPT, savedRun, scriptBehavior, scriptCall } from '../lessons/a-4.mjs';
 import { chosenWorkflow, dispatchedRun, pinnedWorkflow, RUNS, WORKFLOW, workflowLimits } from '../lessons/a-5.mjs';
-import { movedComponent, personalFiles, sharedSettings, strictValidation, teamMarketplace, VALIDATE } from '../lessons/a-6.mjs';
-import { boundedScript, CAPPED, cappedRun, narrowRules, runLimits, SCRIPT as RUNNER, SLICE, sliceRun, stops, strictSandbox, wideReason } from '../lessons/a-7.mjs';
+import { movedComponent, personalFiles, sharedSettings, strictValidation, teamMarketplace, validatedMarketplace, VALIDATE } from '../lessons/a-6.mjs';
+import { boundedScript, narrowRules, runLimits, SCRIPT as RUNNER, SLICE, sliceRun, stops, strictSandbox, wideReason } from '../lessons/a-7.mjs';
 import { CI, items as capstoneItems, noCommittedKey, REVIEW as REVIEW_WORKFLOW, RUN as CAPSTONE_RUN, SNAPSHOT as CAPSTONE_LISTING } from '../lessons/a-capstone.mjs';
 import { nameProblem } from '../marketplace.mjs';
 import { openRepo } from '../repo.mjs';
@@ -329,15 +329,16 @@ test('a-1 fails on an unsolved repository and passes on a solved one, as the tem
   });
 });
 
-// A repository after lesson a-2: the four choices written down, and the log
+// A repository after lesson a-2: the five choices written down, and the log
 // the lesson's SubagentStart hook wrote while job 1 ran as parallel
 // subagents, one `agent_id<TAB>agent_type` line per start. The options
 // replace a file, or leave it out when null.
 const CHOSEN = [
   '1: subagents because three files, one reviewer each, checked once, and only a short list comes back',
-  '2: workflow because it covers every file, verifies each finding and reruns before every release',
-  '3: main conversation because a typo fix is a quick, targeted change',
-  '4: agent team because the investigators must challenge each other until they agree',
+  '2: workflow because it covers the whole codebase, confirms each finding and runs again every release',
+  '3: main conversation because the rename, its edits and the build share one context',
+  '4: subagents because each suspect is checked on its own and reported back to me',
+  '5: agent team because the investigators must challenge each other until they agree',
   '',
 ].join('\n');
 const STARTS = 'agent-a1\tgeneral-purpose\nagent-a2\tgeneral-purpose\nagent-a3\tExplore\n';
@@ -358,7 +359,7 @@ function patternRepo({ choices = CHOSEN, log = STARTS, hook = HOOK_FILE } = {}) 
 const a2 = (dir) => check(['a-2', '--dir', dir]);
 const choicesOf = (picks) => picks.map((p, i) => `${i + 1}: ${p} because it fits`).join('\n');
 
-test('a-2 passes for the four patterns that fit and a log with three subagents', () => {
+test('a-2 passes for the five patterns that fit and a log with three subagents', () => {
   withRepo(patternRepo(), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 0, out);
@@ -391,7 +392,8 @@ test('a-2 accepts the choices written as list items, with job labels, bold and o
     'Job 1 - Subagents, one per file',
     '- **2:** dynamic workflow, since it reruns',
     '3. main session because it is one line',
-    '4) Agent teams: they argue it out',
+    '4) parallel subagents, one per suspect',
+    'Job #5: Agent teams: they argue it out',
   ].join('\n');
   withRepo(patternRepo({ choices }), (dir) => {
     const { code, out } = a2(dir);
@@ -401,9 +403,9 @@ test('a-2 accepts the choices written as list items, with job labels, bold and o
 
 test('a-2 accepts a table, task boxes, articles and quoted pattern names', () => {
   for (const choices of [
-    '| Job | Pattern | Why |\n|---|---|---|\n| 1 | subagents | few files |\n| 2 | workflow | rerun |\n| 3 | main conversation | quick |\n| 4 | agent team | debate |\n',
-    '- [x] 1: `subagents` because few\n- [x] 2: a dynamic workflow because rerun\n- [x] 3: the main conversation because quick\n- [x] 4: an agent team because debate\n',
-    '(1) "sub-agents" because few\n(2) Workflow because rerun\n(3) one conversation because quick\n(4) agent-team because debate\n',
+    '| Job | Pattern | Why |\n|---|---|---|\n| 1 | subagents | few files |\n| 2 | workflow | rerun |\n| 3 | main conversation | shared context |\n| 4 | subagents | report back |\n| 5 | agent team | debate |\n',
+    '- [x] 1: `subagents` because few\n- [x] 2: a dynamic workflow because rerun\n- [x] 3: the main conversation because shared context\n- [x] 4: subagent because report back\n- [x] 5: an agent team because debate\n',
+    '(1) "sub-agents" because few\n(2) Workflow because rerun\n(3) one conversation because shared context\n(4) sub-agents because report back\n(5) agent-team because debate\n',
   ]) {
     withRepo(patternRepo({ choices }), (dir) => {
       const { code, out } = a2(dir);
@@ -413,7 +415,7 @@ test('a-2 accepts a table, task boxes, articles and quoted pattern names', () =>
 });
 
 test('a-2 skips other lines for a job once one of its lines names a pattern', () => {
-  const jobs = '1. Check the three largest source files\n2. Run the same check on every source file\n3. Fix a typo in one error message\n4. Three investigators each test a different theory\n\n';
+  const jobs = '1. Before Friday\'s release, audit the three largest source files\n2. Add that audit to the release checklist\n3. Rename a helper that about 40 files call\n4. A checkout test fails about one run in ten\n5. Last month, three separate reports\n\n';
   withRepo(patternRepo({ choices: `${jobs}${CHOSEN}` }), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 0, out);
@@ -450,7 +452,7 @@ test('a-2 says where to save the choices and in what form when there are none', 
 
 test('a-2 names each job that has no line', () => {
   const lines = CHOSEN.split('\n');
-  withRepo(patternRepo({ choices: [lines[0], lines[1], lines[3]].join('\n') }), (dir) => {
+  withRepo(patternRepo({ choices: [lines[0], lines[1], lines[3], lines[4]].join('\n') }), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 1, out);
     assert.match(out, /has no line for job 3\. Add one per job/);
@@ -458,7 +460,7 @@ test('a-2 names each job that has no line', () => {
   withRepo(patternRepo({ choices: [lines[0], lines[2]].join('\n') }), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /has no line for jobs 2 and 4\./);
+    assert.match(out, /has no line for jobs 2, 4 and 5\./);
   });
 });
 
@@ -467,23 +469,26 @@ test('a-2 names the chart question that settles each job picked wrongly', () => 
   const Q2 = 'Must the workers talk to each other?';
   const Q3 = 'Does it need many agents, cross-checked findings or a rerun?';
   for (const [picks, expected] of [
-    [['main conversation', 'main conversation', 'subagents', 'main conversation'], [
-      `Job 1 doesn't call for the main conversation. ${Q1} No: reading the files in your conversation would crowd it, and you only need the findings.`,
-      `Job 2 doesn't call for the main conversation. ${Q1} No: it checks every source file.`,
-      `Job 3 doesn't call for subagents. ${Q1} Yes: fixing a typo is a quick, targeted change`,
-      `Job 4 doesn't call for the main conversation. ${Q1} No: three investigators work at the same time`,
+    [['main conversation', 'main conversation', 'subagents', 'main conversation', 'main conversation'], [
+      `Job 1 doesn't call for the main conversation. ${Q1} No: reading the three largest files in your conversation would crowd it`,
+      `Job 2 doesn't call for the main conversation. ${Q1} No: it covers the whole codebase.`,
+      `Job 3 doesn't call for subagents. ${Q1} Yes: each call site is a short read, and the plan, the edits and the build share one context`,
+      `Job 4 doesn't call for the main conversation. ${Q1} No: three investigations, each reading code and rerunning the test`,
+      `Job 5 doesn't call for the main conversation. ${Q1} No: three investigators work at the same time`,
     ]],
-    [['agent team', 'agent team', 'workflow', 'subagents'], [
+    [['agent team', 'agent team', 'workflow', 'agent team', 'subagents'], [
       `Job 1 doesn't call for an agent team. ${Q2} No: each reviewer checks its own file`,
-      `Job 2 doesn't call for an agent team. ${Q2} No: each finding is verified against the code`,
+      `Job 2 doesn't call for an agent team. ${Q2} No: each finding is confirmed against the code`,
       `Job 3 doesn't call for a workflow. ${Q1} Yes:`,
-      `Job 4 doesn't call for subagents. ${Q2} Yes: the investigators message each other as they work to challenge each other's findings`,
+      `Job 4 doesn't call for an agent team. ${Q2} No: each investigator checks one suspect and reports to you`,
+      `Job 5 doesn't call for subagents. ${Q2} Yes: the investigators must knock down each other's explanations while they work`,
     ]],
-    [['workflow', 'subagents', 'agent team', 'workflow'], [
+    [['workflow', 'subagents', 'agent team', 'workflow', 'workflow'], [
       `Job 1 doesn't call for a workflow. ${Q3} No: three files, checked once`,
-      `Job 2 doesn't call for subagents. ${Q3} Yes: it checks every source file, verifies each finding and reruns before every release`,
+      `Job 2 doesn't call for subagents. ${Q3} Yes: it covers the whole codebase, confirms each finding before it is listed and runs again for every release`,
       `Job 3 doesn't call for an agent team. ${Q1} Yes:`,
-      `Job 4 doesn't call for a workflow. ${Q2} Yes:`,
+      `Job 4 doesn't call for a workflow. ${Q3} No: three checks, done once`,
+      `Job 5 doesn't call for a workflow. ${Q2} Yes:`,
     ]],
   ]) {
     withRepo(patternRepo({ choices: choicesOf(picks) }), (dir) => {
@@ -568,57 +573,83 @@ test('a-2 fails on an unsolved repository and passes on a solved one, as the tem
   });
 });
 
-// A repository after lesson a-3: TODO and FIXME comments in two folders, the
-// saved workflow committed in .claude/workflows/, and a report from each run
-// by name. The options replace a step: `script` (null for none) is saved at
-// `path` and committed unless `commitScript` is false; `globalIgnore`
-// becomes the repository's excludes file, standing in for a global one;
-// each report is text, a Buffer, a function of the folder, or null for none;
-// `after` changes the working tree last.
-const TODO_CHECK = [
-  '// Run with: /todo-check on <folder>',
+// A repository after lesson a-3: paths built from import.meta.url in two
+// folders, migrated to import.meta.dirname in a later commit, the saved
+// workflow committed in .claude/workflows/, a report from each run, and the
+// old form's pattern. The options replace a step: `script` (null for none) is
+// saved at `path` and committed unless `commitScript` is false;
+// `globalIgnore` becomes the repository's excludes file, standing in for a
+// global one; `migrate` lists the folders the migration commit changes; each
+// report is text, a Buffer, a function of the folder, or null for none, and
+// so is `pattern`; `after` changes the working tree last.
+const MIGRATE = [
+  '// Run with: /migrate-paths on <folder>',
   'export const meta = {',
-  "  name: 'todo-check',",
-  "  description: 'Report the TODO and FIXME comments in a folder that still apply to the current code',",
+  "  name: 'migrate-paths',",
+  "  description: 'Build paths from import.meta.dirname instead of import.meta.url in a folder, then fix until npm test passes',",
   '  phases: [',
-  "    { title: 'Find', detail: 'list every TODO and FIXME comment in the folder' },",
-  "    { title: 'Verify', detail: 'one agent per comment checks it against the code' },",
+  "    { title: 'Migrate', detail: 'agents migrate the files in batches of five' },",
+  "    { title: 'Fix', detail: 'run npm test and fix until it passes or two rounds make no progress' },",
   '  ],',
   '}',
   '',
   'const folder = Array.isArray(args) ? args[0] : args',
-  "if (!folder) throw new Error('Name a folder: Run /todo-check on <folder>')",
+  "if (!folder) throw new Error('Name a folder: Run /migrate-paths on <folder>')",
   '',
-  "phase('Find')",
-  'const found = await agent(`List every TODO and FIXME comment under ${folder}/, each as a path from the repository root, a line number and the comment.`, {',
-  "  schema: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: { type: 'object' } } } },",
+  "phase('Migrate')",
+  'const found = await agent(`List every file under ${folder}/ that builds a path from import.meta.url, each as a path from the repository root.`, {',
+  "  schema: { type: 'object', required: ['files'], properties: { files: { type: 'array', items: { type: 'string' } } } },",
   '})',
-  '',
-  "phase('Verify')",
-  'const checked = await pipeline(found.items, (item) =>',
-  '  agent(`Does the comment at ${item.path}:${item.line} still apply to the current code? ${item.text}`, {',
-  '    label: `${item.path}:${item.line}`,',
-  "    schema: { type: 'object', required: ['applies', 'why'], properties: { applies: { type: 'boolean' }, why: { type: 'string' } } },",
-  '  }).then((verdict) => verdict && { ...item, ...verdict }),',
+  'const batches = []',
+  'for (let i = 0; i < found.files.length; i += 5) batches.push(found.files.slice(i, i + 5))',
+  'const changed = await pipeline(batches, (batch) =>',
+  "  agent(`In ${batch.join(', ')}, build each path from import.meta.dirname instead of import.meta.url, and drop imports left unused. List each file you changed as path:line of its first change.`, { label: batch[0] }),",
   ')',
   '',
-  "return checked.filter((c) => c?.applies).map((c) => `${c.path}:${c.line}: ${c.why}`).join('\\n')",
+  "phase('Fix')",
+  'let failing = Infinity',
+  'let stalled = 0',
+  'while (stalled < 2) {',
+  "  const run = await agent('Run npm test. If it fails, fix the failures. Reply with the number of tests that failed before your fixes.', {",
+  "    schema: { type: 'object', required: ['failing'], properties: { failing: { type: 'number' } } },",
+  '  })',
+  '  if (!run || run.failing === 0) break',
+  '  stalled = run.failing < failing ? 0 : stalled + 1',
+  '  failing = run.failing',
+  '}',
+  '',
+  "return changed.filter(Boolean).join('\\n')",
   '',
 ].join('\n');
+const OLD = {
+  'src/paths.js': "import { dirname, join } from 'node:path';\nimport { fileURLToPath } from 'node:url';\n\nexport const root = join(dirname(fileURLToPath(import.meta.url)), '..');\n",
+  'test/paths.test.js': "import { test } from 'node:test';\nimport { join } from 'node:path';\n\nconst fixtures = new URL('fixtures/', import.meta.url);\ntest('root', () => {});\n",
+};
+const NEW = {
+  'src/paths.js': "import { join } from 'node:path';\n\nexport const root = join(import.meta.dirname, '..');\n",
+  'test/paths.test.js': "import { test } from 'node:test';\nimport { join } from 'node:path';\n\nconst fixtures = join(import.meta.dirname, 'fixtures');\ntest('root', () => {});\n",
+};
+const RUN1 = 'src\n\n- `src/paths.js:3`: builds root from import.meta.dirname.\n';
+const RUN2 = 'test\n\n- test/paths.test.js:4: builds fixtures from import.meta.dirname.\n';
+const PATTERN = 'import\\.meta\\.url\n';
+const WORKFLOW_PATH = '.claude/workflows/migrate-paths.js';
+// Other lessons' tests reuse this source file.
 const TOTAL = 'export function total(items) {\n  // TODO: round to cents before summing\n  return items.reduce((sum, i) => sum + i.price, 0);\n}\n';
-const TOTAL_TEST = "import { test } from 'node:test';\n\n// FIXME: cover an empty list\ntest('total', () => {});\n";
-const RUN1 = 'src\n\n- `src/total.js:2`: still applies, the sum is not rounded yet.\n';
-const RUN2 = 'test\n\n- test/total.test.js:3: still applies, no test covers an empty list.\n';
-const WORKFLOW_PATH = '.claude/workflows/todo-check.js';
+const inFolders = (files, folders) => Object.fromEntries(Object.entries(files).filter(([path]) => folders.includes(path.split('/')[0])));
 
-function workflowRepo({ script = TODO_CHECK, path = WORKFLOW_PATH, commitScript = true, globalIgnore, reports = [RUN1, RUN2], after } = {}) {
+function workflowRepo({ script = MIGRATE, path = WORKFLOW_PATH, commitScript = true, globalIgnore, migrate = ['src', 'test'], reports = [RUN1, RUN2], pattern = PATTERN, after } = {}) {
   return () => {
-    const dir = repo({ 'README.md': '# demo\n', 'src/total.js': TOTAL, 'test/total.test.js': TOTAL_TEST });
+    const dir = repo({ 'README.md': '# demo\n', ...OLD });
     if (globalIgnore) {
       write(dir, { '.git/global-ignore': globalIgnore });
       git(dir, 'config', 'core.excludesFile', join(dir, '.git', 'global-ignore'));
     }
     commit(dir, 'Start');
+    if (migrate.length) {
+      const migrated = inFolders(NEW, migrate);
+      write(dir, migrated);
+      commit(dir, `Migrate ${migrate.join(' and ')}`, Object.keys(migrated));
+    }
     for (const [i, text] of (Array.isArray(script) ? script : [script]).entries()) {
       if (text === null) continue;
       const at = Array.isArray(path) ? path[i] : path;
@@ -628,13 +659,14 @@ function workflowRepo({ script = TODO_CHECK, path = WORKFLOW_PATH, commitScript 
     for (const [i, report] of reports.entries()) {
       if (report !== null) write(dir, { [`.practice/a-3-run${i + 1}.md`]: typeof report === 'function' ? report(dir) : report });
     }
+    if (pattern !== null) write(dir, { '.practice/a-3-pattern.txt': pattern });
     after?.(dir);
     return dir;
   };
 }
 
 const a3 = (dir) => check(['a-3', '--dir', dir]);
-const withMeta = (meta) => TODO_CHECK.replace(/export const meta = \{[\s\S]*?\n\}\n/, `export const meta = ${meta}\n`);
+const withMeta = (meta) => MIGRATE.replace(/export const meta = \{[\s\S]*?\n\}\n/, `export const meta = ${meta}\n`);
 
 test('a-3 passes for a committed workflow that reads args and two reports on two folders', () => {
   withRepo(workflowRepo(), (dir) => {
@@ -645,8 +677,8 @@ test('a-3 passes for a committed workflow that reads args and two reports on two
 });
 
 test('a-3 accepts a workflow in a package\'s own .claude/workflows/, and comments before meta', () => {
-  const commented = `/*\n * Finds TODO and FIXME comments.\n */\n\n// Run with: /todo-check on src\n${TODO_CHECK}`;
-  withRepo(workflowRepo({ script: commented, path: 'packages/web/.claude/workflows/todo-check.js' }), (dir) => {
+  const commented = `/*\n * Migrates paths to import.meta.dirname.\n */\n\n// Run with: /migrate-paths on src\n${MIGRATE}`;
+  withRepo(workflowRepo({ script: commented, path: 'packages/web/.claude/workflows/migrate-paths.js' }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 0, out);
   });
@@ -664,28 +696,28 @@ test('a-3 says to commit a workflow that is only in the working tree, naming the
   withRepo(workflowRepo({ commitScript: false }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`\.claude\/workflows\/todo-check\.js` isn't committed\. Run `git add \.claude\/workflows\/todo-check\.js` and commit it\./);
+    assert.match(out, /`\.claude\/workflows\/migrate-paths\.js` isn't committed\. Run `git add \.claude\/workflows\/migrate-paths\.js` and commit it\./);
   });
   withRepo(workflowRepo({ commitScript: false, globalIgnore: '.claude/\n' }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /isn't committed, and line 1 of `[^`]*global-ignore`, `\.claude\/`, ignores it\. Run `git add -f \.claude\/workflows\/todo-check\.js` and commit it\./);
+    assert.match(out, /isn't committed, and line 1 of `[^`]*global-ignore`, `\.claude\/`, ignores it\. Run `git add -f \.claude\/workflows\/migrate-paths\.js` and commit it\./);
   });
 });
 
 test('a-3 reads only .js files directly in .claude/workflows/, and says where to move another', () => {
-  for (const path of ['.claude/workflows/todo-check.mjs', '.claude/workflows/team/todo-check.js']) {
+  for (const path of ['.claude/workflows/migrate-paths.mjs', '.claude/workflows/team/migrate-paths.js']) {
     withRepo(workflowRepo({ path }), (dir) => {
       const { code, out } = a3(dir);
       assert.equal(code, 1, `${path}: ${out}`);
       assert.ok(out.includes(`\`${path}\` is under \`.claude/workflows/\`, but the check reads only \`.js\` files directly in that folder`), out);
-      assert.match(out, /Move it to `\.claude\/workflows\/todo-check\.js` and commit\./);
+      assert.match(out, /Move it to `\.claude\/workflows\/migrate-paths\.js` and commit\./);
     });
   }
 });
 
 test('a-3 fails when meta is not the script\'s first statement', () => {
-  withRepo(workflowRepo({ script: `const folder = args\n${TODO_CHECK}` }), (dir) => {
+  withRepo(workflowRepo({ script: `const folder = args\n${MIGRATE}` }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /doesn't start with `export const meta`: its code starts with `const folder = args`\. Claude Code needs `export const meta = \{ \.\.\. \}` as the script's first statement/);
@@ -694,14 +726,14 @@ test('a-3 fails when meta is not the script\'s first statement', () => {
 
 test('a-3 fails for a meta with anything but literal values, naming it and the line', () => {
   for (const [meta, what] of [
-    ["{\n  ...base,\n  name: 'todo-check',\n  description: 'Report TODOs',\n}", 'Line 3 of `.claude/workflows/todo-check.js`: `meta` holds a spread, `...`.'],
-    ["{\n  name: 'todo-check',\n  description: describe('todo'),\n}", '`meta` holds a function call, `describe(...)`.'],
-    ["{\n  name: NAME,\n  description: 'Report TODOs',\n}", '`meta` holds a variable, `NAME`.'],
-    ["{\n  name,\n  description: 'Report TODOs',\n}", '`meta` holds a variable, `name`.'],
-    ["{\n  name: 'todo-check',\n  description: `Report ${KIND}`,\n}", '`meta` holds a template string with `${...}`.'],
-    ["{\n  name: 'todo-' + 'check',\n  description: 'Report TODOs',\n}", '`meta` holds an expression, `+`.'],
-    ["{\n  name: 'todo-check',\n  description: () => 'Report TODOs',\n}", 'Line 4 of `.claude/workflows/todo-check.js`: `meta` holds a function.'],
-    ["makeMeta('todo-check')", '`meta` holds something other than an object literal.'],
+    ["{\n  ...base,\n  name: 'migrate-paths',\n  description: 'Migrate paths',\n}", 'Line 3 of `.claude/workflows/migrate-paths.js`: `meta` holds a spread, `...`.'],
+    ["{\n  name: 'migrate-paths',\n  description: describe('todo'),\n}", '`meta` holds a function call, `describe(...)`.'],
+    ["{\n  name: NAME,\n  description: 'Migrate paths',\n}", '`meta` holds a variable, `NAME`.'],
+    ["{\n  name,\n  description: 'Migrate paths',\n}", '`meta` holds a variable, `name`.'],
+    ["{\n  name: 'migrate-paths',\n  description: `Report ${KIND}`,\n}", '`meta` holds a template string with `${...}`.'],
+    ["{\n  name: 'todo-' + 'check',\n  description: 'Migrate paths',\n}", '`meta` holds an expression, `+`.'],
+    ["{\n  name: 'migrate-paths',\n  description: () => 'Migrate paths',\n}", 'Line 4 of `.claude/workflows/migrate-paths.js`: `meta` holds a function.'],
+    ["makeMeta('migrate-paths')", '`meta` holds something other than an object literal.'],
   ]) {
     withRepo(workflowRepo({ script: withMeta(meta) }), (dir) => {
       const { code, out } = a3(dir);
@@ -713,10 +745,10 @@ test('a-3 fails for a meta with anything but literal values, naming it and the l
 });
 
 test('a-3 fails for a meta without a name or a description', () => {
-  withRepo(workflowRepo({ script: withMeta("{ name: 'todo-check' }") }), (dir) => {
+  withRepo(workflowRepo({ script: withMeta("{ name: 'migrate-paths' }") }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`meta` in `\.claude\/workflows\/todo-check\.js` needs a non-empty `description` string\. Add it and commit\./);
+    assert.match(out, /`meta` in `\.claude\/workflows\/migrate-paths\.js` needs a non-empty `description` string\. Add it and commit\./);
   });
   withRepo(workflowRepo({ script: withMeta("{ name: '', description: 42 }") }), (dir) => {
     const { code, out } = a3(dir);
@@ -726,7 +758,7 @@ test('a-3 fails for a meta without a name or a description', () => {
 });
 
 test('a-3 prints a compile error with its line, and never runs the script', () => {
-  const broken = `${TODO_CHECK}const late = await agent(\nlet x = 1\n`;
+  const broken = `${MIGRATE}const late = await agent(\nlet x = 1\n`;
   const lines = broken.split('\n').length - 1;
   withRepo(workflowRepo({ script: broken }), (dir) => {
     const { code, out } = a3(dir);
@@ -741,12 +773,12 @@ test('a-3 prints a compile error with its line, and never runs the script', () =
 });
 
 test('a-3 fails when the script never reads the args global, saying why', () => {
-  const noArgs = TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  const noArgs = MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
   for (const [script, why] of [
     [noArgs, /never reads `args`, so it can't take a folder as input/],
     [noArgs.replace("const folder = 'src'", "// TODO: read the folder from args\nconst folder = 'args'"), /mentions `args` only in a comment, a string or a property name/],
     [noArgs.replace("const folder = 'src'", "const folder = options.args\nconst options = { args: 'src' }"), /mentions `args` only in a comment, a string or a property name/],
-    [noArgs.replace("const folder = 'src'", "const args = 'src'\nconst folder = args"), /Line 11 of `\.claude\/workflows\/todo-check\.js` declares its own `args`/],
+    [noArgs.replace("const folder = 'src'", "const args = 'src'\nconst folder = args"), /Line 11 of `\.claude\/workflows\/migrate-paths\.js` declares its own `args`/],
   ]) {
     withRepo(workflowRepo({ script }), (dir) => {
       const { code, out } = a3(dir);
@@ -759,7 +791,7 @@ test('a-3 fails when the script never reads the args global, saying why', () => 
 
 test('a-3 counts args read in a template, a ternary, a call or an object shorthand', () => {
   for (const read of ['const folder = `${args}`', 'const folder = args ? args : "src"', 'const folder = String(args)', 'const { folder } = { folder: args }', 'const input = { args }; const folder = input.args']) {
-    withRepo(workflowRepo({ script: TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', read) }), (dir) => {
+    withRepo(workflowRepo({ script: MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', read) }), (dir) => {
       const { code, out } = a3(dir);
       assert.equal(code, 0, `${read}: ${out}`);
     });
@@ -767,29 +799,29 @@ test('a-3 counts args read in a template, a ternary, a call or an object shortha
 });
 
 test('a-3 points out uncommitted changes to a committed script that fails', () => {
-  const noArgs = TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
-  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { [WORKFLOW_PATH]: TODO_CHECK }) }), (dir) => {
+  const noArgs = MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { [WORKFLOW_PATH]: MIGRATE }) }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /never reads `args`/);
-    assert.match(out, /Your copy of `\.claude\/workflows\/todo-check\.js` has changes that aren't committed: if they fix this, commit them\./);
+    assert.match(out, /Your copy of `\.claude\/workflows\/migrate-paths\.js` has changes that aren't committed: if they fix this, commit them\./);
   });
 });
 
 test('a-3 passes when any committed script meets the item, and otherwise speaks of the one that got furthest', () => {
-  const noArgs = TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  const noArgs = MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
   const paths = ['.claude/workflows/a-first.js', '.claude/workflows/b-second.js'];
-  withRepo(workflowRepo({ script: [`const x = 1\n${TODO_CHECK}`, TODO_CHECK], path: paths }), (dir) => {
+  withRepo(workflowRepo({ script: [`const x = 1\n${MIGRATE}`, MIGRATE], path: paths }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 0, out);
   });
-  withRepo(workflowRepo({ script: [`const x = 1\n${TODO_CHECK}`, noArgs], path: paths }), (dir) => {
+  withRepo(workflowRepo({ script: [`const x = 1\n${MIGRATE}`, noArgs], path: paths }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /`\.claude\/workflows\/b-second\.js` never reads `args`/);
     assert.doesNotMatch(out, /a-first/);
   });
-  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { '.claude/workflows/fixed.js': TODO_CHECK }) }), (dir) => {
+  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { '.claude/workflows/fixed.js': MIGRATE }) }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /never reads `args`.* Also, `\.claude\/workflows\/fixed\.js` isn't committed\. Run `git add \.claude\/workflows\/fixed\.js` and commit it\./);
@@ -801,13 +833,12 @@ test('a-3 says where to save the reports when there are none, and which one is m
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /There are no reports yet\. Run your saved workflow by name on a folder, then ask Claude to save the report to `\.practice\/a-3-run1\.md` with the folder on its first line/);
-    assert.match(out, /There are no reports to read yet/);
+    assert.match(out, /The check reads the two folders from the reports' first lines/);
   });
   withRepo(workflowRepo({ reports: [RUN1, null] }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /There is no `\.practice\/a-3-run2\.md`\. Run your saved workflow by name on a different folder/);
-    assert.match(out, /PASS {2}every cited `path:line` exists/);
   });
   withRepo(workflowRepo({ reports: [RUN1, '\n  \n'] }), (dir) => {
     const { code, out } = a3(dir);
@@ -817,7 +848,7 @@ test('a-3 says where to save the reports when there are none, and which one is m
 });
 
 test('a-3 finds the folder on a heading, in backticks, with ./ or a trailing slash, or after a label', () => {
-  for (const first of ['# src', '## `src/`', './src', 'src\\', '**Folder:** `src/`', 'TODO and FIXME report for src.']) {
+  for (const first of ['# src', '## `src/`', './src', 'src\\', '**Folder:** `src/`', 'Migration report for src.']) {
     withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, first), RUN2] }), (dir) => {
       const { code, out } = a3(dir);
       assert.equal(code, 0, `${first}: ${out}`);
@@ -838,10 +869,10 @@ test('a-3 fails when both reports name the same folder, however it is written', 
 });
 
 test('a-3 fails for a first line that names no folder, or the repository\'s root', () => {
-  withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, '# TODO report'), RUN2] }), (dir) => {
+  withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, '# Migration report'), RUN2] }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /The first line of `\.practice\/a-3-run1\.md`, "# TODO report", names no folder in this repository/);
+    assert.match(out, /The first line of `\.practice\/a-3-run1\.md`, "# Migration report", names no folder in this repository/);
   });
   withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, '.'), RUN2] }), (dir) => {
     const { code, out } = a3(dir);
@@ -854,13 +885,13 @@ test('a-3 reads citations in backticks, with ./, with backslashes, as a full pat
   const forms = (dir) => [
     '# src',
     '',
-    '- `src/total.js:2`',
-    '- ./src/total.js:2: rounds',
-    '- src\\total.js:2',
-    `- ${dir}/src/total.js:2`,
-    '- **src/total.js:2:5**',
-    '- [total.js](src/total.js#L2)',
-    '- at:src/total.js:2',
+    '- `src/paths.js:3`',
+    '- ./src/paths.js:3: migrated',
+    '- src\\paths.js:3',
+    `- ${dir}/src/paths.js:3`,
+    '- **src/paths.js:3:5**',
+    '- [paths.js](src/paths.js#L3)',
+    '- at:src/paths.js:3',
     '',
     'Served at http://localhost:8080 and localhost:3000 at 10:30, see https://example.com/src/a.js#L40.',
   ].join('\n');
@@ -871,47 +902,74 @@ test('a-3 reads citations in backticks, with ./, with backslashes, as a full pat
 });
 
 test('a-3 fails for a cited file outside the report\'s folder', () => {
-  withRepo(workflowRepo({ reports: [`${RUN1}- test/total.test.js:3: also applies\n`, RUN2] }), (dir) => {
+  withRepo(workflowRepo({ reports: [`${RUN1}- test/paths.test.js:4: also changed\n`, RUN2] }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`\.practice\/a-3-run1\.md` cites `test\/total\.test\.js:3`, outside `src\/`, the folder on its first line\. Check that the workflow reads the folder from `args`/);
+    assert.match(out, /`\.practice\/a-3-run1\.md` cites `test\/paths\.test\.js:4`, outside `src\/`, the folder on its first line\. Check that the workflow reads the folder from `args`/);
   });
 });
 
 test('a-3 fails for a report with no citation, and for paths written from inside the folder', () => {
-  withRepo(workflowRepo({ reports: ['src\n\nNothing in this folder still applies.\n', RUN2] }), (dir) => {
+  withRepo(workflowRepo({ reports: ['src\n\nNothing changed in this folder.\n', RUN2] }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`\.practice\/a-3-run1\.md` cites no `path:line`\. Each item the workflow reports needs one, from the repository's root, such as `src\/<file>:<line>`\./);
+    assert.match(out, /`\.practice\/a-3-run1\.md` cites no `path:line`\. Each file the report lists needs one, from the repository's root, such as `src\/<file>:<line>`\./);
   });
-  withRepo(workflowRepo({ reports: ['src\n\n- total.js:2: still applies\n', RUN2] }), (dir) => {
+  withRepo(workflowRepo({ reports: ['src\n\n- paths.js:3: migrated\n', RUN2] }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /cites `total\.js:2`, a path from inside `src\/`\. Each `path:line` must start at the repository's root, as `src\/total\.js:2` does/);
-    assert.match(out, /`total\.js:2` is a path from inside `src\/`; from the root it's `src\/total\.js:2`/);
+    assert.match(out, /cites `paths\.js:3`, a path from inside `src\/`\. Each `path:line` must start at the repository's root, as `src\/paths\.js:3` does/);
   });
 });
 
-test('a-3 fails when a cited line moved after an edit, and says to run the workflow again', () => {
-  withRepo(workflowRepo({ after: (dir) => write(dir, { 'src/total.js': `// Sums prices.\n${TOTAL}` }) }), (dir) => {
+test('a-3 says to save the pattern when there is none, or it is empty', () => {
+  withRepo(workflowRepo({ pattern: null }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /PASS {2}`\.practice\/a-3-run1\.md` and `\.practice\/a-3-run2\.md` name two different folders/);
-    assert.match(out, /`src\/total\.js:2` holds no `TODO` or `FIXME`\. If the code changed after the run, run the workflow again and save a new report/);
+    assert.match(out, /There is no `\.practice\/a-3-pattern\.txt`\. Save the `git grep -E` pattern that finds the old form there, on one line/);
+  });
+  withRepo(workflowRepo({ pattern: '\n  \n' }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.practice\/a-3-pattern\.txt` is empty/);
   });
 });
 
-test('a-3 names up to three cited lines that fail, a missing file and a line past the end among them', () => {
-  const bad = 'src\n\n- src/total.js:2\n- src/gone.js:4\n- src/total.js:40\n- src/total.js:1\n- src/total.js:3\n- src/total.js:0\n';
-  withRepo(workflowRepo({ reports: [bad, RUN2] }), (dir) => {
+test('a-3 reads the pattern in backticks or quotes, with CRLF line ends', () => {
+  for (const pattern of ['`import\\.meta\\.url`\n', "'import\\.meta\\.url'\r\n", '\nimport\\.meta\\.url\n']) {
+    withRepo(workflowRepo({ pattern }), (dir) => {
+      const { code, out } = a3(dir);
+      assert.equal(code, 0, `${pattern}: ${out}`);
+    });
+  }
+});
+
+test('a-3 fails while the old form still matches in a folder at HEAD, and says to commit a migration left in the working tree', () => {
+  withRepo(workflowRepo({ migrate: ['src'] }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /There is no `src\/gone\.js` for `src\/gone\.js:4`; `src\/total\.js:40` is past the end of `src\/total\.js`, which has 4 lines; `src\/total\.js:1` holds no `TODO` or `FIXME`; and 2 more\./);
+    assert.match(out, /`import\\\.meta\\\.url` still matches inside `test\/` at `HEAD`: `git grep -n -E 'import\\\.meta\\\.url' -- test` lists the lines\. Run the workflow on that folder again/);
+    assert.doesNotMatch(out, /inside `src\/`/);
   });
-  withRepo(workflowRepo({ reports: [`${RUN1}- src/total.js:0\n`, RUN2] }), (dir) => {
+  withRepo(workflowRepo({ migrate: ['src'], after: (dir) => write(dir, inFolders(NEW, ['test'])) }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`src\/total\.js:0` names line 0, but lines start at 1\./);
+    assert.match(out, /`test\/` is migrated in your working tree, but `import\\\.meta\\\.url` still matches there at `HEAD`\. Review the changes and commit them\./);
+  });
+});
+
+test('a-3 fails for a pattern that never matched in a folder, or that git cannot read', () => {
+  withRepo(workflowRepo({ pattern: 'fileURLToPath\n' }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`fileURLToPath` matches nothing inside `test\/` in any commit, so the check can't see a migration there/);
+    assert.doesNotMatch(out, /inside `src\/` in any commit/);
+  });
+  withRepo(workflowRepo({ pattern: '(\n' }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /git can't use the pattern in `\.practice\/a-3-pattern\.txt`, `\(`: /);
   });
 });
 
@@ -926,7 +984,7 @@ test('a-3 reads reports saved with CRLF line ends, a UTF-8 byte-order mark, or a
 });
 
 test('the workflow reader can require an agent() call, as the Advanced capstone does', () => {
-  const noArgs = TODO_CHECK.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  const noArgs = MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
   assert.equal(readWorkflow(noArgs, { needAgentCall: true }).ok, true);
   assert.equal(readWorkflow(noArgs, { needArgs: true }).problem, 'args');
   const meta = "export const meta = { name: 'review', description: 'Review each file' }\n";
@@ -938,7 +996,7 @@ test('the workflow reader can require an agent() call, as the Advanced capstone 
 });
 
 test('a-3 fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
-  withRepo(workflowRepo({ script: null, reports: [null, null] }), (dir) => {
+  withRepo(workflowRepo({ script: null, migrate: [], reports: [null, null], pattern: null }), (dir) => {
     const { code, out } = check(['a-3', '--assert', 'fail', '--dir', dir]);
     assert.equal(code, 0, out);
   });
@@ -1915,7 +1973,18 @@ test('a-6 passes for the example marketplace registered and turned on, a subagen
   withRepo(shareRepo(), (dir) => {
     const { code, out } = a6(dir);
     assert.equal(code, 0, out);
-    assert.match(out, /5 of 5 passed/);
+    assert.match(out, /4 of 4 passed/);
+  });
+});
+
+test('a-6\'s first item names the marketplace\'s problem first, then the saved validation\'s', () => {
+  const first = (dir) => validatedMarketplace.check(openRepo(dir));
+  withRepo(shareRepo({ report: null }), (dir) => {
+    assert.equal(marketHint(dir), true);
+    assert.match(String(first(dir)), /There is no `\.practice\/a-6-validate\.json` yet/);
+  });
+  withRepo(shareRepo({ market: null, files: { [`${MARKETPLACE_ROOT}/.claude-plugin`]: null }, report: null }), (dir) => {
+    assert.match(String(first(dir)), /There is no committed `\.claude-plugin\/marketplace\.json`/);
   });
 });
 
@@ -2325,14 +2394,14 @@ test('a-6 fails on an unsolved repository and passes on a solved one, as the tem
 });
 
 // A repository after lesson a-7: the bounded runner and its bounds file
-// committed, the Intermediate settings in .claude/settings.json, and two real
-// runs saved, a slice of a task and a run a limit stopped. The options
+// committed, the Intermediate settings in .claude/settings.json, and the
+// real slice run saved. The options
 // replace a step: `script` (null for none) is saved with `mode` and committed
 // unless `commitScript` is false; `bounds` (null for none) is the bounds
 // file, as an object or text, committed unless `commitBounds` is false;
 // `settings` is the committed .claude/settings.json (null for none);
-// `gitignore` is committed first; `slice` and `capped` (null for none) are
-// the saved runs, as objects, text or Buffers; `after` changes the
+// `gitignore` is committed first; `slice` (null for none) is the saved
+// run, as an object, text or a Buffer; `after` changes the
 // repository last. The items run the script with a stand-in for `claude`,
 // never Claude Code itself.
 const BOUNDS_PATH = '.claude/bounded-run.json';
@@ -2377,7 +2446,6 @@ const SLICE_RUN = {
   result: 'Added test/total.test.js for total(); npm test passes. The commit was denied.',
   session_id: SESSION, permission_denials: [{ tool_name: 'Bash', tool_use_id: 'toolu_00000000000000000000000000', tool_input: { command: 'git commit -m "Add a test for total"' } }],
 };
-const CAPPED_RUN = { type: 'result', subtype: 'error_max_budget_usd', is_error: true, num_turns: 1, total_cost_usd: 0.03, session_id: SESSION, permission_denials: [] };
 
 // The runner with each `[from, to]` replaced.
 function runner(...pairs) {
@@ -2393,7 +2461,7 @@ const boundsWith = (change) => {
   return bounds;
 };
 
-function boundedRepo({ script = BOUNDED, mode = 0o755, commitScript = true, bounds = BOUNDS, commitBounds = true, settings = PROJECT_SETTINGS, gitignore = '.practice/\n', slice = SLICE_RUN, capped = CAPPED_RUN, after } = {}) {
+function boundedRepo({ script = BOUNDED, mode = 0o755, commitScript = true, bounds = BOUNDS, commitBounds = true, settings = PROJECT_SETTINGS, gitignore = '.practice/\n', slice = SLICE_RUN, after } = {}) {
   return () => {
     const dir = repo({ '.gitignore': gitignore, 'README.md': '# demo\n', 'src/total.js': TOTAL });
     if (settings !== null) write(dir, { '.claude/settings.json': typeof settings === 'string' ? settings : json(settings) });
@@ -2407,9 +2475,7 @@ function boundedRepo({ script = BOUNDED, mode = 0o755, commitScript = true, boun
       chmodSync(join(dir, RUNNER), mode);
       if (commitScript) commit(dir, 'Add the bounded runner', [RUNNER]);
     }
-    for (const [path, run] of [[SLICE, slice], [CAPPED, capped]]) {
-      if (run !== null) write(dir, { [path]: typeof run === 'string' || Buffer.isBuffer(run) ? run : JSON.stringify(run, null, 2) });
-    }
+    if (slice !== null) write(dir, { [SLICE]: typeof slice === 'string' || Buffer.isBuffer(slice) ? slice : JSON.stringify(slice, null, 2) });
     after?.(dir);
     return dir;
   };
@@ -2422,7 +2488,6 @@ const limitHint = (dir) => runLimits().check(openRepo(dir));
 const ruleHint = (dir) => narrowRules().check(openRepo(dir));
 const sandboxHint = (dir) => strictSandbox().check(openRepo(dir));
 const sliceHint = (dir) => sliceRun().check(openRepo(dir));
-const cappedHint = (dir) => cappedRun().check(openRepo(dir));
 // The first four items, which read the committed runner and bounds, from
 // one run of it.
 const committedHints = (dir) => {
@@ -2430,11 +2495,11 @@ const committedHints = (dir) => {
   return [boundedScript(), runLimits(), narrowRules(), strictSandbox()].map((item) => item.check(opened));
 };
 
-test('a-7 passes for the lesson\'s runner and bounds, committed, and a slice and a capped run saved', () => {
+test('a-7 passes for the lesson\'s runner and bounds, committed, and a slice run saved', () => {
   withRepo(boundedRepo(), (dir) => {
     const { code, out } = a7(dir);
     assert.equal(code, 0, out);
-    assert.match(out, /6 of 6 passed/);
+    assert.match(out, /5 of 5 passed/);
   });
 });
 
@@ -2452,7 +2517,7 @@ test('a-7 says to write the runner, commit it or make it executable', () => {
     const { code, out } = a7(dir);
     assert.equal(code, 1, out);
     assert.match(out, /isn't executable\. Run `chmod \+x scripts\/bounded-run\.sh`, then `git add scripts\/bounded-run\.sh` and commit\. On Windows, run `git update-index --chmod=\+x scripts\/bounded-run\.sh`/);
-    assert.match(out, /5 of 6 passed/);
+    assert.match(out, /4 of 5 passed/);
   });
 });
 
@@ -2799,26 +2864,6 @@ test('a-7 reads the saved slice, and says what is wrong with it', () => {
   });
 });
 
-test('a-7 reads the saved capped run, and wants it stopped by a limit', () => {
-  const stream = [{ type: 'system', subtype: 'init', session_id: SESSION }, { ...CAPPED_RUN, subtype: 'error_max_turns', total_cost_usd: 0.01 }].map((m) => JSON.stringify(m)).join('\n');
-  for (const capped of [CAPPED_RUN, { ...CAPPED_RUN, subtype: 'error_max_turns' }, `${stream}\n`]) {
-    withRepo(boundedRepo({ capped }), (dir) => {
-      assert.equal(cappedHint(dir), true);
-    });
-  }
-  for (const [capped, hint] of [
-    [null, /^There is no `\.practice\/a-7-capped\.json` yet: run the lesson's step that gives a run a limit too small to finish, which saves its JSON there\.$/],
-    ['Error: Reached max turns (1)\n', /`\.practice\/a-7-capped\.json` isn't JSON\./],
-    [{ ...CAPPED_RUN, session_id: STUB_SESSION }, /holds the check's stand-in reply, not a real run/],
-    [{ ...CAPPED_RUN, subtype: 'success', is_error: false }, /The run in `\.practice\/a-7-capped\.json` finished \(`success`\), so no limit stopped it\. Give it a limit too small for the task, such as `--max-budget-usd 0\.01`, as the lesson's step 4 does\. Then run the lesson's step that stops a run at a limit again\./],
-    [{ ...CAPPED_RUN, subtype: 'error_during_execution' }, /ended with `error_during_execution`, not at a limit \(`error_max_turns` or `error_max_budget_usd`\)/],
-  ]) {
-    withRepo(boundedRepo({ capped }), (dir) => {
-      assert.match(String(cappedHint(dir)), hint, JSON.stringify(capped));
-    });
-  }
-});
-
 test('the script reader finds each claude call as the shell would pass it', () => {
   const text = [
     '#!/bin/bash',
@@ -2859,7 +2904,7 @@ test('the stand-in records the folder each call ran in, and maps a path argument
 });
 
 test('a-7 fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
-  withRepo(boundedRepo({ script: null, bounds: null, slice: null, capped: null }), (dir) => {
+  withRepo(boundedRepo({ script: null, bounds: null, slice: null }), (dir) => {
     const { code, out } = check(['a-7', '--assert', 'fail', '--dir', dir]);
     assert.equal(code, 0, out);
   });
@@ -2947,8 +2992,11 @@ function reviewWith(...pairs) {
   }, CLAUDE_REVIEW);
 }
 
+// The capstone's review script also caps spend, as lesson 7's runs do.
+const CAPSTONE_SCRIPT = withFlags(`${FLAGS} --max-budget-usd 0.50`);
+
 function capstoneRepo({
-  gitignore = IGNORE, files = {}, script = REVIEW, settings = TEAM_SETTINGS, workflow = FILE_REVIEW, ci = CLAUDE_REVIEW,
+  gitignore = IGNORE, files = {}, script = CAPSTONE_SCRIPT, settings = TEAM_SETTINGS, workflow = FILE_REVIEW, ci = CLAUDE_REVIEW,
   teardown = false, merge = 'no-ff', listing = (text) => text, run = REAL_RUN, after,
 } = {}) {
   return () => {
@@ -3007,7 +3055,7 @@ test('the Advanced capstone passes for everything the brief asks for, committed,
   withRepo(capstoneRepo(), (dir) => {
     const { code, out } = aCapstone(dir);
     assert.equal(code, 0, out);
-    assert.match(out, /13 of 13 passed/);
+    assert.match(out, /14 of 14 passed/);
   });
 });
 
@@ -3027,9 +3075,34 @@ test('the Advanced capstone reads its own saved files, not the ones the lessons 
   withRepo(capstoneRepo({ after: lessonPaths }), (dir) => {
     const { code, out } = aCapstone(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /11 of 13 passed/);
+    assert.match(out, /11 of 14 passed/);
     assert.match(out, /run `git worktree list --porcelain > \.practice\/a-capstone-worktrees\.txt` from your main checkout/);
     assert.match(out, /stage a change and run `scripts\/review-staged\.sh \.practice\/a-capstone-run\.json`, which saves the JSON there/);
+  });
+});
+
+test('the Advanced capstone wants the review script to cap spend, as lesson 7 does, and the saved run to cost less than the cap', () => {
+  const SPEND = /caps spend with `--max-budget-usd`/;
+  withRepo(capstoneRepo({ script: REVIEW }), (dir) => {
+    assert.match(String(capstoneHint(dir, SPEND)), /sets no spend cap\. Add `--max-budget-usd`/);
+  });
+  withRepo(capstoneRepo({ script: withFlags(`${FLAGS} --max-budget-usd "$BUDGET"`) }), (dir) => {
+    assert.match(String(capstoneHint(dir, SPEND)), /gets its amount from a variable the check can't work out/);
+  });
+  withRepo(capstoneRepo({ script: withFlags(`${FLAGS} --max-budget-usd 0`) }), (dir) => {
+    assert.match(String(capstoneHint(dir, SPEND)), /`--max-budget-usd 0` isn't an amount above 0/);
+  });
+  withRepo(capstoneRepo({ run: { ...REAL_RUN, total_cost_usd: 0.5 } }), (dir) => {
+    assert.match(String(capstoneHint(dir, SPEND)), /cost an estimated \$0\.5 \(`total_cost_usd`\), and your spend cap, `--max-budget-usd 0\.50`, isn't above it/);
+  });
+  withRepo(capstoneRepo({ run: { ...REAL_RUN, subtype: 'error_max_budget_usd', is_error: true } }), (dir) => {
+    assert.match(String(capstoneHint(dir, SPEND)), /stopped at your spend cap \(`error_max_budget_usd`\)/);
+  });
+  withRepo(capstoneRepo({ run: (({ total_cost_usd, ...rest }) => rest)(REAL_RUN) }), (dir) => {
+    assert.match(String(capstoneHint(dir, SPEND)), /has no cost estimate in `total_cost_usd`/);
+  });
+  withRepo(capstoneRepo(), (dir) => {
+    assert.equal(capstoneHint(dir, SPEND), true);
   });
 });
 
@@ -3061,7 +3134,7 @@ test('the Advanced capstone wants a saved workflow that starts subagents, and do
     assert.match(String(capstoneHint(dir, /\.claude\/workflows\//)), /`\.claude\/workflows\/file-review\.js` never calls `agent\(\)`, so it starts no subagent\./);
   });
   // Lesson 3's workflow, which also reads args, passes too.
-  withRepo(capstoneRepo({ workflow: TODO_CHECK }), (dir) => {
+  withRepo(capstoneRepo({ workflow: MIGRATE }), (dir) => {
     assert.equal(capstoneHint(dir, /\.claude\/workflows\//), true);
   });
   withRepo(capstoneRepo({ workflow: null }), (dir) => {
