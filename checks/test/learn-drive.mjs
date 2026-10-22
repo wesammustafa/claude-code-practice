@@ -24,6 +24,9 @@ export const course = liveCourse.map((l) => {
 // The course with b-4's /exit warm-up (R2) holding no hint of its own, so a
 // wrong answer it doesn't list gets the app's own line (ticket 187).
 export const bareExit = course.map((l) => (l.id === 'b-4' ? { ...l, content: parseLesson(readFileSync(join(root, 'checks/test/fixtures/reducer-course/b-4.md'), 'utf8').replace('- hint: "End the session with `/exit`."\n', ''), 'fixture/b-4.md') } : l));
+// The folder a learner gives for a lesson that runs in a new copy of the
+// template.
+export const NEW_COPY = '/home/sam/claude-actions-practice';
 export const FACTS = { root: '/home/sam/claude-code-practice', name: 'Sam', gitError: null, practiceDir: true, codespace: false, win32: false };
 
 // The b-1 item's real result for a version.txt holding `text` (null: no file).
@@ -344,6 +347,17 @@ const readsRight = (v) => (v.kind === 'json' ? jsonFor(v.key, v.value) : v.kind 
 export function playUntil(d, stop) {
   for (let i = 0; i < 2_000 && !stop(d.state); i++) {
     const s = d.state;
+    // A lesson that runs in a new copy (a-5) asks for its folder: the
+    // learner gives one, and main finds a git repository there.
+    if (s.overlay === 'folder') {
+      const a = s.folderAsk;
+      if (a.asked) d.send({ type: 'probed', key: a.key, asked: a.asked, path: NEW_COPY, missing: false, git: true, practice: true });
+      else {
+        d.send({ type: 'paste', text: NEW_COPY });
+        d.key('enter');
+      }
+      continue;
+    }
     if (s.view !== 'step') {
       d.key('enter');
       continue;

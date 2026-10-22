@@ -1808,12 +1808,12 @@ test('a-5 reads the saved runs, and says what is wrong with them', () => {
   }
   const SAVE = '`gh run list --workflow linkcheck-report\\.yml --json databaseId,status,conclusion,event,headSha,url,workflowName > \\.practice\\/a-5-runs\\.json`';
   for (const [runs, hint] of [
-    [null, new RegExp(`^There is no \`\\.practice/a-5-runs\\.json\` yet\\. Start the workflow with \`gh workflow run linkcheck-report\\.yml\`, wait for it to finish, then save the list: ${SAVE}\\.$`)],
+    [null, new RegExp(`^There is no \`\\.practice/a-5-runs\\.json\` yet\\. Once your run finishes, save the list: ${SAVE}\\.$`)],
     ['completed  success  Link check report\n', /`\.practice\/a-5-runs\.json` isn't JSON\. Save the list with `--json`, unchanged:/],
     [[], /`\.practice\/a-5-runs\.json` lists no runs\. Start the workflow with `gh workflow run linkcheck-report\.yml`/],
     [[{ name: 'Link check report' }], /doesn't hold the fields the check reads\. Save the list with them:/],
-    [(sha) => [runOf(sha, { status: 'in_progress', conclusion: '' })], /Run 123456789 hasn't finished: its `status` is `in_progress`\. Wait for it with `gh run watch 123456789`, then save the list again:/],
-    [(sha) => [runOf(sha, { conclusion: 'failure' })], /Run 123456789 ended with `failure`\. See why with `gh run view 123456789 --log-failed`, fix the workflow, commit and push it, run it again with `gh workflow run linkcheck-report\.yml`, then save the list again:/],
+    [(sha) => [runOf(sha, { status: 'in_progress', conclusion: '' })], /Run 123456789 hasn't finished: its `status` is `in_progress`\. Wait for it with `gh run watch 123456789`, then save the list again\.$/],
+    [(sha) => [runOf(sha, { conclusion: 'failure' })], /Run 123456789 ended with `failure`\. See why with `gh run view 123456789 --log-failed`, fix the workflow, commit and push it, run it again with `gh workflow run linkcheck-report\.yml`, then save the list again\.$/],
     [(sha) => [runOf(sha, { conclusion: 'cancelled' })], /Run 123456789 ended with `cancelled`\. Run the workflow again with `gh workflow run linkcheck-report\.yml`/],
     [(sha) => [runOf(sha, { event: 'issues' }), runOf(sha, { event: 'issue_comment' })], /`\.practice\/a-5-runs\.json` lists only runs that `@claude` started \(`issues` and `issue_comment`\)\. Start your workflow by hand with `gh workflow run linkcheck-report\.yml`/],
     [(sha) => [runOf(sha, { event: 'push' })], /lists no run started by hand \(`workflow_dispatch`\), only `push`\./],

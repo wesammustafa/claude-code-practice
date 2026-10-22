@@ -1394,7 +1394,8 @@ export function cardMood(s) {
 // is `opening`, or for r on the check-only card: a child that started
 // before the status became `opening`, or before r, is not this run, and a
 // file read starts none.
-const CHILD = ['check', ...GIT];
+// A git probe runs in the check child too (ticket 105).
+const CHILD = ['check', 'probe', ...GIT];
 const checkingChild = (s) => (s.view === 'step' && s.beat?.status === 'opening' && CHILD.includes(beatOf(s).verify.kind))
   || (s.view === 'checkonly' && s.checkOnlyRun?.lesson === s.lesson);
 export const childSince = (s) => (checkingChild(s) && s.fx.run >= s.fx.check ? s.fx.run : undefined);

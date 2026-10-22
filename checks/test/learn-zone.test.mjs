@@ -9,7 +9,7 @@ import { render } from '../../learn/lib/render.mjs';
 import { strip } from '../../learn/lib/text.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
 import { ruleTiers, TIERS } from '../../learn/lib/tiers.mjs';
-import { course, driver, failCheck, playUntil } from './learn-drive.mjs';
+import { course, driver, failCheck, NEW_COPY, playUntil } from './learn-drive.mjs';
 
 const contents = course.map((l) => l.content);
 const rank = (t) => TIERS.indexOf(t);
@@ -64,18 +64,23 @@ function exactCommand(d) {
 }
 
 // The learners. Each starts afresh and calls `look` after every event.
-// The end of the last lesson with a lesson file.
+// The end of the last lesson with a lesson file, or the map, where a play
+// that has no next lesson to open goes: a lesson with no lesson file before
+// it ends the play there.
 const last = course.filter((l) => l.content).at(-1).id;
-const finale = (s) => s.lesson === last && s.view === 'complete';
+const finale = (s) => (s.lesson === last && s.view === 'complete') || s.view === 'map';
+// A learner who plays every lesson in order: one that runs in a new copy
+// (a-5) has its folder, as the learner gives it at its intro.
+const inOrderDriver = () => driver({ course, saved: { format: 1, folders: Object.fromEntries(course.filter((l) => l.newCopy).map((l) => [l.id, NEW_COPY])) } });
 // Every lesson in order, needing no help.
 function inOrder(look) {
-  playUntil(watched(driver({ course }), look), finale);
+  playUntil(watched(inOrderDriver(), look), finale);
 }
 // Every lesson in order, climbing to the exact command on every beat of a
 // step that isn't GUIDED. Returns the steps where it was shown.
 function exactEverywhere(look) {
   const taken = [];
-  play(watched(driver({ course }), look), finale, (d) => {
+  play(watched(inOrderDriver(), look), finale, (d) => {
     if (tierOf(d.state) !== 'guided' && exactCommand(d)) taken.push(where(d.state));
   });
   return taken;
