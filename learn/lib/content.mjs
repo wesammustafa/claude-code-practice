@@ -379,11 +379,13 @@ export function parseLesson(text, file = 'lesson') {
   }
   // The app can't see a browser: its beat is the learner's word, or a
   // later beat of the step reads the local file it leaves (a git probe,
-  // ticket 105, reads only local refs too).
+  // ticket 105, reads only local refs too). That later beat shows whenever
+  // the browser beat does: it has no when line (104), or the same one.
+  const sameWhen = (a, b) => !a.when || (b.when && a.when.step === b.when.step && a.when.beat === b.when.beat && a.when.option === b.when.option);
   for (const s of lesson.steps) {
     s.beats.forEach((b, k) => {
       if (b.where !== 'browser' || b.verify.kind === 'self') return;
-      const later = s.beats.slice(k + 1).some((x) => x.verify.kind === 'check' || READS.has(x.verify.kind) || GIT.has(x.verify.kind) || x.verify.kind === 'probe');
+      const later = s.beats.slice(k + 1).some((x) => sameWhen(x, b) && (x.verify.kind === 'check' || READS.has(x.verify.kind) || GIT.has(x.verify.kind) || x.verify.kind === 'probe'));
       if (b.verify.kind !== 'none' || !later) throw new Error(`${file}:${b.line}: a browser beat verifies with self, or with none and a later beat of its step that reads a local file`);
     });
   }

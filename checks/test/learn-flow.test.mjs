@@ -2788,6 +2788,14 @@ test('a second session, the browser and long waits: the grammar (103)', () => {
   assert.doesNotThrow(() => parseLesson(WAIT_B2.replace('- where: browser\n- verify: none', '- where: browser\n- verify: self'), 'b-2.md'));
   // A later git probe (105) reads only local refs: it may verify for the browser.
   assert.doesNotThrow(() => parseLesson(WAIT_B2.replace('- verify: file .practice/run.txt\n', '- verify: probe pushed\n'), 'b-2.md'));
+  // The later beat must show whenever the browser beat does (104): not one
+  // a when line may hide, unless the browser beat has the same when.
+  const choiceFirst = (browserWhen, laterWhen) => WAIT_B2.replace('- skill: long-run\n- beat: do\n- where: browser', `- skill: long-run\n- beat: ask\n- ask: Which run?\n- option: CI\n- option: Local\n- beat: do${browserWhen}\n- where: browser`)
+    .replace('- where: claude-2\n', `- where: claude-2${laterWhen}\n`);
+  assert.throws(() => parseLesson(choiceFirst('', '\n- when: Y2.0=CI'), 'b-2.md'), /a browser beat verifies with self, or with none and a later beat/);
+  assert.throws(() => parseLesson(choiceFirst('\n- when: Y2.0=Local', '\n- when: Y2.0=CI'), 'b-2.md'), /a browser beat verifies with self, or with none and a later beat/);
+  assert.doesNotThrow(() => parseLesson(choiceFirst('\n- when: Y2.0=CI', '\n- when: Y2.0=CI'), 'b-2.md'));
+  assert.doesNotThrow(() => parseLesson(choiceFirst('\n- when: Y2.0=CI', ''), 'b-2.md'));
   // Only a do or self beat waits.
   assert.throws(() => parseLesson(DEMO_B2.replace('- because: "Usage is something else."', '- because: "Usage is something else."\n- wait: long'), 'b-2.md'), /a wait line on the ask beat/);
 });
@@ -2938,6 +2946,21 @@ test('choices: a saved place on a beat that no longer shows resumes on the one b
   assert.equal(where(d), 'Y1.2');
   const t = onChoice({ beat: 3, answers: { 'Y1.0': 'A token' } });
   assert.equal(where(t), 'Y1.3');
+});
+
+test('choices: a pick longer than the 200 characters the store keeps shows its beats before and after a restart (104)', () => {
+  const long = `An API key ${'that lives in a secret store '.repeat(8)}`.trim();
+  assert.ok(long.length > 200);
+  const text = CHOICE_B2.replaceAll('An API key', long);
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': finished(course.find((l) => l.id === 'b-1')), 'b-2': { done: ['W1'], step: 'Y1', beat: 0 } } } });
+  d.key('enter');
+  d.key('1');
+  d.key('enter');
+  d.key('space');
+  assert.equal(where(d), 'Y1.2', 'the key beat shows in this sitting');
+  const again = driver({ course: courseWith({ 'b-2': text }), saved: snapshot(d.state) });
+  again.key('enter');
+  assert.equal(where(again), 'Y1.2', 'and after a restart');
 });
 
 test('choices: a recall shows the guess it recalls, not a choice of the same step (104)', () => {
