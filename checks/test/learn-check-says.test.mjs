@@ -78,7 +78,9 @@ for (const lesson of liveCourse.filter(l => l.content)) {
               assert.ok(screen.includes(flat('The check says:')), `hint box gone: ${diagnostic}`);
               const hintBox = screen.slice(screen.indexOf(flat('The check says:')));
               assert.ok(hintBox.includes(flat(hint)), `check message cut: ${diagnostic}`);
-              assert.ok(lines.some(line => line.includes(themeForScreen.glyph.bl)), `bottom border gone: ${diagnostic}`);
+              // The hint box's own corner is ╰…╯; the card's bottom rule has no right corner.
+              const { bl, rule, br } = themeForScreen.glyph;
+              assert.ok(lines.some(line => { const l = line.trim(); return l.startsWith(bl + rule + rule) && !l.endsWith(br) && [...l.slice(1)].every(c => c === rule); }), `bottom border gone: ${diagnostic}`);
             }
           }
         });
