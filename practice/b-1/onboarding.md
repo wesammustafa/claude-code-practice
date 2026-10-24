@@ -1,6 +1,6 @@
 # Onboarding notes: linkcheck
 
-Notes from a teammate for whoever joins next. Lesson b-1 asks you to check them against the code before anyone relies on them.
+Notes from a teammate for whoever joins next.
 
 - linkcheck looks for links written `[text](target)` in Markdown files and reports each one whose target file is missing.
 - Check a folder with `npm run linkcheck -- <folder>`, for example `npm run linkcheck -- samples`.

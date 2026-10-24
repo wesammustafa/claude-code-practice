@@ -98,6 +98,8 @@ export const scenarios = [
   { item: 1, name: 'an empty tool list', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "" --max-turns 5')) },
   { item: 1, name: 'a word of the prompt in the tool list', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" review --max-turns 5')) },
   { item: 1, name: 'no number after the turn cap', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns')) },
+  { item: 1, name: 'Bash kept by --tools', setup: committed(flags(`${FLAGS} --tools "Read,Grep,Glob,Bash"`)) },
+  { item: 1, name: 'nothing after --tools', setup: committed(flags(`${FLAGS} --tools`)) },
   { item: 1, name: 'claude called by its path', setup: committed(edited([`claude -p "${PROMPT}"`, `/usr/local/bin/claude -p "${PROMPT}"`])) },
   { item: 2, name: 'the script not committed', files: { 'README.md': '# A project\n' } },
   { item: 2, name: 'Windows line ends', setup: committed(REVIEW.replace(/\n/g, '\r\n')) },

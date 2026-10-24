@@ -1,26 +1,33 @@
 // Choose an orchestration pattern (Advanced, lesson 2). The Learner picks a
 // pattern for each of five backlog items by what it needs and what it costs,
 // writes the choices to a file, and runs job 1 as parallel subagents in a
-// session started with a SubagentStart hook that logs each subagent's id and
-// type. Naming the pattern for a job of their own is self-checked.
+// session started with Intermediate lesson 6's delegation log, a
+// SubagentStart hook that logs each subagent's type. An agent team is a
+// pattern the Learner may name, and the chart's hint answers it, but no job
+// calls for one: teams are experimental. Naming the pattern for a job of
+// their own is self-checked.
 
 export const title = 'Choose an orchestration pattern';
 
 const CHOICES = '.practice/a-2-choices.md';
-const LOG = '.practice/a-2-agents.txt';
-const HOOK = '.practice/a-2-hook.json';
+// Intermediate lesson 6's hook file and the log it appends to.
+const LOG = '.practice/i-6-agents.txt';
+const HOOK = '.practice/i-6-hook.json';
+// The subagent lesson 6 delegated to, which its log already names.
+const EARLIER = 'test-gaps';
 const HOOKED = `\`claude --settings ${HOOK}\``;
 const FORMAT = '`<job number>: <pattern> because <reason>`';
-const NAMES = '`main conversation`, `subagents`, `workflow` or `agent team`';
+const NAMES = '`main conversation`, `subagents`, `workflow`, `/batch` or `agent team`';
 
 // What the text after a job number may start with, once an article goes.
 const PATTERNS = [
   ['subagents', /^(?:parallel\s+)?sub[\s-]?agents?\b/i],
   ['workflow', /^(?:dynamic\s+)?workflows?\b/i],
+  ['batch', /^\/?batch\b/i],
   ['main conversation', /^(?:main\s+(?:conversation|session)|(?:single|one)\s+(?:conversation|session))\b/i],
   ['agent team', /^agent[\s-]+teams?\b/i],
 ];
-const LABEL = { 'main conversation': 'the main conversation', subagents: 'subagents', workflow: 'a workflow', 'agent team': 'an agent team' };
+const LABEL = { 'main conversation': 'the main conversation', subagents: 'subagents', workflow: 'a workflow', batch: '`/batch`', 'agent team': 'an agent team' };
 
 // The lesson's chart: its questions in order, and the answers that lead to
 // each pattern. Where a wrong pick leaves the right path is the question that
@@ -28,24 +35,28 @@ const LABEL = { 'main conversation': 'the main conversation', subagents: 'subage
 const QUESTIONS = [
   'Can one conversation do it without filling up?',
   'Must the workers talk to each other?',
-  'Does it need many agents, cross-checked findings or a rerun?',
+  'Does it need cross-checked findings or a rerun?',
+  'Is it one large change that splits into independent units?',
 ];
 const PATH = {
   'main conversation': [true],
   'agent team': [false, true],
-  subagents: [false, false, false],
   workflow: [false, false, true],
+  batch: [false, false, false, true],
+  subagents: [false, false, false, false],
 };
 
 // The five jobs in the lesson's Your turn, and the answer to each question on
 // the way to the pattern that fits. Jobs 3 and 4 are near misses: a large
 // change that still belongs in one conversation, and investigators who only
-// report back, against job 5's investigators who must argue it out.
+// report back, against job 5's large change whose units each land on their
+// own.
 const JOBS = {
   1: { pattern: 'subagents', why: [
     'No: reading the three largest files in your conversation would crowd it, and you only need the suspects.',
     'No: each reviewer checks its own file and reports what it found.',
     'No: three files, checked once, with no step that confirms the findings.',
+    'No: nothing changes yet; the reviewers only report.',
   ] },
   2: { pattern: 'workflow', why: [
     'No: it covers the whole codebase.',
@@ -53,16 +64,19 @@ const JOBS = {
     'Yes: it covers the whole codebase, confirms each finding before it is listed and runs again for every release, so a script should hold the plan.',
   ] },
   3: { pattern: 'main conversation', why: [
-    'Yes: each call site is a short read, and the plan, the edits and the build share one context that must stay consistent. Each step past one conversation costs more.',
+    'Yes: each call site is a short read, and the rename must land as one change that keeps the build green.',
   ] },
   4: { pattern: 'subagents', why: [
     'No: three investigations, each reading code and rerunning the test, would crowd your conversation, and you only need what each found.',
     'No: each investigator checks one suspect and reports to you, and you weigh the results.',
     'No: three checks, done once, and you judge the results yourself.',
+    'No: the checks change no code; they bring back what they found.',
   ] },
-  5: { pattern: 'agent team', why: [
-    'No: three investigators work at the same time, each on a suspect of its own.',
-    "Yes: the investigators must knock down each other's explanations while they work, and an agent team's teammates message each other directly.",
+  5: { pattern: 'batch', why: [
+    'No: every package\'s change would pass through one conversation.',
+    'No: each package is moved on its own.',
+    'No: it runs once, and each package\'s own tests confirm its change.',
+    'Yes: one large change that splits into packages, each built, tested and landed on its own, one worktree each.',
   ] },
 };
 const NUMBERS = Object.keys(JOBS).map(Number);
@@ -100,9 +114,11 @@ function wrongPick(n, chosen) {
   return `Job ${n} doesn't call for ${LABEL[chosen]}. ${QUESTIONS[at]} ${why[at]} It calls for ${LABEL[pattern]}.`;
 }
 
-// Subagent starts in the hook's log, one per line: `agent_id<TAB>agent_type`.
-// A resumed subagent logs its id again, so each id counts once. A line with no
-// id, from a hook that logs only the type, counts as a start of its own.
+// Subagent starts in lesson 6's log, one per line: the hook writes each
+// subagent's type (`agent_type`). A line that names lesson 6's own subagent
+// came from that lesson, so job 1's starts are the other lines. A hook that
+// also logs an id, `agent_id<TAB>agent_type`, counts each id once, as a
+// resumed subagent logs its id again.
 export function startedAgents(text) {
   const ids = new Map();
   let unnamed = 0;
@@ -110,6 +126,8 @@ export function startedAgents(text) {
     if (!line.trim()) continue;
     const tab = line.indexOf('\t');
     const id = tab === -1 ? '' : line.slice(0, tab).trim();
+    const type = (tab === -1 ? line : line.slice(tab + 1)).trim();
+    if (type === EARLIER) continue;
     if (id) ids.set(id, (ids.get(id) ?? 0) + 1);
     else unnamed += 1;
   }
@@ -121,9 +139,9 @@ export const fittingPatterns = {
   local: true,
   check(repo) {
     const text = repo.read(CHOICES);
-    if (text === null) return `There is no \`${CHOICES}\`. Save your choices there, one line per job in the form ${FORMAT}, where each pattern is ${NAMES}.`;
+    if (text === null) return `There is no \`${CHOICES}\`. Write one line per job there, ${FORMAT}, where each pattern is ${NAMES}.`;
     const jobs = readChoices(text);
-    if ([...jobs.values()].every((lines) => !lines.length)) return `\`${CHOICES}\` has no line that starts with a job number. Write one line per job in the form ${FORMAT}, where each pattern is ${NAMES}.`;
+    if ([...jobs.values()].every((lines) => !lines.length)) return `\`${CHOICES}\` has no line that starts with a job number. Write one line per job, ${FORMAT}, where each pattern is ${NAMES}.`;
     const missing = [...jobs].filter(([, lines]) => !lines.length).map(([n]) => n);
     const problems = missing.length ? [`\`${CHOICES}\` has no line for job${missing.length > 1 ? 's' : ''} ${and(missing)}. Add one per job in the form ${FORMAT}.`] : [];
     for (const [n, lines] of jobs) {
@@ -131,7 +149,7 @@ export const fittingPatterns = {
       const picked = [...new Set(lines.map((l) => l.pattern).filter(Boolean))];
       if (!picked.length) {
         const { start } = lines[0];
-        problems.push(start ? `Job ${n}'s line starts with "${start}", which isn't one of the four patterns. Right after the job number, write ${NAMES}.` : `Job ${n}'s line names no pattern. Right after the job number, write ${NAMES}.`);
+        problems.push(start ? `Job ${n}'s line starts with "${start}", which isn't one of the patterns. Right after the job number, write ${NAMES}.` : `Job ${n}'s line names no pattern. Right after the job number, write ${NAMES}.`);
       } else if (picked.length > 1) {
         problems.push(`Job ${n} has lines that pick different patterns: ${and(picked.map((p) => LABEL[p]))}. Keep one line per job.`);
       } else if (picked[0] !== JOBS[n].pattern) {
@@ -143,21 +161,20 @@ export const fittingPatterns = {
 };
 
 export const parallelSubagents = {
-  text: `\`${LOG}\` shows at least two subagents starting for job 1`,
+  text: `\`${LOG}\` shows at least two subagents other than \`${EARLIER}\` starting for job 1`,
   local: true,
   check(repo) {
     const text = repo.read(LOG);
     if (text === null) {
       return repo.exists(HOOK)
         ? `There is no \`${LOG}\`. Start the session with ${HOOKED}, then run job 1.`
-        : `There is no \`${LOG}\`. Save the hook file from the lesson's Your turn as \`${HOOK}\`, start the session with ${HOOKED}, then run job 1.`;
+        : `There is no \`${LOG}\`. Save Intermediate lesson 6's hook file as \`${HOOK}\`, then run job 1 in a session started with ${HOOKED}.`;
     }
-    const { ids, count } = startedAgents(text);
+    const { count } = startedAgents(text);
     if (count >= 2) return true;
-    if (count === 0) return `\`${LOG}\` is empty. The hook's command creates the file before \`jq\` runs, so check that \`jq --version\` works, then run job 1 again in a session started with ${HOOKED}.`;
-    const [[id, times] = []] = ids;
-    const seen = times > 1 ? ` It shows one subagent, \`${id}\`, starting ${times} times: a subagent that Claude resumes logs its id again, so it counts once.` : ' It shows one subagent starting.';
-    return `\`${LOG}\` needs at least two subagents.${seen} In a session started with ${HOOKED}, ask for one subagent per file, in parallel.`;
+    if (!text.trim()) return `\`${LOG}\` is empty. The hook's command creates the file before \`jq\` runs, so check that \`jq --version\` works, then run job 1 again in a session started with ${HOOKED}.`;
+    const seen = count === 1 ? 'one subagent starting' : `only lesson 6's \`${EARLIER}\``;
+    return `\`${LOG}\` shows ${seen}, and job 1 needs at least two subagents. In a session started with ${HOOKED}, ask for one per file, in parallel.`;
   },
 };
 

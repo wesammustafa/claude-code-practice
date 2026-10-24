@@ -50,9 +50,9 @@ const flat = (text) => text.replaceAll('`', '').replace(/\s+/g, ' ');
 // The guide's pages and the time each page's header line gives.
 const PAGES = [
   ['b-1', 'beginner', '01-install-and-look-around', 'about 20 minutes'],
-  ['b-2', 'beginner', '02-permission-modes-and-plan-mode', 'about 20 minutes'],
+  ['b-2', 'beginner', '02-permission-modes-and-plan-mode', 'about 25 minutes'],
   ['b-3', 'beginner', '03-first-change', 'about 20 minutes'],
-  ['b-4', 'beginner', '04-keep-a-session-on-track', 'about 20 minutes'],
+  ['b-4', 'beginner', '04-keep-a-session-on-track', 'about 25 minutes'],
   ['b-5', 'beginner', '05-project-memory', 'about 20 minutes'],
   ['b-capstone', 'beginner', 'capstone', '30 to 60 minutes'],
   ['i-1', 'intermediate', '01-first-skill', 'about 20 minutes'],
@@ -71,7 +71,7 @@ const PAGES = [
   ['a-5', 'advanced', '05-github-actions', 'about 20 minutes, plus run time'],
   ['a-6', 'advanced', '06-share-your-setup', 'about 20 minutes'],
   ['a-7', 'advanced', '07-bounded-runs', 'about 20 minutes, plus run time'],
-  ['a-capstone', 'advanced', 'capstone', '30 to 60 minutes, plus run time'],
+  ['a-capstone', 'advanced', 'capstone', '60 to 90 minutes, plus run time'],
 ];
 
 test('PATH lists all 23 lessons in course order, each with its page, its level and the minutes its page\'s header line gives', () => {

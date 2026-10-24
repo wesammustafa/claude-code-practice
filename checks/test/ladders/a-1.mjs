@@ -21,7 +21,7 @@ const ignored = (rules) => (dir, { write, commit }) => {
 // worktrees where `claude --worktree` makes them, a commit in each, the
 // listing saved (`saveBefore` saves it before the commits; `listing`
 // rewrites it, or drops it by returning null), both branches merged
-// (`merge: 'one'` merges only the first, `'squash'` squashes both) and the
+// (`merge: 'one'` merges only the first, `'none'` neither) and the
 // worktrees removed, except those in `keep`, `lock` and `prune`.
 const parallel = ({ saveBefore = false, merge = 'each', keep = [], lock = [], prune = [], listing = (text) => text } = {}) => (dir, { write, commit }) => {
   write(dir, { '.gitignore': '.claude/worktrees/\n', 'README.md': '# A project\n' });
@@ -43,11 +43,6 @@ const parallel = ({ saveBefore = false, merge = 'each', keep = [], lock = [], pr
     git(dir, 'merge', '-q', '--no-ff', '--no-edit', second);
   } else if (merge === 'one') {
     git(dir, 'merge', '-q', '--ff-only', first);
-  } else if (merge === 'squash') {
-    for (const b of [first, second]) {
-      git(dir, 'merge', '-q', '--squash', b);
-      git(dir, 'commit', '-q', '-m', `Squash ${b}`);
-    }
   }
   for (const name of lock) git(dir, 'worktree', 'lock', under(name));
   for (const name of prune) rmSync(join(dir, under(name)), { recursive: true, force: true });
@@ -78,7 +73,7 @@ export const scenarios = [
   { item: 1, name: 'a listing that names commits this repository lacks', setup: parallel({ listing: foreign }) },
   { item: 1, name: 'a listing saved before both sessions committed', setup: parallel({ saveBefore: true }) },
   { item: 1, name: 'one branch not merged', setup: parallel({ merge: 'one' }) },
-  { item: 1, name: 'both branches squashed', setup: parallel({ merge: 'squash' }) },
+  { item: 1, name: 'neither branch merged', setup: parallel({ merge: 'none' }) },
   { item: 2, name: 'no listing saved', setup: parallel({ listing: () => null }) },
   { item: 2, name: 'an empty listing', setup: parallel({ listing: () => '\n' }) },
   { item: 2, name: 'a listing with only the main checkout', setup: parallel({ listing: mainOnly }) },

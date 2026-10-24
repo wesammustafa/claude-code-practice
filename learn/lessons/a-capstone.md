@@ -12,20 +12,20 @@ needs: [jq gh]
 ---
 
 ## intro
-- minutes: "30 to 60 minutes, plus run time"
-- why: "This task puts the whole Advanced level together"
+- minutes: "60 to 90 minutes, plus run time"
+- why: "one review for every pull request"
 - can: "add CI review your team can share"
-- can: "Two sessions at once"
-- can: "A review script"
-- can: "The team's plugin"
-- can: "A saved dynamic workflow"
+- can: "Two parts at once"
+- can: "One review, everywhere"
+- can: "Our plugin, for everyone"
+- can: "A sweep before a release"
 - can: "CI review with limits"
 - payoff: "add CI review your team can share"
 - need: "Node.js LTS, git, `jq`, and the GitHub CLI signed in with `gh auth login`."
 
 ## steps
 
-### T1 | The task step 1 of 5 | Two sessions at once
+### T1 | The task step 1 of 5 | Two parts at once
 - tier: challenge
 - skill: worktree
 - where: terminal
@@ -33,47 +33,39 @@ needs: [jq gh]
 - skill: push
 - verify: check 0
 - watching: git show HEAD:.gitignore
-- goal: "Ignore `.claude/worktrees/` in the committed `.gitignore`"
-- hint: "and push `main`: new worktrees branch from the remote's default branch"
+- goal: "Keep those working copies out of git."
+- hint: "New worktrees branch from the remote's default branch, so push `main` first"
 - beat: do
 - where: claude-2
-- verify: probe worktrees 2
-- goal: "start `claude --worktree <name>` twice, with a different name each time"
-- note: "one session builds part 2, the other part 3, and each commits on its own branch."
+- verify: self
+- done-label: both sessions are building
+- goal: "build them at the same time, in two Claude Code sessions that can't touch each other's files"
 - hint: "In a folder you haven't trusted, `claude --worktree` exits with an error"
-- hint: "`scripts/review-staged.sh`, to lesson 4's criteria."
-- hint: "a marketplace in `team-marketplace/` that lists one plugin by a relative path"
-- bottom: "claude --worktree <name>"
+- bottom: "claude --worktree"
 - beat: do
 - where: shell
 - skill: merge
 - verify: check 1
 - watching: .practice/a-capstone-worktrees.txt
-- hint: "save their state from the main checkout"
-- hint: "Once both have committed, and while both worktrees exist"
-- hint: "Then merge both branches into `main` with `git merge`, not `git merge --squash`"
+- hint: "Once both sessions have committed, and while both working copies exist, save their state from the main checkout"
+- hint: "land both changes on `main`, by merge, rebase or squash"
 - bottom: "mkdir -p .practice && git worktree list --porcelain > .practice/a-capstone-worktrees.txt"
-- beat: do
-- where: shell
-- skill: remove-worktree
-- verify: self
-- done-label: both are removed
-- goal: "remove both worktrees"
-- hint: "Then merge both branches into `main` with `git merge`, not `git merge --squash`, and remove both worktrees."
 
-### T2 | The task step 2 of 5 | A review script
+### T2 | The task step 2 of 5 | One review, everywhere
 - tier: challenge
 - skill: headless-script
 - where: terminal
 - beat: do
 - verify: check 3
 - watching: scripts/review-staged.sh
-- goal: "`scripts/review-staged.sh`"
-- hint: "`scripts/review-staged.sh`, to lesson 4's criteria."
+- say: Write the review skill, then the script that runs it.
+- hint: "Write the team's review once, as a skill committed in `.claude/skills/<name>/SKILL.md`, and run it in both places."
+- hint: "Pick a name of your own, such as `team-review`: `/review` is already an alias of the bundled `/code-review`"
+- hint: "Write the skill's instructions so they work in both places."
 - beat: do
 - verify: check 4 5
 - watching: scripts/review-staged.sh
-- hint: "It pipes the staged diff into one `claude -p` call with JSON output and `dontAsk` mode"
+- hint: "it pipes the staged diff into one `claude -p` call whose prompt runs your skill"
 - hint: "pre-approves only `Read`, `Grep` and `Glob`, and caps turns at 10 or fewer"
 - beat: do
 - verify: check 13
@@ -98,7 +90,6 @@ needs: [jq gh]
 - verify: check 9
 - watching: git ls-files team-marketplace
 - hint: "a marketplace in `team-marketplace/` that lists one plugin by a relative path"
-- hint: "with the plugin in its own folder under `team-marketplace/`"
 - hint: "at least one skill or agent in the plugin"
 - hint: "The kit is a good start"
 - beat: do
@@ -113,9 +104,10 @@ needs: [jq gh]
 - verify: self
 - done-label: both pass
 - goal: "Both validations pass: `claude plugin validate` on the marketplace, and on the plugin directory with `--strict`"
-- hint: "Test the plugin only after the merges: a relative path resolves against the repository's main checkout, even from a worktree"
+- note: "The plugin reaches every teammate who trusts the repository, but not CI, where a fresh checkout was never trusted"
+- hint: "Test the plugin only after the merges."
 
-### T4 | The task step 4 of 5 | A saved dynamic workflow
+### T4 | The task step 4 of 5 | A sweep before a release
 - tier: challenge
 - skill: save-workflow
 - where: claude
@@ -129,14 +121,13 @@ needs: [jq gh]
 - hint: "ask for a workflow that reviews each file under `src/` and has a second agent check each finding."
 - beat: do
 - verify: match .claude/workflows/*.js ^export const meta fresh
-- goal: "Save it to the project"
-- hint: "a project save writes to the closest `.claude/workflows/` folder that already exists between the session's working directory and the repository root, or, if none exists yet, to `.claude/workflows/` at the repository root"
+- goal: "Save it to the project and commit it"
+- hint: "Save it to the project and commit it"
 - beat: do
 - where: terminal
 - verify: check 2
 - watching: git ls-files .claude/workflows
-- goal: "Commit it."
-- hint: "Save it to the project"
+- hint: "Save it to the project and commit it"
 
 ### T5 | The task step 5 of 5 | CI review with limits
 - tier: challenge
@@ -144,9 +135,11 @@ needs: [jq gh]
 - where: editor
 - beat: do
 - verify: match .github/workflows/claude-review.yml anthropics/claude-code-action@
-- goal: "`.github/workflows/claude-review.yml` runs on `pull_request`"
-- hint: "Hold it to lesson 5's limits"
-- hint: "Commit the workflow to `main` and push."
+- say: Write the CI review workflow, then commit it.
+- hint: "`.github/workflows/claude-review.yml` runs on `pull_request`"
+- hint: "Hold it to lesson 5's limits, and one more"
+- hint: "a `concurrency` group for the pull request with `cancel-in-progress: true`, so a new push cancels the review still running for an older one"
+- hint: "uses `anthropics/claude-code-action` (Anthropic) with your skill, `/<name>`, as its `prompt`"
 - beat: ask
 - where: terminal
 - ask: Which credential do you use for CI?
@@ -182,7 +175,7 @@ needs: [jq gh]
 - skill: pick-pattern
 - done-label: yes, I can
 - note: "The check doesn't look at these parts of the Advanced Exit. Tick them yourself, honestly"
-- self: "My CI review and my saved workflow both review code, and I can say which one I'd run on every pull request and which I'd keep for a sweep before a release, and why, by what each costs and how deep it goes."
+- self: "I can say which review I'd run on every pull request (Code Review, `/code-review` or my CI workflow) and which I'd keep for a sweep before a release (my saved workflow), and why, by what each costs and how deep it goes"
 - beat: self
 - skill: limit-run
 - done-label: yes, I can
@@ -194,7 +187,7 @@ needs: [jq gh]
 - beat: self
 - skill: check-cost
 - done-label: yes, I did
-- self: "Before I turned CI on, I multiplied the local run's `total_cost_usd` by the pull requests my team opens in a week, to estimate what CI review spends, and I saw in `/workflows` how many tokens the per-file review used."
+- self: "Before I turned CI on, I multiplied the local run's `total_cost_usd` by the pull requests my team opens in a week, to estimate what CI review spends, and I know a new push cancels the review still running."
 - after: "When every box on this page is ticked, you've shown the Advanced Exit and finished the last of the guide's three levels. One step remains: the teardown below."
 
 ### D1 | Tear down step 1 of 3 | Delete the review workflow
@@ -243,7 +236,7 @@ needs: [jq gh]
 - beat: do
 - when: T5.1=a token from `claude setup-token`
 - verify: none
-- note: "On 2026-10-09, a token from `claude setup-token` is valid for one year ([Authentication](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)), and deleting the secret doesn't revoke it."
+- note: "On 2026-10-24, a token from `claude setup-token` is valid for one year ([Authentication](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)), and deleting the secret doesn't revoke it."
 - hint: "deleting the secret doesn't revoke it"
 - beat: do
 - verify: check 8
@@ -254,42 +247,43 @@ needs: [jq gh]
 
 ## ladder
 
-### a committed `.gitignore` ignores `.claude/worktrees/` and not the rest of `.claude/`
-- narrow "from being ignored": Does a line that starts with ! in the ignore file keep the worktrees folder from being ignored?
+### a committed `.gitignore` keeps the worktrees `.practice/a-capstone-worktrees.txt` lists inside the repository out of git, and not the rest of `.claude/`
+- narrow "from being ignored": Does a line that starts with ! in the ignore file keep the worktrees' folder from being ignored?
 - narrow "Only `.git/info/exclude` ignores": Is the rule only in the local exclude file, which git never commits?
 - narrow "but that rule isn't committed": Is the ignore file's change committed yet?
-- narrow "No committed `.gitignore` ignores": Does the committed ignore file have a line for the worktrees folder?
-- narrow "also ignores `.claude/settings.json`": Does your rule cover all of .claude, and not only the worktrees folder?
-- hint: "Ignore `.claude/worktrees/` in the committed `.gitignore`, and push `main`: new worktrees branch from the remote's default branch"
+- narrow "No committed `.gitignore` ignores": Does the committed ignore file have a line for the worktrees' folder?
+- narrow "also ignores `.claude/settings.json`": Does your rule cover all of .claude, and not only the worktrees' folder?
+- hint: "Keep those working copies out of git."
 
-### `.practice/a-capstone-worktrees.txt` lists two worktrees under `.claude/worktrees/` whose commits split from each other, and both are merged into your branch
+### `.practice/a-capstone-worktrees.txt` lists two worktrees of this repository whose commits split from each other, and both changes are in your branch
 - narrow "While both worktree sessions exist": Did you save the listing from the main checkout while both worktrees existed?
 - narrow "isn't a listing from": Does the saved file hold what the porcelain listing printed, unchanged?
-- narrow "Start each session with": Did both sessions start with the worktree flag, so their worktrees sit under .claude/worktrees?
+- narrow "besides the main checkout": Did each session get a worktree of its own before you saved the listing?
 - narrow "Save the listing from this repository's main checkout": Was the listing saved in this copy, while its worktrees still existed?
 - narrow "point at one commit": Had both sessions committed before you saved the listing?
-- narrow "merged into your current branch": Did you merge each worktree branch with a plain merge, not a squash or a rebase?
-- hint: "Once both have committed, and while both worktrees exist, save their state from the main checkout"
+- narrow "in your current branch": Is each session's change on main yet?
+- hint: "Once both sessions have committed, and while both working copies exist, save their state from the main checkout"
 - bottom: "mkdir -p .practice && git worktree list --porcelain > .practice/a-capstone-worktrees.txt"
 
-### a committed script in `.claude/workflows/` has a literal `export const meta`, with a `name` and a `description`, as its first statement, and starts subagents with `agent()`
+### a committed script in `.claude/workflows/` has a literal `export const meta`, with a `name` and a `description`, as its first statement, and calls `agent()` at least twice
 - narrow "doesn't start with `export const meta`": Is the meta block the script's first statement?
 - narrow "holds anything but literal values": Does the meta block hold only written-out values, with nothing computed?
 - narrow "needs a non-empty": Does the meta block have both a name and a description?
 - narrow "doesn't compile": Does the saved script still parse after your last edit?
 - narrow "never calls `agent()`": Does the saved workflow start any subagent?
+- narrow "calls `agent()` only once": Does a second agent check each finding?
 - narrow "but the check reads only `.js` files directly in that folder": Is the script a .js file directly in the workflows folder, not in a subfolder?
 - narrow "isn't committed. Run `git add": Is the saved script committed?
 - narrow "ignores it. Run `git add -f": Does an ignore rule keep git from seeing the saved script?
 - narrow "There is no workflow script in": Did you save the run to the project, not to your own folder?
-- hint: "Save it to the project"
+- hint: "Save it to the project and commit it"
 
 ### `scripts/review-staged.sh` is committed and executable
 - narrow "There is no `scripts/review-staged.sh`": Is the script at that path, under scripts in the main checkout?
 - narrow "isn't committed": Is the script committed, now that both branches are merged?
 - narrow "isn't executable": Is the script committed with its executable bit set?
 - narrow "is committed as": Is the committed path the script file itself, not a link?
-- hint: "`scripts/review-staged.sh`, to lesson 4's criteria."
+- hint: "Then write `scripts/review-staged.sh` to lesson 4's criteria"
 
 ### its `claude -p` call asks for JSON, runs in `dontAsk` mode, pre-approves only `Read`, `Grep` and `Glob`, caps turns at 10 or fewer, and has the prompt right after `-p`
 - narrow "not from Windows itself": Are you running the check from macOS, Linux or WSL 2?
@@ -320,7 +314,7 @@ needs: [jq gh]
 - narrow "has no number after it": Does a number follow the turn cap flag?
 - narrow "isn't a whole number": Is the turn cap a whole number?
 - narrow "use a number from 1 to": Is the turn cap between 1 and 10?
-- hint: "It pipes the staged diff into one `claude -p` call with JSON output and `dontAsk` mode"
+- hint: "it pipes the staged diff into one `claude -p` call whose prompt runs your skill, with JSON output and `dontAsk` mode"
 - hint: "pre-approves only `Read`, `Grep` and `Glob`, and caps turns at 10 or fewer"
 
 ### it pipes the staged diff in, saves the JSON where its argument says, prints the result, exits non-zero when the run fails, and doesn't call Claude when nothing is staged
@@ -350,7 +344,7 @@ needs: [jq gh]
 - narrow "With nothing staged, it still ran": Does the script test for a staged change before it calls claude?
 - narrow "With nothing staged, it exited 0": Does the script exit non-zero when nothing is staged?
 - narrow "With nothing staged, it printed nothing": Does the script say that nothing is staged?
-- hint: "It pipes the staged diff into one `claude -p` call with JSON output and `dontAsk` mode"
+- hint: "it pipes the staged diff into one `claude -p` call whose prompt runs your skill, with JSON output and `dontAsk` mode"
 
 ### `.practice/a-capstone-run.json` holds a run that succeeded within your cap
 - narrow "yet:": Did you run the script with that path as its argument?
@@ -483,6 +477,24 @@ needs: [jq gh]
 - narrow "isn't above it": Is the cap above what the saved run cost, with room to spare?
 - hint: "As in lesson 7, it also caps spend with `--max-budget-usd`, written as a number in the script."
 - hint: "Claude Code checks that cap against its client-side cost estimate, and spend can pass it, so leave headroom"
+
+### the review script's `claude -p` prompt and the CI workflow's `prompt` both run one skill committed in `.claude/skills/`
+- narrow "without a committed `scripts/review-staged.sh`": Is the review script committed?
+- narrow "found no `claude -p` call": Does the committed script hold its claude call?
+- narrow "without a committed review workflow": Is the review workflow committed?
+- narrow "doesn't run a skill, so its review lives only in the script": Does the script's prompt start with your skill's name?
+- narrow "doesn't run a skill, so CI reviews differently": Does the workflow's prompt start with your skill's name?
+- narrow "and CI runs": Do the script and CI run the same skill?
+- narrow "is a plugin skill": Is the review a skill in the repository, not in the team plugin?
+- narrow "names no skill committed at": Is the skill committed where its name says?
+- hint: "Write the team's review once, as a skill committed in `.claude/skills/<name>/SKILL.md`, and run it in both places."
+
+### the CI workflow sets a `concurrency` group with `cancel-in-progress: true`, so a new push cancels the review still running
+- narrow "can't read a `concurrency` group without a committed review workflow": Is the review workflow committed?
+- narrow "as a workflow file": Does the workflow file parse?
+- narrow "sets no `concurrency`": Does the workflow set a concurrency group?
+- narrow "doesn't cancel a review still running": Does the group cancel a review in progress?
+- hint: "a `concurrency` group for the pull request with `cancel-in-progress: true`, so a new push cancels the review still running for an older one"
 
 ## card
 - skill: check

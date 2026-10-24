@@ -4,7 +4,7 @@
 // after rewinding it, which shows what rewind put back and what it left. The
 // rename script changes src/links.js, a file Claude never edits in this
 // conversation, so rewind leaves it; rewind would also restore a command's
-// change to a file Claude had already edited (Checkpointing, External
+// change to a file Claude had already edited (Checkpointing, Bash command
 // changes not tracked).
 import { spawnSync } from 'node:child_process';
 import { statusEntries, statusPaths } from '../paths.mjs';
@@ -44,13 +44,13 @@ export const items = [
   {
     text: 'a commit after your copy\'s first one changes `src/check-links.js`, which still exports a synchronous `brokenLinks`',
     check(repo) {
-      if (!laterCommits(repo, CHECK).length) return 'No commit since your copy\'s first one changes `src/check-links.js`. Finish the refactor in Worked example step 6 and commit it.';
+      if (!laterCommits(repo, CHECK).length) return 'No commit since your copy\'s first one changes `src/check-links.js`. Finish the refactor in Worked example step 5 and commit it.';
       const text = withoutComments(repo.gitLocal('show', `HEAD:${CHECK}`));
       if (!hasExport(text, 'brokenLinks')) {
-        return 'The last commit\'s `src/check-links.js` exports no `brokenLinks`, which `src/cli.js` imports by that name. Ask Claude to keep `brokenLinks` exported, as Worked example step 6 asks, and commit.';
+        return 'The last commit\'s `src/check-links.js` exports no `brokenLinks`, which `src/cli.js` imports by that name. Ask Claude to keep `brokenLinks` exported, as Worked example step 5 asks, and commit.';
       }
       if (/\basync\b|\bawait\b|fs\/promises|\.then\(/.test(text)) {
-        return 'The last commit\'s `src/check-links.js` is still asynchronous. Ask Claude to make `brokenLinks` synchronous again, as Worked example step 6 asks, and commit.';
+        return 'The last commit\'s `src/check-links.js` is still asynchronous. Ask Claude to make `brokenLinks` synchronous again, as Worked example step 5 asks, and commit.';
       }
       return true;
     },
@@ -77,9 +77,9 @@ export const items = [
       const others = paths.filter((p) => p !== LINKS);
       if (others.length) {
         const list = others.map((p) => `\`${p}\``).join(', ');
-        return `${list} ${others.length > 1 ? 'are' : 'is'} still changed. Use Restore code, then ${SAVE_AFTER}. If a command made the edit, use \`git restore src test\` and repeat Your turn from step 3.`;
+        return `${list} ${others.length > 1 ? 'are' : 'is'} still changed. Use Restore code, then ${SAVE_AFTER}. If a command made the edit, use \`git restore src test\` and repeat Your turn from step 2.`;
       }
-      if (!paths.includes(LINKS)) return `\`src/links.js\` isn't changed, so the script's rename is gone. If you restored it yourself, repeat step 3. Otherwise Claude had already edited it: run \`git restore src test\`, start a new session and repeat step 3.`;
+      if (!paths.includes(LINKS)) return `\`src/links.js\` isn't changed, so the script's rename is gone. If you restored it yourself, repeat step 2. Otherwise Claude had already edited it: run \`git restore src test\`, start a new session and repeat step 2.`;
       return true;
     },
   },

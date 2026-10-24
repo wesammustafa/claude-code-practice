@@ -1,7 +1,8 @@
 // Script Claude Code with `claude -p` (Advanced, lesson 4). The Learner
 // commits scripts/review-staged.sh, which pipes the staged diff into one
 // `claude -p` call that asks for JSON, runs in dontAsk mode, pre-approves
-// only Read, Grep and Glob and caps its turns; saves the JSON to the path in
+// only Read, Grep and Glob (and, if it restricts the tools with --tools,
+// keeps only those) and caps its turns; saves the JSON to the path in
 // its first argument, or .practice/a-4-result.json without one; prints the
 // review; and exits non-zero when the run fails or nothing is staged. The
 // check runs the committed script with a stand-in for `claude`, so it
@@ -169,6 +170,15 @@ export function callHints(argv) {
   if (others.length) {
     const shown = others.slice(0, 3).map(code);
     problems.push(`\`--allowedTools\` lists ${and(shown)}${others.length > 3 ? ` and ${others.length - 3} more` : ''}, ${others.length > 1 ? 'which are' : 'which is'} not \`Read\`, \`Grep\` or \`Glob\`. Claude gets the diff on stdin, so list only those three.`);
+  }
+
+  // `--tools` is optional: when it's there, it keeps no tool but the three.
+  const { tools } = args.flags;
+  const toolValues = (Array.isArray(tools) ? tools : [tools]).filter((v) => v !== null && v !== undefined);
+  if (tools !== undefined && !toolValues.length) problems.push('`--tools` has no tools after it: write `--tools "Read,Grep,Glob"`, or leave it out.');
+  else if (tools !== undefined) {
+    const kept = [...new Set(ruleList(toolValues).filter((t) => !/^(Read|Grep|Glob)$/.test(t)))];
+    if (kept.length) problems.push(`\`--tools\` keeps ${and(kept.slice(0, 3).map(code))}${kept.length > 3 ? ` and ${kept.length - 3} more` : ''} available: list only \`Read\`, \`Grep\` and \`Glob\` there, or leave \`--tools\` out.`);
   }
 
   if (maxTurns === undefined) problems.push(`It sets no turn cap: add \`--max-turns\` with a number from 1 to ${CAP_MAX}.${spelling('--max-turns')}`);
