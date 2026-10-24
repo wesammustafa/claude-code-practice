@@ -12,7 +12,7 @@ needs: [jq gh]
 ---
 
 ## intro
-- minutes: "30 to 60 minutes, plus run time"
+- minutes: "60 to 90 minutes, plus run time"
 - why: "one review for every pull request"
 - can: "add CI review your team can share"
 - can: "Two parts at once"
