@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reviews the staged diff with Claude Code and saves the JSON result.
+# Reviews the staged diff with the team-review skill and saves the JSON result.
 # Usage: scripts/review-staged.sh [result.json]   (default: .practice/a-4-result.json)
 set -uo pipefail
 out="${1:-.practice/a-4-result.json}"
@@ -10,7 +10,7 @@ if git diff --cached --quiet; then
 fi
 
 mkdir -p "$(dirname "$out")"
-git diff --cached | claude -p "Review this staged diff for bugs, missing tests and unclear code. List each problem as file:line and one sentence, then say whether it is ready to commit." \
+git diff --cached | claude -p "/team-review" \
   --model sonnet --output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 --max-budget-usd 0.50 > "$out"
 status=$?
 
