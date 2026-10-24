@@ -45,16 +45,54 @@ function ancestry(repo) {
   };
 }
 
-// What a saved listing shows: the Claude Code worktrees it lists, the two
-// whose commits split from each other (a merged pair first, as any two
-// pass), and a hint, which is null when both of that pair are merged.
-function review(repo, snapshot) {
+// The patch-ids `git patch-id --stable` gives for a diff or a log with
+// patches, one `<patch-id> <commit>` line each.
+function patchIds(repo, text) {
+  if (!text.trim()) return [];
+  const out = execFileSync('git', ['patch-id', '--stable'], { cwd: repo.dir, input: text, encoding: 'utf8', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
+  return out.split('\n').filter(Boolean).map((line) => line.split(' ')[0]);
+}
+
+// Whether a worktree commit's change is in HEAD: HEAD holds the commit
+// itself (a merge or a fast-forward), every commit of its branch as an
+// equal patch (a rebase or a cherry-pick), or one commit whose patch is the
+// branch's whole change (a squash merge). Remembered per commit.
+function integration(repo, isAncestor) {
+  const known = new Map();
+  return (sha) => {
+    if (!known.has(sha)) known.set(sha, isAncestor(sha, 'HEAD') || copied(repo, sha));
+    return known.get(sha);
+  };
+}
+
+function copied(repo, sha) {
+  try {
+    const base = repo.gitLocal('merge-base', sha, 'HEAD');
+    if (!base || base === sha) return false;
+    // `git cherry` marks with `-` each commit whose patch HEAD already has.
+    const marks = repo.gitLocal('cherry', 'HEAD', sha).split('\n').filter(Boolean);
+    if (marks.length && marks.every((line) => line.startsWith('-'))) return true;
+    const [whole] = patchIds(repo, `${repo.gitLocal('diff', '--no-color', '--no-ext-diff', base, sha)}\n`);
+    if (!whole) return false;
+    const log = repo.gitLocal('log', '-p', '--no-color', '--no-ext-diff', '--no-merges', '--format=commit %H', `${base}..HEAD`);
+    return patchIds(repo, `${log}\n`).includes(whole);
+  } catch {
+    return false;
+  }
+}
+
+// What a saved listing shows: the Claude Code worktrees it lists (with
+// `anywhere`, every linked worktree, wherever it is), the two whose commits
+// split from each other (a merged pair first, as any two pass), and a hint,
+// which is null when both changes of that pair are in HEAD.
+function review(repo, snapshot, anywhere = false) {
   const text = repo.read(snapshot);
   if (text === null || !text.trim()) return { worktrees: [], hint: `While both worktree sessions exist, and after each has committed, run ${save(snapshot)} from your main checkout.` };
   const records = parseWorktrees(text);
   if (!records.length) return { worktrees: [], hint: `\`${snapshot}\` isn't a listing from \`git worktree list --porcelain\`. While both worktrees exist, save it again: ${save(snapshot)}.` };
-  const worktrees = claudeWorktrees(records);
+  const worktrees = anywhere ? records.slice(1).filter((r) => !r.bare) : claudeWorktrees(records);
   if (worktrees.length < 2) {
+    if (anywhere) return { worktrees, hint: `\`${snapshot}\` lists ${worktrees.length ? 'one worktree' : 'no worktree'} besides the main checkout. Give each session a worktree of its own, and save ${save(snapshot)} while both worktrees exist.` };
     const others = records.slice(1).filter((r) => !r.bare && !worktrees.includes(r));
     const elsewhere = others.length ? ` It also lists ${others.map((r) => `\`${r.path}\``).join(', ')}, but the check counts only the worktrees \`claude --worktree <name>\` makes, under \`.claude/worktrees/\`.` : '';
     return { worktrees, hint: `\`${snapshot}\` lists ${worktrees.length ? 'one worktree' : 'no worktree'} under \`.claude/worktrees/\`.${elsewhere} Start each session with \`claude --worktree <name>\`, and save ${save(snapshot)} while both worktrees exist.` };
@@ -66,6 +104,7 @@ function review(repo, snapshot) {
     return { worktrees, hint: `\`${snapshot}\` names ${what}. Save the listing from this repository's main checkout, while its worktrees exist: ${save(snapshot)}.` };
   }
   const isAncestor = ancestry(repo);
+  const inHead = integration(repo, isAncestor);
   const pairs = [];
   for (const [i, a] of known.entries()) {
     for (const b of known.slice(i + 1)) {
@@ -74,11 +113,11 @@ function review(repo, snapshot) {
   }
   if (!pairs.length) return { worktrees, hint: `\`${snapshot}\` was saved before both sessions committed: its worktrees point at one commit, or one at an earlier commit of the other's. Save it again before you remove them: ${save(snapshot)}.` };
   const [{ pair, unmerged }] = pairs
-    .map((p) => ({ pair: p, unmerged: p.filter((r) => !isAncestor(r.head, 'HEAD')) }))
+    .map((p) => ({ pair: p, unmerged: p.filter((r) => !inHead(r.head)) }))
     .sort((x, y) => x.unmerged.length - y.unmerged.length);
   if (!unmerged.length) return { worktrees, pair, hint: null };
   const names = unmerged.map(label);
-  return { worktrees, pair, hint: `${names.map((n) => `\`${n}\``).join(' and ')} ${names.length > 1 ? "aren't" : "isn't"} merged into your current branch. From your main checkout, run ${names.map((n) => `\`git merge ${n}\``).join(', then ')}. A squash merge or a rebase copies the commits, so the check can't find them in your branch.` };
+  return { worktrees, pair, hint: `${names.length > 1 ? 'The changes on' : 'The change on'} ${names.map((n) => `\`${n}\``).join(' and ')} ${names.length > 1 ? "aren't" : "isn't"} in your current branch. From your main checkout, bring ${names.length > 1 ? 'each one' : 'it'} in the way your team does: ${names.map((n) => `\`git merge ${n}\``).join(', then ')}, or a rebase or a squash merge.` };
 }
 
 export const ignoresWorktrees = {
@@ -92,11 +131,13 @@ export const ignoresWorktrees = {
   },
 };
 
-export function mergedWorktrees(snapshot) {
+// With `anywhere`, as the Advanced capstone asks, a worktree may sit
+// anywhere, not only where `claude --worktree` makes it.
+export function mergedWorktrees(snapshot, { anywhere = false } = {}) {
   return {
-    text: `\`${snapshot}\` lists two worktrees under \`.claude/worktrees/\` whose commits split from each other, and both are merged into your branch`,
+    text: `\`${snapshot}\` lists two worktrees ${anywhere ? 'of this repository' : 'under `.claude/worktrees/`'} whose commits split from each other, and both changes are in your branch`,
     local: true,
-    check: (repo) => review(repo, snapshot).hint ?? true,
+    check: (repo) => review(repo, snapshot, anywhere).hint ?? true,
   };
 }
 

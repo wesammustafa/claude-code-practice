@@ -1,21 +1,19 @@
-// Run and save a dynamic workflow (Advanced, lesson 3). The Learner has
-// Claude write a migration workflow that fixes until the tests pass, saves the
-// run from /workflows as a project command in .claude/workflows/, has it read
-// a folder from `args`, commits it, and runs it on two folders, saving each
-// report under .practice/ with the folder on its first line and the old
-// form's `git grep -E` pattern in .practice/a-3-pattern.txt. The history shows
-// the migration: the pattern matched in both folders before and matches in
-// neither at HEAD. Whether the tests pass, and what the Learner read in the
-// script before approving it, the lesson self-checks. The Advanced capstone
-// reuses the script item with its own options.
-import { statSync } from 'node:fs';
-import { join, posix } from 'node:path';
-import { planPaths } from '../paths.mjs';
-import { findWorkflows, readWorkflow, STAGES } from '../workflow-script.mjs';
+// Run and save a dynamic workflow (Advanced, lesson 3). In the Worked
+// example the Learner migrates one folder in a single session gated by a
+// `/goal` condition, saving the old form's `git grep -E` pattern in
+// .practice/a-3-pattern.txt; the history then shows a folder where the
+// pattern matched before and matches nothing at HEAD. In Your turn they have
+// Claude write an audit workflow whose findings a second agent checks, save
+// the run from /workflows as a project command in .claude/workflows/, have
+// it read a folder from `args`, commit it and run it on a second folder.
+// What each run found and what the Learner read in the script before
+// approving it, the lesson self-checks: the check reads no report Claude
+// wrote. The Advanced capstone reuses the script item with its own options.
+import { posix } from 'node:path';
+import { findWorkflows, readWorkflow, STAGES, tokenize } from '../workflow-script.mjs';
 
 export const title = 'Run and save a dynamic workflow';
 
-const REPORTS = ['.practice/a-3-run1.md', '.practice/a-3-run2.md'];
 const PATTERN = '.practice/a-3-pattern.txt';
 
 const and = (list) => (list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : list[0]);
@@ -46,6 +44,7 @@ function scriptHint({ path, result, changed }) {
       return `${why} Run \`/workflow-authoring\`, ask Claude to change the script so it reads the folder from \`args\`, run \`/reload-skills\`, and commit.`;
     },
     agent: () => `${p} never calls \`agent()\`, so it starts no subagent. Have Claude write the workflow for the task again, save the run from \`/workflows\`, and commit.`,
+    check: () => `${p} calls \`agent()\` only once, so no second agent checks what the first one finds. Run \`/workflow-authoring\`, ask Claude to have a second agent check each finding before it's reported, and commit.`,
   }[result.problem]();
   const pending = changed ? ` Your copy of ${p} has changes that aren't committed: if they fix this, commit them.` : '';
   return `${hint}${pending}`;
@@ -56,18 +55,39 @@ function uncommittedHint({ path, rule }) {
   return `${code(path)} isn't committed, and line ${rule.line} of ${code(rule.source)}, ${code(rule.pattern)}, ignores it. Run \`git add -f ${shell(path)}\` and commit it.`;
 }
 
+// The places a script calls `agent(...)`: the name read as a value and
+// called, not a method, a declaration or a word in a comment or a string.
+function agentCalls(text) {
+  const tokens = tokenize(text.replace(/^\uFEFF/, ''));
+  return tokens.filter((t, k) => t.type === 'name' && t.value === 'agent' && tokens[k + 1]?.value === '('
+    && !['.', '?.'].includes(tokens[k - 1]?.value) && !['function', 'async', 'const', 'let', 'var'].includes(tokens[k - 1]?.value)).length;
+}
+
+// The stage a script got to, past readWorkflow's: `check` comes after them.
+const RANKS = [...STAGES, 'check'];
+
+// One script read the way the item wants it: readWorkflow's result, or a
+// `check` problem when `needCheck` asks for a second agent() call.
+function readScript(text, options) {
+  const result = readWorkflow(text, options);
+  if (result.ok && options.needCheck && agentCalls(text) < 2) return { problem: 'check' };
+  return result;
+}
+
 // The script item. Options as readWorkflow takes them: `needArgs`, the script
-// reads its input from `args`; `needAgentCall`, it starts subagents.
+// reads its input from `args`; `needAgentCall`, it starts subagents; and
+// `needCheck`, it calls `agent()` at least twice, so a second agent can check
+// what the first finds.
 export function savedWorkflow(options = {}) {
-  const needs = [options.needArgs && 'reads its input from `args`', options.needAgentCall && 'starts subagents with `agent()`'].filter(Boolean);
+  const needs = [options.needArgs && 'reads its input from `args`', options.needCheck ? 'calls `agent()` at least twice' : options.needAgentCall && 'starts subagents with `agent()`'].filter(Boolean);
   return {
     text: `a committed script in \`.claude/workflows/\` has a literal \`export const meta\`, with a \`name\` and a \`description\`, as its first statement${needs.length ? `, and ${and(needs)}` : ''}`,
     check(repo) {
       const { scripts, misplaced, uncommitted } = findWorkflows(repo);
-      const results = scripts.map((s) => ({ ...s, result: readWorkflow(s.text, options) }));
+      const results = scripts.map((s) => ({ ...s, result: readScript(s.text, options) }));
       if (results.some((r) => r.result.ok)) return true;
       if (results.length) {
-        const rank = (r) => STAGES.indexOf(r.result.problem);
+        const rank = (r) => RANKS.indexOf(r.result.problem);
         const other = uncommitted.length ? ` Also, ${uncommittedHint(uncommitted[0])}` : '';
         return `${scriptHint(results.reduce((best, r) => (rank(r) > rank(best) ? r : best)))}${other}`;
       }
@@ -80,120 +100,6 @@ export function savedWorkflow(options = {}) {
     },
   };
 }
-
-const isDir = (dir, path) => {
-  try {
-    return statSync(join(dir, path)).isDirectory();
-  } catch {
-    return false;
-  }
-};
-
-const isFile = (dir, path) => {
-  try {
-    return statSync(join(dir, path)).isFile();
-  } catch {
-    return false;
-  }
-};
-
-// A path as a report writes it, in git's form from the repository's root:
-// '' for the root itself, or null when it points outside the repository.
-function repoPath(token, dir) {
-  const [path = ''] = planPaths(token, dir);
-  const normal = posix.normalize(path || '.').replace(/(.)\/+$/, '$1');
-  if (normal === '.') return '';
-  if (normal === '..' || normal.startsWith('../') || posix.isAbsolute(normal) || /^[A-Za-z]:/.test(normal)) return null;
-  return normal;
-}
-
-// The folder a report's first line names: the whole line, as in `src/payments`
-// or `# src/payments`, or else the first word that names a folder, as in
-// `Folder: src/payments`. `root` is true when it names only the repository's
-// root.
-const unwrap = (s) => s.trim().replace(/^[#>*`"'([\s-]+/, '').replace(/[*`"')\]:,;\s]+$/, '').replace(/(\w)\.$/, '$1');
-
-function folderOf(line, dir) {
-  let root = false;
-  for (const candidate of new Set([unwrap(line), ...line.split(/\s+/).map(unwrap)])) {
-    if (!candidate) continue;
-    const path = repoPath(candidate, dir);
-    if (path === '') root = true;
-    else if (path && isDir(dir, path)) return { folder: path };
-  }
-  return { root };
-}
-
-// The `path:line` citations in a report: `src/a.js:12`, `src/a.js:12:5`,
-// `./src/a.js:12`, `src\a.js:12`, a full path into the repository, and a
-// link such as `[a.js](src/a.js#L12)`. A URL, `localhost:8080` and a time
-// like `10:30` aren't citations: the path must have a folder or an extension.
-const COLON = /([^\s`'"()[\]{}<>*|,;]+?):(\d+)(?::\d+)?/g;
-const ANCHOR = /([^\s`'"()[\]{}<>*|,;#]+)#L(\d+)/g;
-const PATHLIKE = /[/\\]|\.[A-Za-z][\w-]*$/;
-
-function citations(text, dir) {
-  const found = new Map();
-  for (const pattern of [COLON, ANCHOR]) {
-    for (const [, match, number] of text.matchAll(pattern)) {
-      if (match.includes('://') || match.startsWith('//')) continue;
-      // A word glued on with a colon, as in `at:src/a.js:12`, isn't part of
-      // the path; a Windows drive letter is.
-      const raw = /^[A-Za-z]:[\\/]/.test(match) ? match : match.split(':').pop();
-      if (!PATHLIKE.test(raw)) continue;
-      const path = repoPath(raw, dir);
-      const line = Number(number);
-      const key = `${path ?? raw}:${line}`;
-      if (!found.has(key)) found.set(key, { raw: `${raw}:${line}`, path, line, cited: path ? `${path}:${line}` : `${raw}:${line}` });
-    }
-  }
-  return [...found.values()];
-}
-
-function readReport(repo, path) {
-  const text = repo.read(path);
-  if (text === null || !text.trim()) return { path, text };
-  const first = text.split(/\r?\n/).find((l) => l.trim()).trim();
-  return { path, text, first, ...folderOf(first, repo.dir), cites: citations(text, repo.dir) };
-}
-
-const inside = (path, folder) => path.startsWith(`${folder}/`);
-const some = (list) => `${and(list.slice(0, 3).map(code))}${list.length > 3 ? ` and ${list.length - 3} more` : ''}`;
-
-export const twoFolderReports = {
-  text: '`.practice/a-3-run1.md` and `.practice/a-3-run2.md` name two different folders on their first lines, and each cites at least one `path:line` inside its folder',
-  local: true,
-  check(repo) {
-    const reports = REPORTS.map((path) => readReport(repo, path));
-    const missing = reports.filter((r) => r.text === null);
-    if (missing.length === 2) return `There are no reports yet. Run your saved workflow by name on a folder, then ask Claude to save the report to \`${REPORTS[0]}\` with the folder on its first line. Do the same on a second folder for \`${REPORTS[1]}\`.`;
-    const problems = [];
-    for (const r of reports) {
-      if (r.text === null) problems.push(`There is no ${code(r.path)}. Run your saved workflow by name on a different folder, then ask Claude to save that report there, with the folder on its first line.`);
-      else if (!r.first) problems.push(`${code(r.path)} is empty. Ask Claude to save the report there again, with the folder on its first line.`);
-      else if (r.root) problems.push(`The first line of ${code(r.path)} names the repository's root. Run the workflow on a folder inside it, and put that folder on the first line.`);
-      else if (!r.folder) problems.push(`The first line of ${code(r.path)}, "${r.first.length > 60 ? `${r.first.slice(0, 60)}...` : r.first}", names no folder in this repository. Put the folder you ran the workflow on, such as \`src\`, on the first line, as a path from the repository's root.`);
-    }
-    const [a, b] = reports;
-    if (a.folder && a.folder === b.folder) problems.push(`Both reports name ${code(a.folder)}. Run your saved workflow on a second, different folder, and save that report as \`${REPORTS[1]}\`.`);
-    for (const r of reports.filter((x) => x.folder)) {
-      const outside = r.cites.filter((c) => c.path && isFile(repo.dir, c.path) && !inside(c.path, r.folder)).map((c) => c.cited);
-      const named = r.cites.filter((c) => c.path && inside(c.path, r.folder));
-      const within = named.filter((c) => isFile(repo.dir, c.path));
-      const fromFolder = r.cites.find((c) => c.path && !isFile(repo.dir, c.path) && isFile(repo.dir, `${r.folder}/${c.path}`));
-      if (outside.length) {
-        problems.push(`${code(r.path)} cites ${some(outside)}, outside ${code(`${r.folder}/`)}, the folder on its first line. Check that the workflow reads the folder from \`args\` and reports only on files inside it, then run it again.`);
-      } else if (!within.length && fromFolder) {
-        problems.push(`${code(r.path)} cites ${code(fromFolder.raw)}, a path from inside ${code(`${r.folder}/`)}. Each \`path:line\` must start at the repository's root, as ${code(`${r.folder}/${fromFolder.path}:${fromFolder.line}`)} does: start \`claude\` at the root, or ask Claude to write the paths from there, and run the workflow again.`);
-      } else if (!within.length && named.length) {
-        problems.push(`${code(r.path)} cites ${some(named.map((c) => c.cited))}, but ${code(`${r.folder}/`)} holds no such file. Cite the files the migration changed, as they are now, and save the report again.`);
-      } else if (!within.length) {
-        problems.push(`${code(r.path)} cites no \`path:line\`${r.cites.length ? ` inside ${code(`${r.folder}/`)}` : ''}. Each file the report lists needs one, from the repository's root, such as ${code(`${r.folder}/<file>:<line>`)}.`);
-      }
-    }
-    return problems.length ? problems.join(' ') : true;
-  },
-};
 
 // The pattern's first non-blank line, without the backticks or quotes a
 // Learner may have kept around it.
@@ -218,44 +124,53 @@ function grep(repo, pattern, folder, revs = []) {
   }
 }
 
-// The commits that changed `folder`: each state the folder was ever in is
-// the tree of one of them.
-function changes(repo, folder) {
+// The recent commits whose trees the check searches for the old form.
+function recentCommits(repo) {
   try {
-    return repo.gitLocal('rev-list', '--max-count=1000', 'HEAD', '--', folder).split('\n').filter(Boolean);
+    return repo.gitLocal('rev-list', '--max-count=60', 'HEAD').split('\n').filter(Boolean);
   } catch {
     return [];
   }
 }
 
-export const migratedFolders = {
-  text: `the \`git grep -E\` pattern in \`${PATTERN}\` matched inside both folders at an earlier commit, and matches inside neither at \`HEAD\``,
+// The folders where the pattern matched in a recent commit, each the folder
+// that held a matching file ('.' for the repository's root).
+function matchedFolders(repo, pattern, revs) {
+  if (!revs.length) return [];
+  let out = '';
+  try {
+    out = repo.gitLocal('grep', '-l', '-E', '-e', pattern, ...revs, '--');
+  } catch (error) {
+    if (error.status !== 1) throw error;
+  }
+  const folders = new Set();
+  for (const line of out.split('\n').filter(Boolean)) {
+    const path = line.slice(line.indexOf(':') + 1);
+    folders.add(posix.dirname(path));
+  }
+  return [...folders].sort();
+}
+
+export const migratedFolder = {
+  text: `the \`git grep -E\` pattern in \`${PATTERN}\` matched in a folder at an earlier commit and matches nothing in that folder at \`HEAD\``,
   local: true,
   check(repo) {
     const { missing, pattern } = readPattern(repo);
     if (missing) return `There is no ${code(PATTERN)}. Save the \`git grep -E\` pattern that finds the old form there, on one line, such as \`import\\.meta\\.url\`.`;
     if (!pattern) return `${code(PATTERN)} is empty. Save the \`git grep -E\` pattern that finds the old form there, on one line.`;
-    const folders = [...new Set(REPORTS.map((path) => readReport(repo, path)).map((r) => r.folder).filter(Boolean))];
-    if (folders.length < 2) return 'The check reads the two folders from the reports\' first lines. Save the reports as the item above says.';
     const shown = code(pattern);
-    const problems = [];
-    for (const folder of folders) {
-      const now = grep(repo, pattern, folder, ['HEAD']);
-      if (now?.error) return `git can't use the pattern in ${code(PATTERN)}, ${shown}: ${now.error}. Write it as \`git grep -E\` reads it, and test it with \`git grep -n -E '<pattern>' -- <folder>\`.`;
-      if (now) {
-        const tree = grep(repo, pattern, folder);
-        problems.push(tree === false
-          ? `${code(`${folder}/`)} is migrated in your working tree, but ${shown} still matches there at \`HEAD\`. Review the changes and commit them.`
-          : `${shown} still matches inside ${code(`${folder}/`)} at \`HEAD\`: \`git grep -n -E '${pattern}' -- ${shell(folder)}\` lists the lines. Run the workflow on that folder again, review its changes and commit them.`);
-        continue;
-      }
-      const revs = changes(repo, folder);
-      if (!revs.length || grep(repo, pattern, folder, revs) !== true) {
-        problems.push(`${shown} matches nothing inside ${code(`${folder}/`)} in any commit, so the check can't see a migration there. Write the pattern for the old form, and test it on a commit from before the run: \`git grep -n -E '<pattern>' <commit> -- ${shell(folder)}\` should list the old form.`);
-      }
-    }
-    return problems.length ? problems.join(' ') : true;
+    const now = grep(repo, pattern, '.', ['HEAD']);
+    if (now?.error) return `git can't use the pattern in ${code(PATTERN)}, ${shown}: ${now.error}. Write it as \`git grep -E\` reads it, and test it with \`git grep -n -E '<pattern>' -- <folder>\`.`;
+    const folders = matchedFolders(repo, pattern, recentCommits(repo));
+    if (!folders.length) return `${shown} matches nothing in this repository's recent commits, so the check can't see a migration. Write the pattern for the old form, and test it on a commit from before the migration: \`git grep -n -E '<pattern>' <commit> -- <folder>\` should list the old form.`;
+    if (folders.some((folder) => grep(repo, pattern, folder, ['HEAD']) === false)) return true;
+    const where = (folder) => (folder === '.' ? 'your repository' : code(`${folder}/`));
+    const clean = folders.find((folder) => grep(repo, pattern, folder) === false);
+    if (clean) return `${where(clean)} is migrated in your working tree, but ${shown} still matches there at \`HEAD\`. Review the changes and commit them.`;
+    const named = folders.slice(0, 3).map(where);
+    const more = folders.length > 3 ? ` and ${folders.length - 3} more` : '';
+    return `${shown} still matches inside ${and(named)}${more} at \`HEAD\`, in every folder where it ever matched: \`git grep -n -E '${pattern}'\` lists the lines. Set the goal again for the folder you're migrating, review the changes and commit them.`;
   },
 };
 
-export const items = [savedWorkflow({ needArgs: true }), twoFolderReports, migratedFolders];
+export const items = [savedWorkflow({ needArgs: true, needAgentCall: true, needCheck: true }), migratedFolder];

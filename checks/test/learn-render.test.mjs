@@ -1711,33 +1711,29 @@ const CUT_AT_60X20 = {
   full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4',
     // Intermediate's long hints and code blocks at 60x20.
     'i-5 W1.0 hint 1',
-    // Advanced: a-2's hook file, a code block with a link above it.
-    'a-2 Y2.0 hint 1', 'a-2 Y2.0 done',
-    // a-4 W1.0's `claude -p` command and its hint; a-7's long check items and hint ladders.
-    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 W3.0 hint 4', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2', 'a-7 C.0 hint 3',
+    // Advanced: a-4 W1.0's `claude -p` command and its hint; a-7's long check items and hint ladders.
+    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-2 Y2.0 hint 1 (skipped)', 'a-2 Y2.0 done (skipped)',
+    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'a-1 W1.0 hint 2 (skipped)',
     'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
-    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 hint 5 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.0 hint 1 (skipped)',
-    'a-7 W4.0 bottom (skipped)',
-    'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-7 C.0 hint 3 (skipped)'],
+    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
+    'a-7 W4.1 bottom (skipped)',
+    'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)'],
   ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
     'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
     'i-5 W1.0 hint 1',
-    'a-1 W1.0 hint 2', 'a-2 Y2.0 hint 1', 'a-2 Y2.0 done',
-    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 2', 'a-7 W3.0 hint 3', 'a-7 W3.0 hint 4', 'a-7 Y3.1 hint 1', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
-    'a-7 C.0 hint 3',
+    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 2', 'a-7 W3.0 hint 3', 'a-7 Y3.1 hint 1', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
     'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
     'b-capstone T1.2 hint 1 (skipped)',
     'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)',
-    'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)', 'a-2 Y2.0 hint 1 (skipped)', 'a-2 Y2.0 done (skipped)',
+    'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)',
     'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
-    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 hint 5 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.0 hint 1 (skipped)',
-    'a-7 W4.0 bottom (skipped)',
-    'a-7 Y3.1 hint 1 (skipped)', 'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-7 C.0 hint 3 (skipped)'],
+    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
+    'a-7 W4.1 bottom (skipped)',
+    'a-7 Y3.1 hint 1 (skipped)', 'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
@@ -2277,8 +2273,9 @@ const WHY_DROPS = {
     'i-5 W3.0 hint 1', 'i-5 W3.0 hint 2', 'i-6 W4.0 hint 1', 'i-6 W4.0 hint 2', 'i-8 W3.0 hint 1',
     // Advanced: a-1's two merge commands and a-2's chart question with its feedback.
     'a-1 W5.0 hint 1', 'a-2 W2.0 wrong', 'a-2 W2.0 answered',
-    // a-4's `claude -p` commands: each is one long line of the page's block.
-    'a-4 W2.0 open', 'a-4 W2.0 waiting', 'a-4 W2.0 hint 1', 'a-4 W2.0 done', 'a-4 W3.0 open',
+    // a-3's `/goal` condition and a-4's `claude -p` commands: each is one
+    // long line of the page.
+    'a-3 W2.0 open', 'a-4 W2.1 open', 'a-4 W2.1 waiting', 'a-4 W2.1 hint 1', 'a-4 W2.1 done', 'a-4 W3.0 open',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
     'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
     'b-5 W4.0 checking, hint open (skipped)', 'i-1 W4.1 open (skipped)', 'i-1 W4.1 hint 1 (skipped)', 'i-2 W1.0 hint 1 (skipped)',
@@ -2287,7 +2284,7 @@ const WHY_DROPS = {
     'i-4 W2.0 done (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)', 'i-4 W5.0 hint 1 (skipped)', 'i-5 W3.0 hint 1 (skipped)',
     'i-5 W3.0 hint 2 (skipped)', 'i-6 W4.0 hint 1 (skipped)', 'i-6 W4.0 hint 2 (skipped)', 'i-8 W3.0 hint 1 (skipped)',
     'a-1 W5.0 hint 1 (skipped)', 'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)',
-    'a-4 W2.0 open (skipped)', 'a-4 W2.0 waiting (skipped)', 'a-4 W2.0 hint 1 (skipped)', 'a-4 W2.0 done (skipped)', 'a-4 W3.0 open (skipped)', 'W3 opening',
+    'a-3 W2.0 open (skipped)', 'a-4 W2.1 open (skipped)', 'a-4 W2.1 waiting (skipped)', 'a-4 W2.1 hint 1 (skipped)', 'a-4 W2.1 done (skipped)', 'a-4 W3.0 open (skipped)', 'W3 opening',
     'i-5 W3.0 open', 'b-3 W1.2 bottom (skipped)', 'i-5 W3.0 open (skipped)'],
   '80x24': ['W3 hint 2'],
 };
@@ -2414,7 +2411,6 @@ const GO_FURTHER_GIVES = {
   'i-7 next at 60x20': NOTCH_ONE,
   'a-1 next at 60x20': NOTCH_ONE,
   'a-2 next at 60x20': NOTCH_ONE,
-  'a-4 next at 60x20': NOTCH_ONE,
 };
 
 test('every next screen but a capstone\'s shows its Go further line whole at 60x20 and 80x24, in every mode', () => {
@@ -2520,9 +2516,9 @@ const URLS = {
   'i-8': 'https://code.claude.com/docs/en/plugins/code-intelligence',
   'a-1': 'https://code.claude.com/docs/en/worktrees#isolate-subagents-with-worktrees',
   'a-2': 'https://code.claude.com/docs/en/agents',
-  'a-3': 'https://code.claude.com/docs/en/workflows#example-workflow-prompts',
-  'a-4': 'https://code.claude.com/docs/en/headless',
-  'a-5': 'https://code.claude.com/docs/en/github-actions#run-on-a-schedule',
+  'a-3': 'https://code.claude.com/docs/en/goal#compare-ways-to-keep-a-session-running',
+  'a-4': 'https://code.claude.com/docs/en/agent-sdk/overview',
+  'a-5': 'https://code.claude.com/docs/en/code-review',
   'a-6': 'https://code.claude.com/docs/en/settings-example#a-teams-shared-settings',
   'a-7': 'https://code.claude.com/docs/en/sandbox-environments',
 };

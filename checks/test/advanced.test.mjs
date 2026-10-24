@@ -74,6 +74,9 @@ function parallelRepo({
         git(dir, 'merge', '-q', '--squash', b);
         git(dir, 'commit', '-q', '-m', `Squash ${b}`);
       }
+    } else if (merge === 'rebase') {
+      // A rebase onto the branch, then a fast-forward, copies each commit.
+      for (const b of [first, second]) git(dir, 'cherry-pick', b);
     }
     for (const name of lock) git(dir, 'worktree', 'lock', `${under}/${name}`);
     for (const name of prune) rmSync(path(name), { recursive: true, force: true });
@@ -223,21 +226,29 @@ test('a-1 fails for a listing that names a commit this repository does not have'
   });
 });
 
-test('a-1 fails while one branch is not merged, naming it', () => {
+test('a-1 fails while one branch\'s change is not in the branch, naming it', () => {
   withRepo(parallelRepo({ merge: 'one' }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`worktree-test-pass` isn't merged into your current branch/);
-    assert.match(out, /run `git merge worktree-test-pass`/);
+    assert.match(out, /The change on `worktree-test-pass` isn't in your current branch/);
+    assert.match(out, /`git merge worktree-test-pass`, or a rebase or a squash merge/);
   });
 });
 
-test('a-1 fails for squash merges, which copy the commits', () => {
-  withRepo(parallelRepo({ merge: 'squash' }), (dir) => {
+test('a-1 passes for squash merges and rebases, which bring the changes in as copies', () => {
+  for (const merge of ['squash', 'rebase']) {
+    withRepo(parallelRepo({ merge }), (dir) => {
+      const { code, out } = a1(dir);
+      assert.equal(code, 0, `${merge}: ${out}`);
+    });
+  }
+});
+
+test('a-1 fails when neither change is in the branch, naming both', () => {
+  withRepo(parallelRepo({ merge: 'none' }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`worktree-docs-pass` and `worktree-test-pass` aren't merged/);
-    assert.match(out, /squash merge/);
+    assert.match(out, /The changes on `worktree-docs-pass` and `worktree-test-pass` aren't in your current branch/);
   });
 });
 
@@ -330,26 +341,27 @@ test('a-1 fails on an unsolved repository and passes on a solved one, as the tem
 });
 
 // A repository after lesson a-2: the five choices written down, and the log
-// the lesson's SubagentStart hook wrote while job 1 ran as parallel
-// subagents, one `agent_id<TAB>agent_type` line per start. The options
-// replace a file, or leave it out when null.
+// Intermediate lesson 6's SubagentStart hook wrote, first for lesson 6's
+// test-gaps and then while job 1 ran as parallel subagents, one
+// `agent_type` line per start. The options replace a file, or leave it out
+// when null.
 const CHOSEN = [
   '1: subagents because three files, one reviewer each, checked once, and only a short list comes back',
   '2: workflow because it covers the whole codebase, confirms each finding and runs again every release',
-  '3: main conversation because the rename, its edits and the build share one context',
+  '3: main conversation because the rename, its edits and the build share one context and land as one commit',
   '4: subagents because each suspect is checked on its own and reported back to me',
-  '5: agent team because the investigators must challenge each other until they agree',
+  '5: /batch because each package changes, tests and lands on its own',
   '',
 ].join('\n');
-const STARTS = 'agent-a1\tgeneral-purpose\nagent-a2\tgeneral-purpose\nagent-a3\tExplore\n';
-const LOG_HOOK = `jq -r '[.agent_id, .agent_type] | @tsv' >> "$CLAUDE_PROJECT_DIR/.practice/a-2-agents.txt"`;
-const HOOK_FILE = JSON.stringify({ hooks: { SubagentStart: [{ hooks: [{ type: 'command', command: LOG_HOOK }] }] } }, null, 2);
+const STARTS = 'test-gaps\ngeneral-purpose\ngeneral-purpose\nExplore\n';
+const LOG_HOOK = `jq -r '.agent_type' >> "$CLAUDE_PROJECT_DIR/.practice/i-6-agents.txt"`;
+const HOOK_FILE = JSON.stringify({ hooks: { SubagentStart: [{ hooks: [{ type: 'command', command: LOG_HOOK }] }] } });
 
 function patternRepo({ choices = CHOSEN, log = STARTS, hook = HOOK_FILE } = {}) {
   return () => {
     const dir = repo({ 'README.md': '# demo\n' });
     commit(dir, 'Start');
-    for (const [path, text] of [['.practice/a-2-choices.md', choices], ['.practice/a-2-agents.txt', log], ['.practice/a-2-hook.json', hook]]) {
+    for (const [path, text] of [['.practice/a-2-choices.md', choices], ['.practice/i-6-agents.txt', log], ['.practice/i-6-hook.json', hook]]) {
       if (text !== null) write(dir, { [path]: text });
     }
     return dir;
@@ -359,7 +371,7 @@ function patternRepo({ choices = CHOSEN, log = STARTS, hook = HOOK_FILE } = {}) 
 const a2 = (dir) => check(['a-2', '--dir', dir]);
 const choicesOf = (picks) => picks.map((p, i) => `${i + 1}: ${p} because it fits`).join('\n');
 
-test('a-2 passes for the five patterns that fit and a log with three subagents', () => {
+test('a-2 passes for the five patterns that fit and a log with three subagents after test-gaps', () => {
   withRepo(patternRepo(), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 0, out);
@@ -367,21 +379,32 @@ test('a-2 passes for the five patterns that fit and a log with three subagents',
   });
 });
 
-test('a-2 reads the log the lesson\'s hook writes, counting a resumed subagent once', () => {
+test('a-2 reads the log lesson 6\'s hook writes, leaving out lesson 6\'s test-gaps', () => {
   withRepo(patternRepo({ log: null }), (dir) => {
-    const hook = (id, type) => execFileSync('sh', ['-c', LOG_HOOK], {
+    const hook = (type) => execFileSync('sh', ['-c', LOG_HOOK], {
       cwd: dir,
       env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
-      input: JSON.stringify({ session_id: 'abc123', cwd: dir, hook_event_name: 'SubagentStart', agent_id: id, agent_type: type }),
+      input: JSON.stringify({ session_id: 'abc123', cwd: dir, hook_event_name: 'SubagentStart', agent_id: `agent-${type}`, agent_type: type }),
     });
-    hook('agent-abc123', 'Explore');
-    hook('agent-abc123', 'Explore');
+    hook('test-gaps');
+    hook('Explore');
     let { code, out } = a2(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /It shows one subagent, `agent-abc123`, starting 2 times: a subagent that Claude resumes logs its id again, so it counts once/);
-    hook('agent-def456', 'fork');
+    assert.match(out, /shows one subagent starting, and job 1 needs at least two subagents/);
+    hook('fork');
     ({ code, out } = a2(dir));
     assert.equal(code, 0, out);
+  });
+});
+
+test('a-2 counts an id once where a hook also logs ids, as a resumed subagent logs its id again', () => {
+  withRepo(patternRepo({ log: 'agent-a1\tExplore\nagent-a1\tExplore\n' }), (dir) => {
+    const { code, out } = a2(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /shows one subagent starting/);
+  });
+  withRepo(patternRepo({ log: 'agent-a1\tExplore\nagent-a2\tExplore\n' }), (dir) => {
+    assert.equal(a2(dir).code, 0);
   });
 });
 
@@ -393,7 +416,7 @@ test('a-2 accepts the choices written as list items, with job labels, bold and o
     '- **2:** dynamic workflow, since it reruns',
     '3. main session because it is one line',
     '4) parallel subagents, one per suspect',
-    'Job #5: Agent teams: they argue it out',
+    'Job #5: `/batch`: one worktree a package',
   ].join('\n');
   withRepo(patternRepo({ choices }), (dir) => {
     const { code, out } = a2(dir);
@@ -403,9 +426,9 @@ test('a-2 accepts the choices written as list items, with job labels, bold and o
 
 test('a-2 accepts a table, task boxes, articles and quoted pattern names', () => {
   for (const choices of [
-    '| Job | Pattern | Why |\n|---|---|---|\n| 1 | subagents | few files |\n| 2 | workflow | rerun |\n| 3 | main conversation | shared context |\n| 4 | subagents | report back |\n| 5 | agent team | debate |\n',
-    '- [x] 1: `subagents` because few\n- [x] 2: a dynamic workflow because rerun\n- [x] 3: the main conversation because shared context\n- [x] 4: subagent because report back\n- [x] 5: an agent team because debate\n',
-    '(1) "sub-agents" because few\n(2) Workflow because rerun\n(3) one conversation because shared context\n(4) sub-agents because report back\n(5) agent-team because debate\n',
+    '| Job | Pattern | Why |\n|---|---|---|\n| 1 | subagents | few files |\n| 2 | workflow | rerun |\n| 3 | main conversation | shared context |\n| 4 | subagents | report back |\n| 5 | /batch | units |\n',
+    '- [x] 1: `subagents` because few\n- [x] 2: a dynamic workflow because rerun\n- [x] 3: the main conversation because shared context\n- [x] 4: subagent because report back\n- [x] 5: the batch skill because units\n',
+    '(1) "sub-agents" because few\n(2) Workflow because rerun\n(3) one conversation because shared context\n(4) sub-agents because report back\n(5) "/batch" because units\n',
   ]) {
     withRepo(patternRepo({ choices }), (dir) => {
       const { code, out } = a2(dir);
@@ -415,7 +438,7 @@ test('a-2 accepts a table, task boxes, articles and quoted pattern names', () =>
 });
 
 test('a-2 skips other lines for a job once one of its lines names a pattern', () => {
-  const jobs = '1. Before Friday\'s release, audit the three largest source files\n2. Add that audit to the release checklist\n3. Rename a helper that about 40 files call\n4. A checkout test fails about one run in ten\n5. Last month, three separate reports\n\n';
+  const jobs = '1. Before Friday\'s release, audit the three largest source files\n2. Add that audit to the release checklist\n3. Rename a helper that about 40 files call\n4. A checkout test fails about one run in ten\n5. Move every package under packages/\n\n';
   withRepo(patternRepo({ choices: `${jobs}${CHOSEN}` }), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 0, out);
@@ -426,7 +449,7 @@ test('a-2 reads files saved with CRLF line ends, a UTF-8 byte-order mark, or as 
   const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replace(/\n/g, '\r\n'), 'utf16le')]);
   for (const options of [
     { choices: CHOSEN.replace(/\n/g, '\r\n'), log: STARTS.replace(/\n/g, '\r\n') },
-    { choices: `﻿${CHOSEN}`, log: `﻿${STARTS}` },
+    { choices: `\ufeff${CHOSEN}`, log: `\ufeff${STARTS}` },
     { choices: utf16(CHOSEN), log: utf16(STARTS) },
   ]) {
     withRepo(patternRepo(options), (dir) => {
@@ -440,8 +463,8 @@ test('a-2 says where to save the choices and in what form when there are none', 
   withRepo(patternRepo({ choices: null }), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /There is no `\.practice\/a-2-choices\.md`\. Save your choices there, one line per job in the form `<job number>: <pattern> because <reason>`/);
-    assert.match(out, /PASS {2}`\.practice\/a-2-agents\.txt`/);
+    assert.match(out, /There is no `\.practice\/a-2-choices\.md`\. Write one line per job there, `<job number>: <pattern> because <reason>`/);
+    assert.match(out, /PASS {2}`\.practice\/i-6-agents\.txt`/);
   });
   withRepo(patternRepo({ choices: 'subagents, then a workflow, then the main conversation, then a team\n' }), (dir) => {
     const { code, out } = a2(dir);
@@ -464,50 +487,53 @@ test('a-2 names each job that has no line', () => {
   });
 });
 
-test('a-2 names the chart question that settles each job picked wrongly', () => {
+test('a-2 names the chart question that settles each job picked wrongly, an agent team included', () => {
   const Q1 = 'Can one conversation do it without filling up?';
   const Q2 = 'Must the workers talk to each other?';
-  const Q3 = 'Does it need many agents, cross-checked findings or a rerun?';
+  const Q3 = 'Does it need cross-checked findings or a rerun?';
+  const Q4 = 'Is it one large change that splits into independent units?';
   for (const [picks, expected] of [
     [['main conversation', 'main conversation', 'subagents', 'main conversation', 'main conversation'], [
       `Job 1 doesn't call for the main conversation. ${Q1} No: reading the three largest files in your conversation would crowd it`,
       `Job 2 doesn't call for the main conversation. ${Q1} No: it covers the whole codebase.`,
-      `Job 3 doesn't call for subagents. ${Q1} Yes: each call site is a short read, and the plan, the edits and the build share one context`,
+      `Job 3 doesn't call for subagents. ${Q1} Yes: each call site is a short read, and the rename must land as one change that keeps the build green.`,
       `Job 4 doesn't call for the main conversation. ${Q1} No: three investigations, each reading code and rerunning the test`,
-      `Job 5 doesn't call for the main conversation. ${Q1} No: three investigators work at the same time`,
+      `Job 5 doesn't call for the main conversation. ${Q1} No: every package's change would pass through one conversation.`,
     ]],
-    [['agent team', 'agent team', 'workflow', 'agent team', 'subagents'], [
+    [['agent team', 'agent team', 'batch', 'agent team', 'agent team'], [
       `Job 1 doesn't call for an agent team. ${Q2} No: each reviewer checks its own file`,
       `Job 2 doesn't call for an agent team. ${Q2} No: each finding is confirmed against the code`,
-      `Job 3 doesn't call for a workflow. ${Q1} Yes:`,
+      `Job 3 doesn't call for \`/batch\`. ${Q1} Yes:`,
       `Job 4 doesn't call for an agent team. ${Q2} No: each investigator checks one suspect and reports to you`,
-      `Job 5 doesn't call for subagents. ${Q2} Yes: the investigators must knock down each other's explanations while they work`,
+      `Job 5 doesn't call for an agent team. ${Q2} No: each package is moved on its own.`,
     ]],
-    [['workflow', 'subagents', 'agent team', 'workflow', 'workflow'], [
+    [['workflow', 'subagents', 'workflow', 'batch', 'workflow'], [
       `Job 1 doesn't call for a workflow. ${Q3} No: three files, checked once`,
       `Job 2 doesn't call for subagents. ${Q3} Yes: it covers the whole codebase, confirms each finding before it is listed and runs again for every release`,
-      `Job 3 doesn't call for an agent team. ${Q1} Yes:`,
-      `Job 4 doesn't call for a workflow. ${Q3} No: three checks, done once`,
-      `Job 5 doesn't call for a workflow. ${Q2} Yes:`,
+      `Job 3 doesn't call for a workflow. ${Q1} Yes:`,
+      `Job 4 doesn't call for \`/batch\`. ${Q4} No: the checks change no code`,
+      `Job 5 doesn't call for a workflow. ${Q3} No: it runs once, and each package's own tests confirm its change.`,
+    ]],
+    [['batch', 'batch', 'main conversation', 'subagents', 'subagents'], [
+      `Job 1 doesn't call for \`/batch\`. ${Q4} No: nothing changes yet; the reviewers only report.`,
+      `Job 2 doesn't call for \`/batch\`. ${Q3} Yes:`,
+      `Job 5 doesn't call for subagents. ${Q4} Yes: one large change that splits into packages`,
     ]],
   ]) {
     withRepo(patternRepo({ choices: choicesOf(picks) }), (dir) => {
       const { code, out } = a2(dir);
       assert.equal(code, 1, out);
       for (const text of expected) assert.ok(out.includes(text), `${picks}: missing "${text}" in ${out}`);
-      assert.match(out, /It calls for subagents\./);
-      assert.match(out, /It calls for a workflow\./);
-      assert.match(out, /It calls for the main conversation\./);
-      assert.match(out, /It calls for an agent team\./);
+      assert.doesNotMatch(out, /It calls for an agent team/);
     });
   }
 });
 
-test('a-2 fails for a pattern that is not one of the four, or no pattern, and lists the four', () => {
+test('a-2 fails for a pattern that is not one of the five, or no pattern, and lists them', () => {
   withRepo(patternRepo({ choices: CHOSEN.replace('1: subagents', '1: delegate to helpers').replace(/^2: .*$/m, '2:') }), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /Job 1's line starts with "delegate to helpers", which isn't one of the four patterns\. Right after the job number, write `main conversation`, `subagents`, `workflow` or `agent team`\./);
+    assert.match(out, /Job 1's line starts with "delegate to helpers", which isn't one of the patterns\. Right after the job number, write `main conversation`, `subagents`, `workflow`, `\/batch` or `agent team`\./);
     assert.match(out, /Job 2's line names no pattern\./);
   });
 });
@@ -520,16 +546,16 @@ test('a-2 fails for a job with lines that pick different patterns', () => {
   });
 });
 
-test('a-2 says how to start the logging session when there is no log, and to save the hook file first', () => {
+test('a-2 says how to start the logging session when there is no log, and to save lesson 6\'s hook file first', () => {
   withRepo(patternRepo({ log: null }), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /There is no `\.practice\/a-2-agents\.txt`\. Start the session with `claude --settings \.practice\/a-2-hook\.json`, then run job 1\./);
+    assert.match(out, /There is no `\.practice\/i-6-agents\.txt`\. Start the session with `claude --settings \.practice\/i-6-hook\.json`, then run job 1\./);
   });
   withRepo(patternRepo({ log: null, hook: null }), (dir) => {
     const { code, out } = a2(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /Save the hook file from the lesson's Your turn as `\.practice\/a-2-hook\.json`/);
+    assert.match(out, /Save Intermediate lesson 6's hook file as `\.practice\/i-6-hook\.json`, then run job 1 in a session started with `claude --settings \.practice\/i-6-hook\.json`\./);
   });
 });
 
@@ -543,18 +569,18 @@ test('a-2 points at jq for an empty log, ignoring blank lines', () => {
   }
 });
 
-test('a-2 fails for a log with one subagent, and asks for one subagent per file, in parallel', () => {
-  for (const log of ['agent-a1\tgeneral-purpose\n', 'general-purpose\n\n', '\n\nagent-a1\tExplore\n\n']) {
+test('a-2 fails for a log with one subagent for job 1, or only lesson 6\'s, and asks for one subagent per file, in parallel', () => {
+  for (const [log, shows] of [['test-gaps\ngeneral-purpose\n', 'one subagent starting'], ['general-purpose\n\n', 'one subagent starting'], ['test-gaps\n\n', 'only lesson 6\'s `test-gaps`']]) {
     withRepo(patternRepo({ log }), (dir) => {
       const { code, out } = a2(dir);
       assert.equal(code, 1, out);
-      assert.match(out, /needs at least two subagents\. It shows one subagent starting\. In a session started with `claude --settings \.practice\/a-2-hook\.json`, ask for one subagent per file, in parallel\./);
+      assert.ok(out.includes(`shows ${shows}, and job 1 needs at least two subagents. In a session started with \`claude --settings .practice/i-6-hook.json\`, ask for one per file, in parallel.`), out);
     });
   }
 });
 
-test('a-2 counts any agent type, a fork included, and lines from a hook that logs only the type', () => {
-  for (const log of ['agent-a1\tfork\n\nagent-a2\tfork\n', 'agent-a1\tExplore\nagent-a2\tmy-reviewer\n', 'general-purpose\ngeneral-purpose\n', '\tgeneral-purpose\n\tExplore\n']) {
+test('a-2 counts any agent type, a fork included', () => {
+  for (const log of ['fork\n\nfork\n', 'test-gaps\nExplore\nmy-reviewer\n', 'general-purpose\ngeneral-purpose\n']) {
     withRepo(patternRepo({ log }), (dir) => {
       const { code, out } = a2(dir);
       assert.equal(code, 0, `${JSON.stringify(log)}: ${out}`);
@@ -573,52 +599,36 @@ test('a-2 fails on an unsolved repository and passes on a solved one, as the tem
   });
 });
 
-// A repository after lesson a-3: paths built from import.meta.url in two
-// folders, migrated to import.meta.dirname in a later commit, the saved
-// workflow committed in .claude/workflows/, a report from each run, and the
-// old form's pattern. The options replace a step: `script` (null for none) is
-// saved at `path` and committed unless `commitScript` is false;
-// `globalIgnore` becomes the repository's excludes file, standing in for a
-// global one; `migrate` lists the folders the migration commit changes; each
-// report is text, a Buffer, a function of the folder, or null for none, and
-// so is `pattern`; `after` changes the working tree last.
-const MIGRATE = [
-  '// Run with: /migrate-paths on <folder>',
+// A repository after lesson a-3: paths built from import.meta.url in src/
+// and test/, test/ migrated to import.meta.dirname in a later commit, as the
+// Worked example's goal does, the saved audit workflow committed in
+// .claude/workflows/, and the old form's pattern. The options replace a
+// step: `script` (null for none) is saved at `path` and committed unless
+// `commitScript` is false; `globalIgnore` becomes the repository's excludes
+// file, standing in for a global one; `migrate` lists the folders the
+// migration commit changes; `pattern` is text or null for none; `after`
+// changes the working tree last.
+const AUDIT = [
+  '// Run with: /audit-dropped-errors on <folder>',
   'export const meta = {',
-  "  name: 'migrate-paths',",
-  "  description: 'Build paths from import.meta.dirname instead of import.meta.url in a folder, then fix until npm test passes',",
-  '  phases: [',
-  "    { title: 'Migrate', detail: 'agents migrate the files in batches of five' },",
-  "    { title: 'Fix', detail: 'run npm test and fix until it passes or two rounds make no progress' },",
-  '  ],',
+  "  name: 'audit-dropped-errors',",
+  "  description: 'Audit a folder for errors that are caught and then ignored, and report only the findings a second agent confirms',",
   '}',
   '',
   'const folder = Array.isArray(args) ? args[0] : args',
-  "if (!folder) throw new Error('Name a folder: Run /migrate-paths on <folder>')",
+  "if (!folder) throw new Error('Name a folder: Run /audit-dropped-errors on <folder>')",
   '',
-  "phase('Migrate')",
-  'const found = await agent(`List every file under ${folder}/ that builds a path from import.meta.url, each as a path from the repository root.`, {',
+  'const found = await agent(`List every file under ${folder}/, each as a path from the repository root.`, {',
   "  schema: { type: 'object', required: ['files'], properties: { files: { type: 'array', items: { type: 'string' } } } },",
   '})',
-  'const batches = []',
-  'for (let i = 0; i < found.files.length; i += 5) batches.push(found.files.slice(i, i + 5))',
-  'const changed = await pipeline(batches, (batch) =>',
-  "  agent(`In ${batch.join(', ')}, build each path from import.meta.dirname instead of import.meta.url, and drop imports left unused. List each file you changed as path:line of its first change.`, { label: batch[0] }),",
+  'const findings = await pipeline(found.files, (file) =>',
+  "  agent(`In ${file}, find each error that is caught and then ignored. Give each as path:line and why.`, { label: file }),",
+  ')',
+  'const confirmed = await pipeline(findings.filter(Boolean), (finding) =>',
+  "  agent(`Try to refute this finding by reading the code. Reply CONFIRMED or REFUTED, with the reason.\\n${finding}`, { label: 'check' }),",
   ')',
   '',
-  "phase('Fix')",
-  'let failing = Infinity',
-  'let stalled = 0',
-  'while (stalled < 2) {',
-  "  const run = await agent('Run npm test. If it fails, fix the failures. Reply with the number of tests that failed before your fixes.', {",
-  "    schema: { type: 'object', required: ['failing'], properties: { failing: { type: 'number' } } },",
-  '  })',
-  '  if (!run || run.failing === 0) break',
-  '  stalled = run.failing < failing ? 0 : stalled + 1',
-  '  failing = run.failing',
-  '}',
-  '',
-  "return changed.filter(Boolean).join('\\n')",
+  "return confirmed.filter(Boolean).join('\\n')",
   '',
 ].join('\n');
 const OLD = {
@@ -629,15 +639,13 @@ const NEW = {
   'src/paths.js': "import { join } from 'node:path';\n\nexport const root = join(import.meta.dirname, '..');\n",
   'test/paths.test.js': "import { test } from 'node:test';\nimport { join } from 'node:path';\n\nconst fixtures = join(import.meta.dirname, 'fixtures');\ntest('root', () => {});\n",
 };
-const RUN1 = 'src\n\n- `src/paths.js:3`: builds root from import.meta.dirname.\n';
-const RUN2 = 'test\n\n- test/paths.test.js:4: builds fixtures from import.meta.dirname.\n';
 const PATTERN = 'import\\.meta\\.url\n';
-const WORKFLOW_PATH = '.claude/workflows/migrate-paths.js';
+const WORKFLOW_PATH = '.claude/workflows/audit-dropped-errors.js';
 // Other lessons' tests reuse this source file.
 const TOTAL = 'export function total(items) {\n  // TODO: round to cents before summing\n  return items.reduce((sum, i) => sum + i.price, 0);\n}\n';
 const inFolders = (files, folders) => Object.fromEntries(Object.entries(files).filter(([path]) => folders.includes(path.split('/')[0])));
 
-function workflowRepo({ script = MIGRATE, path = WORKFLOW_PATH, commitScript = true, globalIgnore, migrate = ['src', 'test'], reports = [RUN1, RUN2], pattern = PATTERN, after } = {}) {
+function workflowRepo({ script = AUDIT, path = WORKFLOW_PATH, commitScript = true, globalIgnore, migrate = ['test'], pattern = PATTERN, after } = {}) {
   return () => {
     const dir = repo({ 'README.md': '# demo\n', ...OLD });
     if (globalIgnore) {
@@ -656,9 +664,6 @@ function workflowRepo({ script = MIGRATE, path = WORKFLOW_PATH, commitScript = t
       write(dir, { [at]: text });
       if (commitScript) commit(dir, `Add ${at}`, [at]);
     }
-    for (const [i, report] of reports.entries()) {
-      if (report !== null) write(dir, { [`.practice/a-3-run${i + 1}.md`]: typeof report === 'function' ? report(dir) : report });
-    }
     if (pattern !== null) write(dir, { '.practice/a-3-pattern.txt': pattern });
     after?.(dir);
     return dir;
@@ -666,19 +671,20 @@ function workflowRepo({ script = MIGRATE, path = WORKFLOW_PATH, commitScript = t
 }
 
 const a3 = (dir) => check(['a-3', '--dir', dir]);
-const withMeta = (meta) => MIGRATE.replace(/export const meta = \{[\s\S]*?\n\}\n/, `export const meta = ${meta}\n`);
+const withMeta = (meta) => AUDIT.replace(/export const meta = \{[\s\S]*?\n\}\n/, `export const meta = ${meta}\n`);
+const ARGS_LINE = 'const folder = Array.isArray(args) ? args[0] : args';
 
-test('a-3 passes for a committed workflow that reads args and two reports on two folders', () => {
+test('a-3 passes for a committed audit workflow that reads args and checks each finding, and a folder migrated at HEAD', () => {
   withRepo(workflowRepo(), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 0, out);
-    assert.match(out, /3 of 3 passed/);
+    assert.match(out, /2 of 2 passed/);
   });
 });
 
 test('a-3 accepts a workflow in a package\'s own .claude/workflows/, and comments before meta', () => {
-  const commented = `/*\n * Migrates paths to import.meta.dirname.\n */\n\n// Run with: /migrate-paths on src\n${MIGRATE}`;
-  withRepo(workflowRepo({ script: commented, path: 'packages/web/.claude/workflows/migrate-paths.js' }), (dir) => {
+  const commented = `/*\n * Audits a folder for dropped errors.\n */\n\n${AUDIT}`;
+  withRepo(workflowRepo({ script: commented, path: 'packages/web/.claude/workflows/audit-dropped-errors.js' }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 0, out);
   });
@@ -696,28 +702,28 @@ test('a-3 says to commit a workflow that is only in the working tree, naming the
   withRepo(workflowRepo({ commitScript: false }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`\.claude\/workflows\/migrate-paths\.js` isn't committed\. Run `git add \.claude\/workflows\/migrate-paths\.js` and commit it\./);
+    assert.match(out, /`\.claude\/workflows\/audit-dropped-errors\.js` isn't committed\. Run `git add \.claude\/workflows\/audit-dropped-errors\.js` and commit it\./);
   });
   withRepo(workflowRepo({ commitScript: false, globalIgnore: '.claude/\n' }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /isn't committed, and line 1 of `[^`]*global-ignore`, `\.claude\/`, ignores it\. Run `git add -f \.claude\/workflows\/migrate-paths\.js` and commit it\./);
+    assert.match(out, /isn't committed, and line 1 of `[^`]*global-ignore`, `\.claude\/`, ignores it\. Run `git add -f \.claude\/workflows\/audit-dropped-errors\.js` and commit it\./);
   });
 });
 
 test('a-3 reads only .js files directly in .claude/workflows/, and says where to move another', () => {
-  for (const path of ['.claude/workflows/migrate-paths.mjs', '.claude/workflows/team/migrate-paths.js']) {
+  for (const path of ['.claude/workflows/audit-dropped-errors.mjs', '.claude/workflows/team/audit-dropped-errors.js']) {
     withRepo(workflowRepo({ path }), (dir) => {
       const { code, out } = a3(dir);
       assert.equal(code, 1, `${path}: ${out}`);
       assert.ok(out.includes(`\`${path}\` is under \`.claude/workflows/\`, but the check reads only \`.js\` files directly in that folder`), out);
-      assert.match(out, /Move it to `\.claude\/workflows\/migrate-paths\.js` and commit\./);
+      assert.match(out, /Move it to `\.claude\/workflows\/audit-dropped-errors\.js` and commit\./);
     });
   }
 });
 
 test('a-3 fails when meta is not the script\'s first statement', () => {
-  withRepo(workflowRepo({ script: `const folder = args\n${MIGRATE}` }), (dir) => {
+  withRepo(workflowRepo({ script: `const folder = args\n${AUDIT}` }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /doesn't start with `export const meta`: its code starts with `const folder = args`\. Claude Code needs `export const meta = \{ \.\.\. \}` as the script's first statement/);
@@ -726,14 +732,14 @@ test('a-3 fails when meta is not the script\'s first statement', () => {
 
 test('a-3 fails for a meta with anything but literal values, naming it and the line', () => {
   for (const [meta, what] of [
-    ["{\n  ...base,\n  name: 'migrate-paths',\n  description: 'Migrate paths',\n}", 'Line 3 of `.claude/workflows/migrate-paths.js`: `meta` holds a spread, `...`.'],
-    ["{\n  name: 'migrate-paths',\n  description: describe('todo'),\n}", '`meta` holds a function call, `describe(...)`.'],
-    ["{\n  name: NAME,\n  description: 'Migrate paths',\n}", '`meta` holds a variable, `NAME`.'],
-    ["{\n  name,\n  description: 'Migrate paths',\n}", '`meta` holds a variable, `name`.'],
-    ["{\n  name: 'migrate-paths',\n  description: `Report ${KIND}`,\n}", '`meta` holds a template string with `${...}`.'],
-    ["{\n  name: 'todo-' + 'check',\n  description: 'Migrate paths',\n}", '`meta` holds an expression, `+`.'],
-    ["{\n  name: 'migrate-paths',\n  description: () => 'Migrate paths',\n}", 'Line 4 of `.claude/workflows/migrate-paths.js`: `meta` holds a function.'],
-    ["makeMeta('migrate-paths')", '`meta` holds something other than an object literal.'],
+    ["{\n  ...base,\n  name: 'audit-dropped-errors',\n  description: 'Audit a folder',\n}", 'Line 3 of `.claude/workflows/audit-dropped-errors.js`: `meta` holds a spread, `...`.'],
+    ["{\n  name: 'audit-dropped-errors',\n  description: describe('todo'),\n}", '`meta` holds a function call, `describe(...)`.'],
+    ["{\n  name: NAME,\n  description: 'Audit a folder',\n}", '`meta` holds a variable, `NAME`.'],
+    ["{\n  name,\n  description: 'Audit a folder',\n}", '`meta` holds a variable, `name`.'],
+    ["{\n  name: 'audit-dropped-errors',\n  description: `Report ${KIND}`,\n}", '`meta` holds a template string with `${...}`.'],
+    ["{\n  name: 'audit-' + 'errors',\n  description: 'Audit a folder',\n}", '`meta` holds an expression, `+`.'],
+    ["{\n  name: 'audit-dropped-errors',\n  description: () => 'Audit a folder',\n}", 'Line 4 of `.claude/workflows/audit-dropped-errors.js`: `meta` holds a function.'],
+    ["makeMeta('audit-dropped-errors')", '`meta` holds something other than an object literal.'],
   ]) {
     withRepo(workflowRepo({ script: withMeta(meta) }), (dir) => {
       const { code, out } = a3(dir);
@@ -745,10 +751,10 @@ test('a-3 fails for a meta with anything but literal values, naming it and the l
 });
 
 test('a-3 fails for a meta without a name or a description', () => {
-  withRepo(workflowRepo({ script: withMeta("{ name: 'migrate-paths' }") }), (dir) => {
+  withRepo(workflowRepo({ script: withMeta("{ name: 'audit-dropped-errors' }") }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`meta` in `\.claude\/workflows\/migrate-paths\.js` needs a non-empty `description` string\. Add it and commit\./);
+    assert.match(out, /`meta` in `\.claude\/workflows\/audit-dropped-errors\.js` needs a non-empty `description` string\. Add it and commit\./);
   });
   withRepo(workflowRepo({ script: withMeta("{ name: '', description: 42 }") }), (dir) => {
     const { code, out } = a3(dir);
@@ -758,7 +764,7 @@ test('a-3 fails for a meta without a name or a description', () => {
 });
 
 test('a-3 prints a compile error with its line, and never runs the script', () => {
-  const broken = `${MIGRATE}const late = await agent(\nlet x = 1\n`;
+  const broken = `${AUDIT}const late = await agent(\nlet x = 1\n`;
   const lines = broken.split('\n').length - 1;
   withRepo(workflowRepo({ script: broken }), (dir) => {
     const { code, out } = a3(dir);
@@ -773,12 +779,12 @@ test('a-3 prints a compile error with its line, and never runs the script', () =
 });
 
 test('a-3 fails when the script never reads the args global, saying why', () => {
-  const noArgs = MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  const noArgs = AUDIT.replace(ARGS_LINE, "const folder = 'src'");
   for (const [script, why] of [
     [noArgs, /never reads `args`, so it can't take a folder as input/],
     [noArgs.replace("const folder = 'src'", "// TODO: read the folder from args\nconst folder = 'args'"), /mentions `args` only in a comment, a string or a property name/],
     [noArgs.replace("const folder = 'src'", "const folder = options.args\nconst options = { args: 'src' }"), /mentions `args` only in a comment, a string or a property name/],
-    [noArgs.replace("const folder = 'src'", "const args = 'src'\nconst folder = args"), /Line 11 of `\.claude\/workflows\/migrate-paths\.js` declares its own `args`/],
+    [noArgs.replace("const folder = 'src'", "const args = 'src'\nconst folder = args"), /Line 7 of `\.claude\/workflows\/audit-dropped-errors\.js` declares its own `args`/],
   ]) {
     withRepo(workflowRepo({ script }), (dir) => {
       const { code, out } = a3(dir);
@@ -791,142 +797,64 @@ test('a-3 fails when the script never reads the args global, saying why', () => 
 
 test('a-3 counts args read in a template, a ternary, a call or an object shorthand', () => {
   for (const read of ['const folder = `${args}`', 'const folder = args ? args : "src"', 'const folder = String(args)', 'const { folder } = { folder: args }', 'const input = { args }; const folder = input.args']) {
-    withRepo(workflowRepo({ script: MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', read) }), (dir) => {
+    withRepo(workflowRepo({ script: AUDIT.replace(ARGS_LINE, read) }), (dir) => {
       const { code, out } = a3(dir);
       assert.equal(code, 0, `${read}: ${out}`);
     });
   }
 });
 
+test('a-3 fails for a script with one agent() call, where no second agent checks the findings', () => {
+  const once = AUDIT.replace(/const found[\s\S]*?\n\}\)\n/, 'const found = { files: [folder] }\n').replace(/const confirmed[\s\S]*?\n\)\n/, 'const confirmed = findings\n');
+  withRepo(workflowRepo({ script: once }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.claude\/workflows\/audit-dropped-errors\.js` calls `agent\(\)` only once, so no second agent checks what the first one finds\./);
+  });
+});
+
+test('a-3 counts agent() calls, not methods, declarations, comments or strings', () => {
+  const meta = "export const meta = { name: 'review', description: 'Review each file' }\nconst folder = args\n";
+  for (const [body, ok] of [
+    ["await agent('find')\nawait agent('check')\n", true],
+    ["await parallel([() => agent('a'), () => agent('b')])\n", true],
+    ["await agent('find')\nawait tools.agent('check')\n", false],
+    ["await agent('find')\n// agent('check')\nconst s = \"agent('check')\"\n", false],
+    ["await agent('find')\nasync function agent2() {}\n", false],
+  ]) {
+    withRepo(workflowRepo({ script: `${meta}${body}` }), (dir) => {
+      assert.equal(a3(dir).code === 0, ok, body);
+    });
+  }
+});
+
 test('a-3 points out uncommitted changes to a committed script that fails', () => {
-  const noArgs = MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
-  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { [WORKFLOW_PATH]: MIGRATE }) }), (dir) => {
+  const noArgs = AUDIT.replace(ARGS_LINE, "const folder = 'src'");
+  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { [WORKFLOW_PATH]: AUDIT }) }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /never reads `args`/);
-    assert.match(out, /Your copy of `\.claude\/workflows\/migrate-paths\.js` has changes that aren't committed: if they fix this, commit them\./);
+    assert.match(out, /Your copy of `\.claude\/workflows\/audit-dropped-errors\.js` has changes that aren't committed: if they fix this, commit them\./);
   });
 });
 
 test('a-3 passes when any committed script meets the item, and otherwise speaks of the one that got furthest', () => {
-  const noArgs = MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  const noArgs = AUDIT.replace(ARGS_LINE, "const folder = 'src'");
   const paths = ['.claude/workflows/a-first.js', '.claude/workflows/b-second.js'];
-  withRepo(workflowRepo({ script: [`const x = 1\n${MIGRATE}`, MIGRATE], path: paths }), (dir) => {
+  withRepo(workflowRepo({ script: [`const x = 1\n${AUDIT}`, AUDIT], path: paths }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 0, out);
   });
-  withRepo(workflowRepo({ script: [`const x = 1\n${MIGRATE}`, noArgs], path: paths }), (dir) => {
+  withRepo(workflowRepo({ script: [`const x = 1\n${AUDIT}`, noArgs], path: paths }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /`\.claude\/workflows\/b-second\.js` never reads `args`/);
     assert.doesNotMatch(out, /a-first/);
   });
-  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { '.claude/workflows/fixed.js': MIGRATE }) }), (dir) => {
+  withRepo(workflowRepo({ script: noArgs, after: (dir) => write(dir, { '.claude/workflows/fixed.js': AUDIT }) }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /never reads `args`.* Also, `\.claude\/workflows\/fixed\.js` isn't committed\. Run `git add \.claude\/workflows\/fixed\.js` and commit it\./);
-  });
-});
-
-test('a-3 says where to save the reports when there are none, and which one is missing', () => {
-  withRepo(workflowRepo({ reports: [null, null] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /There are no reports yet\. Run your saved workflow by name on a folder, then ask Claude to save the report to `\.practice\/a-3-run1\.md` with the folder on its first line/);
-    assert.match(out, /The check reads the two folders from the reports' first lines/);
-  });
-  withRepo(workflowRepo({ reports: [RUN1, null] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /There is no `\.practice\/a-3-run2\.md`\. Run your saved workflow by name on a different folder/);
-  });
-  withRepo(workflowRepo({ reports: [RUN1, '\n  \n'] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /`\.practice\/a-3-run2\.md` is empty/);
-  });
-});
-
-test('a-3 finds the folder on a heading, in backticks, with ./ or a trailing slash, or after a label', () => {
-  for (const first of ['# src', '## `src/`', './src', 'src\\', '**Folder:** `src/`', 'Migration report for src.']) {
-    withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, first), RUN2] }), (dir) => {
-      const { code, out } = a3(dir);
-      assert.equal(code, 0, `${first}: ${out}`);
-    });
-  }
-  withRepo(workflowRepo({ reports: [(dir) => RUN1.replace(/^src/, `${dir}/src`), RUN2] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 0, out);
-  });
-});
-
-test('a-3 fails when both reports name the same folder, however it is written', () => {
-  withRepo(workflowRepo({ reports: [RUN1, RUN1.replace(/^src/, './src/')] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /Both reports name `src`\. Run your saved workflow on a second, different folder/);
-  });
-});
-
-test('a-3 fails for a first line that names no folder, or the repository\'s root', () => {
-  withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, '# Migration report'), RUN2] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /The first line of `\.practice\/a-3-run1\.md`, "# Migration report", names no folder in this repository/);
-  });
-  withRepo(workflowRepo({ reports: [RUN1.replace(/^src/, '.'), RUN2] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /The first line of `\.practice\/a-3-run1\.md` names the repository's root/);
-  });
-});
-
-test('a-3 reads citations in backticks, with ./, with backslashes, as a full path, with a column and as a link, and skips URLs and times', () => {
-  const forms = (dir) => [
-    '# src',
-    '',
-    '- `src/paths.js:3`',
-    '- ./src/paths.js:3: migrated',
-    '- src\\paths.js:3',
-    `- ${dir}/src/paths.js:3`,
-    '- **src/paths.js:3:5**',
-    '- [paths.js](src/paths.js#L3)',
-    '- at:src/paths.js:3',
-    '',
-    'Served at http://localhost:8080 and localhost:3000 at 10:30, see https://example.com/src/a.js#L40.',
-  ].join('\n');
-  withRepo(workflowRepo({ reports: [forms, RUN2] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 0, out);
-  });
-});
-
-test('a-3 fails for a cited file outside the report\'s folder', () => {
-  withRepo(workflowRepo({ reports: [`${RUN1}- test/paths.test.js:4: also changed\n`, RUN2] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /`\.practice\/a-3-run1\.md` cites `test\/paths\.test\.js:4`, outside `src\/`, the folder on its first line\. Check that the workflow reads the folder from `args`/);
-  });
-});
-
-test('a-3 fails for a report with no citation, and for paths written from inside the folder', () => {
-  withRepo(workflowRepo({ reports: ['src\n\nNothing changed in this folder.\n', RUN2] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /`\.practice\/a-3-run1\.md` cites no `path:line`\. Each file the report lists needs one, from the repository's root, such as `src\/<file>:<line>`\./);
-  });
-  withRepo(workflowRepo({ reports: ['src\n\n- paths.js:3: migrated\n', RUN2] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /cites `paths\.js:3`, a path from inside `src\/`\. Each `path:line` must start at the repository's root, as `src\/paths\.js:3` does/);
-  });
-});
-
-test('a-3 fails for a report that cites only files its folder doesn\'t hold', () => {
-  withRepo(workflowRepo({ reports: ['src\n\n- src/missing.js:3: migrated\n', RUN2] }), (dir) => {
-    const { code, out } = a3(dir);
-    assert.equal(code, 1, out);
-    assert.match(out, /`\.practice\/a-3-run1\.md` cites `src\/missing\.js:3`, but `src\/` holds no such file\. Cite the files the migration changed/);
   });
 });
 
@@ -934,7 +862,7 @@ test('a-3 says to save the pattern when there is none, or it is empty', () => {
   withRepo(workflowRepo({ pattern: null }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /PASS {2}`\.practice\/a-3-run1\.md` and `\.practice\/a-3-run2\.md` name two different folders/);
+    assert.match(out, /PASS {2}a committed script in `\.claude\/workflows\/`/);
     assert.match(out, /There is no `\.practice\/a-3-pattern\.txt`\. Save the `git grep -E` pattern that finds the old form there, on one line/);
   });
   withRepo(workflowRepo({ pattern: '\n  \n' }), (dir) => {
@@ -953,26 +881,31 @@ test('a-3 reads the pattern in backticks or quotes, with CRLF line ends', () => 
   }
 });
 
-test('a-3 fails while the old form still matches in a folder at HEAD, and says to commit a migration left in the working tree', () => {
+test('a-3 passes once one folder is migrated at HEAD, while the old form stays elsewhere', () => {
   withRepo(workflowRepo({ migrate: ['src'] }), (dir) => {
+    assert.equal(a3(dir).code, 0);
+  });
+});
+
+test('a-3 fails while the old form still matches in every folder at HEAD, and says to commit a migration left in the working tree', () => {
+  withRepo(workflowRepo({ migrate: [] }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`import\\\.meta\\\.url` still matches inside `test\/` at `HEAD`: `git grep -n -E 'import\\\.meta\\\.url' -- test` lists the lines\. Run the workflow on that folder again/);
-    assert.doesNotMatch(out, /inside `src\/`/);
+    assert.match(out, /`import\\\.meta\\\.url` still matches inside `src\/` and `test\/` at `HEAD`, in every folder where it ever matched/);
+    assert.match(out, /Set the goal again for the folder you're migrating/);
   });
-  withRepo(workflowRepo({ migrate: ['src'], after: (dir) => write(dir, inFolders(NEW, ['test'])) }), (dir) => {
+  withRepo(workflowRepo({ migrate: [], after: (dir) => write(dir, inFolders(NEW, ['test'])) }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
     assert.match(out, /`test\/` is migrated in your working tree, but `import\\\.meta\\\.url` still matches there at `HEAD`\. Review the changes and commit them\./);
   });
 });
 
-test('a-3 fails for a pattern that never matched in a folder, or that git cannot read', () => {
-  withRepo(workflowRepo({ pattern: 'fileURLToPath\n' }), (dir) => {
+test('a-3 fails for a pattern that never matched, or that git cannot read', () => {
+  withRepo(workflowRepo({ pattern: 'nothingLikeThis\n' }), (dir) => {
     const { code, out } = a3(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`fileURLToPath` matches nothing inside `test\/` in any commit, so the check can't see a migration there/);
-    assert.doesNotMatch(out, /inside `src\/` in any commit/);
+    assert.match(out, /`nothingLikeThis` matches nothing in this repository's recent commits, so the check can't see a migration/);
   });
   withRepo(workflowRepo({ pattern: '(\n' }), (dir) => {
     const { code, out } = a3(dir);
@@ -981,18 +914,8 @@ test('a-3 fails for a pattern that never matched in a folder, or that git cannot
   });
 });
 
-test('a-3 reads reports saved with CRLF line ends, a UTF-8 byte-order mark, or as UTF-16 by Windows PowerShell', () => {
-  const utf16 = (text) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replace(/\n/g, '\r\n'), 'utf16le')]);
-  for (const reports of [[RUN1.replace(/\n/g, '\r\n'), RUN2.replace(/\n/g, '\r\n')], [`\uFEFF${RUN1}`, `\uFEFF${RUN2}`], [utf16(RUN1), utf16(RUN2)]]) {
-    withRepo(workflowRepo({ reports }), (dir) => {
-      const { code, out } = a3(dir);
-      assert.equal(code, 0, out);
-    });
-  }
-});
-
 test('the workflow reader can require an agent() call, as the Advanced capstone does', () => {
-  const noArgs = MIGRATE.replace('const folder = Array.isArray(args) ? args[0] : args', "const folder = 'src'");
+  const noArgs = AUDIT.replace(ARGS_LINE, "const folder = 'src'");
   assert.equal(readWorkflow(noArgs, { needAgentCall: true }).ok, true);
   assert.equal(readWorkflow(noArgs, { needArgs: true }).problem, 'args');
   const meta = "export const meta = { name: 'review', description: 'Review each file' }\n";
@@ -1004,7 +927,7 @@ test('the workflow reader can require an agent() call, as the Advanced capstone 
 });
 
 test('a-3 fails on an unsolved repository and passes on a solved one, as the template\'s assertions expect', () => {
-  withRepo(workflowRepo({ script: null, migrate: [], reports: [null, null], pattern: null }), (dir) => {
+  withRepo(workflowRepo({ script: null, migrate: [], pattern: null }), (dir) => {
     const { code, out } = check(['a-3', '--assert', 'fail', '--dir', dir]);
     assert.equal(code, 0, out);
   });
@@ -1173,6 +1096,14 @@ test('a-4 names each flag the call lacks or gets wrong', () => {
   withRepo(reviewRepo({ script: withFlags(FLAGS.replace('--allowedTools', '--allowedtools')) }), (dir) => {
     assert.match(String(callHint(dir)), /It pre-approves no tools: add `--allowedTools "Read,Grep,Glob"`\. Claude Code doesn't know `--allowedtools`, so it stops with an error before the run starts: write `--allowedTools`\./);
   });
+});
+
+test('a-4 accepts --tools that keeps only the three read tools, and names any other tool it keeps', () => {
+  const base = ['-p', 'Review this diff.', '--output-format', 'json', '--permission-mode', 'dontAsk', '--allowedTools', 'Read,Grep,Glob', '--max-turns', '5'];
+  assert.deepEqual(callHints([...base, '--tools', 'Read,Grep,Glob']), []);
+  assert.deepEqual(callHints([...base, '--tools', '']), []);
+  assert.deepEqual(callHints([...base, '--tools', 'Read,Bash,Edit']), ['`--tools` keeps `Bash` and `Edit` available: list only `Read`, `Grep` and `Glob` there, or leave `--tools` out.']);
+  assert.deepEqual(callHints([...base, '--tools']), ['`--tools` has no tools after it: write `--tools "Read,Grep,Glob"`, or leave it out.']);
 });
 
 test('a-4 fails a prompt that isn\'t right after -p, naming a word the tool list took', () => {
@@ -1681,7 +1612,7 @@ test('a-5 names each limit the second item finds missing or too loose', () => {
     [reportWith(['contents: read', 'contents: write']), /`contents: write` on line 7 gives the job token write access, and this job only reads\. Make it `read`, or remove it\./],
     [reportWith(['contents: read', 'contents: read\n  issues: write\n  pull-requests: write']), /`issues: write` and `pull-requests: write` on lines 8 and 9 give the job token write access/],
     [reportWith(['permissions:\n  contents: read', 'permissions: write-all']), /`permissions: write-all` on line 6 gives the job token write access to everything\. Use `contents: read`\./],
-    [reportWith(['          github_token: ${{ github.token }}\n', '']), /The step on line 18 passes no `github_token`, so Claude acts as the Claude GitHub App, which can write to the repository\. Add `github_token: \$\{\{ github\.token \}\}` under `with:`/],
+    [reportWith(['          github_token: ${{ github.token }}\n', '']), /The step on line 18 passes no `github_token`, so the action authenticates as the Claude GitHub App, which this copy doesn't have\. Add `github_token: \$\{\{ github\.token \}\}` under `with:`/],
     [reportWith(['${{ github.token }}', '${{ secrets.MY_TOKEN }}']), /`github_token` on line 21 isn't this job's own token, so the job's `permissions` don't limit it\./],
   ]) {
     withRepo(actionsRepo({ workflow }), (dir) => {
@@ -1740,8 +1671,21 @@ test('a-5 reads the newest commit that holds a manual workflow, and a later pull
     // The capstone's builder, limited to pull_request, reads the later one.
     const capstone = { triggers: ['pull_request'], file: '.github/workflows/claude-review.yml', guide: 'the brief' };
     assert.match(String(setupHint(dir, capstone)), /^`\.github\/workflows\/claude-review\.yml`: `@v1` on line 18 can move/);
-    assert.equal(chosenWorkflow(openRepo(dir), ['pull_request']).file.path, '.github/workflows/claude-review.yml');
+    assert.equal(chosenWorkflow(openRepo(dir), ['pull_request'], capstone).file.path, '.github/workflows/claude-review.yml');
     assert.equal(chosenWorkflow(openRepo(dir), ['workflow_dispatch']).file.path, WORKFLOW);
+  });
+  // The Worked example's workflow also starts by hand, and never stands in
+  // for the lesson's file once that file is in the history.
+  const ask = reportWith([`claude_args: ${ARGS}`, 'claude_args: --max-turns 3 --allowedTools "Read"']);
+  const askLater = (dir) => {
+    write(dir, { '.github/workflows/ask-claude.yml': ask });
+    commit(dir, 'Ask Claude by hand', ['.github/workflows/ask-claude.yml']);
+  };
+  withRepo(actionsRepo({ workflow: reportWith([`@${PIN} # v1.0.237`, '@v1']), after: askLater }), (dir) => {
+    assert.match(String(setupHint(dir)), /^`\.github\/workflows\/linkcheck-report\.yml`: `@v1` on line 18/);
+  });
+  withRepo(actionsRepo({ workflow: null, after: askLater }), (dir) => {
+    assert.equal(chosenWorkflow(openRepo(dir), ['workflow_dispatch']).file.path, '.github/workflows/ask-claude.yml');
   });
   // The newest version of the workflow counts, whichever way it changed.
   const edit = (text) => (dir) => {
@@ -1821,14 +1765,15 @@ test('a-5 reads the saved runs, and says what is wrong with them', () => {
     [(sha) => [runOf(sha, { url: undefined })], /Run 123456789 in `\.practice\/a-5-runs\.json` has no GitHub run URL/],
     [(sha) => [runOf(sha, { headSha: undefined })], /Run 123456789 has no `headSha`/],
     [() => [runOf('0123456789abcdef0123456789abcdef01234567')], /Run 123456789 ran on commit 0123456, which this repository doesn't have\. Run `git pull` to fetch it, then run the check again\./],
-    [(sha, start) => [runOf(start)], /ran on commit [0-9a-f]{7}, where no workflow runs `anthropics\/claude-code-action` with a `prompt`\. Once your workflow is pushed, run it with `gh workflow run linkcheck-report\.yml`/],
+    [(sha, start) => [runOf(start)], /ran on commit [0-9a-f]{7}, where `\.github\/workflows\/linkcheck-report\.yml` doesn't run `anthropics\/claude-code-action` with a `prompt`\. Once your workflow is pushed, run it with `gh workflow run linkcheck-report\.yml`/],
     [(sha) => [runOf(sha, { event: 'issues' }), runOf(sha, { conclusion: 'failure', databaseId: 7 })], /Run 7 ended with `failure`/],
   ]) {
     withRepo(actionsRepo({ runs }), (dir) => {
       assert.match(String(runsHint(dir)), hint, String(runs));
     });
   }
-  // A run on a commit that holds only the @claude workflow, which has no prompt.
+  // A run on a commit that holds only the @claude workflow, which has no
+  // prompt: with the lesson's file in the history, the hint names that file.
   withRepo(actionsRepo({
     runs: null,
     after: (dir) => {
@@ -1840,6 +1785,10 @@ test('a-5 reads the saved runs, and says what is wrong with them', () => {
       assert.ok(sha);
     },
   }), (dir) => {
+    assert.match(String(runsHint(dir)), /where `\.github\/workflows\/linkcheck-report\.yml` doesn't run `anthropics\/claude-code-action` with a `prompt`/);
+  });
+  // With the workflow at another path, any workflow with a prompt counts.
+  withRepo(actionsRepo({ path: '.github/workflows/report.yml', runs: (sha, start) => [runOf(start)] }), (dir) => {
     assert.match(String(runsHint(dir)), /where no workflow runs `anthropics\/claude-code-action` with a `prompt`/);
   });
 });
@@ -2923,11 +2872,13 @@ test('a-7 fails on an unsolved repository and passes on a solved one, as the tem
 });
 
 // The Advanced capstone, in a new copy of the template: the worktrees
-// ignored; two sessions at once, one adding the review script and one the
-// team marketplace with the settings that register it, listed while both
-// worktrees existed, merged and removed; the per-file review workflow saved;
-// the review workflow on pull_request committed and, with `teardown`,
-// deleted; and one run of the script saved. The options change a step:
+// ignored; two sessions at once, one adding the team's review skill and the
+// review script that runs it, and one the team marketplace with the settings
+// that register it, listed while both worktrees existed, merged and removed;
+// the per-file review workflow saved; the review workflow on pull_request,
+// which runs the same skill and cancels a superseded run, committed and,
+// with `teardown`, deleted; and one run of the script saved. The options
+// change a step:
 // `gitignore` is committed first, with `files`; `script`, `settings`,
 // `workflow` and `ci` (null for none) replace what is committed; `merge` is
 // 'no-ff', 'squash' or 'one'; `listing` and `run` (null for none) are what
@@ -2986,8 +2937,12 @@ const CLAUDE_REVIEW = [
   '        with:',
   '          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}',
   '          github_token: ${{ github.token }}',
-  "          prompt: Review this pull request's changes against origin/main for bugs. List each finding as file:line and one sentence.",
+  "          prompt: /team-review",
   '          claude_args: --model sonnet --max-turns 5 --allowedTools "Read,Grep,Glob,Bash(git diff *)"',
+  '',
+  'concurrency:',
+  '  group: review-${{ github.event.pull_request.number }}',
+  '  cancel-in-progress: true',
   '',
 ].join('\n');
 const MADE_UP_KEY = `sk-ant-api03-${'Xy9_'.repeat(8)}`;
@@ -3000,18 +2955,21 @@ function reviewWith(...pairs) {
   }, CLAUDE_REVIEW);
 }
 
-// The capstone's review script also caps spend, as lesson 7's runs do.
-const CAPSTONE_SCRIPT = withFlags(`${FLAGS} --max-budget-usd 0.50`);
+// The capstone's review script runs the team's review skill and also caps
+// spend, as lesson 7's runs do.
+const CAPSTONE_SCRIPT = withFlags(`${FLAGS} --max-budget-usd 0.50`).replace(PROMPT, '/team-review');
+const SKILL = '.claude/skills/team-review/SKILL.md';
+const TEAM_REVIEW = '---\nname: team-review\ndescription: Reviews a change the team\'s way. Use before a commit and on each pull request.\n---\n\nReview the change you are given, or the branch\'s changes from git diff, for bugs and missing tests. List each finding as file:line and one sentence.\n';
 
 function capstoneRepo({
-  gitignore = IGNORE, files = {}, script = CAPSTONE_SCRIPT, settings = TEAM_SETTINGS, workflow = FILE_REVIEW, ci = CLAUDE_REVIEW,
+  gitignore = IGNORE, files = {}, script = CAPSTONE_SCRIPT, skill = TEAM_REVIEW, settings = TEAM_SETTINGS, workflow = FILE_REVIEW, ci = CLAUDE_REVIEW,
   teardown = false, merge = 'no-ff', listing = (text) => text, run = REAL_RUN, after,
 } = {}) {
   return () => {
     const dir = repo({ '.gitignore': gitignore, ...CAPSTONE_START, ...files });
     commit(dir, 'Start');
     const sessions = [
-      ['review-script', script === null ? {} : { [SCRIPT]: script }],
+      ['review-script', { ...(script === null ? {} : { [SCRIPT]: script }), ...(skill === null ? {} : { [SKILL]: skill }) }],
       ['team-kit', { ...KIT_FILES, ...(settings === null ? {} : { '.claude/settings.json': typeof settings === 'string' ? settings : json(settings) }) }],
     ];
     const at = (name) => join(dir, '.claude', 'worktrees', name);
@@ -3063,7 +3021,7 @@ test('the Advanced capstone passes for everything the brief asks for, committed,
   withRepo(capstoneRepo(), (dir) => {
     const { code, out } = aCapstone(dir);
     assert.equal(code, 0, out);
-    assert.match(out, /14 of 14 passed/);
+    assert.match(out, /16 of 16 passed/);
   });
 });
 
@@ -3083,7 +3041,7 @@ test('the Advanced capstone reads its own saved files, not the ones the lessons 
   withRepo(capstoneRepo({ after: lessonPaths }), (dir) => {
     const { code, out } = aCapstone(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /11 of 14 passed/);
+    assert.match(out, /13 of 16 passed/);
     assert.match(out, /run `git worktree list --porcelain > \.practice\/a-capstone-worktrees\.txt` from your main checkout/);
     assert.match(out, /stage a change and run `scripts\/review-staged\.sh \.practice\/a-capstone-run\.json`, which saves the JSON there/);
   });
@@ -3114,15 +3072,48 @@ test('the Advanced capstone wants the review script to cap spend, as lesson 7 do
   });
 });
 
-test('the Advanced capstone wants both worktree branches merged as they are, as lesson 1 does', () => {
+test('the Advanced capstone wants both worktree changes in the branch, merged or squashed, as lesson 1 does', () => {
   withRepo(capstoneRepo({ merge: 'one' }), (dir) => {
-    assert.match(String(capstoneHint(dir, /a-capstone-worktrees\.txt/)), /`worktree-team-kit` isn't merged into your current branch\. From your main checkout, run `git merge worktree-team-kit`\./);
+    assert.match(String(capstoneHint(dir, /lists two worktrees/)), /The change on `worktree-team-kit` isn't in your current branch\. From your main checkout, bring it in the way your team does: `git merge worktree-team-kit`/);
   });
   withRepo(capstoneRepo({ merge: 'squash' }), (dir) => {
-    assert.match(String(capstoneHint(dir, /a-capstone-worktrees\.txt/)), /A squash merge or a rebase copies the commits/);
+    assert.equal(capstoneHint(dir, /lists two worktrees/), true);
   });
   withRepo(capstoneRepo({ listing: (text) => text.split('\n\n')[0] }), (dir) => {
-    assert.match(String(capstoneHint(dir, /a-capstone-worktrees\.txt/)), /lists no worktree under `\.claude\/worktrees\/`/);
+    assert.match(String(capstoneHint(dir, /lists two worktrees/)), /lists no worktree besides the main checkout/);
+  });
+});
+
+test('the Advanced capstone takes worktrees anywhere, and wants the ones inside the repository ignored', () => {
+  // Worktrees made with git outside the repository need no ignore rule.
+  const outside = () => {
+    const parent = mkdtempSync(join(tmpdir(), 'capstone-'));
+    const dir = join(parent, 'copy');
+    execFileSync('mkdir', ['-p', dir]);
+    git(dir, 'init', '-q');
+    write(dir, { '.gitignore': '.practice/\n', 'README.md': '# demo\n' });
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'Start');
+    for (const name of ['a', 'b']) {
+      git(dir, 'worktree', 'add', '-q', '-b', `side-${name}`, join(parent, name));
+      write(join(parent, name), { [`${name}.txt`]: `${name}\n` });
+      git(join(parent, name), 'add', '-A');
+      git(join(parent, name), 'commit', '-q', '-m', `Work ${name}`);
+    }
+    write(dir, { [CAPSTONE_LISTING]: `${git(dir, 'worktree', 'list', '--porcelain')}\n` });
+    for (const name of ['a', 'b']) git(dir, 'merge', '-q', '--no-edit', `side-${name}`);
+    return dir;
+  };
+  const dir = outside();
+  try {
+    assert.equal(capstoneHint(dir, /keeps the worktrees/), true);
+    assert.equal(capstoneHint(dir, /lists two worktrees/), true);
+  } finally {
+    rmSync(dirname(dir), { recursive: true, force: true });
+  }
+  // Worktrees inside the repository, in a folder no committed rule ignores.
+  withRepo(capstoneRepo({ gitignore: '.practice/\n' }), (d) => {
+    assert.match(String(capstoneHint(d, /keeps the worktrees/)), /No committed `\.gitignore` ignores `\.claude\/worktrees\/(review-script|team-kit)\/`/);
   });
 });
 
@@ -3132,17 +3123,32 @@ test('the Advanced capstone wants the worktrees ignored in a committed .gitignor
     git(dir, 'config', 'core.excludesFile', join(dir, '.git', 'global-ignore'));
   };
   withRepo(capstoneRepo({ gitignore: '.practice/\n', after: globalIgnore }), (dir) => {
-    assert.match(String(capstoneHint(dir, /ignores `\.claude\/worktrees\/`/)), /No committed `\.gitignore` ignores `\.claude\/worktrees\/`/);
+    assert.match(String(capstoneHint(dir, /keeps the worktrees/)), /No committed `\.gitignore` ignores `\.claude\/worktrees\//);
+  });
+  // With no listing yet, lesson 1's rule for .claude/worktrees/.
+  withRepo(capstoneRepo({ gitignore: '.practice/\n', listing: () => null }), (dir) => {
+    assert.match(String(capstoneHint(dir, /keeps the worktrees/)), /No committed `\.gitignore` ignores `\.claude\/worktrees\/`/);
+  });
+  const wide = (dir) => {
+    write(dir, { '.gitignore': '.practice/\n.claude/\n' });
+    commit(dir, 'Ignore all of .claude/', ['.gitignore']);
+  };
+  withRepo(capstoneRepo({ after: wide }), (dir) => {
+    assert.match(String(capstoneHint(dir, /keeps the worktrees/)), /also ignores `\.claude\/settings\.json`/);
   });
 });
 
-test('the Advanced capstone wants a saved workflow that starts subagents, and doesn\'t ask it to read args', () => {
+test('the Advanced capstone wants a saved workflow whose second agent checks the first one\'s findings, and doesn\'t ask it to read args', () => {
   const noAgent = FILE_REVIEW.replace(/const listed[\s\S]*$/, "return 'nothing to review'\n");
   withRepo(capstoneRepo({ workflow: noAgent }), (dir) => {
     assert.match(String(capstoneHint(dir, /\.claude\/workflows\//)), /`\.claude\/workflows\/file-review\.js` never calls `agent\(\)`, so it starts no subagent\./);
   });
+  const once = FILE_REVIEW.replace(/const listed[\s\S]*$/, "const found = await agent('Review each file under src/ for bugs.')\nreturn found\n");
+  withRepo(capstoneRepo({ workflow: once }), (dir) => {
+    assert.match(String(capstoneHint(dir, /\.claude\/workflows\//)), /calls `agent\(\)` only once, so no second agent checks what the first one finds/);
+  });
   // Lesson 3's workflow, which also reads args, passes too.
-  withRepo(capstoneRepo({ workflow: MIGRATE }), (dir) => {
+  withRepo(capstoneRepo({ workflow: AUDIT }), (dir) => {
     assert.equal(capstoneHint(dir, /\.claude\/workflows\//), true);
   });
   withRepo(capstoneRepo({ workflow: null }), (dir) => {
@@ -3178,7 +3184,7 @@ test('the Advanced capstone wants the review workflow on pull_request, and lesso
   };
   withRepo(capstoneRepo({ after: later }), (dir) => {
     assert.equal(capstoneHint(dir, CI_ITEM), true);
-    assert.equal(chosenWorkflow(openRepo(dir), CI.triggers).file.path, REVIEW_WORKFLOW);
+    assert.equal(chosenWorkflow(openRepo(dir), CI.triggers, CI).file.path, REVIEW_WORKFLOW);
   });
   withRepo(capstoneRepo({ ci: reviewWith(['    types: [opened, synchronize]', '    types: [opened, synchronize]\n  workflow_dispatch:']) }), (dir) => {
     assert.equal(capstoneHint(dir, CI_ITEM), true);
@@ -3307,9 +3313,58 @@ test('the Advanced capstone fails while the tests fail or something is left unco
   });
 });
 
+test('the Advanced capstone wants the script and CI to run one committed review skill', () => {
+  const REVIEW_ITEM = /both run one skill/;
+  withRepo(capstoneRepo(), (dir) => {
+    assert.equal(capstoneHint(dir, REVIEW_ITEM), true);
+  });
+  withRepo(capstoneRepo({ script: CAPSTONE_SCRIPT.replace('/team-review', PROMPT) }), (dir) => {
+    assert.match(String(capstoneHint(dir, REVIEW_ITEM)), /The `claude -p` prompt in `scripts\/review-staged\.sh` doesn't run a skill, so its review lives only in the script/);
+  });
+  withRepo(capstoneRepo({ ci: reviewWith(['prompt: /team-review', "prompt: Review this pull request's changes for bugs."]) }), (dir) => {
+    assert.match(String(capstoneHint(dir, REVIEW_ITEM)), /The review workflow's `prompt` doesn't run a skill, so CI reviews differently from the script, which runs `\/team-review`/);
+  });
+  withRepo(capstoneRepo({ ci: reviewWith(['prompt: /team-review', 'prompt: /other-review']) }), (dir) => {
+    assert.match(String(capstoneHint(dir, REVIEW_ITEM)), /The script runs `\/team-review` and CI runs `\/other-review`/);
+  });
+  withRepo(capstoneRepo({ script: CAPSTONE_SCRIPT.replace('/team-review', '/team-kit:review'), ci: reviewWith(['prompt: /team-review', 'prompt: /team-kit:review']) }), (dir) => {
+    assert.match(String(capstoneHint(dir, REVIEW_ITEM)), /`\/team-kit:review` is a plugin skill\. A CI checkout was never trusted/);
+  });
+  withRepo(capstoneRepo({ skill: null }), (dir) => {
+    assert.match(String(capstoneHint(dir, REVIEW_ITEM)), /`\/team-review` names no skill committed at `\.claude\/skills\/team-review\/SKILL\.md`/);
+  });
+  withRepo(capstoneRepo({ script: null }), (dir) => {
+    assert.match(String(capstoneHint(dir, REVIEW_ITEM)), /without a committed `scripts\/review-staged\.sh`/);
+  });
+  withRepo(capstoneRepo({ ci: null }), (dir) => {
+    assert.match(String(capstoneHint(dir, REVIEW_ITEM)), /without a committed review workflow/);
+  });
+});
+
+test('the Advanced capstone wants a new push to cancel the review still running', () => {
+  const RUNS_ITEM = /`concurrency` group/;
+  const GROUP = 'concurrency:\n  group: review-${{ github.event.pull_request.number }}\n  cancel-in-progress: true\n';
+  const none = reviewWith([GROUP, '']);
+  withRepo(capstoneRepo(), (dir) => {
+    assert.equal(capstoneHint(dir, RUNS_ITEM), true);
+  });
+  withRepo(capstoneRepo({ ci: none.replace('    runs-on: ubuntu-latest', '    runs-on: ubuntu-latest\n    concurrency: { group: review, cancel-in-progress: true }') }), (dir) => {
+    assert.equal(capstoneHint(dir, RUNS_ITEM), true);
+  });
+  withRepo(capstoneRepo({ ci: none }), (dir) => {
+    assert.match(String(capstoneHint(dir, RUNS_ITEM)), /sets no `concurrency`, so five quick pushes start five reviews/);
+  });
+  withRepo(capstoneRepo({ ci: reviewWith([GROUP, 'concurrency: review\n']) }), (dir) => {
+    assert.match(String(capstoneHint(dir, RUNS_ITEM)), /doesn't cancel a review still running: set `cancel-in-progress: true`/);
+  });
+  withRepo(capstoneRepo({ ci: null }), (dir) => {
+    assert.match(String(capstoneHint(dir, RUNS_ITEM)), /without a committed review workflow/);
+  });
+});
+
 test('the capstone brief names the files the Advanced capstone\'s check reads', () => {
   const brief = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'capstone', 'advanced-brief.md'), 'utf8');
-  for (const path of [CAPSTONE_LISTING, CAPSTONE_RUN, SCRIPT, REVIEW_WORKFLOW, 'team-marketplace/', '.claude/workflows/', 'npm run check -- a-capstone']) {
+  for (const path of [CAPSTONE_LISTING, CAPSTONE_RUN, SCRIPT, REVIEW_WORKFLOW, 'team-marketplace/', '.claude/workflows/', '.claude/skills/', 'concurrency', 'npm run check -- a-capstone']) {
     assert.ok(brief.includes(path), `the brief doesn't name ${path}`);
   }
   assert.doesNotMatch(brief, /\u2014/, 'the brief has an em dash');

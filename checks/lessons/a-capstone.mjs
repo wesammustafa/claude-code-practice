@@ -2,14 +2,21 @@
 // capstone/advanced-brief.md asks, in a new copy of the template. It reuses
 // the Advanced lessons' items with the capstone's own files: the worktree
 // listing and the review script's run, both saved under .practice/; the
-// saved workflow, which must start subagents; and the review workflow, which
-// runs on pull requests and is read from the history, so the check passes
-// before and after the teardown. Lesson 7's item holds the review script to
-// a spend cap that the saved run came in under. Choosing between the CI
-// review and the saved workflow, acting on the CI review, when the sandbox
-// is needed and the cost estimates are self-assessed on the capstone page.
+// saved workflow, which must start a finding agent and a checking one; and
+// the review workflow, which runs on pull requests and is read from the
+// history, so the check passes before and after the teardown. Lesson 7's
+// item holds the review script to a spend cap that the saved run came in
+// under. The brief states problems, so the items accept any sound way to
+// meet them: worktrees anywhere, brought in by merge, rebase or squash. Two
+// items join the parts: the script and CI run one committed review skill,
+// and a new push cancels CI's review of an older one. Choosing which review
+// runs where, acting on the CI review, when the sandbox is needed and the
+// cost estimates are self-assessed on the capstone page.
 import { parseClaudeArgs, scriptCalls } from '../claude-args.mjs';
+import { committedIgnore, ignoreHint } from '../ignore.mjs';
 import { headText } from '../marketplace.mjs';
+import { parseWorktrees } from '../worktrees.mjs';
+import { parseYaml } from '../actions.mjs';
 import { ignoresWorktrees, mergedWorktrees } from './a-1.mjs';
 import { savedWorkflow } from './a-3.mjs';
 import { committedScript, savedRun, SCRIPT, scriptBehavior, scriptCall } from './a-4.mjs';
@@ -124,10 +131,82 @@ export const spendCap = {
   },
 };
 
+// Where the worktrees were: the ones the listing names inside the
+// repository must be ignored by a committed rule, which hides nothing else
+// of .claude/. With no listing yet, lesson 1's rule for .claude/worktrees/,
+// where `claude --worktree` makes them.
+export const ignoredWorktrees = {
+  text: `a committed \`.gitignore\` keeps the worktrees \`${SNAPSHOT}\` lists inside the repository out of git, and not the rest of \`.claude/\``,
+  check(repo) {
+    const records = parseWorktrees(repo.read(SNAPSHOT) ?? '');
+    if (!records.length) return ignoresWorktrees.check(repo);
+    const main = records[0].path.replace(/\/+$/, '');
+    const inside = [...new Set(records.slice(1).filter((r) => !r.bare && r.path.startsWith(`${main}/`)).map((r) => r.path.slice(main.length + 1)))];
+    for (const path of inside) {
+      const found = committedIgnore(repo, `${path}/a-capstone-probe`);
+      if (found.problem) return ignoreHint(found, `${path}/`);
+    }
+    const settings = committedIgnore(repo, '.claude/settings.json');
+    if (settings.problem) return true;
+    return `Line ${settings.line} of \`${settings.source}\`, \`${settings.pattern}\`, also ignores \`.claude/settings.json\`, so it would hide the settings you share with your team. Ignore only the worktrees' folder, and commit.`;
+  },
+};
+
+// The `/<name>` a prompt starts with, or null.
+const skillOf = (prompt) => (typeof prompt === 'string' ? prompt.trim().match(/^\/([\w:.-]+)/)?.[1] ?? null : null);
+
+// The script and CI run one review: both prompts start with the same
+// `/<name>`, a skill committed in .claude/skills/<name>/SKILL.md, which a
+// CI checkout loads, unlike a plugin from the repository's marketplace.
+export const sameReview = {
+  text: 'the review script\'s `claude -p` prompt and the CI workflow\'s `prompt` both run one skill committed in `.claude/skills/`',
+  check(repo) {
+    const text = headText(repo, SCRIPT);
+    if (text === null) return `The check can't compare the reviews without a committed \`${SCRIPT}\` (see the item about the script).`;
+    const prompts = scriptCalls(text).map((argv) => parseClaudeArgs(argv)).filter((a) => a.print).map((a) => a.prompt);
+    if (!prompts.length) return `The check found no \`claude -p\` call in the committed \`${SCRIPT}\`, so it can't read the review it runs.`;
+    const local = skillOf(prompts[0]);
+    const c = chosenWorkflow(repo, CI.triggers, CI);
+    if (!c) return 'The check can\'t compare the reviews without a committed review workflow (see the item about it).';
+    const remote = skillOf(c.step.inputs.prompt?.text);
+    if (!local) return `The \`claude -p\` prompt in \`${SCRIPT}\` doesn't run a skill, so its review lives only in the script. Commit the team's review as \`.claude/skills/<name>/SKILL.md\`, and start the prompt with \`/<name>\`.`;
+    if (!remote) return `The review workflow's \`prompt\` doesn't run a skill, so CI reviews differently from the script, which runs \`/${local}\`. Make the \`prompt\` \`/${local}\` too.`;
+    if (local.toLowerCase() !== remote.toLowerCase()) return `The script runs \`/${local}\` and CI runs \`/${remote}\`. Run one skill in both, so a laptop and CI review the same way.`;
+    if (local.includes(':')) return `\`/${local}\` is a plugin skill. A CI checkout was never trusted, so the repository's marketplace doesn't load there: commit the review as \`.claude/skills/<name>/SKILL.md\` and run \`/<name>\` in both.`;
+    if (headText(repo, `.claude/skills/${local}/SKILL.md`) === null) return `\`/${local}\` names no skill committed at \`.claude/skills/${local}/SKILL.md\`. Commit the team's review there.`;
+    return true;
+  },
+};
+
+// A key's value in a parsed YAML map, or undefined.
+const entry = (node, key) => (node?.type === 'map' ? node.entries.find((e) => e.key === key)?.value : undefined);
+
+// A new push replaces CI's review of an older one: a `concurrency` group,
+// for the workflow or for the job that runs the action, with
+// `cancel-in-progress: true`.
+export const reviewConcurrency = {
+  text: 'the CI workflow sets a `concurrency` group with `cancel-in-progress: true`, so a new push cancels the review still running',
+  check(repo) {
+    const c = chosenWorkflow(repo, CI.triggers, CI);
+    if (!c) return 'The check can\'t read a `concurrency` group without a committed review workflow (see the item about it).';
+    let doc;
+    try {
+      doc = parseYaml(c.file.text);
+    } catch {
+      return `The check can't read \`${c.file.path}\` as a workflow file (see the item about it).`;
+    }
+    const job = entry(entry(doc, 'jobs'), c.step.job);
+    const groups = [entry(doc, 'concurrency'), entry(job, 'concurrency')].filter(Boolean);
+    if (!groups.length) return `\`${c.file.path}\` sets no \`concurrency\`, so five quick pushes start five reviews. Add \`concurrency:\` with a \`group\` for the pull request and \`cancel-in-progress: true\`, and commit.`;
+    if (groups.some((g) => entry(g, 'cancel-in-progress')?.text === 'true')) return true;
+    return `The \`concurrency\` in \`${c.file.path}\` doesn't cancel a review still running: set \`cancel-in-progress: true\` beside its \`group\`, and commit.`;
+  },
+};
+
 export const items = [
-  ignoresWorktrees,
-  mergedWorktrees(SNAPSHOT),
-  savedWorkflow({ needArgs: false, needAgentCall: true }),
+  ignoredWorktrees,
+  mergedWorktrees(SNAPSHOT, { anywhere: true }),
+  savedWorkflow({ needArgs: false, needAgentCall: true, needCheck: true }),
   committedScript(SCRIPT, SCRIPT_GUIDE),
   scriptCall(SCRIPT),
   scriptBehavior(SCRIPT),
@@ -138,7 +217,9 @@ export const items = [
   settingsItem(PLUGIN),
   testsPass,
   nothingUncommitted,
-  // Last, so the other items keep their places in the app's list of slow
-  // items; it reads the script's text and starts no process.
+  // After the others, so they keep their places in the app's list of slow
+  // items; these read text and start no process.
   spendCap,
+  sameReview,
+  reviewConcurrency,
 ];

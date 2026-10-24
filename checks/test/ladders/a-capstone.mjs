@@ -139,6 +139,14 @@ const ARGS = 'claude_args: --max-turns 5 --allowedTools "Read,Grep,Glob,Bash(git
 const withArgs = (args) => reviewWith([ARGS, `claude_args: ${args}`]);
 const ci = (text) => committed({ [CI]: text });
 
+// The capstone's integration: one committed review skill that the script and
+// CI both run, and a concurrency group that cancels a superseded review.
+const SKILL = '.claude/skills/team-review/SKILL.md';
+const TEAM_REVIEW = '---\nname: team-review\ndescription: Reviews a change the team\'s way.\n---\n\nReview the change for bugs.\n';
+const SKILL_SCRIPT = edited([`"${PROMPT}"`, '"/team-review"']);
+const GROUP = 'concurrency:\n  group: review-${{ github.event.pull_request.number }}\n  cancel-in-progress: true\n';
+const CI_SKILL = `${reviewWith(["prompt: Review this pull request's changes against origin/main for bugs. List each finding as file:line and one sentence.", 'prompt: /team-review'])}\n${GROUP}`;
+
 // ---- lesson 6: the team marketplace and the shared settings -----------------
 
 const MARKET = 'team-marketplace/.claude-plugin/marketplace.json';
@@ -181,6 +189,7 @@ export const scenarios = [
   { item: 2, name: 'meta has no description', setup: committed({ [WORKFLOW]: `export const meta = { name: 'file-review' }\n${BODY}` }) },
   { item: 2, name: 'the script does not compile', setup: committed({ [WORKFLOW]: `${META}\nconst found = await agent('Review src/'\n` }) },
   { item: 2, name: 'the script starts no subagent', setup: committed({ [WORKFLOW]: `${META}\nreturn 'nothing to review'\n` }) },
+  { item: 2, name: 'the script starts one agent only', setup: committed({ [WORKFLOW]: `${META}\nreturn await agent('Review each file under src/ for bugs.')\n` }) },
   { item: 2, name: 'the script in a subfolder', setup: committed({ '.claude/workflows/review/file-review.js': `${META}${BODY}` }) },
   { item: 2, name: 'the script saved but not committed', files: { [WORKFLOW]: `${META}${BODY}` } },
   {
@@ -419,4 +428,20 @@ export const scenarios = [
   { item: 13, name: 'a run stopped at the cap', setup: script(REVIEW, { ...REAL_RUN, subtype: 'error_max_budget_usd', is_error: true }) },
   { item: 13, name: 'a run with no cost', setup: script(REVIEW, (({ total_cost_usd, ...rest }) => rest)(REAL_RUN)) },
   { item: 13, name: 'a run that cost the whole cap', setup: script(REVIEW, { ...REAL_RUN, total_cost_usd: 0.5 }) },
+
+  // 14: one review, the same skill in the script and in CI.
+  { item: 14, name: 'no script', files: {} },
+  { item: 14, name: 'a script with no claude -p call', setup: committed({ [SCRIPT]: '#!/usr/bin/env bash\necho "No review today."\n' }) },
+  { item: 14, name: 'no review workflow', setup: committed({ [SCRIPT]: SKILL_SCRIPT, [SKILL]: TEAM_REVIEW }) },
+  { item: 14, name: 'a plain prompt in the script', setup: committed({ [SCRIPT]: REVIEW, [SKILL]: TEAM_REVIEW, [CI]: CI_SKILL }) },
+  { item: 14, name: 'a plain prompt in CI', setup: committed({ [SCRIPT]: SKILL_SCRIPT, [SKILL]: TEAM_REVIEW, [CI]: CLAUDE_REVIEW }) },
+  { item: 14, name: 'two different skills', setup: committed({ [SCRIPT]: SKILL_SCRIPT, [SKILL]: TEAM_REVIEW, [CI]: CI_SKILL.replace('/team-review', '/other-review') }) },
+  { item: 14, name: 'a plugin skill in both', setup: committed({ [SCRIPT]: SKILL_SCRIPT.replace('/team-review', '/team-kit:review'), [CI]: CI_SKILL.replace('/team-review', '/team-kit:review') }) },
+  { item: 14, name: 'the skill not committed', setup: committed({ [SCRIPT]: SKILL_SCRIPT, [CI]: CI_SKILL }) },
+
+  // 15: a new push cancels the review still running.
+  { item: 15, name: 'no review workflow', files: {} },
+  { item: 15, name: 'no concurrency', setup: ci(CI_SKILL.replace(GROUP, '')) },
+  { item: 15, name: 'a group that cancels nothing', setup: ci(CI_SKILL.replace(GROUP, 'concurrency: review\n')) },
+  { item: 15, name: 'a job group that cancels nothing', setup: ci(CI_SKILL.replace(GROUP, '').replace('    runs-on: ubuntu-latest', '    runs-on: ubuntu-latest\n    concurrency: { group: review }')) },
 ];
