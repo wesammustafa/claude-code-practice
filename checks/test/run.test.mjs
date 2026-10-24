@@ -320,7 +320,7 @@ test('b-2 says the after snapshot lists no changed file yet, and what to do firs
     const { code, out } = check(['b-2', '--dir', dir]);
     assert.equal(code, 1, out);
     assert.match(out, /`\.practice\/b-2-after\.txt` lists no changed file yet\./);
-    assert.match(out, /Approve the plan \(Yes, manually approve edits\)/);
+    assert.match(out, /Approve the plan you reviewed; if Claude Code asks, read each request/);
     // Step 7's whole rule: read each request, and No where a command does
     // more than the plan needs, never Yes to every request.
     assert.match(out, /read each request: plain Yes, or No if it does more than the plan needs\./);
