@@ -63,7 +63,7 @@ badge: Beginner
 - beat: do
 - verify: self
 - goal: "Have Claude read the bug report and plan the fix."
-- hint: "Ask for a plan that adds the test first and runs it before changing the code, so you see it fail"
+- do: "Ask for a plan that adds the test first and runs it before changing the code, so you see it fail"
 - hint: "Don't name the files to change: let Claude find them."
 
 ### T4 | The task step 4 of 8 | Review the plan against the code
@@ -110,6 +110,7 @@ badge: Beginner
 - beat: do
 - verify: self
 - goal: "Review the whole diff, the tests included, against the bug report"
+- hint: "If the diff panel is open beside the conversation, its list leaves test files out and counts them on a line of their own: click that line to see the test ([Diff panel](https://code.claude.com/docs/en/interactive-mode#diff-panel))."
 - hint: "Does the error name the missing folder? Does the tool exit with code 2? Does the test check the case the report describes?"
 - hint: "Ask Claude to correct anything that falls short, inside the files the plan names, and make sure `npm test` passes."
 
@@ -122,7 +123,8 @@ badge: Beginner
 - evidence: .practice/capstone-commit.txt
 - watching: .practice/capstone-commit.txt
 - goal: "Commit the fix and its test together"
-- hint: "git rev-parse HEAD > .practice/capstone-commit.txt"
+- note: "then save the commit with `git rev-parse HEAD > .practice/capstone-commit.txt`"
+- hint: "The check reads only that commit, so if you change it later, save it again."
 
 ### C | Check | Check
 - tier: challenge
