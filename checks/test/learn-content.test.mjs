@@ -122,7 +122,6 @@ test('the first GUIDED Worked example step on each skill has a why line on a bea
 
 // A page step split in two: the second step keeps the page step's number.
 const SPLIT = {
-  'i-8 W2': 'page step 1 ("In a session in your repository") splits as b-5\'s does, so i-8 opens on starting Claude Code at CHALLENGE, not on its GUIDED install',
 };
 
 // What is wrong with the numbering of lesson `id`'s steps: each part's
@@ -569,6 +568,7 @@ test('the Check\'s recall question files a miss under a skill the course has tau
 // steps, so R1 can't be one; each with its reason.
 const R1_NOT_REUSED = {
   'a-1': 'the level\'s first lesson recalls Intermediate\'s scope and delegation choices; the only earlier skills its steps reuse are commit and save-version, chores with no scenario worth a warm-up',
+  'i-1': 'its pool recalls Beginner\'s compact, resume and rewind, which no i-1 step asks again: the commit candidate it reused went once no Beginner question could mark commit missed',
 };
 
 // What is wrong with the order of lesson `id`'s warm-ups.
@@ -595,11 +595,13 @@ test('warm-ups: the first two mix a recent lesson and an older one, and R1 comes
 });
 
 // Ticket 85: i-1's and i-2's pools recall Beginner skills Beginner never
-// asks again. i-1's R1 is one i-1 reuses, and its R2 an older lesson's.
+// asks again. The demo i-1's R1 is one it reuses, and its R2 an older
+// lesson's; it is read as a lesson of its own, since the shipped i-1's
+// exemption in R1_NOT_REUSED doesn't fit a pool that reuses commit.
 test('warm-ups: a lesson may recall a lesson of an earlier level, as i-1 recalls Beginner', () => {
   const i1 = parseLesson(DEMO_I1, 'i-1.md');
   assert.deepEqual(i1.warmup.map((w) => [w.from, w.skill]), [['b-5', 'commit'], ['b-4', 'compact']]);
-  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1', i1)], []);
+  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1 demo', i1)], []);
 });
 
 // Ticket 178: a warm-up may recall a level's index page, any level's, from
@@ -607,7 +609,7 @@ test('warm-ups: a lesson may recall a lesson of an earlier level, as i-1 recalls
 test('warm-ups: a warm-up may recall a level index, from any lesson', () => {
   const i1 = parseLesson(DEMO_I1_INDEX, 'i-1.md');
   assert.deepEqual(i1.warmup.map((w) => [w.from, w.skill]), [['b-5', 'commit'], ['intermediate-index', 'when-to-use']]);
-  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1', i1)], []);
+  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1 demo', i1)], []);
   // Beginner's second lesson may quote the Advanced index.
   const b2 = parseLesson(DEMO_B2.replace('- from: b-1\n- beat: type', '- from: advanced-index\n- beat: type'), 'b-2.md');
   assert.deepEqual(b2.warmup.map((w) => w.from), ['b-1', 'advanced-index', 'b-1']);
@@ -622,6 +624,7 @@ const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'p
 // Skills a question can mark missed that no later lesson's pool recalls, each
 // with its reason.
 const NO_LATER_WARMUP = {
+  'limit-run': 'ticket 27 cut a-4\'s Your turn question, which tested a flag\'s definition, so a-7\'s questions are the first that can mark limit-run, and no lesson after a-7 has warm-ups',
 };
 
 // The skills a question in `contents` (in PATH order) can mark missed that

@@ -986,16 +986,15 @@ test('in a tall window nothing is cut and nothing stretches: the tallest screen 
 // only: the blank over the card and its spacers, never a teaching line, the
 // toast or a kept row (spec 9.1, design 4.5). The 120x60 window, whose
 // 80-column box fits every screen, says what each screen shows whole.
-// The rework's i-5 W2 sends its code block to the lesson page, so no lesson
-// screen is that tall now: a made-up i-5 puts the block back on the card, as
-// the screen this measures.
-const TALL_I5_W2 = '- code: point 3\n```json\n"hooks": {\n  "PreToolUse": [\n    { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-files.sh", "args": [] } ] }\n  ],\n  "PostToolUse": [\n    { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/format-after-edit.sh", "args": [] } ] }\n  ]\n}\n```\n';
+// The rework's i-5 W2 shows its code block in two windows of four lines, so
+// no lesson screen is that tall now: a made-up i-5 shows the whole block on
+// the first beat, as the screen this measures.
 const tallScreens = async () => {
   const { lessonScreens, threeLevels } = await import('./learn-drive.mjs');
-  const say = "- say: Add the page's hooks block beside permissions. Press p for the lesson page.\n";
+  const window = '- code: lines 1-4 point 3\n';
   const file = readFileSync(join(root, 'learn', 'lessons', 'i-5.md'), 'utf8');
-  assert.ok(file.includes(say), 'i-5 W2 still opens with its lesson-page line');
-  const lessons = threeLevels({ 'i-5': file.replace(say, TALL_I5_W2) });
+  assert.ok(file.includes(window), 'i-5 W2 still shows its hooks block in windows');
+  const lessons = threeLevels({ 'i-5': file.replace(window, '- code: point 3\n') });
   return lessonScreens('i-5', lessons, { skipped: true }).filter(([label]) => label.startsWith('i-5 W2.')).map(([label, s]) => [`${label} (made-up, skipped)`, s]);
 };
 
@@ -1710,26 +1709,35 @@ test('b-2\'s real FAIL messages at "The check says:" keep the card\'s title, Goa
 const CUT_AT_60X20 = {
   full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4',
     // Intermediate's long hints and code blocks at 60x20.
-    'i-5 W1.0 hint 1',
+    'i-4 Y1.0 wrong', 'i-4 Y1.0 answered', 'i-4 Y4.0 hint 3', 'i-4 Y4.0 hint 4', 'i-4 Y4.0 hint 5', 'i-4 Y4.0 hint 6', 'i-5 W1.0 hint 1',
+    'i-5 W2.0 hint 1', 'i-6 Y3.0 hint 1', 'i-7 Y3.0 hint 2', 'i-7 Y3.0 hint 3', 'i-7 Y3.0 bottom',
     // Advanced: a-4 W1.0's `claude -p` command and its hint; a-7's long check items and hint ladders.
-    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
+    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 C.0 hint 1',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'a-1 W1.0 hint 2 (skipped)',
+    'i-4 Y1.0 wrong (skipped)', 'i-4 Y1.0 answered (skipped)', 'i-4 Y4.0 hint 3 (skipped)', 'i-4 Y4.0 hint 4 (skipped)', 'i-4 Y4.0 hint 5 (skipped)',
+    'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
+    'i-8 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)',
     'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
     'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
     'a-7 W4.1 bottom (skipped)',
-    'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)'],
+    'a-7 C.0 hint 1 (skipped)'],
   ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
     'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
-    'i-5 W1.0 hint 1',
+    'i-4 Y1.0 wrong', 'i-4 Y1.0 answered', 'i-4 Y4.0 hint 3', 'i-4 Y4.0 hint 4', 'i-4 Y4.0 hint 5', 'i-4 Y4.0 hint 6', 'i-5 W1.0 hint 1',
+    'i-5 W2.0 hint 1', 'i-6 Y3.0 hint 1', 'i-7 Y3.0 hint 1', 'i-7 Y3.0 hint 2', 'i-7 Y3.0 hint 3', 'i-7 Y3.0 bottom',
+    // a-3 Y5.2's long check item and its back line, now that Your turn's last step commits at CHALLENGE (ticket 27).
+    'a-3 Y5.2 hint 2', 'a-3 Y5.2 hint 3', 'a-3 Y5.2 hint 4', 'a-3 Y5.2 hint 5', 'a-3 Y5.2 hint 6',
     'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 2', 'a-7 W3.0 hint 3', 'a-7 Y3.1 hint 1', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
     'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
     'b-capstone T1.2 hint 1 (skipped)',
-    'i-5 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)',
+    'i-4 Y1.0 wrong (skipped)', 'i-4 Y1.0 answered (skipped)', 'i-4 Y4.0 hint 3 (skipped)', 'i-4 Y4.0 hint 4 (skipped)', 'i-4 Y4.0 hint 5 (skipped)',
+    'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
+    'i-8 W1.0 hint 1 (skipped)',
     'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)',
+    'a-3 Y5.2 hint 2 (skipped)', 'a-3 Y5.2 hint 3 (skipped)', 'a-3 Y5.2 hint 4 (skipped)', 'a-3 Y5.2 hint 5 (skipped)', 'a-3 Y5.2 hint 6 (skipped)',
     'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
     'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
     'a-7 W4.1 bottom (skipped)',
@@ -2268,9 +2276,9 @@ const WHY_DROPS = {
     'b-2 W5.0 open', 'b-3 W5.0 open', 'b-3 W6.3 hint 1', 'b-5 W4.0 hint 1', 'b-5 W4.0 hint 2', 'b-5 W4.0 bottom', 'b-5 W4.0 checking, hint open',
     // Intermediate's Worked examples: a code block, a two-row command or a
     // hint box takes the room.
-    'i-1 W4.1 open', 'i-1 W4.1 hint 1', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W2.0 done', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done',
-    'i-3 W3.1 hint 1', 'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W2.0 done', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-4 W5.0 hint 1',
-    'i-5 W3.0 hint 1', 'i-5 W3.0 hint 2', 'i-6 W4.0 hint 1', 'i-6 W4.0 hint 2', 'i-8 W3.0 hint 1',
+    'i-1 W4.2 open', 'i-1 W4.2 hint 1', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W2.0 done', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done',
+    'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W2.0 done', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-4 W5.0 hint 1',
+    'i-6 W3.0 open', 'i-6 W3.0 hint 1', 'i-8 W3.0 hint 1',
     // Advanced: a-1's two merge commands and a-2's chart question with its feedback.
     'a-1 W5.0 hint 1', 'a-2 W2.0 wrong', 'a-2 W2.0 answered',
     // a-3's `/goal` condition and a-4's `claude -p` commands: each is one
@@ -2278,14 +2286,15 @@ const WHY_DROPS = {
     'a-3 W2.0 open', 'a-4 W2.1 open', 'a-4 W2.1 waiting', 'a-4 W2.1 hint 1', 'a-4 W2.1 done', 'a-4 W3.0 open',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
     'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
-    'b-5 W4.0 checking, hint open (skipped)', 'i-1 W4.1 open (skipped)', 'i-1 W4.1 hint 1 (skipped)', 'i-2 W1.0 hint 1 (skipped)',
+    'b-5 W4.0 checking, hint open (skipped)', 'i-1 W4.2 open (skipped)', 'i-1 W4.2 hint 1 (skipped)',
     'i-2 W2.0 open (skipped)', 'i-2 W2.0 waiting (skipped)', 'i-2 W2.0 done (skipped)', 'i-2 W3.0 open (skipped)', 'i-2 W3.0 waiting (skipped)',
-    'i-2 W3.0 done (skipped)', 'i-3 W3.1 hint 1 (skipped)', 'i-3 W4.0 done (skipped)', 'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)',
-    'i-4 W2.0 done (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)', 'i-4 W5.0 hint 1 (skipped)', 'i-5 W3.0 hint 1 (skipped)',
-    'i-5 W3.0 hint 2 (skipped)', 'i-6 W4.0 hint 1 (skipped)', 'i-6 W4.0 hint 2 (skipped)', 'i-8 W3.0 hint 1 (skipped)',
+    'i-2 W3.0 done (skipped)', 'i-3 W4.0 done (skipped)', 'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)',
+    'i-4 W2.0 done (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)', 'i-4 W5.0 hint 1 (skipped)', 'i-5 W2.0 open (skipped)',
+    'i-5 W2.0 waiting (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 done (skipped)', 'i-6 W3.0 open (skipped)', 'i-6 W3.0 hint 1 (skipped)',
+    'i-8 W1.0 hint 1 (skipped)', 'i-8 W1.0 hint 2 (skipped)', 'i-8 W1.0 bottom (skipped)', 'i-8 W3.0 hint 1 (skipped)',
     'a-1 W5.0 hint 1 (skipped)', 'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)',
     'a-3 W2.0 open (skipped)', 'a-4 W2.1 open (skipped)', 'a-4 W2.1 waiting (skipped)', 'a-4 W2.1 hint 1 (skipped)', 'a-4 W2.1 done (skipped)', 'a-4 W3.0 open (skipped)', 'W3 opening',
-    'i-5 W3.0 open', 'b-3 W1.2 bottom (skipped)', 'i-5 W3.0 open (skipped)'],
+    'i-5 W3.0 hint 1', 'b-3 W1.2 bottom (skipped)', 'i-5 W3.0 hint 1 (skipped)'],
   '80x24': ['W3 hint 2'],
 };
 // Below 80 columns the key bar keeps its main keys first (spec 3.1), so `w`
@@ -3932,7 +3941,7 @@ test('a bottom line\'s lead-in shows above its command, on the bottom rung and i
   assert.equal(tdd.leadIn, 'For example, in the practice copy:');
   // The parser names the form.
   const lead = '- lead-in: "For example, in the practice copy:"';
-  assert.throws(() => parseLesson(file.replace(lead, '').replace('- hint: "Keep auto mode. It can approve edits and test runs without a prompt; if Claude Code asks, review the action before approving"', `$&\n${lead}`), 'i-1.md'), /a lead-in line with no bottom line above it/);
+  assert.throws(() => parseLesson(file.replace(lead, '').replace('- hint: "Keep auto mode."', `$&\n${lead}`), 'i-1.md'), /a lead-in line with no bottom line above it/);
   assert.throws(() => parseLesson(file.replace(lead, `${lead}\n${lead}`), 'i-1.md'), /a second lead-in line on one bottom line/);
   assert.throws(() => parseLesson(file.replace(lead, '- lead-in: For example, in the practice copy:'), 'i-1.md'), /lead-in must be a quote of the lesson/);
   // Its place, rows above the first row of the command it frames.

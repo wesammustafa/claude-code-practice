@@ -1,7 +1,11 @@
 // Every FAIL message of Intermediate lesson 7's check, each from a work
 // folder that produces it: `files` to write, or `setup(dir, { write, commit })`.
 // Each scenario breaks one thing, so one narrow question matches its message.
+import { utimesSync } from 'node:fs';
+import { join } from 'node:path';
+
 const MCP = '.mcp.json';
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
 const SHOT = '.practice/i-7-page.png';
 const ARGS = ['-y', 'chrome-devtools-mcp@1.10.1', '--isolated', '--no-usage-statistics', '--no-performance-crux'];
 const ENV = { CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1' };
@@ -33,6 +37,15 @@ export const scenarios = [
   { item: 0, name: 'update checks left on', setup: shared(config(ARGS, {})) },
   { item: 1, name: 'no screenshot', files: {} },
   { item: 1, name: 'a JPEG saved under the PNG name', files: { [SHOT]: '\xff\xd8\xff\xe0 not a PNG' } },
+  {
+    item: 1,
+    name: 'a capture taken before the demo\'s last change',
+    setup(dir, { write }) {
+      write(dir, { [SHOT]: PNG, '.practice/demo.html': '<p id="link-count">Counting links...</p>\n' });
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(join(dir, SHOT), old, old);
+    },
+  },
   { item: 2, name: 'the local demo is missing', files: {} },
   { item: 2, name: 'the demo still updates the wrong element', files: { '.practice/demo.html': '<p id="link-count">Counting links...</p><script>document.querySelector("#link-total").textContent = "2 links ready";</script>' } },
   { item: 2, name: 'the count calculation was removed', files: { '.practice/demo.html': '<p id="link-count">Counting links...</p>' } },

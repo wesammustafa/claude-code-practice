@@ -14,8 +14,8 @@ const fixed = demo("document.querySelector('#link-count').textContent = `${links
 function repairedRepo(html = fixed) {
   const dir = repo({ '.mcp.json': MCP });
   commit(dir, 'Share Chrome DevTools MCP', ['.mcp.json']);
-  write(dir, { '.practice/i-7-page.png': PNG });
   if (html !== null) write(dir, { '.practice/demo.html': html });
+  write(dir, { '.practice/i-7-page.png': PNG });
   return dir;
 }
 

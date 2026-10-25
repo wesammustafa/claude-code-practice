@@ -57,4 +57,8 @@ export const scenarios = [
       helpers.write(dir, { [LOCAL]: JSON.stringify({ sandbox: { enabled: false } }) });
     },
   },
+
+  { item: 2, name: 'no committed shared settings file', files: { [SHARED]: TEAM } },
+  { item: 2, name: 'the partial ask rule committed with its TODO', setup: shared(`${JSON.stringify({ permissions: { allow: ['Bash(npm test)'], ask: ['TODO: a command the team approves each time'], deny: ['Read(./.env)', 'Read(./.env.*)'] } }, null, 2)}\n`) },
+  { item: 2, name: 'the push rule under deny, and no ask rule', setup: shared(`${JSON.stringify({ permissions: { allow: ['Bash(npm test)'], deny: ['Read(./.env)', 'Read(./.env.*)', 'Bash(git push *)'] } }, null, 2)}\n`) },
 ];
