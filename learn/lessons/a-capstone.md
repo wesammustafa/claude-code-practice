@@ -157,7 +157,7 @@ needs: [jq gh]
 - done-label: I merged it
 - wait: long
 - goal: "Then push a one-line change on a new branch and open a pull request."
-- note: "`display_report` writes Claude's review to the job summary, which GitHub shows on the run's summary page, not in the log"
+- note: "`display_report` writes Claude's review to the job summary, which GitHub shows on the run's summary page"
 - run: "gh run view <run-id> --web"
 - say: Read the review, and merge the pull request yourself.
 - hint: "find the run's id with `gh run list --workflow claude-review.yml --limit 1`"

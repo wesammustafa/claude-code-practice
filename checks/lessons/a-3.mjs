@@ -133,8 +133,12 @@ function recentCommits(repo) {
   }
 }
 
+// The practice copy's course code, which is not the Learner's migration.
+const COURSE = new Set(['learn', 'checks', 'capstone']);
+
 // The folders where the pattern matched in a recent commit, each the folder
-// that held a matching file ('.' for the repository's root).
+// that held a matching file ('.' for the repository's root), leaving out the
+// course's own folders.
 function matchedFolders(repo, pattern, revs) {
   if (!revs.length) return [];
   let out = '';
@@ -146,6 +150,7 @@ function matchedFolders(repo, pattern, revs) {
   const folders = new Set();
   for (const line of out.split('\n').filter(Boolean)) {
     const path = line.slice(line.indexOf(':') + 1);
+    if (COURSE.has(path.split('/')[0])) continue;
     folders.add(posix.dirname(path));
   }
   return [...folders].sort();

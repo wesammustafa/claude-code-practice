@@ -110,7 +110,7 @@ badge: Beginner
 - beat: do
 - verify: self
 - goal: "Review the whole diff, the tests included, against the bug report"
-- hint: "If the diff panel is open beside the conversation, its list leaves test files out and counts them on a line of their own: click that line to see the test ([Diff panel](https://code.claude.com/docs/en/interactive-mode#diff-panel))."
+- hint: "If the diff panel is open beside the conversation, its list skips test files and generated files and counts them on one line: click that count line to see the test ([Diff panel](https://code.claude.com/docs/en/interactive-mode#diff-panel))."
 - hint: "Does the error name the missing folder? Does the tool exit with code 2? Does the test check the case the report describes?"
 - hint: "Ask Claude to correct anything that falls short, inside the files the plan names, and make sure `npm test` passes."
 
