@@ -1699,72 +1699,112 @@ test('b-2\'s real FAIL messages at "The check says:" keep the card\'s title, Goa
   assert.ok(seen >= 15, `${seen} screens`);
 });
 
-// The step screens a 60x20 window still cuts with a `…`: a hint box or
-// feedback that leaves the card's teaching no room, and in ASCII on Windows
-// b-1 C.0 hint 2 and capstone T1.2, where the Windows note never drops
-// (ticket 165), so the teaching above it gives way instead: on b-1 C.0 hint 2
-// that is the card's title and Goal. teach-merged 1.5 scopes "no teaching
-// line is cut" to the intro, complete and next screens; this list keeps the
-// step screens' count from growing unseen.
+// The step screens a 60x20 window still cuts: a row that holds only `…`,
+// bare or inside a card's rail, where teaching rows gave way. The screens are
+// lessonScreens over every lesson's real step file (liveCourse, not the
+// reducer fixtures), each beat opened from the step before it (the lessons
+// before finished) and from the map (none finished, so a step can open more
+// guided: the "(skipped)" labels), each step's first beat opened eased, one
+// tier easier with "A little more help" (easedOpenings: the "eased open"
+// labels), plus lesson 1's walk through the app's screens on the stable
+// fixture (the labels without a lesson id).
+// teach-merged 1.5 scopes "no teaching line is cut" to the intro, complete
+// and next screens; this list keeps the step screens' cuts from growing
+// unseen, and gives each beat's the reason it is cut. A beat's opening
+// screen from the step before or from the map is never on it: the learner
+// meets every line they need to act (ticket 27's verify pass). An eased
+// opening is, only where it was cut so before the r27 fixes. `both` lists the
+// screens cut in Unicode and ASCII, `full` and `ascii` the ones cut in only
+// one. Most are hint screens: lessonScreens fails a check beat with a long
+// stand-in message ("<item> is not there yet: do the step, then look
+// again."), and learn-check-says.test.mjs measures the real ones.
 const CUT_AT_60X20 = {
-  full: ['W3 hint 2', 'W3 hint 3', 'W5 wrong', 'b-4 W5.4 hint 1', 'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4',
-    // Intermediate's long hints and code blocks at 60x20.
-    'i-4 Y1.0 wrong', 'i-4 Y1.0 answered', 'i-4 Y4.0 hint 3', 'i-4 Y4.0 hint 4', 'i-4 Y4.0 hint 5', 'i-4 Y4.0 hint 6', 'i-5 W1.0 hint 1',
-    'i-5 W2.0 hint 1', 'i-6 Y3.0 hint 1', 'i-7 Y3.0 hint 2', 'i-7 Y3.0 hint 3', 'i-7 Y3.0 bottom',
-    // Advanced: a-2 W2.0's chart questions under its feedback, a-2 Y1.0's file format on job 1's card, a-2 Y2.1's notes and
-    // a-3 Y3.1's save dialog under a hint (ticket 27's r27 fixes); a-4 W1.0's `claude -p` command and its hint; a-7's long
-    // check items and hint ladders.
-    'a-2 W2.0 wrong', 'a-2 W2.0 answered', 'a-2 Y1.0 hint 3', 'a-2 Y2.1 hint 1', 'a-2 Y2.1 hint 2', 'a-3 Y3.1 hint 2',
-    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 C.0 hint 1',
-    'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
-    'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
-    'i-4 Y1.0 wrong (skipped)', 'i-4 Y1.0 answered (skipped)', 'i-4 Y4.0 hint 3 (skipped)', 'i-4 Y4.0 hint 4 (skipped)', 'i-4 Y4.0 hint 5 (skipped)',
-    'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
-    'i-8 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)',
-    'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)', 'a-2 Y1.0 hint 3 (skipped)', 'a-2 Y2.1 hint 1 (skipped)',
-    'a-2 Y2.1 hint 2 (skipped)', 'a-3 W1.0 hint 1 (skipped)', 'a-3 W1.0 hint 2 (skipped)', 'a-3 W1.0 bottom (skipped)',
-    'a-3 W4.1 hint 1 (skipped)', 'a-3 W4.1 hint 2 (skipped)', 'a-3 W4.1 bottom (skipped)', 'a-3 Y3.1 hint 2 (skipped)',
-    'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
-    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
-    'a-7 W4.1 bottom (skipped)',
-    'a-7 C.0 hint 1 (skipped)'],
-  ascii: ['W3 hint 1', 'W3 hint 2', 'W3 hint 3', 'W3 bottom', 'W5 wrong', 'b-1 C.0 hint 2', 'b-2 Y5.3 hint 2', 'b-4 W5.4 hint 1',
-    'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
-    'i-4 Y1.0 wrong', 'i-4 Y1.0 answered', 'i-4 Y4.0 hint 3', 'i-4 Y4.0 hint 4', 'i-4 Y4.0 hint 5', 'i-4 Y4.0 hint 6', 'i-5 W1.0 hint 1',
-    'i-5 W2.0 hint 1', 'i-6 Y3.0 hint 1', 'i-7 Y3.0 hint 1', 'i-7 Y3.0 hint 2', 'i-7 Y3.0 hint 3', 'i-7 Y3.0 bottom',
-    // The r27 fixes' notes under a hint or feedback: a-2 W2.0, Y1.0 and Y2.1, a-3 W1.0 and Y3.1, a-capstone T4.0.
-    'a-2 W2.0 wrong', 'a-2 W2.0 answered', 'a-2 Y1.0 hint 1', 'a-2 Y1.0 hint 3', 'a-2 Y2.1 hint 1', 'a-2 Y2.1 hint 2',
-    'a-3 W1.0 bottom', 'a-3 Y3.1 hint 2',
-    // a-3 Y5.2's long check item and its back line, now that Your turn's last step commits at CHALLENGE (ticket 27).
-    'a-3 Y5.2 hint 2', 'a-3 Y5.2 hint 3', 'a-3 Y5.2 hint 4', 'a-3 Y5.2 hint 5', 'a-3 Y5.2 hint 6',
-    'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 2', 'a-7 W3.0 hint 3', 'a-7 Y3.1 hint 1', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
-    'a-capstone T4.0 hint 1',
-    'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
-    'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
-    'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
-    'b-capstone T1.2 hint 1 (skipped)',
-    'i-4 Y1.0 wrong (skipped)', 'i-4 Y1.0 answered (skipped)', 'i-4 Y4.0 hint 3 (skipped)', 'i-4 Y4.0 hint 4 (skipped)', 'i-4 Y4.0 hint 5 (skipped)',
-    'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
-    'i-8 W1.0 hint 1 (skipped)',
-    'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)',
-    'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)', 'a-2 Y1.0 hint 1 (skipped)', 'a-2 Y1.0 hint 3 (skipped)',
-    'a-2 Y2.1 hint 1 (skipped)', 'a-2 Y2.1 hint 2 (skipped)', 'a-3 W1.0 hint 1 (skipped)', 'a-3 W1.0 hint 2 (skipped)',
-    'a-3 W1.0 bottom (skipped)', 'a-3 W4.1 hint 1 (skipped)', 'a-3 W4.1 hint 2 (skipped)', 'a-3 W4.1 bottom (skipped)',
-    'a-3 Y3.1 hint 2 (skipped)',
-    'a-3 Y5.2 hint 2 (skipped)', 'a-3 Y5.2 hint 3 (skipped)', 'a-3 Y5.2 hint 4 (skipped)', 'a-3 Y5.2 hint 5 (skipped)', 'a-3 Y5.2 hint 6 (skipped)',
-    'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
-    'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
-    'a-7 W4.1 bottom (skipped)',
-    'a-7 Y3.1 hint 1 (skipped)', 'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-capstone T4.0 hint 1 (skipped)'],
+  // Lesson 1's walk, on the stable fixture.
+  W3: { why: 'the check\'s real FAIL message for an empty version.txt fills the hint box, so the goal and command give way (in ASCII, from hint 1)', both: ['hint 2', 'hint 3'], ascii: ['hint 1', 'bottom'] },
+  W5: { why: 'a wrong pick\'s feedback and the options are kept rows, so the card\'s lines above them give way', both: ['wrong'] },
+  // Beginner.
+  'b-1 W2.0': { why: 'the FAIL row, the PATH hint and the back offer to step 1: the goal\'s second row and the command give way', both: ['hint 2', 'hint 3', 'hint 4', 'hint 5', 'hint 6', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'hint 5 (skipped)', 'hint 6 (skipped)'] },
+  'b-1 Y3.0': { why: 'a CHALLENGE check beat: the check\'s message, then its hints, under the goal and the git diff note: the note, and from hint 2 the goal, give way', both: ['hint 1', 'hint 2', 'hint 3', 'hint 4', 'hint 5', 'hint 6', 'checking, hint open', 'hint 1 (skipped)', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'hint 5 (skipped)', 'hint 6 (skipped)', 'checking, hint open (skipped)'] },
+  'b-2 W1.2': { why: 'the four mode notes and the hint box: the Accept edits note gives way', both: ['hint 1', 'hint 1 (skipped)'] },
+  'b-2 Y4.0': { why: 'the bottom rung\'s command in the hint box: the goal\'s last rows give way (in ASCII, also while r checks)', both: ['bottom', 'bottom (skipped)'], ascii: ['checking, hint open', 'checking, hint open (skipped)'] },
+  'b-3 W2.0': { why: 'opened from the map at GUIDED, the plan prompt shows on the card and is also the bottom rung: under the hint box its last rows give way', both: ['hint 1 (skipped)', 'bottom (skipped)'] },
+  'b-3 Y3.0': { why: 'hints 3 and on are long: the Done when line gives way', both: ['hint 3', 'hint 4', 'hint 5', 'hint 6', 'hint 3 (skipped)', 'hint 4 (skipped)', 'hint 5 (skipped)', 'hint 6 (skipped)'] },
+  'b-4 W5.0': { why: 'opened from the map at GUIDED, the refactor prompt shows on the card and again as the bottom rung: its card rows give way', both: ['bottom (skipped)'] },
+  'b-4 W5.1': { why: 'the FAIL row, the bottom rung\'s command and the back offer to step 5: the card\'s last lines give way, and opened from the map, the commit prompt on the card too', both: ['bottom', 'hint 1 (skipped)', 'hint 2 (skipped)', 'bottom (skipped)', 'checking, hint open (skipped)'] },
+  'b-4 Y5.0': { why: 'the bottom rung\'s command in the hint box: the goal\'s last row and "No commands this time" give way', both: ['bottom', 'bottom (skipped)'] },
+  'b-5 R1.0': { why: 'a warm-up\'s wrong pick: the feedback and the options are kept rows, so the title, the "Warm-up from" line and the explainer give way', both: ['wrong', 'wrong (skipped)'] },
+  'b-5 R2.0': { why: 'a warm-up\'s wrong pick: the feedback and the options are kept rows, so the title and the "Warm-up from" line give way', both: ['wrong', 'wrong (skipped)'] },
+  'b-5 W2.4': { why: 'the two-row goal, three instruction files with a line each and the long hook hint: the last two files\' lines give way', both: ['hint 1', 'hint 1 (skipped)'] },
+  'b-5 W3.0': { why: 'the bottom rung\'s two commit commands in the hint box: the goal gives way, and opened from the map, the commands on the card too', both: ['bottom', 'bottom (skipped)', 'checking, hint open (skipped)'] },
+  'b-5 W6.0': { why: 'the FAIL row and the hint box under the card\'s request and its Done when line: the Done when line, and on the bottom rung the request\'s last row, give way', both: ['hint 1', 'bottom', 'checking, hint open', 'hint 1 (skipped)', 'bottom (skipped)', 'checking, hint open (skipped)'] },
+  'b-capstone T1.0': { why: 'the FAIL row and the hint ladder under the bug report note: the note\'s last rows, and on hint 3 the goal, give way', both: ['hint 1', 'hint 2', 'hint 3', 'hint 4', 'bottom', 'checking, hint open', 'hint 1 (skipped)', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'bottom (skipped)', 'checking, hint open (skipped)'] },
+  'b-capstone T5.0': { why: 'the FAIL row, the You need hint\'s commands (hint 2) and the back offer to step 4: from that rung the goal\'s last rows give way (in ASCII, also while r checks)', both: ['hint 3', 'hint 4', 'hint 5', 'hint 6', 'hint 3 (skipped)', 'hint 4 (skipped)', 'hint 5 (skipped)', 'hint 6 (skipped)'], ascii: ['checking, hint open', 'checking, hint open (skipped)'] },
+  'b-capstone T8.0': { why: 'the hint ladder and the back offer: from hint 2 the goal gives way', both: ['hint 2', 'hint 3', 'hint 4', 'hint 5', 'hint 6', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'hint 5 (skipped)', 'hint 6 (skipped)'] },
+  // Intermediate. "Eased" screens open a step one tier easier, with the
+  // "A little more help" line (easedOpenings); these were cut so at 574beed.
+  'i-1 W1.0': { why: 'eased to GUIDED, the long curl command shows on the card above the "A little more help" line: its last rows give way', both: ['eased open', 'eased open (skipped)'] },
+  'i-2 W3.0': { why: 'eased to GUIDED, the hook block and the "A little more help" line: a code line and the note under it give way', both: ['eased open', 'eased open (skipped)'] },
+  'i-2 Y3.0': { why: 'eased to GUIDED, the bottom lines show on the card above the "A little more help" line: the two commands give way', both: ['eased open', 'eased open (skipped)'] },
+  'i-4 Y1.0': { why: 'a question\'s feedback and options are kept rows: the scenario note gives way after the pick', both: ['wrong', 'answered', 'wrong (skipped)', 'answered (skipped)'] },
+  'i-4 Y4.0': { why: 'hints 3 and on are long: the card\'s last lines give way', both: ['hint 3', 'hint 4', 'hint 5', 'hint 6', 'hint 3 (skipped)', 'hint 4 (skipped)', 'hint 5 (skipped)', 'hint 6 (skipped)'] },
+  'i-5 W1.0': { why: 'the hooks download block and the hint box: code lines and the Done when line give way', both: ['hint 1', 'hint 1 (skipped)'] },
+  'i-5 W2.0': { why: 'the hooks block and the hint box: code lines give way', both: ['hint 1', 'hint 1 (skipped)'] },
+  'i-6 W1.0': { why: 'opened from the map at GUIDED, the long curl URL shows on the card and again as the bottom rung (Quest Q2)', both: ['bottom (skipped)'] },
+  'i-6 Y3.0': { why: 'the hook\'s code block and the hint box, or eased to GUIDED the "A little more help" line: its last line and the note give way', both: ['hint 1', 'hint 1 (skipped)', 'eased open', 'eased open (skipped)'] },
+  'i-7 Y3.0': { why: 'the long check item\'s FAIL row and the hint ladder: the card\'s last lines give way (in ASCII, from hint 1)', both: ['hint 2', 'hint 3', 'bottom'], ascii: ['hint 1'] },
+  'i-8 W1.0': { why: 'opened from the map at GUIDED, the install commands show on the card: under the hint box their last rows give way', both: ['hint 1 (skipped)'] },
+  // Advanced.
+  'a-1 W1.0': { why: 'opened from the map at GUIDED, the commit command shows on the card: under the hint box it gives way (in ASCII, from hint 1)', both: ['hint 2 (skipped)'], ascii: ['hint 1 (skipped)', 'hint 3 (skipped)'] },
+  'a-2 W2.0': { why: 'the chart\'s four questions as notes under the feedback: the notes give way after the pick', both: ['wrong', 'answered', 'wrong (skipped)', 'answered (skipped)'] },
+  'a-2 Y2.1': { why: 'the two notes under the long check message: the notes give way', both: ['hint 1', 'hint 2', 'hint 1 (skipped)', 'hint 2 (skipped)'] },
+  'a-3 W1.0': { why: 'opened from the map at GUIDED, the pattern command shows on the card: under the hint box it gives way; eased from the map, the practice migration\'s note keeps its target, import.meta.dirname, which the learner needs to judge the diff, and the command\'s last rows give way; in ASCII the bottom rung\'s lead-in takes two rows and the note\'s last rows give way, the command whole', both: ['hint 1 (skipped)', 'hint 2 (skipped)', 'bottom (skipped)', 'eased open (skipped)'], ascii: ['bottom'] },
+  'a-3 W2.0': { why: 'eased to GUIDED, the /goal command, its two notes and the "A little more help" line: the second note\'s last rows give way (pre-existing at 574beed)', both: ['eased open', 'eased open (skipped)'] },
+  'a-3 W4.1': { why: 'opened from the map at GUIDED, the text bottom line shows on the card: under the hint box it gives way', both: ['hint 1 (skipped)', 'hint 2 (skipped)', 'bottom (skipped)'] },
+  'a-3 Y3.1': { why: 'the bottom line adds "Press h again": the Done when line gives way', both: ['hint 2', 'hint 2 (skipped)'] },
+  'a-3 Y5.2': { why: 'in ASCII, the long check item and the back line: the title and the say line give way', ascii: ['hint 2', 'hint 3', 'hint 4', 'hint 5', 'hint 6', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'hint 5 (skipped)', 'hint 6 (skipped)'] },
+  'a-4 W1.0': { why: 'the claude -p code block under its hint, or eased to HINTED the "A little more help" line: the goal and code lines give way (the hint screen hides the title too; both pre-existing at 574beed)', both: ['hint 1', 'hint 1 (skipped)', 'eased open', 'eased open (skipped)'] },
+  'a-4 W3.0': { why: 'eased to GUIDED, the "A little more help" line: the quoted outcome under the run line gives way (pre-existing at 574beed)', both: ['eased open', 'eased open (skipped)'] },
+  'a-6 W4.0': { why: 'opened from the map at GUIDED, the commit command shows on the card and again as the bottom rung', both: ['bottom (skipped)'] },
+  'a-7 W3.0': { why: 'a-7\'s long check item and hint ladder: the goal and the eased line give way, and opened from the map, the commands on the card too', both: ['hint 1', 'hint 3', 'fail (skipped)', 'hint 1 (skipped)', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'bottom (skipped)'], ascii: ['hint 2'] },
+  'a-7 W4.1': { why: 'opened from the map at GUIDED, the long runner command shows on the card and again as the bottom rung', both: ['hint 1 (skipped)', 'bottom (skipped)'] },
+  'a-7 Y3.1': { why: 'in ASCII, the long check item\'s FAIL row: the Done when line gives way', ascii: ['hint 1', 'hint 1 (skipped)'] },
+  'a-7 C.0': { why: 'a-7\'s long check items under the hint ladder: the run line and the note give way', both: ['hint 1', 'hint 1 (skipped)'], ascii: ['hint 2', 'hint 2 (skipped)'] },
+  'a-capstone T4.0': { why: 'in ASCII, under the hint box: the note\'s last row and "No commands this time" give way', ascii: ['hint 1', 'hint 1 (skipped)'] },
 };
 
-test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
-  const all = await everyScreen();
+// A row that holds only `…` (`...` in ASCII), bare or inside a card's rail:
+// where `fit` cut teaching rows.
+const cutRow = (t) => (l) => l.trim() === t.glyph.ellipsis || l.trim() === `${t.glyph.rail}  ${t.glyph.ellipsis}`;
+// lessonScreens over every lesson's real step file, played through and then
+// opened from the map, labelled as lessonWalks labels them; then each step's
+// opening screen eased (easedOpenings), both ways.
+const liveWalks = async () => {
+  const { easedOpenings, lessonScreens, liveCourse } = await import('./learn-drive.mjs');
+  const walks = (screensOf) => [false, true].flatMap((skipped) => liveCourse.filter((l) => l.content).flatMap((l) => screensOf(l.id, liveCourse, { skipped })
+    .map(([label, s]) => [`${label}${skipped ? ' (skipped)' : ''}`, s])));
+  return [...walks(lessonScreens), ...walks(easedOpenings)];
+};
+
+test('the step screens a 60x20 window cuts on the real step files are the known ones, each with its reason; no opening screen is cut, and 80x24 cuts none', async () => {
+  const all = [...screens, ...await liveWalks()];
+  const lessons = new Set(allCourse.filter((l) => l.content).map((l) => l.id));
+  assert.ok([...lessons].every((id) => all.some(([label]) => label.startsWith(`${id} `))), 'every lesson with a step file');
+  for (const [beat, c] of Object.entries(CUT_AT_60X20)) {
+    assert.ok(c.why?.length > 10, `${beat}: say why it is cut`);
+    const listed = [...(c.both ?? []), ...(c.full ?? []), ...(c.ascii ?? [])];
+    assert.ok(listed.length, `${beat}: no screen`);
+    // A screen cut in both character sets is listed once, under `both`.
+    assert.equal(new Set(listed).size, listed.length, `${beat}: a screen listed twice`);
+    for (const screen of listed) assert.doesNotMatch(screen, /^open( \(skipped\))?$/, `${beat}: an opening screen is never a known cut`);
+  }
   for (const capName of ['full', 'ascii']) {
     const t = theme(CAPS[capName]);
-    const marker = (l) => l.trim() === t.glyph.ellipsis || l.trim() === `${t.glyph.rail}  ${t.glyph.ellipsis}`;
-    const cut = (cols, rows) => all.filter(([, s]) => render(s, { cols, rows }, t).map(strip).some(marker)).map(([l]) => l);
-    assert.deepEqual(cut(60, 20), CUT_AT_60X20[capName], capName);
+    const cut = (cols, rows) => all.filter(([, s]) => render(s, { cols, rows }, t).map(strip).some(cutRow(t))).map(([l]) => l);
+    const known = Object.entries(CUT_AT_60X20).flatMap(([beat, c]) => [...(c.both ?? []), ...(c[capName] ?? [])].map((screen) => `${beat} ${screen}`));
+    const now = cut(60, 20);
+    assert.deepEqual(now.filter((l) => /^\S+ \S+\.\d+ open( \(skipped\))?$/.test(l)), [], `${capName}: an opening screen is cut at 60x20`);
+    assert.deepEqual(now.filter((l) => !known.includes(l)), [], `${capName}: cut at 60x20, and not a known cut`);
+    assert.deepEqual(known.filter((l) => !now.includes(l)), [], `${capName}: a known cut that 60x20 no longer cuts`);
     assert.deepEqual(cut(80, 24), [], capName);
   }
 });
@@ -2152,7 +2192,9 @@ test('a GUIDED card shows its Why line under the title: b-4 W3 is the design\'s 
   mockup.forEach((row, i) => {
     if (row !== null) assert.equal(lines[i], row, `row ${i + 1}\n${lines.join('\n')}`);
   });
-  assert.equal(lines[23], '   enter  it compacted    w why    m map    c card    q quit');
+  // The beat waits for the learner's word, its done-label, so space gives it
+  // (ticket 27's verify pass: enter only goes on where nothing needs confirming).
+  assert.equal(lines[23], '   space  it compacted    w why    m map    c card    q quit');
 });
 
 // A made-up lesson 2 whose one GUIDED step has `why` lines on a predict, a

@@ -1298,3 +1298,18 @@ test('card: every Check shows its npm run check command on the card, not only be
   assert.deepEqual(off, []);
   assert.deepEqual(exempt, Object.keys(CHECK_COMMAND_BEHIND_H), 'an exemption names a Check that shows its command now');
 });
+
+test('code in a link\'s text shows as code with no backticks, as the page does, and keeps the link', () => {
+  assert.deepEqual(inline('where Node.js offers [`import.meta.dirname`](https://nodejs.org/api/esm.html#importmetadirname).'), [
+    { text: 'where Node.js offers ' },
+    { text: 'import.meta.dirname', code: true, url: 'https://nodejs.org/api/esm.html#importmetadirname' },
+    { text: '.' },
+  ]);
+  assert.deepEqual(inline('[`tdd` skill](x.md)'), [{ text: 'tdd', code: true, url: 'x.md' }, { text: ' skill', url: 'x.md' }]);
+  // Every lesson file's link text, so none shows a stray backtick.
+  for (const f of files) {
+    for (const line of readFileSync(join(dir, f), 'utf8').split('\n')) {
+      for (const r of inline(line).filter((x) => x.url)) assert.ok(!r.text.includes('`'), `${f}: ${r.text}`);
+    }
+  }
+});

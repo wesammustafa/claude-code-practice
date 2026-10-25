@@ -54,7 +54,10 @@ export function inline(text) {
     else if (m[2] !== undefined) {
       // Bold may hold code: **`x`** is rare in the lessons; keep it simple.
       runs.push({ text: m[2].replace(/`/g, ''), bold: true });
-    } else runs.push({ text: m[3], url: m[4] });
+    } else {
+      // Link text may hold code, as in [`tdd` skill](url): each run keeps the link.
+      runs.push(...inline(m[3]).map((r) => ({ ...r, url: m[4] })));
+    }
     last = m.index + m[0].length;
   }
   if (last < text.length) runs.push({ text: text.slice(last) });

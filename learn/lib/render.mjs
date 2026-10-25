@@ -1836,7 +1836,8 @@ function stepKeys(ctx, { beat, step, content, done, isLastBeat }) {
   }
   const v = beat.verify.kind;
   if (v === 'self' || v === 'none' || beat.kind === 'self' || (v === 'git-clean' && beat.doneLabel)) {
-    const k = v === 'none' ? 'enter' : 'space';
+    // Enter only where there is nothing to confirm: a done-label waits for space.
+    const k = v === 'none' && !beat.doneLabel ? 'enter' : 'space';
     // A done-label git beat at CHALLENGE: r is the try that opens h, so offer it.
     const r = !hint && tier === 'challenge' && tryFirst(s) === 'r' && !st.unlocked && rungsOf(s).length ? key('r', C.k.checkNow) : null;
     return [mainKey(k, beat.doneLabel ?? C.k.next, style.bg, style.fgOnBg), hint ?? r, why, copy, key('m', C.k.map), card, earlier, skip, key('q', C.k.quit)];

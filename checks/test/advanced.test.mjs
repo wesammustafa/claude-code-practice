@@ -277,18 +277,21 @@ test('a-1 fails while a worktree still exists, with the command that removes it'
   });
 });
 
-test('a-1 says to unlock a worktree locked with no Claude Code session running, and to prune one whose folder is gone', () => {
+test('a-1 says to exit any session in a locked worktree it can\'t tell is a running Claude Code session\'s, and to unlock only if git still refuses; and to prune one whose folder is gone', () => {
   withRepo(parallelRepo({ lock: ['test-pass'] }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists and is locked, with no Claude Code session running in it: from your main checkout, run `git worktree unlock \.claude\/worktrees\/test-pass`, then `git worktree remove \.claude\/worktrees\/test-pass`/);
+    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists and is locked: exit any Claude Code session open in it\. Once its branch is merged, run `git worktree remove \.claude\/worktrees\/test-pass` from your main checkout, after `git worktree unlock` if git says it is still locked\./);
+    // It can't see every session's lock, so it never says none is running.
+    assert.doesNotMatch(out, /no Claude Code session/);
   });
   // A Claude Code session's lock whose process has exited.
   const gone = spawnSync(process.execPath, ['-e', '']).pid;
   withRepo(parallelRepo({ lock: ['test-pass'], reason: `claude session test-pass (pid ${gone} start Sun Oct 25 10:43:31 2026)` }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /still exists and is locked, with no Claude Code session running in it: from your main checkout, run `git worktree unlock/);
+    assert.match(out, /still exists and is locked: exit any Claude Code session open in it\. Once its branch is merged, run `git worktree remove [^`]+` from your main checkout, after `git worktree unlock` if git says it is still locked\./);
+    assert.doesNotMatch(out, /no Claude Code session/);
   });
   withRepo(parallelRepo({ prune: ['test-pass'] }), (dir) => {
     const { code, out } = a1(dir);
@@ -297,12 +300,12 @@ test('a-1 says to unlock a worktree locked with no Claude Code session running, 
   });
 });
 
-test('a-1 says to exit a Claude Code session still running in a worktree, never to unlock it', () => {
+test('a-1 says to exit a Claude Code session still running in a worktree once its branch is merged, never to unlock it', () => {
   // This test's own process stands in for the session, so its pid is alive.
   withRepo(parallelRepo({ lock: ['test-pass'], reason: `claude session test-pass (pid ${process.pid} start Sun Oct 25 10:43:31 2026)` }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists, and the Claude Code session in it is still running: in that session, run `\/exit` and choose to remove the worktree, or keep it and then run `git worktree remove \.claude\/worktrees\/test-pass` from your main checkout\./);
+    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists, and the Claude Code session in it is still running: once its branch is merged, run `\/exit` in that session and choose to remove the worktree, or keep it and then run `git worktree remove \.claude\/worktrees\/test-pass` from your main checkout\./);
     assert.doesNotMatch(out, /unlock/);
   });
 });

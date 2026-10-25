@@ -1759,15 +1759,16 @@ const VIEWS = {
       return true;
     }
     // Self, none and "the session has ended" beats. Space ticks each, as
-    // its key bar says; enter only a none beat, so the enter that goes on
-    // from a step can't tick the next step's self beat unread.
+    // its key bar says; enter only a none beat with nothing to confirm, so
+    // the enter that goes on from a step can't tick the next step's self
+    // beat unread, nor give the word a done-label waits for.
     const v = beat.verify.kind;
-    if ((name === 'space' || (name === 'enter' && v === 'none')) && (v === 'self' || v === 'none' || beat.kind === 'self')) {
+    if ((name === 'space' || (name === 'enter' && v === 'none' && !beat.doneLabel)) && (v === 'self' || v === 'none' || beat.kind === 'self')) {
       st.status = 'done';
       advance(s, effects);
       return true;
     }
-    if ((name === 'space' || name === 'enter') && v === 'git-clean' && beat.doneLabel) {
+    if (name === 'space' && v === 'git-clean' && beat.doneLabel) {
       st.ended = true;
       st.explicit = true;
       effects.push(gitAsk(watching(s)));

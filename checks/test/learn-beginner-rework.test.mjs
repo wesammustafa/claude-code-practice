@@ -45,6 +45,12 @@ test('Beginner live content teaches the promoted features and all four memory no
   assert.ok(!text('b-1').includes('.practice/version.txt'));
 });
 
+// A row that holds only the theme's `…` (`...` in ASCII), bare or inside a
+// card's rail: where teaching rows gave way.
+const cutRow = t => line => line.trim() === t.glyph.ellipsis || line.trim() === `${t.glyph.rail}  ${t.glyph.ellipsis}`;
+// Every beat's opening screen, and every screen at 80x24, shows all its
+// rows. At 60x20 a hint or feedback screen may cut the card: those are the
+// known cuts in learn-render.test.mjs, each with its reason.
 test('each reworked Beginner beat fits at 60x20 and 80x24 in Unicode and ASCII', () => {
   for (const unicode of [true, false]) {
     const t = theme({ tty: true, depth: 1, unicode, links: false, win32: !unicode });
@@ -57,7 +63,8 @@ test('each reworked Beginner beat fits at 60x20 and 80x24 in Unicode and ASCII',
         const lines = render(state, { cols, rows }, t).map(strip);
         assert.equal(lines.length, rows, label);
         assert.ok(lines.every(line => width(line) < cols), `${label}: line too wide`);
-        assert.ok(lines.every(line => line.trim() !== '…' && !(line.endsWith('…') && width(line) === cols - 1)), `${label} ${cols}x${rows}: teaching text cut`);
+        assert.ok(lines.every(line => line.trim() !== t.glyph.ellipsis && !(line.endsWith('…') && width(line) === cols - 1)), `${label} ${cols}x${rows}: teaching text cut`);
+        if (rows >= 24 || /^\S+ \S+\.\d+ open$/.test(label)) assert.ok(!lines.some(cutRow(t)), `${label} ${cols}x${rows}: the card cuts a row\n${lines.join('\n')}`);
       }
     }
   }

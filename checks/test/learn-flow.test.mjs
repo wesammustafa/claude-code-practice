@@ -147,7 +147,8 @@ test('hints: one rung per press, a 2 second lock, y/n before the exact command, 
   assert.deepEqual(d.state.eased, ['save-version']);
   // Y1 asks for the same skill: it comes back GUIDED, once.
   d.send({ type: 'check', lesson: 'b-1', items: [passed] });
-  for (const k of ['enter', '1', 'enter', 'space', 'space', '2', 'enter', 'enter', '1', 'enter', '2', 'enter', 'space']) d.key(k);
+  // W6's first beat has a done-label, so space gives the learner's word there.
+  for (const k of ['enter', '1', 'enter', 'space', 'space', '2', 'enter', 'space', '1', 'enter', '2', 'enter', 'space']) d.key(k);
   d.send({ type: 'git', paths: [] });
   d.key('enter');
   assert.equal(stepOf(d.state).id, 'Y1');
@@ -3313,4 +3314,42 @@ test('r27 E7: on a Claude Code beat, a command that starts Claude Code shows the
   const rows = screenText(d.state).map((l) => l.replace(/^\s*│\s*/, '').trimEnd());
   for (const row of ['$ claude --worktree docs-pass', '› /status', '$ claude']) assert.ok(rows.includes(row), `${row}\n${rows.join('\n')}`);
   assert.ok(!rows.some((l) => /^› claude/.test(l)), rows.join('\n'));
+});
+
+// Ticket 27's verify pass (pattern E): a beat with a done-label waits for
+// the learner's own word, whatever it verifies. Enter is the key that goes
+// on from a step, so a habitual enter after the beat before it must not give
+// that word: a git-clean beat would look at the tree before the learner ran
+// git status. Only space answers it; enter still goes on from a none beat
+// with nothing to confirm.
+test('r27 E3, done-labels: only space answers a beat with a done-label, a git-clean beat or a none beat; enter still goes on from a none beat without one', () => {
+  const text = DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n', '- where: shell\n- beat: do\n- verify: self\n- goal: "Read the plan."\n- beat: do\n- verify: git-clean\n- done-label: it says nothing to commit\n- run: "git status"\n- beat: do\n- verify: none\n- done-label: it\'s closed\n- goal: "Close the dialog."\n- beat: do\n- verify: none\n- goal: "Look around."\n- beat: do\n- verify: check 0\n');
+  const d = onB2At(text);
+  d.key('space');
+  assert.deepEqual([d.state.pos.beat, beatOf(d.state).verify.kind, beatOf(d.state).doneLabel], [1, 'git-clean', 'it says nothing to commit']);
+  // The git-clean beat: a habitual enter neither ends it nor asks git.
+  let n = d.effects.length;
+  d.key('enter');
+  assert.ok(!d.state.beat.ended, 'enter gives no word on a done-label beat');
+  assert.deepEqual(d.effects.slice(n).filter((e) => e.type === 'git'), [], 'enter sends no look at the tree');
+  d.send({ type: 'git', paths: [] });
+  assert.deepEqual([d.state.pos.beat, d.state.beat.status], [1, 'waiting'], 'a clean tree decides nothing before the learner says so');
+  assert.match(screenText(d.state).at(-1), /space\s+it says nothing to commit/, 'the key bar offers space');
+  n = d.effects.length;
+  d.key('space');
+  assert.ok(d.state.beat.ended);
+  assert.deepEqual(d.effects.slice(n).filter((e) => e.type === 'git').length, 1, 'space asks git');
+  d.send({ type: 'git', paths: [] });
+  assert.equal(d.state.beat.status, 'done');
+  d.key('enter');
+  // A none beat with a done-label: the same, and its key bar says space.
+  assert.deepEqual([d.state.pos.beat, beatOf(d.state).verify.kind], [2, 'none']);
+  assert.match(screenText(d.state).at(-1), /space\s+it's closed/, 'the key bar offers space');
+  d.key('enter');
+  assert.deepEqual([d.state.pos.beat, d.state.beat.status], [2, 'waiting'], 'enter leaves a none beat with a done-label unticked');
+  d.key('space');
+  assert.equal(d.state.pos.beat, 3, 'space ticks it');
+  // A none beat with nothing to confirm: enter goes on.
+  d.key('enter');
+  assert.equal(d.state.pos.beat, 4, 'enter goes on from a none beat without a done-label');
 });

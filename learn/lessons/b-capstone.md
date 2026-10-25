@@ -84,7 +84,8 @@ badge: Beginner
 - verify: check 0 fresh since T3
 - evidence: .practice/capstone-before.txt
 - goal: "While the final plan is on screen, in your own terminal, save `git status --porcelain` to `.practice/capstone-before.txt`."
-- hint: "If you skipped the lessons: create the `.practice/` folder in your copy (`mkdir -p .practice`; **Windows:** `New-Item -ItemType Directory -Force .practice`)."
+- hint: "If you skipped the lessons: create the `.practice/` folder in your copy"
+- hint: "`mkdir -p .practice`; **Windows:** `New-Item -ItemType Directory -Force .practice`"
 - watching: .practice/capstone-before.txt
 - beat: do
 - verify: file .practice/capstone-plan.txt fresh since T3
