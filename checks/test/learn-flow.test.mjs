@@ -5,12 +5,12 @@ import assert from 'node:assert/strict';
 import { answerKey, asStarted, backOffered, beatOf, beatShown, cardMood, DEFER_MS, HINT_LOCK_MS, hintAvailable, IDLE_MS, isLastBeat, longWait, moreHelpGives, normalize, pickWarmups, rungsOf, stepNote, stepOf, tearDownLeft, tierOf, tiersOf, watching, whileRunsOf, whileRunsOpen } from '../../learn/lib/flow.mjs';
 import { GIT, OWN_PARTS, parseLesson, READS } from '../../learn/lib/content.mjs';
 import { snapshot } from '../../learn/lib/store.mjs';
-import { stampFor } from '../../learn/lib/holds.mjs';
+import { judge, stampFor } from '../../learn/lib/holds.mjs';
 import { mix, ruleTiers } from '../../learn/lib/tiers.mjs';
 import { render } from '../../learn/lib/render.mjs';
 import { nextChange, phases, pipGates } from '../../learn/lib/motion.mjs';
 import { theme } from '../../learn/lib/theme.mjs';
-import { strip, width } from '../../learn/lib/text.mjs';
+import { inline, strip, width, wrapRuns } from '../../learn/lib/text.mjs';
 import { C } from '../../learn/lib/copy.mjs';
 import { statusStamp } from '../../learn/lib/status.mjs';
 import { plainProgress } from '../../learn/lib/plain.mjs';
@@ -147,7 +147,8 @@ test('hints: one rung per press, a 2 second lock, y/n before the exact command, 
   assert.deepEqual(d.state.eased, ['save-version']);
   // Y1 asks for the same skill: it comes back GUIDED, once.
   d.send({ type: 'check', lesson: 'b-1', items: [passed] });
-  for (const k of ['enter', '1', 'enter', 'space', 'space', '2', 'enter', 'enter', '1', 'enter', '2', 'enter', 'space']) d.key(k);
+  // W6's first beat has a done-label, so space gives the learner's word there.
+  for (const k of ['enter', '1', 'enter', 'space', 'space', '2', 'enter', 'space', '1', 'enter', '2', 'enter', 'space']) d.key(k);
   d.send({ type: 'git', paths: [] });
   d.key('enter');
   assert.equal(stepOf(d.state).id, 'Y1');
@@ -600,7 +601,7 @@ test('a file check is done once its file holds a line, and a fresh one once it c
   d.key('r');
   d.send({ type: 'file', path: '.practice/b-2-plan.txt', read: null, stamp: 'B', asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'fail');
-  assert.match(d.state.beat.fail.hint, /\.practice\/b-2-plan\.txt has no line/);
+  assert.equal(d.state.beat.fail.hint, '.practice/b-2-plan.txt is not there yet.', 'a missing file is not there, not empty (r27 E1)');
   d.send({ type: 'file', path: '.practice/b-2-plan.txt', read: Buffer.from('src/config.js\nsrc/cli.js\n'), stamp: 'C' });
   assert.equal(d.state.beat.status, 'done');
   assert.equal(d.state.beat.evidence, 'src/config.js and 1 more line', 'a list shows how long it is');
@@ -1995,7 +1996,7 @@ const parseError = (text) => {
   }
 };
 
-test('json: done once the file parses and holds the key; the not-yet line names the parse error or the missing key; the evidence is the key\'s value', () => {
+test('json: done once the file parses and holds the key; the not-yet line names the parse error or the missing key; the evidence is the key and its value (r27 E12)', () => {
   const path = '.claude/settings.json';
   const d = onReading(`json ${path} permissions.deny`);
   assert.deepEqual(watching(d.state), { file: path, dir: FACTS.root });
@@ -2007,7 +2008,7 @@ test('json: done once the file parses and holds the key; the not-yet line names 
   assert.match(tryNow(d, path, '{"permissions": {"allow": []}}').fail.hint, /\.claude\/settings\.json has no permissions\.deny yet/);
   const done = tryNow(d, path, '{\n  "permissions": {\n    "deny": ["Read(./.env)"]\n  }\n}\n');
   assert.equal(done.status, 'done');
-  assert.equal(done.evidence, '["Read(./.env)"]');
+  assert.equal(done.evidence, 'permissions.deny = ["Read(./.env)"]');
 });
 
 test('json with a value: done once the key equals it, as text or as JSON; the not-yet line names the key and what it holds', () => {
@@ -2016,7 +2017,7 @@ test('json with a value: done once the key equals it, as text or as JSON; the no
   assert.equal(tryNow(d, path, '{"type": "result", "subtype": "error_max_turns"}').fail.hint, '.practice/a-4-run.json has subtype error_max_turns, not success, yet.');
   const done = tryNow(d, path, '{"type": "result", "subtype": "success"}');
   assert.equal(done.status, 'done');
-  assert.equal(done.evidence, 'success');
+  assert.equal(done.evidence, 'subtype = success');
   const flag = onReading(`json ${path} is_error=false`);
   assert.equal(tryNow(flag, path, '{"is_error": true}').status, 'fail');
   assert.equal(tryNow(flag, path, '{"is_error": false}').status, 'done');
@@ -2198,6 +2199,9 @@ test('a file beat is done once its file holds any line, front matter or a lone -
   assert.equal(tryNow(lone, 'notes.md', '\n---\n').evidence, '---');
   const blank = onReading('file notes.md');
   assert.equal(tryNow(blank, 'notes.md', ' \n\n').fail.hint, 'notes.md has no line in it yet.');
+  // A missing file is not there yet, not a file with no line (r27 E1).
+  const gone = onReading('file notes.md');
+  assert.equal(tryNow(gone, 'notes.md', null).fail.hint, 'notes.md is not there yet.');
 });
 
 test('a json key path follows an array only by its indexes: length is no key of one', () => {
@@ -2206,9 +2210,9 @@ test('a json key path follows an array only by its indexes: length is no key of 
   assert.equal(tryNow(d, path, '{"permissions": {"deny": []}}').fail.hint, '.claude/settings.json has no permissions.deny.length yet.');
   const first = onReading(`json ${path} permissions.deny.0`);
   assert.equal(tryNow(first, path, '{"permissions": {"deny": []}}').status, 'fail');
-  assert.equal(tryNow(first, path, '{"permissions": {"deny": ["Read(./.env)"]}}').evidence, 'Read(./.env)');
+  assert.equal(tryNow(first, path, '{"permissions": {"deny": ["Read(./.env)"]}}').evidence, 'permissions.deny.0 = Read(./.env)');
   const map = onReading(`json ${path} env.length`);
-  assert.equal(tryNow(map, path, '{"env": {"length": "3"}}').evidence, '3', 'an object may hold a key named length');
+  assert.equal(tryNow(map, path, '{"env": {"length": "3"}}').evidence, 'env.length = 3', 'an object may hold a key named length');
 });
 
 test('what the screen shows of a file is one row: no line break, tab or escape sequence, and one emoji at most', () => {
@@ -2219,7 +2223,7 @@ test('what the screen shows of a file is one row: no line break, tab or escape s
   assert.match(hint, /^\.claude\/settings\.json does not parse as JSON yet \(/);
   assert.doesNotMatch(hint, /\p{Cc}/u, hint);
   const value = onReading('json .practice/i-2-hook.json prompt');
-  assert.equal(tryNow(value, '.practice/i-2-hook.json', '{"prompt": "line one\\nline two\\tthree"}').evidence, 'line one line two three');
+  assert.equal(tryNow(value, '.practice/i-2-hook.json', '{"prompt": "line one\\nline two\\tthree"}').evidence, 'prompt = line one line two three');
   const match = onReading('match notes.md TODO');
   assert.equal(tryNow(match, 'notes.md', 'a\tTODO \x1b[31mred\x1b[0m\r\n').evidence, 'a TODO red');
   const no = onReading('no-match notes.md TODO');
@@ -3223,4 +3227,248 @@ test('recall while a long run works: never scored, still, and dropped when the r
   // A digit after the result is no answer.
   open.key('1');
   assert.equal(open.state.beat.whileRuns.answer, null);
+});
+
+// ---- r27 engine fixes (findings/r27/TRIAGE.md section 3) ---------------------
+// DEMO_B2 with W1 reading a log a session writes, its command a cat of that
+// log, as i-2's W4.3 does.
+const LOG_B2 = DEMO_B2.replace('- verify: check 0\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt\n- run: "git status --porcelain > .practice/b-2-before.txt"', '- verify: match .practice/log.txt ^include\\s\n- run: "cat .practice/log.txt"');
+const onB2At = (text, extra = {}) => {
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R2', 'R3'], done: ['R1', 'R2', 'R3'], step: 'W1', beat: 0, ...extra } } } });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== 'W1' || d.state.pos.beat !== 0) throw new Error(`onB2At: on ${d.state.view} ${stepOf(d.state)?.id} beat ${d.state.pos.beat}`);
+  return d;
+};
+// The log as main reads it: null when it isn't there.
+const sendLog = (d, text, stamp) => d.send({ type: 'file', path: '.practice/log.txt', read: text === null ? null : Buffer.from(text), stamp });
+const catRow = (state) => screenText(state).find((l) => l.includes('$ cat .practice/log.txt'));
+
+test('r27 E2: a matched line too long for its row ends in …, and a hint that quotes it holds no escape', () => {
+  const line = '- Use `node:test` and `node:assert/strict`; no other test library, and no snapshot files.';
+  assert.ok(line.length > 60);
+  const match = onReading('match notes.md node:test');
+  const evidence = tryNow(match, 'notes.md', `${line}\n`).evidence;
+  assert.equal(evidence, `${line.slice(0, 59)}…`);
+  assert.equal(width(evidence), 60);
+  const no = onReading('no-match notes.md node:test');
+  const hint = tryNow(no, 'notes.md', `${line}\n`).fail.hint;
+  assert.equal(hint, `notes.md still has: ${line.slice(0, 59)}…`);
+  assert.doesNotMatch(hint, /\x1b/, 'cut\'s reset goes: the row sits inside a sentence');
+  const fits = 'x'.repeat(60);
+  assert.equal(tryNow(onReading('match notes.md x'), 'notes.md', `${fits}\n`).evidence, fits, 'a row that fits stays whole');
+});
+
+test('r27 E3: only space ticks a self beat, so the enter that goes on from a step ticks nothing unread; enter still goes on from a none beat', () => {
+  const text = DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n', '- where: shell\n- beat: do\n- verify: self\n- goal: "Read the log."\n- beat: do\n- verify: none\n- goal: "Look around."\n- beat: do\n- verify: check 0\n');
+  const d = onB2At(text);
+  assert.equal(beatOf(d.state).verify.kind, 'self');
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat, d.state.beat.status], ['W1', 0, 'waiting'], 'enter leaves a self beat unticked');
+  d.key('space');
+  assert.deepEqual([d.state.pos.beat, beatOf(d.state).verify.kind], [1, 'none'], 'space ticks it');
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat], ['W1', 2], 'enter goes on from a none beat');
+});
+
+test('r27 E4: a beat done before it opened shows no tick beside its command; one done while it was open does', () => {
+  const already = onB2At(LOG_B2);
+  sendLog(already, 'include CLAUDE.md\n', 'A');
+  assert.equal(already.state.beat.status, 'already');
+  assert.ok(catRow(already.state), screenText(already.state).join('\n'));
+  assert.doesNotMatch(catRow(already.state), /✔/, 'the app never saw the learner run cat');
+  const done = onB2At(LOG_B2);
+  sendLog(done, null, 'A');
+  sendLog(done, 'include CLAUDE.md\n', 'B');
+  assert.equal(done.state.beat.status, 'done');
+  assert.match(catRow(done.state), /✔$/, screenText(done.state).join('\n'));
+});
+
+test('r27 E5: an eased step says so on its first beat when that beat was already done as it opened, and not once a beat is done', () => {
+  const already = onB2At(LOG_B2, { easedSteps: { W1: true } });
+  assert.equal(already.state.beat.eased, true);
+  assert.ok(flat(already.state, 80, 24).includes(C.eased), 'while it waits');
+  sendLog(already, 'include CLAUDE.md\n', 'A');
+  assert.equal(already.state.beat.status, 'already');
+  assert.ok(flat(already.state, 80, 24).includes(C.eased), flat(already.state, 80, 24));
+  const done = onB2At(LOG_B2, { easedSteps: { W1: true } });
+  sendLog(done, null, 'A');
+  sendLog(done, 'include CLAUDE.md\n', 'B');
+  assert.equal(done.state.beat.status, 'done');
+  assert.ok(!flat(done.state, 80, 24).includes(C.eased), flat(done.state, 80, 24));
+});
+
+test('r27 E6: a watch that sees an earlier step\'s state says it turns green once that changes, not "make it again"', () => {
+  assert.deepEqual(C.staleWatch('git branch'), ['Watching ', 'git branch', ". It's from an earlier step: I'll turn green once it changes."]);
+  const d = intoY1('probe branch-ahead docs-pass');
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'sha-1', dir: FACTS.root });
+  d.send(probeResult('branch-ahead', ['docs-pass'], true, 'sha-1'));
+  assert.deepEqual([d.state.beat.status, d.state.beat.stale], ['waiting', true]);
+  const screen = flat(d.state, 80, 24);
+  assert.ok(screen.includes("It's from an earlier step: I'll turn green once it changes."), screen);
+  assert.ok(!screen.includes('make it again'), screen);
+});
+
+test('r27 E7: on a Claude Code beat, a command that starts Claude Code shows the shell\'s prompt; a prompt for the session keeps ›', () => {
+  const text = DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt\n- run: "git status --porcelain > .practice/b-2-before.txt"', '- where: claude\n- beat: do\n- verify: self\n- run: "claude --worktree docs-pass"\n- run: "/status"\n- run: "claude"');
+  const d = onB2At(text);
+  const rows = screenText(d.state).map((l) => l.replace(/^\s*│\s*/, '').trimEnd());
+  for (const row of ['$ claude --worktree docs-pass', '› /status', '$ claude']) assert.ok(rows.includes(row), `${row}\n${rows.join('\n')}`);
+  assert.ok(!rows.some((l) => /^› claude/.test(l)), rows.join('\n'));
+});
+
+test('r27 E8: a slash command shows Claude Code\'s prompt on any beat, an editor beat\'s too; a path that starts with / keeps the shell\'s', () => {
+  const text = DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt\n- run: "git status --porcelain > .practice/b-2-before.txt"', '- where: editor\n- beat: do\n- verify: self\n- run: "/reload-plugins"\n- run: "/plugin install team-kit"\n- run: "/tmp/x"');
+  const d = onB2At(text);
+  const rows = screenText(d.state).map((l) => l.replace(/^\s*│\s*/, '').trimEnd());
+  for (const row of ['› /reload-plugins', '› /plugin install team-kit', '$ /tmp/x']) assert.ok(rows.includes(row), `${row}\n${rows.join('\n')}`);
+});
+
+test('r27 E9: a beat whose check includes a slow item says to press r from the start, never "I\'ll turn green the moment it\'s right"', () => {
+  const d = onB2At(DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n', '- where: shell\n- beat: do\n- verify: check 0 2\n'));
+  // b-2's item 2 is slow; item 0, which runs on every poll, fails.
+  d.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: false, hint: 'not yet' }, { index: 2, text: 'y', pass: false, slow: true, hint: '' }] });
+  assert.deepEqual([d.state.beat.status, d.state.beat.slowWait], ['waiting', false]);
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const card = flat(d.state, cols, rows);
+    assert.ok(card.includes(C.slowWait), `${cols}x${rows}: ${card}`);
+    assert.ok(!card.includes("I'll turn green the moment it's right"), `${cols}x${rows}: ${card}`);
+  }
+  // A beat with no slow item still watches.
+  const fast = onB2At(DEMO_B2);
+  fast.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: false, hint: 'not yet' }] });
+  assert.equal(fast.state.beat.status, 'waiting');
+  assert.ok(flat(fast.state, 80, 24).includes("I'll turn green the moment it's right"), flat(fast.state, 80, 24));
+  assert.ok(!flat(fast.state, 80, 24).includes(C.slowWait));
+});
+
+test('r27 E11: the shell label names no ordinal, so it agrees with a page\'s "the second terminal"', () => {
+  assert.equal(C.where.shell, 'in a terminal beside Claude Code');
+  const d = onB2At(DEMO_B2);
+  assert.ok(cardTop(d.state).includes(`💻 ${C.where.shell}`), cardTop(d.state));
+  assert.ok(!screenText(d.state).join('\n').includes('third terminal'));
+  fitsBoth(d.state);
+  // Done at 60x20, the top row has no room for the long words beside DONE
+  // and Pip: it keeps both, with the brief words.
+  d.send({ type: 'check', lesson: 'b-2', items: [{ index: 0, text: 'x', pass: true, hint: '' }] });
+  assert.equal(d.state.beat.status, 'already');
+  for (const unicode of [true, false]) {
+    const top = cardTop(d.state, 60, 20, unicode);
+    assert.ok(top.includes(`${C.terminalInFolder}`) && top.includes(C.done) && /\[.{3}\] ─*-*$/.test(top.trimEnd()), top);
+  }
+  assert.ok(cardTop(d.state, 80, 24).includes(C.where.shell), cardTop(d.state, 80, 24));
+});
+
+test('r27 E12: a json verify\'s evidence names its key; a matched line drops a trailing comma', () => {
+  const settings = Buffer.from('{\n  "sandbox": {"enabled": true},\n  "permissions": {"deny": [\n    "Read(./.env)",\n    "Read(./.env.*)"\n  ]}\n}\n');
+  assert.deepEqual(judge({ kind: 'json', path: '.claude/settings.json', key: 'sandbox.enabled', value: 'true' }, settings), { pass: true, evidence: 'sandbox.enabled = true' });
+  assert.deepEqual(judge({ kind: 'json', path: '.claude/settings.json', key: 'permissions.deny.0', value: null }, settings), { pass: true, evidence: 'permissions.deny.0 = Read(./.env)' });
+  assert.deepEqual(judge({ kind: 'match', path: '.claude/settings.json', regex: 'Read\\(\\./\\.env\\)' }, settings), { pass: true, evidence: '"Read(./.env)"' });
+  // A line with no comma at its end keeps what it has.
+  assert.deepEqual(judge({ kind: 'match', path: '.claude/settings.json', regex: 'env\\.\\*' }, settings), { pass: true, evidence: '"Read(./.env.*)"' });
+});
+
+test('r27 E13: a git-clean scope of one file that is the one change says the file has uncommitted changes, not "1 file changed under" it', () => {
+  assert.equal(C.fileUncommitted('.claude/settings.json'), '.claude/settings.json has uncommitted changes.');
+  const one = onB2At(DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt\n', '- where: shell\n- beat: do\n- verify: git-clean .claude/settings.json\n'));
+  one.send(gitLists(['.claude/settings.json', 'src/a.js']));
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const card = flat(one.state, cols, rows);
+    assert.ok(card.includes(C.fileUncommitted('.claude/settings.json')), `${cols}x${rows}: ${card}`);
+    assert.ok(!card.includes('changed under'), `${cols}x${rows}: ${card}`);
+  }
+  fitsBoth(one.state);
+  // A folder scope still counts and lists what changed under it.
+  const folder = onB2At(DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt\n', '- where: shell\n- beat: do\n- verify: git-clean .claude/\n'));
+  folder.send(gitLists(['.claude/settings.json']));
+  assert.ok(flat(folder.state, 80, 24).includes(`${C.changedUnder(1, '.claude/')} .claude/settings.json`), flat(folder.state, 80, 24));
+});
+
+test('r27 E14: a code span wider than the line breaks at a space where one fits, and mid-word where none does or where the space costs a row', () => {
+  const cmd = 'claude plugin install claude-code-setup@claude-plugins-official --scope project';
+  const words = (lines) => lines.map((l) => l.map((r) => r.text).join(''));
+  const lines = words(wrapRuns(inline(`I installed the plugin with \`${cmd}\`, as a teammate does after pulling the settings.`), 72));
+  assert.ok(lines.every((l) => width(l) <= 72), lines.join('\n'));
+  assert.ok(lines.some((l) => l.endsWith('--scope')) && lines.some((l) => l.startsWith('project,')), lines.join('\n'));
+  assert.ok(!lines.some((l) => /pr$/.test(l)), lines.join('\n'));
+  // No space in reach: the old split, at the line's width.
+  assert.deepEqual(words(wrapRuns([{ text: 'a'.repeat(25), code: true }], 10)), ['a'.repeat(10), 'a'.repeat(10), 'a'.repeat(5)]);
+  // A break at the space would cost a row a 60x20 card can't spare: the old split.
+  assert.deepEqual(words(wrapRuns([{ text: 'a bcdefghijklmnopqrs', code: true }], 10)), ['a bcdefghi', 'jklmnopqrs']);
+  // The i-capstone self-check that showed it, at 100 columns.
+  const id = 'i-capstone';
+  const steps = course.find((l) => l.id === id).content.steps;
+  const step = steps.find((x) => x.beats.some((b) => b.self?.includes('--scope project')));
+  const beat = step.beats.findIndex((b) => b.self?.includes('--scope project'));
+  const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore(id), [id]: { step: step.id, beat, warm: [] } } } });
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat], [step.id, beat]);
+  const screen = screenText(d.state, 100, 30).map((l) => l.replace(/^\s*[│|]\s*/, '').trimEnd());
+  assert.ok(!screen.some((l) => /--scope pr$/.test(l)), screen.join('\n'));
+  assert.ok(screen.some((l) => /(^|\s)project,/.test(l)), screen.join('\n'));
+});
+
+test('r27 a-5: a work folder whose git doesn\'t ignore .practice/ is told how to ignore it, not sent to a lesson that doesn\'t show it', () => {
+  assert.ok(!/Beginner lesson 1/.test(C.noPractice), C.noPractice);
+  assert.ok(C.noPractice.includes('.git/info/exclude'), C.noPractice);
+});
+
+test('r27: the goodbye with no .practice/ yet gives the command, not a Beginner lesson 1 step that no longer makes the folder', () => {
+  assert.ok(!/lesson 1/.test(C.savedLater), C.savedLater);
+  assert.ok(C.savedLater.includes('mkdir .practice'), C.savedLater);
+});
+
+test('r27 E16: a fresh push beat that sees an earlier push says everything is pushed and it waits for the next push', () => {
+  assert.deepEqual(C.stalePush('git status'), ['Watching ', 'git status', ": everything here is already pushed, so I'll turn green after your next push."]);
+  const d = intoY1('probe pushed fresh');
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'pushed-1', dir: FACTS.root });
+  d.send(probeResult('pushed', [], true, 'pushed-1'));
+  assert.deepEqual([d.state.beat.status, d.state.beat.stale], ['waiting', true]);
+  for (const [cols, rows] of [[60, 20], [80, 24]]) {
+    const screen = flat(d.state, cols, rows);
+    assert.ok(screen.includes("everything here is already pushed, so I'll turn green after your next push."), screen);
+    assert.ok(!screen.includes("It's from an earlier step"), screen);
+  }
+  // Another stale probe keeps its line.
+  const other = intoY1('probe branch-ahead docs-pass');
+  other.send({ type: 'stamp', key: 'Y1.0', stamp: 'sha-1', dir: FACTS.root });
+  other.send(probeResult('branch-ahead', ['docs-pass'], true, 'sha-1'));
+  assert.ok(flat(other.state, 80, 24).includes("It's from an earlier step: I'll turn green once it changes."));
+});
+
+// Ticket 27's verify pass (pattern E): a beat with a done-label waits for
+// the learner's own word, whatever it verifies. Enter is the key that goes
+// on from a step, so a habitual enter after the beat before it must not give
+// that word: a git-clean beat would look at the tree before the learner ran
+// git status. Only space answers it; enter still goes on from a none beat
+// with nothing to confirm.
+test('r27 E3, done-labels: only space answers a beat with a done-label, a git-clean beat or a none beat; enter still goes on from a none beat without one', () => {
+  const text = DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n', '- where: shell\n- beat: do\n- verify: self\n- goal: "Read the plan."\n- beat: do\n- verify: git-clean\n- done-label: it says nothing to commit\n- run: "git status"\n- beat: do\n- verify: none\n- done-label: it\'s closed\n- goal: "Close the dialog."\n- beat: do\n- verify: none\n- goal: "Look around."\n- beat: do\n- verify: check 0\n');
+  const d = onB2At(text);
+  d.key('space');
+  assert.deepEqual([d.state.pos.beat, beatOf(d.state).verify.kind, beatOf(d.state).doneLabel], [1, 'git-clean', 'it says nothing to commit']);
+  // The git-clean beat: a habitual enter neither ends it nor asks git.
+  let n = d.effects.length;
+  d.key('enter');
+  assert.ok(!d.state.beat.ended, 'enter gives no word on a done-label beat');
+  assert.deepEqual(d.effects.slice(n).filter((e) => e.type === 'git'), [], 'enter sends no look at the tree');
+  d.send({ type: 'git', paths: [] });
+  assert.deepEqual([d.state.pos.beat, d.state.beat.status], [1, 'waiting'], 'a clean tree decides nothing before the learner says so');
+  assert.match(screenText(d.state).at(-1), /space\s+it says nothing to commit/, 'the key bar offers space');
+  n = d.effects.length;
+  d.key('space');
+  assert.ok(d.state.beat.ended);
+  assert.deepEqual(d.effects.slice(n).filter((e) => e.type === 'git').length, 1, 'space asks git');
+  d.send({ type: 'git', paths: [] });
+  assert.equal(d.state.beat.status, 'done');
+  d.key('enter');
+  // A none beat with a done-label: the same, and its key bar says space.
+  assert.deepEqual([d.state.pos.beat, beatOf(d.state).verify.kind], [2, 'none']);
+  assert.match(screenText(d.state).at(-1), /space\s+it's closed/, 'the key bar offers space');
+  d.key('enter');
+  assert.deepEqual([d.state.pos.beat, d.state.beat.status], [2, 'waiting'], 'enter leaves a none beat with a done-label unticked');
+  d.key('space');
+  assert.equal(d.state.pos.beat, 3, 'space ticks it');
+  // A none beat with nothing to confirm: enter goes on.
+  d.key('enter');
+  assert.equal(d.state.pos.beat, 4, 'enter goes on from a none beat without a done-label');
 });

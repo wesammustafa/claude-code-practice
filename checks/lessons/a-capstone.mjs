@@ -4,7 +4,10 @@
 // listing and the review script's run, both saved under .practice/; the
 // saved workflow, which must start a finding agent and a checking one; and
 // the review workflow, which runs on pull requests and is read from the
-// history, so the check passes before and after the teardown. Lesson 7's
+// history, so the check passes before and after the teardown. The review
+// script's call meets lesson 4's criteria, its tools restricted to Read,
+// Grep and Glob, hooks off and no MCP server: the skill named at the start
+// of its prompt runs without the Skill tool, so it still runs. Lesson 7's
 // item holds the review script to a spend cap that the saved run came in
 // under. The brief states problems, so the items accept any sound way to
 // meet them: worktrees anywhere, brought in by merge, rebase or squash. Two
@@ -16,11 +19,11 @@ import { parseClaudeArgs, scriptCalls } from '../claude-args.mjs';
 import { committedIgnore, ignoreHint } from '../ignore.mjs';
 import { headText } from '../marketplace.mjs';
 import { parseWorktrees } from '../worktrees.mjs';
-import { parseYaml } from '../actions.mjs';
+import { claudeHistory, parseYaml } from '../actions.mjs';
 import { ignoresWorktrees, mergedWorktrees } from './a-1.mjs';
 import { savedWorkflow } from './a-3.mjs';
 import { committedScript, savedRun, SCRIPT, scriptBehavior, scriptCall } from './a-4.mjs';
-import { boundedWorkflow, chosenWorkflow } from './a-5.mjs';
+import { boundedWorkflow, chosenWorkflow, originRepo } from './a-5.mjs';
 import { marketplaceItem, settingsItem } from './a-6.mjs';
 import { testsPass, nothingUncommitted } from './b-3.mjs';
 
@@ -29,6 +32,7 @@ export const title = 'Advanced capstone';
 export const SNAPSHOT = '.practice/a-capstone-worktrees.txt';
 export const RUN = '.practice/a-capstone-run.json';
 export const REVIEW = '.github/workflows/claude-review.yml';
+export const CI_RUNS = '.practice/a-capstone-ci.json';
 // The brief's review runs on each pull request; a workflow started by hand,
 // such as lesson 5's, never stands in for it. The copy has only the
 // credential's secret, saved with `gh secret set`, and no Claude GitHub App.
@@ -203,6 +207,82 @@ export const reviewConcurrency = {
   },
 };
 
+// The CI review ran: the record of its runs the Learner saved with
+// `gh run list`, read locally, as lesson 5's run item reads its own. A run
+// of the review workflow (by its `name`, or its path when it has none) that
+// a pull request started, in this repository, completed and successful. The
+// run's commit isn't checked: which commit GitHub reports for a pull
+// request run is unconfirmed.
+const CI_FIELDS = 'databaseId,status,conclusion,event,url,workflowName';
+const RUN_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/actions\/runs\/\d+/i;
+const FAILED = new Set(['failure', 'timed_out', 'startup_failure']);
+
+// The names GitHub shows for the review workflow in any commit that held it.
+function reviewNames(repo) {
+  const names = new Set();
+  for (const { files } of claudeHistory(repo)) {
+    for (const f of files.filter((x) => x.path === REVIEW)) {
+      let name;
+      try {
+        name = entry(parseYaml(f.text), 'name')?.text?.trim();
+      } catch {
+        name = undefined;
+      }
+      names.add(name || REVIEW);
+    }
+  }
+  return [...names];
+}
+
+export const ciRun = {
+  text: `\`${CI_RUNS}\` shows a completed, successful \`pull_request\` run of the review workflow`,
+  local: true,
+  check(repo) {
+    const save = `\`gh run list --workflow claude-review.yml --json ${CI_FIELDS} > ${CI_RUNS}\``;
+    const again = 'then save the list again';
+    const text = repo.read(CI_RUNS);
+    if (text === null || !text.trim()) return `There is no \`${CI_RUNS}\` yet. Once the review run on your pull request finishes, save the list: ${save}.`;
+    let value;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      return `\`${CI_RUNS}\` isn't JSON. Save the list with \`--json\`, unchanged: ${save}.`;
+    }
+    const runs = (Array.isArray(value) ? value : [value]).filter((r) => r && typeof r === 'object' && !Array.isArray(r));
+    if (!runs.length) return `\`${CI_RUNS}\` lists no runs. Open a pull request so the review runs, wait for it to finish, ${again}.`;
+    if (!runs.some((r) => ['status', 'conclusion', 'event', 'workflowName'].some((k) => k in r))) return `\`${CI_RUNS}\` doesn't hold the fields the check reads. Save the list with them: ${save}.`;
+    const names = reviewNames(repo);
+    if (!names.length) return 'The check can\'t tell which runs are your review\'s without a committed review workflow (see the item about it).';
+    const mine = runs.filter((r) => names.includes(r.workflowName));
+    if (!mine.length) {
+      const others = [...new Set(runs.map((r) => r.workflowName).filter((n) => typeof n === 'string' && n))];
+      return `\`${CI_RUNS}\` lists no run of your review workflow, \`${names[0]}\`${others.length ? `, only ${others.slice(0, 3).map((n) => `\`${n}\``).join(', ')}` : ''}. Save the list for \`claude-review.yml\`: ${save}.`;
+    }
+    const prs = mine.filter((r) => r.event === 'pull_request');
+    if (!prs.length) return `\`${CI_RUNS}\` lists no run of \`${names[0]}\` that a pull request started (\`pull_request\`). Push a change on a new branch and open a pull request, wait for the review to finish, ${again}.`;
+    const origin = originRepo(repo);
+    // gh lists the newest run first: report on the first that got furthest.
+    const stage = (r) => {
+      const id = /^\d+$/.test(String(r.databaseId ?? '')) ? String(r.databaseId) : '<run-id>';
+      const which = id === '<run-id>' ? 'The run' : `Run ${id}`;
+      if (origin) {
+        const m = typeof r.url === 'string' ? r.url.match(RUN_URL) : null;
+        if (!m) return { n: 0, hint: `${which} in \`${CI_RUNS}\` has no GitHub run URL, so the check can't tell which repository it ran in. Save the list again with its \`url\`.` };
+        if (`${m[1]}/${m[2]}`.toLowerCase() !== origin.toLowerCase()) return { n: 0, hint: `${which} ran in \`${m[1]}/${m[2]}\`, but this repository's \`origin\` is \`${origin}\`. Save the list in this copy.` };
+      }
+      if (r.status !== 'completed') return { n: 1, hint: `${which} hasn't finished: its \`status\` is \`${String(r.status ?? 'missing')}\`. Wait for it with \`gh run watch ${id}\`, ${again}.` };
+      if (r.conclusion !== 'success') {
+        const how = `\`${String(r.conclusion ?? 'missing')}\``;
+        if (r.conclusion === 'cancelled') return { n: 2, hint: `${which} ended with ${how}: a newer push to the pull request cancels the review still running. Wait for the newest review to finish, ${again}.` };
+        return { n: 2, hint: FAILED.has(r.conclusion) ? `${which} ended with ${how}. See why with \`gh run view ${id} --log-failed\`, fix the workflow, commit it, push to the pull request, wait for the review to finish, ${again}.` : `${which} ended with ${how}. Push to the pull request so the review runs again, wait for it to finish, ${again}.` };
+      }
+      return { n: 3 };
+    };
+    const best = prs.map(stage).reduce((a, b) => (b.n > a.n ? b : a));
+    return best.n === 3 ? true : best.hint;
+  },
+};
+
 export const items = [
   ignoredWorktrees,
   mergedWorktrees(SNAPSHOT, { anywhere: true }),
@@ -222,4 +302,5 @@ export const items = [
   spendCap,
   sameReview,
   reviewConcurrency,
+  ciRun,
 ];

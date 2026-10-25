@@ -1105,6 +1105,9 @@ function decide(s, ev, effects, failing) {
   st.stale = false;
   if (!failing) {
     st.status = st.baseline === undefined ? 'already' : 'done';
+    // The run that passed the lesson's whole check: its done line counts
+    // these, not a later poll's, which leaves the slow items out.
+    if (beat.verify.all) st.passed = ev.items;
     st.evidence = ev.evidence ?? null;
     // The file a glob matched, for the card to name (106).
     st.found = ev.found ?? null;
@@ -1758,14 +1761,17 @@ const VIEWS = {
       else return false;
       return true;
     }
-    // Self, none and "the session has ended" beats.
+    // Self, none and "the session has ended" beats. Space ticks each, as
+    // its key bar says; enter only a none beat with nothing to confirm, so
+    // the enter that goes on from a step can't tick the next step's self
+    // beat unread, nor give the word a done-label waits for.
     const v = beat.verify.kind;
-    if ((name === 'space' || name === 'enter') && (v === 'self' || v === 'none' || beat.kind === 'self')) {
+    if ((name === 'space' || (name === 'enter' && v === 'none' && !beat.doneLabel)) && (v === 'self' || v === 'none' || beat.kind === 'self')) {
       st.status = 'done';
       advance(s, effects);
       return true;
     }
-    if ((name === 'space' || name === 'enter') && v === 'git-clean' && beat.doneLabel) {
+    if (name === 'space' && v === 'git-clean' && beat.doneLabel) {
       st.ended = true;
       st.explicit = true;
       effects.push(gitAsk(watching(s)));

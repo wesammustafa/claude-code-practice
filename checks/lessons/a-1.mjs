@@ -6,6 +6,7 @@
 // and whether .worktreeinclude or the session supplied it, is a decision the
 // check can't see, so the lesson self-checks it. The Advanced capstone reuses these items with its own
 // listing.
+import { execFileSync } from 'node:child_process';
 import { committedIgnore, ignoreHint } from '../ignore.mjs';
 import { claudeWorktrees, CLAUDE_WORKTREES, liveWorktrees, parseWorktrees } from '../worktrees.mjs';
 
@@ -17,6 +18,23 @@ const save = (snapshot) => `\`git worktree list --porcelain > ${snapshot}\``;
 const short = (sha) => sha.slice(0, 7);
 const label = (r) => r.branch ?? short(r.head);
 const shell = (path) => (/\s/.test(path) ? `"${path}"` : path);
+
+// Whether a lock is a running Claude Code session's: its reason reads like
+// `claude session <name> (pid <n> start <date>)` and that process is alive
+// (EPERM means it exists under another user). Unlocking such a worktree
+// would pull its folder from under the session. That reason's form is what
+// Claude Code wrote in the r27 dry-run, not a documented format, so any
+// other lock may still be a session's: its message says to exit one first.
+function sessionRunning(reason) {
+  const pid = Number(String(reason).match(/^"?claude session\b.*\(pid (\d+)\b/)?.[1]);
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
 
 function isCommit(repo, sha) {
   try {
@@ -162,7 +180,8 @@ export function removedWorktrees(snapshot) {
       return left.map((r) => {
         const at = named(r.path);
         const path = shell(at);
-        if (r.locked) return `\`${at}\` still exists and is locked: from your main checkout, run \`git worktree unlock ${path}\`, then \`git worktree remove ${path}\`.`;
+        if (r.locked && sessionRunning(r.locked)) return `\`${at}\` still exists, and the Claude Code session in it is still running: once its branch is merged, run \`/exit\` in that session and choose to remove the worktree, or keep it and then run \`git worktree remove ${path}\` from your main checkout.`;
+        if (r.locked) return `\`${at}\` still exists and is locked: exit any Claude Code session open in it. Once its branch is merged, run \`git worktree remove ${path}\` from your main checkout, after \`git worktree unlock\` if git says it is still locked.`;
         if (r.prunable) return `git still lists \`${r.path}\`, whose folder is gone: run \`git worktree prune\`.`;
         return `\`${at}\` still exists: once its branch is merged, run \`git worktree remove ${path}\` from your main checkout.`;
       }).join(' ');

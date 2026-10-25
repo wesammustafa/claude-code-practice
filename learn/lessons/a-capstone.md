@@ -15,10 +15,6 @@ needs: [jq gh]
 - minutes: "60 to 90 minutes, plus run time"
 - why: "one review for every pull request, the same on laptops and in CI, with nothing left unbounded"
 - can: "add CI review your team can share"
-- can: "Two parts at once"
-- can: "One review, everywhere"
-- can: "Our plugin, for everyone"
-- can: "A sweep before a release"
 - payoff: "add CI review your team can share"
 - need: "Node.js LTS, git, `jq`, and the GitHub CLI signed in with `gh auth login`."
 
@@ -38,7 +34,7 @@ needs: [jq gh]
 - where: claude-2
 - verify: self
 - done-label: both sessions are building
-- goal: "build them at the same time, in two Claude Code sessions that can't touch each other's files"
+- goal: "Parts 2 and 3 don't depend on each other, so build them at the same time, in two Claude Code sessions that can't touch each other's files"
 - hint: "In a folder you haven't trusted, `claude --worktree` exits with an error"
 - bottom: "claude --worktree"
 - beat: do
@@ -46,8 +42,8 @@ needs: [jq gh]
 - skill: merge
 - verify: check 1
 - watching: .practice/a-capstone-worktrees.txt
-- hint: "Once both sessions have committed, and while both working copies exist, save their state from the main checkout"
-- hint: "land both changes on `main`, by merge, rebase or squash"
+- note: "Once both sessions have committed, and while both working copies exist, save their state from the main checkout"
+- note: "land both changes on `main`, by merge, rebase or squash"
 - bottom: "mkdir -p .practice && git worktree list --porcelain > .practice/a-capstone-worktrees.txt"
 
 ### T2 | The task step 2 of 5 | One review, everywhere
@@ -65,23 +61,22 @@ needs: [jq gh]
 - verify: check 4 5
 - watching: scripts/review-staged.sh
 - hint: "it pipes the staged diff into one `claude -p` call whose prompt runs your skill"
-- hint: "pre-approves only `Read`, `Grep` and `Glob`, and caps turns at 10 or fewer"
+- hint: "pre-approves only `Read`, `Grep` and `Glob`, restricts the tools to those three, turns hooks off and uses no MCP server, and caps turns at 10 or fewer"
 - beat: do
-- verify: check 13
-- watching: scripts/review-staged.sh
-- goal: "it also caps spend with `--max-budget-usd`"
+- verify: match scripts/review-staged.sh --max-budget-usd +[0-9.]+
+- say: The review script also caps its spend.
 - hint: "As in lesson 7, it also caps spend with `--max-budget-usd`, written as a number in the script."
 - hint: "Claude Code checks that cap against its client-side cost estimate, and spend can pass it, so leave headroom"
 - beat: do
 - skill: headless-run
-- verify: check 6
+- verify: check 6 13
 - watching: .practice/a-capstone-run.json
-- goal: "run the script once"
+- say: Run the review script once.
 - hint: "After the merges, stage a one-line change in the main checkout, run the script once, read the review and commit the change"
 - hint: "The saved JSON's `total_cost_usd` estimates what one review spent, and it must come in under your cap."
 - bottom: "mkdir -p .practice && scripts/review-staged.sh .practice/a-capstone-run.json"
 
-### T3 | The task step 3 of 5 | The team's plugin
+### T3 | The task step 3 of 5 | Our plugin, for everyone
 - tier: challenge
 - skill: team-marketplace
 - where: editor
@@ -114,15 +109,16 @@ needs: [jq gh]
 - verify: self
 - done-label: it ran
 - wait: long
+- say: Once the merges are in, start the sweep.
 - goal: "from a session in the main checkout, after the merges, ask for a workflow that reviews each file under `src/` and has a second agent check each finding."
 - note: "While it runs, `/workflows` shows each agent's token usage"
 - hint: "ask for a workflow that reviews each file under `src/` and has a second agent check each finding."
 - beat: do
 - verify: match .claude/workflows/*.js ^export const meta fresh
 - goal: "Save it to the project and commit it"
-- hint: "Save it to the project and commit it"
+- bottom: "/workflows"
 - beat: do
-- where: terminal
+- where: shell
 - verify: check 2
 - watching: git ls-files .claude/workflows
 - hint: "Save it to the project and commit it"
@@ -138,6 +134,9 @@ needs: [jq gh]
 - hint: "Hold it to lesson 5's limits, and one more"
 - hint: "a `concurrency` group for the pull request with `cancel-in-progress: true`, so a new push cancels the review still running for an older one"
 - hint: "uses `anthropics/claude-code-action` (Anthropic) with your skill, `/<name>`, as its `prompt`"
+- beat: do
+- verify: check 15
+- watching: git log
 - beat: ask
 - where: terminal
 - ask: Which credential do you use for CI?
@@ -157,8 +156,19 @@ needs: [jq gh]
 - verify: self
 - done-label: I merged it
 - wait: long
-- goal: "Then push a one-line change on a new branch and open a pull request. Read Claude's review on the run's summary page, as in lesson 5, and merge the pull request yourself."
+- goal: "Then push a one-line change on a new branch and open a pull request."
+- note: "`display_report` writes Claude's review to the job summary, which GitHub shows on the run's summary page, not in the log"
+- run: "gh run view <run-id> --web"
+- say: Read the review, and merge the pull request yourself.
+- hint: "find the run's id with `gh run list --workflow claude-review.yml --limit 1`"
+- beat: do
+- where: shell
+- skill: save-version
+- verify: check 16 fresh since T5
+- evidence: .practice/a-capstone-ci.json
+- note: "Once the review run has finished, and before you tear down, save its record for the check"
 - hint: "Finish on `main`, with the merged pull request pulled, everything committed and `npm test` passing."
+- bottom: "gh run list --workflow claude-review.yml --json databaseId,status,conclusion,event,url,workflowName > .practice/a-capstone-ci.json"
 
 ### C | Check | Check
 - tier: challenge
@@ -193,12 +203,12 @@ needs: [jq gh]
 - skill: teardown
 - where: terminal
 - beat: do
-- verify: probe pushed fresh
+- verify: probe removed .github/workflows/claude-review.yml
 - goal: "Delete the workflow with `git rm .github/workflows/claude-review.yml`, then commit and push."
 - hint: "With the workflow gone, the Claude Code GitHub Action no longer runs"
 - bottom: "git rm .github/workflows/claude-review.yml"
 
-### D2 | Tear down step 2 of 3 | Delete the secret
+### D2 | Tear down step 2 of 3 | Remove the copy's secret
 - tier: challenge
 - skill: gh-secret
 - where: terminal
@@ -225,17 +235,17 @@ needs: [jq gh]
 - say: The next beat is for the credential you picked in step 5.
 - hint: "When the check passes, tear down: this is required."
 - beat: do
-- when: T5.1=a Claude Console API key made for the capstone
+- when: T5.2=a Claude Console API key made for the capstone
 - where: browser
 - verify: self
 - done-label: the key is deleted
 - goal: "With an API key, delete the key on the Claude Console's [API keys page](https://platform.claude.com/settings/keys)."
 - hint: "a Claude Console API key made for the capstone, recommended because the teardown deletes it"
 - beat: do
-- when: T5.1=a token from `claude setup-token`
+- when: T5.2=a token from `claude setup-token`
 - verify: none
-- note: "On 2026-10-24, a token from `claude setup-token` is valid for one year ([Authentication](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)), and deleting the secret doesn't revoke it."
-- hint: "deleting the secret doesn't revoke it"
+- note: "With a token from `claude setup-token`, nothing in this teardown revokes it, so it stays valid until it expires"
+- hint: "On 2026-10-24, a token from `claude setup-token` is valid for one year ([Authentication](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)), and deleting the secret doesn't revoke it."
 - beat: do
 - verify: check 8
 - watching: git log
@@ -283,7 +293,7 @@ needs: [jq gh]
 - narrow "is committed as": Is the committed path the script file itself, not a link?
 - hint: "Then write `scripts/review-staged.sh` to lesson 4's criteria"
 
-### its `claude -p` call asks for JSON, runs in `dontAsk` mode, pre-approves only `Read`, `Grep` and `Glob`, caps turns at 10 or fewer, and has the prompt right after `-p`
+### its `claude -p` call asks for JSON in `dontAsk` mode, allows only `Read`, `Grep` and `Glob`, with no hook or MCP server, caps turns at 10 or fewer, and has the prompt right after `-p`
 - narrow "not from Windows itself": Are you running the check from macOS, Linux or WSL 2?
 - narrow "first: the check runs the committed script": Is the script committed?
 - narrow "has Windows line ends": Was the script saved with Windows line ends?
@@ -312,8 +322,17 @@ needs: [jq gh]
 - narrow "has no number after it": Does a number follow the turn cap flag?
 - narrow "isn't a whole number": Is the turn cap a whole number?
 - narrow "use a number from 1 to": Is the turn cap between 1 and 10?
+- narrow "It doesn't restrict the tools": Does the call restrict the tools to the three that only read?
+- narrow "`--tools` keeps": Does the tools list keep a tool that can do more than read?
+- narrow "`--tools` leaves out": Does the tools list miss one of the three read tools?
+- narrow "`--tools` has no tools after it": Does a tool list follow the tools flag?
+- narrow "It doesn't turn hooks off": Does the call turn the project's hooks off?
+- narrow "`--settings` has nothing after it": Does the settings JSON follow its flag?
+- narrow "which isn't inline JSON": Is the settings value written-out JSON, not a file name?
+- narrow "doesn't set `"disableAllHooks": true`": Does the settings JSON turn hooks off?
+- narrow "It doesn't keep the project's MCP servers out": Does the call keep the project's MCP servers out?
 - hint: "it pipes the staged diff into one `claude -p` call whose prompt runs your skill, with JSON output and `dontAsk` mode"
-- hint: "pre-approves only `Read`, `Grep` and `Glob`, and caps turns at 10 or fewer"
+- hint: "pre-approves only `Read`, `Grep` and `Glob`, restricts the tools to those three, turns hooks off and uses no MCP server, and caps turns at 10 or fewer"
 
 ### it pipes the staged diff in, saves the JSON where its argument says, prints the result, exits non-zero when the run fails, and doesn't call Claude when nothing is staged
 - narrow "not from Windows itself": Are you running the check from macOS, Linux or WSL 2?
@@ -494,6 +513,23 @@ needs: [jq gh]
 - narrow "sets no `concurrency`": Does the workflow set a concurrency group?
 - narrow "doesn't cancel a review still running": Does the group cancel a review in progress?
 - hint: "a `concurrency` group for the pull request with `cancel-in-progress: true`, so a new push cancels the review still running for an older one"
+
+### `.practice/a-capstone-ci.json` shows a completed, successful `pull_request` run of the review workflow
+- narrow "yet. Once the review run on your pull request finishes": Did you save the list of the review's runs after it finished?
+- narrow "isn't JSON. Save the list": Is the saved file the list gh printed with --json, unchanged?
+- narrow "lists no runs. Open a pull request": Has the review workflow run on a pull request yet?
+- narrow "doesn't hold the fields the check reads": Did you save the list with the fields the command names?
+- narrow "without a committed review workflow": Is the review workflow committed?
+- narrow "lists no run of your review workflow": Did you save the runs of claude-review.yml, and not another workflow's?
+- narrow "that a pull request started": Did a pull request start the run, and not a push or a manual start?
+- narrow "has no GitHub run URL": Does each saved run keep its url?
+- narrow "but this repository's `origin` is": Did you save the list in this copy?
+- narrow "hasn't finished": Had the review run finished when you saved the list?
+- narrow "cancels the review still running": Did a newer push cancel the run you saved?
+- narrow "--log-failed": Did the review run fail?
+- narrow "so the review runs again": Did the review run end without a result?
+- hint: "Once the review run has finished, and before you tear down, save its record for the check"
+- bottom: "gh run list --workflow claude-review.yml --json databaseId,status,conclusion,event,url,workflowName > .practice/a-capstone-ci.json"
 
 ## card
 - skill: check

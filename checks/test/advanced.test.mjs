@@ -2,7 +2,7 @@
 // repository with --dir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -36,8 +36,8 @@ const LISTING = '.practice/a-1-worktrees.txt';
 // `listing` rewrites the saved listing, or drops it by returning null.
 function parallelRepo({
   gitignore = IGNORE, pending, exclude, globalIgnore, files = {}, under = '.claude/worktrees',
-  names = ['docs-pass', 'test-pass'], saveBefore = false, merge = 'each', keep = [], lock = [], prune = [],
-  listing = (text) => text,
+  names = ['docs-pass', 'test-pass'], saveBefore = false, merge = 'each', keep = [], lock = [], reason, prune = [],
+  listing = (text) => text, commits = 1,
 } = {}) {
   return () => {
     const dir = repo({ ...(gitignore === null ? {} : { '.gitignore': gitignore }), 'README.md': '# demo\n', ...files });
@@ -57,8 +57,10 @@ function parallelRepo({
     };
     if (saveBefore) save();
     for (const name of names) {
-      write(path(name), { [`work/${branch(name)}.txt`]: `${name}\n` });
-      commit(path(name), `Work in ${name}`);
+      for (let k = 1; k <= commits; k++) {
+        write(path(name), { [`work/${branch(name)}.txt`]: `${name}\n`.repeat(k) });
+        commit(path(name), `Work in ${name}${k > 1 ? `, part ${k}` : ''}`);
+      }
     }
     if (!saveBefore) save();
     const [first, second] = names.map(branch);
@@ -78,7 +80,7 @@ function parallelRepo({
       // A rebase onto the branch, then a fast-forward, copies each commit.
       for (const b of [first, second]) git(dir, 'cherry-pick', b);
     }
-    for (const name of lock) git(dir, 'worktree', 'lock', `${under}/${name}`);
+    for (const name of lock) git(dir, 'worktree', 'lock', ...(reason ? ['--reason', reason] : []), `${under}/${name}`);
     for (const name of prune) rmSync(path(name), { recursive: true, force: true });
     for (const name of names) if (![...keep, ...lock, ...prune].includes(name)) git(dir, 'worktree', 'remove', `${under}/${name}`);
     return dir;
@@ -244,6 +246,13 @@ test('a-1 passes for squash merges and rebases, which bring the changes in as co
   }
 });
 
+test('a-1 passes for a squash merge of a branch with two commits, whose one patch is the branch\'s whole change', () => {
+  withRepo(parallelRepo({ merge: 'squash', commits: 2 }), (dir) => {
+    const { code, out } = a1(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
 test('a-1 fails when neither change is in the branch, naming both', () => {
   withRepo(parallelRepo({ merge: 'none' }), (dir) => {
     const { code, out } = a1(dir);
@@ -268,16 +277,36 @@ test('a-1 fails while a worktree still exists, with the command that removes it'
   });
 });
 
-test('a-1 says to unlock a locked worktree first, and to prune one whose folder is gone', () => {
+test('a-1 says to exit any session in a locked worktree it can\'t tell is a running Claude Code session\'s, and to unlock only if git still refuses; and to prune one whose folder is gone', () => {
   withRepo(parallelRepo({ lock: ['test-pass'] }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists and is locked: from your main checkout, run `git worktree unlock \.claude\/worktrees\/test-pass`, then `git worktree remove \.claude\/worktrees\/test-pass`/);
+    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists and is locked: exit any Claude Code session open in it\. Once its branch is merged, run `git worktree remove \.claude\/worktrees\/test-pass` from your main checkout, after `git worktree unlock` if git says it is still locked\./);
+    // It can't see every session's lock, so it never says none is running.
+    assert.doesNotMatch(out, /no Claude Code session/);
+  });
+  // A Claude Code session's lock whose process has exited.
+  const gone = spawnSync(process.execPath, ['-e', '']).pid;
+  withRepo(parallelRepo({ lock: ['test-pass'], reason: `claude session test-pass (pid ${gone} start Sun Oct 25 10:43:31 2026)` }), (dir) => {
+    const { code, out } = a1(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /still exists and is locked: exit any Claude Code session open in it\. Once its branch is merged, run `git worktree remove [^`]+` from your main checkout, after `git worktree unlock` if git says it is still locked\./);
+    assert.doesNotMatch(out, /no Claude Code session/);
   });
   withRepo(parallelRepo({ prune: ['test-pass'] }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
     assert.match(out, /whose folder is gone: run `git worktree prune`/);
+  });
+});
+
+test('a-1 says to exit a Claude Code session still running in a worktree once its branch is merged, never to unlock it', () => {
+  // This test's own process stands in for the session, so its pid is alive.
+  withRepo(parallelRepo({ lock: ['test-pass'], reason: `claude session test-pass (pid ${process.pid} start Sun Oct 25 10:43:31 2026)` }), (dir) => {
+    const { code, out } = a1(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists, and the Claude Code session in it is still running: once its branch is merged, run `\/exit` in that session and choose to remove the worktree, or keep it and then run `git worktree remove \.claude\/worktrees\/test-pass` from your main checkout\./);
+    assert.doesNotMatch(out, /unlock/);
   });
 });
 
@@ -308,7 +337,7 @@ test('a-1 reads a listing saved by Windows PowerShell, with Windows paths and ex
   });
 });
 
-test('the worktree parser keeps each record\'s flags and drops refs/heads/', () => {
+test('the worktree parser keeps each record\'s flags, with a lock\'s or prune\'s reason, and drops refs/heads/', () => {
   const sha = 'a'.repeat(40);
   const text = [
     `worktree /repo`, `HEAD ${sha}`, 'branch refs/heads/main', '',
@@ -321,7 +350,8 @@ test('the worktree parser keeps each record\'s flags and drops refs/heads/', () 
   assert.deepEqual(xy, { path: '/repo/.claude/worktrees/x y', head: sha, branch: null, bare: false, detached: true, locked: true, prunable: false });
   assert.equal(z.head, sha);
   assert.equal(z.branch, 'worktree-z');
-  assert.equal(z.prunable, true);
+  assert.equal(z.prunable, 'gitdir file points to non-existent location');
+  assert.equal(parseWorktrees('worktree /repo/.claude/worktrees/a\nlocked claude session a (pid 7 start Sun Oct 25 10:43:31 2026)\n')[0].locked, 'claude session a (pid 7 start Sun Oct 25 10:43:31 2026)');
   assert.deepEqual([bare.bare, bare.head], [true, null]);
 });
 
@@ -944,7 +974,10 @@ test('a-3 fails on an unsolved repository and passes on a solved one, as the tem
 // a Buffer; `after` changes the working tree last. The items run the script
 // with a stand-in for `claude`, never Claude Code itself.
 const PROMPT = 'Review this staged diff for bugs and missing tests. List each problem as file:line and one sentence, or say there are none.';
-const FLAGS = '--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5';
+// What keeps the review to the three read tools, with no hooks and no MCP
+// server, before the turn cap, so a cap with no number after it ends the line.
+const LIMITS = `--tools "Read,Grep,Glob" --settings '{"disableAllHooks": true}' --strict-mcp-config`;
+const FLAGS = `--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" ${LIMITS} --max-turns 5`;
 const CALL = `claude -p "${PROMPT}" \\\n  ${FLAGS}`;
 const REVIEW = [
   '#!/usr/bin/env bash',
@@ -1037,8 +1070,8 @@ test('a-4 runs the committed script, not the working copy, and points out uncomm
   });
 });
 
-// The arguments a shell passes for `flags`, written with double quotes only.
-const argvOf = (flags) => [...flags.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]);
+// The arguments a shell passes for `flags`, each quoted word whole.
+const argvOf = (flags) => [...flags.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
 const flagHints = (flags, prompt = ['-p', PROMPT]) => callHints([...prompt, ...argvOf(flags)]).join(' ');
 
 test('a-4 accepts the flags written in other forms, and the prompt after -p wherever -p is', () => {
@@ -1059,7 +1092,7 @@ test('a-4 accepts the flags written in other forms, and the prompt after -p wher
   assert.equal(flagHints(FLAGS, ['--model', 'sonnet', '-p', PROMPT]), '');
   // The same, end to end: the stand-in records the call the script makes.
   for (const script of [
-    withFlags('--max-turns=5 --permission-mode=dontAsk --output-format json --allowed-tools Read Grep Glob'),
+    withFlags(`--max-turns=5 --permission-mode=dontAsk --output-format json --allowed-tools Read Grep Glob --strict-mcp-config --tools=Read,Grep,Glob --settings='{"disableAllHooks":true}'`),
     withCall(`claude --model sonnet -p "${PROMPT}" ${FLAGS}`),
   ]) {
     withRepo(reviewRepo({ script }), (dir) => {
@@ -1098,12 +1131,43 @@ test('a-4 names each flag the call lacks or gets wrong', () => {
   });
 });
 
-test('a-4 accepts --tools that keeps only the three read tools, and names any other tool it keeps', () => {
-  const base = ['-p', 'Review this diff.', '--output-format', 'json', '--permission-mode', 'dontAsk', '--allowedTools', 'Read,Grep,Glob', '--max-turns', '5'];
+test('a-4 wants --tools that keeps exactly the three read tools, and names any other tool it keeps or any it leaves out', () => {
+  const base = ['-p', 'Review this diff.', '--output-format', 'json', '--permission-mode', 'dontAsk', '--allowedTools', 'Read,Grep,Glob', '--settings', '{"disableAllHooks": true}', '--strict-mcp-config', '--max-turns', '5'];
   assert.deepEqual(callHints([...base, '--tools', 'Read,Grep,Glob']), []);
-  assert.deepEqual(callHints([...base, '--tools', '']), []);
-  assert.deepEqual(callHints([...base, '--tools', 'Read,Bash,Edit']), ['`--tools` keeps `Bash` and `Edit` available: list only `Read`, `Grep` and `Glob` there, or leave `--tools` out.']);
-  assert.deepEqual(callHints([...base, '--tools']), ['`--tools` has no tools after it: write `--tools "Read,Grep,Glob"`, or leave it out.']);
+  assert.deepEqual(callHints([...base, '--tools', 'Glob', 'Grep', 'Read']), []);
+  assert.deepEqual(callHints(base), ['It doesn\'t restrict the tools: add `--tools "Read,Grep,Glob"`, so Claude can\'t use Bash, Edit or Write even when one of your rules allows them.']);
+  assert.deepEqual(callHints([...base, '--tools', 'Read,Bash,Edit']), ['`--tools` keeps `Bash` and `Edit` available: list only `Read`, `Grep` and `Glob` there.']);
+  assert.deepEqual(callHints([...base, '--tools', 'Read']), ['`--tools` leaves out `Grep` and `Glob`: list `Read`, `Grep` and `Glob` there, as `--tools "Read,Grep,Glob"` does.']);
+  assert.deepEqual(callHints([...base, '--tools', '']), ['`--tools` leaves out `Read`, `Grep` and `Glob`: list `Read`, `Grep` and `Glob` there, as `--tools "Read,Grep,Glob"` does.']);
+  assert.deepEqual(callHints([...base, '--tools']), ['`--tools` has no tools after it: write `--tools "Read,Grep,Glob"`.']);
+  assert.match(callHints([...base.filter((a) => a !== '--strict-mcp-config'), '--Tools', 'Read,Grep,Glob', '--strict-mcp-config']).join(' '), /It doesn't restrict the tools: .* Claude Code doesn't know `--Tools`, so it stops with an error before the run starts: write `--tools`\./);
+});
+
+test('a-4 wants hooks off with --settings \'{"disableAllHooks": true}\' and no MCP server but the ones passed, and says what is missing', () => {
+  const base = ['-p', 'Review this diff.', '--output-format', 'json', '--permission-mode', 'dontAsk', '--allowedTools', 'Read,Grep,Glob', '--tools', 'Read,Grep,Glob', '--max-turns', '5'];
+  const hooksOff = ['--settings', '{"disableAllHooks": true}'];
+  assert.deepEqual(callHints([...base, ...hooksOff, '--strict-mcp-config']), []);
+  assert.deepEqual(callHints([...base, '--settings={"disableAllHooks":true,"model":"sonnet"}', '--strict-mcp-config']), []);
+  // Each one missing, then each written wrong.
+  assert.deepEqual(callHints([...base, '--strict-mcp-config']), ['It doesn\'t turn hooks off: add `--settings \'{"disableAllHooks": true}\'`, so the project\'s hooks can\'t run in the review.']);
+  assert.deepEqual(callHints([...base, ...hooksOff]), ['It doesn\'t keep the project\'s MCP servers out: add `--strict-mcp-config`, so the run starts no server you didn\'t pass with `--mcp-config`.']);
+  assert.deepEqual(callHints([...base, '--strict-mcp-config', '--settings']), ['`--settings` has nothing after it: write `--settings \'{"disableAllHooks": true}\'`.']);
+  assert.deepEqual(callHints([...base, '--strict-mcp-config', '--settings', '.claude/review.json']), ['`--settings` gets `.claude/review.json`, which isn\'t inline JSON: write `--settings \'{"disableAllHooks": true}\'`.']);
+  assert.deepEqual(callHints([...base, '--strict-mcp-config', '--settings', '{"disableAllHooks": true']), ['`--settings` gets `{"disableAllHooks": true`, which isn\'t inline JSON: write `--settings \'{"disableAllHooks": true}\'`.']);
+  for (const json of ['{"disableAllHooks": false}', '{"disableAllHooks": "true"}', '{}']) {
+    assert.deepEqual(callHints([...base, '--strict-mcp-config', '--settings', json]), ['The `--settings` JSON doesn\'t set `"disableAllHooks": true`, so the project\'s hooks still run: add it, as in `--settings \'{"disableAllHooks": true}\'`.'], json);
+  }
+  assert.match(callHints([...base, ...hooksOff, '--strict_mcp_config']).join(' '), /Claude Code doesn't know `--strict_mcp_config`, so it stops with an error before the run starts: write `--strict-mcp-config`\./);
+  // End to end: the stand-in records what the committed script passes.
+  withRepo(reviewRepo({ script: withFlags(FLAGS.replace(` --settings '{"disableAllHooks": true}'`, '')) }), (dir) => {
+    assert.match(String(callHint(dir)), /^It doesn't turn hooks off: add `--settings '\{"disableAllHooks": true\}'`/);
+  });
+  withRepo(reviewRepo({ script: withFlags(FLAGS.replace(' --strict-mcp-config', '')) }), (dir) => {
+    assert.match(String(callHint(dir)), /^It doesn't keep the project's MCP servers out: add `--strict-mcp-config`/);
+  });
+  withRepo(reviewRepo({ script: withFlags(FLAGS.replace(' --tools "Read,Grep,Glob"', '')) }), (dir) => {
+    assert.match(String(callHint(dir)), /^It doesn't restrict the tools: add `--tools "Read,Grep,Glob"`/);
+  });
 });
 
 test('a-4 fails a prompt that isn\'t right after -p, naming a word the tool list took', () => {
@@ -1265,7 +1329,7 @@ test('a-4 reads the saved run, and says what is wrong with it', () => {
     ['Looks good to me.\n', /`\.practice\/a-4-result\.json` isn't JSON\./],
     [{ ...REAL_RUN, type: 'assistant' }, /isn't the result of a `claude -p` run with `--output-format json`/],
     [{ ...REAL_RUN, session_id: STUB_SESSION }, /holds the check's stand-in reply, not a real run/],
-    [{ ...REAL_RUN, subtype: 'error_max_turns', is_error: true, result: undefined }, /stopped early \(`error_max_turns`\) and holds no review\. Raise the cap, up to 10, or narrow the prompt\. Then stage a change and run `scripts\/review-staged\.sh` again\./],
+    [{ ...REAL_RUN, subtype: 'error_max_turns', is_error: true, result: undefined }, /stopped early \(`error_max_turns`\) and holds no review\. Raise the cap, up to 10, narrow the prompt, or check your flags\. Then stage a change and run `scripts\/review-staged\.sh` again\./],
     [{ ...REAL_RUN, is_error: true, result: 'Not logged in · Please run /login' }, /The run in `\.practice\/a-4-result\.json` failed: "Not logged in · Please run \/login"\. Fix what it says\./],
     [{ ...REAL_RUN, result: '  ' }, /holds no review in `result`/],
     [{ ...REAL_RUN, num_turns: 7 }, /took 7 turns, more than `--max-turns 5` allows, so it ran with a higher cap\./],
@@ -2365,6 +2429,7 @@ const BOUNDS_PATH = '.claude/bounded-run.json';
 const BOUNDED_CALL = [
   'claude -p "$1" \\',
   '  --setting-sources project \\',
+  '  --strict-mcp-config \\',
   `  --settings ${BOUNDS_PATH} \\`,
   '  --permission-mode dontAsk \\',
   '  --model sonnet \\',
@@ -2491,23 +2556,23 @@ test('a-7 accepts the call written in other ways', () => {
   const inline = `'${JSON.stringify(BOUNDS)}'`;
   for (const script of [
     // --flag=value, and the flags in another order.
-    runnerCall(`claude --output-format=json --max-turns=15 --max-budget-usd=2.50 --permission-mode=dontAsk --settings=${BOUNDS_PATH} -p "$1" > "$2"`),
+    runnerCall(`claude --output-format=json --max-turns=15 --max-budget-usd=2.50 --permission-mode=dontAsk --strict-mcp-config --settings=${BOUNDS_PATH} -p "$1" > "$2"`),
     // Values in variables, quoted and not.
     runner(['set -u\n', 'set -u\nturns=15\nbudget=0.5\nbounds=.claude/bounded-run.json\n'], ['--max-turns 15', '--max-turns "$turns"'], ['--max-budget-usd 2', '--max-budget-usd $budget'], [`--settings ${BOUNDS_PATH}`, '--settings "$bounds"']),
     // The flags in an array.
-    runnerCall(`limits=(--max-turns 15 --max-budget-usd .5)\nclaude -p "$1" --settings ${BOUNDS_PATH} --permission-mode dontAsk "\${limits[@]}" --output-format json > "$2"`),
+    runnerCall(`limits=(--max-turns 15 --max-budget-usd .5)\nclaude -p "$1" --strict-mcp-config --settings ${BOUNDS_PATH} --permission-mode dontAsk "\${limits[@]}" --output-format json > "$2"`),
     // From the repository's root, with the settings file's full path.
-    runnerCall(`root=$(git rev-parse --show-toplevel)\ncd "$root" || exit 1\nclaude -p "$1" --settings "$root/${BOUNDS_PATH}" --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    runnerCall(`root=$(git rev-parse --show-toplevel)\ncd "$root" || exit 1\nclaude -p "$1" --strict-mcp-config --settings "$root/${BOUNDS_PATH}" --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
     // From another folder, with a relative path from there.
-    runnerCall(`out=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")\ncd scripts || exit 1\nclaude -p "$1" --settings ../${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$out"`),
+    runnerCall(`out=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")\ncd scripts || exit 1\nclaude -p "$1" --strict-mcp-config --settings ../${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$out"`),
     // The task on stdin, or inside a longer prompt.
-    runnerCall(`printf '%s\\n' "$1" | claude -p --settings ${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
-    runnerCall(`claude -p "Do this task, and only this: $1 Then stop." --settings ${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    runnerCall(`printf '%s\\n' "$1" | claude -p --strict-mcp-config --settings ${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    runnerCall(`claude -p "Do this task, and only this: $1 Then stop." --strict-mcp-config --settings ${BOUNDS_PATH} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
     // A runner that checks its bounds file before the run.
     runner(['set -u\n', `set -u\njq empty ${BOUNDS_PATH} || { echo "No valid ${BOUNDS_PATH}." >&2; exit 1; }\n`]),
     // The bounds inline, and the rules as flags.
-    runnerCall(`claude -p "$1" --settings ${inline} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
-    runnerCall(`claude -p "$1" --settings '${JSON.stringify({ sandbox: BOUNDS.sandbox })}' --allowedTools "Edit(./src/**)" "Bash(npm test)" --disallowedTools "Bash(git commit:*),Bash(git push:*)" --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    runnerCall(`claude -p "$1" --strict-mcp-config --settings ${inline} --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
+    runnerCall(`claude -p "$1" --strict-mcp-config --settings '${JSON.stringify({ sandbox: BOUNDS.sandbox })}' --allowedTools "Edit(./src/**)" "Bash(npm test)" --disallowedTools "Bash(git commit:*),Bash(git push:*)" --permission-mode dontAsk --max-turns 15 --max-budget-usd 2 --output-format json > "$2"`),
   ]) {
     withRepo(boundedRepo({ script }), (dir) => {
       assert.deepEqual(committedHints(dir), [true, true, true, true], script);
@@ -2528,6 +2593,9 @@ test('a-7 names what the first item finds wrong with the call', () => {
     ['--output-format json', '--output-format text', /It asks for `--output-format text`: use `json`, so the result path holds the run's result as one JSON object\./],
     ['--output-format json', '--output-format stream-json --verbose', /It asks for `--output-format stream-json`: use `json`/],
     ['  --output-format json > "$2"', '  > "$2"', /It doesn't ask for JSON: add `--output-format json`\./],
+    ['  --strict-mcp-config \\\n', '', /^It doesn't keep the project's MCP servers out: add `--strict-mcp-config`, so the run starts no server you didn't pass with `--mcp-config`\.$/],
+    ['--strict-mcp-config', '--strict-mcp', /It doesn't keep the project's MCP servers out: add `--strict-mcp-config`/],
+    ['--strict-mcp-config', '--strict_mcp_config', /It doesn't keep the project's MCP servers out: add `--strict-mcp-config`, so the run starts no server you didn't pass with `--mcp-config`\. Claude Code doesn't know `--strict_mcp_config`, so it stops with an error before the run starts: write `--strict-mcp-config`\./],
   ]) {
     withRepo(boundedRepo({ script: runner([from, to]) }), (dir) => {
       assert.match(String(runnerHint(dir)), hint, to);
@@ -2946,6 +3014,9 @@ const CLAUDE_REVIEW = [
   '',
 ].join('\n');
 const MADE_UP_KEY = `sk-ant-api03-${'Xy9_'.repeat(8)}`;
+// CI's review run on the pull request, as `gh run list --json ...` saves it.
+const CAPSTONE_CI = '.practice/a-capstone-ci.json';
+const CI_RUN = { databaseId: 987654321, status: 'completed', conclusion: 'success', event: 'pull_request', url: 'https://github.com/learner/claude-capstone/actions/runs/987654321', workflowName: 'Claude review' };
 
 // The review workflow with each `[from, to]` replaced.
 function reviewWith(...pairs) {
@@ -2963,7 +3034,7 @@ const TEAM_REVIEW = '---\nname: team-review\ndescription: Reviews a change the t
 
 function capstoneRepo({
   gitignore = IGNORE, files = {}, script = CAPSTONE_SCRIPT, skill = TEAM_REVIEW, settings = TEAM_SETTINGS, workflow = FILE_REVIEW, ci = CLAUDE_REVIEW,
-  teardown = false, merge = 'no-ff', listing = (text) => text, run = REAL_RUN, after,
+  teardown = false, merge = 'no-ff', listing = (text) => text, run = REAL_RUN, ciRuns = [CI_RUN], after,
 } = {}) {
   return () => {
     const dir = repo({ '.gitignore': gitignore, ...CAPSTONE_START, ...files });
@@ -3003,6 +3074,7 @@ function capstoneRepo({
       commit(dir, 'Tear down the review workflow', []);
     }
     if (run !== null) write(dir, { [CAPSTONE_RUN]: typeof run === 'string' || Buffer.isBuffer(run) ? run : JSON.stringify(run, null, 2) });
+    if (ciRuns !== null) write(dir, { [CAPSTONE_CI]: typeof ciRuns === 'string' ? ciRuns : JSON.stringify(ciRuns, null, 2) });
     after?.(dir);
     return dir;
   };
@@ -3021,7 +3093,7 @@ test('the Advanced capstone passes for everything the brief asks for, committed,
   withRepo(capstoneRepo(), (dir) => {
     const { code, out } = aCapstone(dir);
     assert.equal(code, 0, out);
-    assert.match(out, /16 of 16 passed/);
+    assert.match(out, /17 of 17 passed/);
   });
 });
 
@@ -3033,6 +3105,44 @@ test('the Advanced capstone still passes after the teardown deletes the review w
   });
 });
 
+test('the Advanced capstone wants the saved record of CI\'s review run: a completed, successful pull_request run of the review workflow', () => {
+  const CI_RUN_ITEM = /pull_request` run of the review workflow$/;
+  const hint = (ciRuns, more = {}) => {
+    let out;
+    withRepo(capstoneRepo({ ciRuns, ...more }), (dir) => {
+      out = capstoneHint(dir, CI_RUN_ITEM);
+    });
+    return out;
+  };
+  // Passes: the newest run succeeded, an older one failed, another workflow ran too.
+  assert.equal(hint([CI_RUN, { ...CI_RUN, databaseId: 1, conclusion: 'failure' }, { ...CI_RUN, workflowName: 'Progress', event: 'push' }]), true);
+  // After the teardown, the name still comes from the history.
+  assert.equal(hint([CI_RUN], { teardown: true }), true);
+  // A review workflow with no name shows under its path.
+  assert.equal(hint([{ ...CI_RUN, workflowName: '.github/workflows/claude-review.yml' }], { ci: CLAUDE_REVIEW.replace('name: Claude review\n', '') }), true);
+  for (const [ciRuns, pattern] of [
+    [null, /^There is no `\.practice\/a-capstone-ci\.json` yet\. Once the review run on your pull request finishes, save the list: `gh run list --workflow claude-review\.yml --json databaseId,status,conclusion,event,url,workflowName > \.practice\/a-capstone-ci\.json`\.$/],
+    ['not json', /isn't JSON\./],
+    [[], /lists no runs\. Open a pull request so the review runs/],
+    [[{ databaseId: 1 }], /doesn't hold the fields the check reads/],
+    [[{ ...CI_RUN, workflowName: 'Progress' }], /lists no run of your review workflow, `Claude review`, only `Progress`\./],
+    [[{ ...CI_RUN, event: 'workflow_dispatch' }], /lists no run of `Claude review` that a pull request started \(`pull_request`\)/],
+    [[{ ...CI_RUN, status: 'in_progress', conclusion: '' }], /^Run 987654321 hasn't finished: its `status` is `in_progress`\. Wait for it with `gh run watch 987654321`/],
+    [[{ ...CI_RUN, conclusion: 'cancelled' }], /ended with `cancelled`: a newer push to the pull request cancels the review still running/],
+    [[{ ...CI_RUN, conclusion: 'failure' }], /ended with `failure`\. See why with `gh run view 987654321 --log-failed`/],
+    [[{ ...CI_RUN, conclusion: 'skipped' }], /ended with `skipped`\. Push to the pull request so the review runs again/],
+  ]) {
+    assert.match(String(hint(ciRuns)), pattern, JSON.stringify(ciRuns));
+  }
+  // With an origin, the run must be this repository's.
+  const origin = (url) => (dir) => git(dir, 'remote', 'add', 'origin', url);
+  assert.equal(hint([CI_RUN], { after: origin('git@github.com:learner/claude-capstone.git') }), true);
+  assert.match(String(hint([CI_RUN], { after: origin('https://github.com/someone/else.git') })), /ran in `learner\/claude-capstone`, but this repository's `origin` is `someone\/else`/);
+  assert.match(String(hint([{ ...CI_RUN, url: undefined }], { after: origin('git@github.com:learner/claude-capstone.git') })), /has no GitHub run URL/);
+  // No review workflow in the history.
+  assert.match(String(hint([CI_RUN], { ci: null })), /without a committed review workflow/);
+});
+
 test('the Advanced capstone reads its own saved files, not the ones the lessons save', () => {
   const lessonPaths = (dir) => {
     renameSync(join(dir, CAPSTONE_LISTING), join(dir, LISTING));
@@ -3041,7 +3151,7 @@ test('the Advanced capstone reads its own saved files, not the ones the lessons 
   withRepo(capstoneRepo({ after: lessonPaths }), (dir) => {
     const { code, out } = aCapstone(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /13 of 16 passed/);
+    assert.match(out, /14 of 17 passed/);
     assert.match(out, /run `git worktree list --porcelain > \.practice\/a-capstone-worktrees\.txt` from your main checkout/);
     assert.match(out, /stage a change and run `scripts\/review-staged\.sh \.practice\/a-capstone-run\.json`, which saves the JSON there/);
   });
@@ -3164,7 +3274,7 @@ test('the Advanced capstone holds the review script to lesson 4\'s rules', () =>
     assert.match(String(capstoneHint(dir, /^its `claude -p` call/)), /It runs in `acceptEdits` mode: use `--permission-mode dontAsk`/);
   });
   withRepo(capstoneRepo({ run: { ...REAL_RUN, subtype: 'error_max_turns', is_error: true } }), (dir) => {
-    assert.match(String(capstoneHint(dir, /a-capstone-run\.json/)), /The run in `\.practice\/a-capstone-run\.json` stopped early \(`error_max_turns`\)/);
+    assert.match(String(capstoneHint(dir, /a-capstone-run\.json/)), /The run in `\.practice\/a-capstone-run\.json` stopped early \(`error_max_turns`\).* Raise the cap, up to 10, narrow the prompt, or check your flags\./);
   });
 });
 

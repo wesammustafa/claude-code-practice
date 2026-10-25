@@ -32,6 +32,7 @@ needs: [jq python3]
 - skill: set-aside
 - verify: check 10
 - watching: git status --porcelain
+- say: First, start from a clean copy.
 - goal: "Your copy of the practice template, with no uncommitted changes"
 - hint: "If `git status --porcelain` lists files, commit them or set them aside with `git stash push --include-untracked`."
 - beat: do
@@ -82,6 +83,7 @@ needs: [jq python3]
 - beat: do
 - verify: self
 - done-label: it's saved
+- say: The same need asks for one more thing.
 - goal: "the testing conventions should load only when Claude works on the files under `test/`."
 - hint: "A committed rule in `.claude/rules/` is scoped with `paths:`, and every scoped rule matches a file in the repository."
 
@@ -156,9 +158,10 @@ needs: [jq python3]
 - beat: do
 - verify: self
 - done-label: I saw red and green
-- goal: "Fix it with Claude while your protection keeps `samples/` unchanged."
+- goal: "Fix it with Claude while your protection keeps `samples/` unchanged"
+- note: "tell Claude not to commit until your reviewer has reviewed the fix"
+- note: "Add a regression test that fails before the repair and passes after it."
 - hint: "Malformed percent escapes are broken links; valid percent-encoded paths must still resolve."
-- hint: "Add a regression test that fails before the repair and passes after it."
 - hint: "If your copy runs lesson 5's test gate, expect it to send Claude back to work when Claude stops while that test fails."
 - beat: do
 - skill: save-file
@@ -178,10 +181,10 @@ needs: [jq python3]
 - verify: check 12 fresh
 - watching: .practice/i-capstone-agents.txt
 - evidence: .practice/i-capstone-agents.txt
-- goal: "have your reviewer review the fix"
+- goal: "Before you commit, have your reviewer review the fix"
 - hint: "Before you commit, have your reviewer review the fix in a session started with `claude --settings .practice/i-capstone-hook.json`"
 - beat: do
-- where: terminal
+- where: shell
 - skill: commit
 - verify: check 11
 - watching: git show HEAD:src
@@ -198,12 +201,20 @@ needs: [jq python3]
 - verify: self
 - done-label: it's running
 - goal: "Then try each part in a session"
-- say: Start Claude Code in your practice copy in auto mode.
+- say: Start Claude Code in your practice copy, or keep the session from step 8 open.
 - beat: self
 - skill: match-skill
 - done-label: yes, I did
 - note: "The check doesn't look at these parts of the Intermediate Exit. Tick them yourself, honestly"
 - self: "I ran my skill by name, and Claude loaded it on its own when I asked it to check links."
+- beat: do
+- where: claude
+- skill: probe-guard
+- verify: self
+- done-label: I saw it blocked
+- say: Ask for the Edit tool by name, and say it's a test.
+- run: "Use your Edit tool, not a shell command, to add a blank line at the end of samples/guide.md. I'm testing whether my protection blocks it."
+- hint: "If the edit goes through, restore the file with `git restore samples/` and fix your protection."
 - beat: self
 - skill: probe-guard
 - done-label: yes, I saw it
@@ -220,9 +231,13 @@ needs: [jq python3]
 - done-label: yes, I did
 - self: "I approved the MCP server in a session and used one of its tools."
 - beat: self
+- skill: delegate
+- done-label: yes, before
+- self: "My reviewer reviewed the fix before I committed it."
+- beat: self
 - skill: set-model
 - done-label: yes, I can
-- goal: "pick the model and effort for each job as [lesson 3](03-model-and-effort.md) showed."
+- goal: "Then try each part in a session, and pick the model and effort for each job as [lesson 3](03-model-and-effort.md) showed."
 - self: "I can pick a model and an effort level for a task, and say why."
 - beat: do
 - where: shell

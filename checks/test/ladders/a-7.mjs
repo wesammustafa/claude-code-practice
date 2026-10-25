@@ -14,6 +14,7 @@ const SLICE = '.practice/a-7-slice.json';
 const CALL = [
   'claude -p "$1" \\',
   '  --setting-sources project \\',
+  '  --strict-mcp-config \\',
   `  --settings ${BOUNDS_PATH} \\`,
   '  --permission-mode dontAsk \\',
   '  --model sonnet \\',
@@ -112,6 +113,7 @@ export const scenarios = [
   { item: 0, name: 'no permission mode', setup: bounded({ script: runner(['  --permission-mode dontAsk \\\n', '']) }) },
   { item: 0, name: 'no JSON output', setup: bounded({ script: runner(['  --output-format json > "$2"', '  > "$2"']) }) },
   { item: 0, name: 'no settings file', setup: bounded({ script: runner([`  --settings ${BOUNDS_PATH} \\\n`, '']) }) },
+  { item: 0, name: 'no --strict-mcp-config', setup: bounded({ script: runner(['  --strict-mcp-config \\\n', '']) }) },
   { item: 0, name: 'the task without quotes', setup: bounded({ script: runner(['claude -p "$1"', 'claude -p $1']) }) },
   { item: 0, name: 'the JSON saved to the slice path', setup: bounded({ script: runner(['--output-format json > "$2"', `--output-format json > ${SLICE}`]) }) },
   { item: 0, name: 'claude run without -p', setup: bounded({ script: runner(['claude -p "$1"', 'claude "$1"']) }) },

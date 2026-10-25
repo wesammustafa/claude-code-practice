@@ -1,7 +1,7 @@
 // Asking the lesson's own check, and git, without blocking the screen. Both
 // run in child processes; the app writes nothing to the practice copy.
 import { execFile } from 'node:child_process';
-import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STUB_RUNS } from '../../checks/lessons/a-4.mjs';
@@ -139,9 +139,11 @@ export function gitReady(dir) {
 }
 
 // What a work folder is (ticket 86): whether it is a folder at all, whether
-// git says it is a repository, and whether it has the `.practice/` folder
-// the lessons save to, ignored by git. Read, never changed. `gitBroken` is
-// why git could not say (not installed, no answer), null where it did.
+// git says it is a repository, and whether git ignores the `.practice/`
+// folder the lessons save to. The folder itself may not exist yet: a new
+// copy of the template ignores it before a step makes it (r27 a-5); a file
+// of that name holds nothing. Read, never changed. `gitBroken` is why git
+// could not say (not installed, no answer), null where it did.
 export async function probeFolder(path) {
   let folder = false;
   try {
@@ -151,7 +153,11 @@ export async function probeFolder(path) {
   const said = await gitReady(path);
   const git = said === null;
   const gitBroken = said && said !== NOT_A_REPO ? said : null;
-  const practice = git && existsSync(join(path, '.practice')) && (await new Promise((resolve) => {
+  let notFolder = false;
+  try {
+    notFolder = !statSync(join(path, '.practice')).isDirectory();
+  } catch {}
+  const practice = git && !notFolder && (await new Promise((resolve) => {
     execFile('git', ['check-ignore', '-q', '.practice/'], { cwd: path, env: childEnv(), windowsHide: true, timeout: 30_000 }, (error) => resolve(!error));
   }));
   return { path, missing: false, git, gitBroken, practice };
