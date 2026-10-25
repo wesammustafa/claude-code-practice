@@ -9,6 +9,7 @@ fi
 before=$(git rev-parse --short HEAD)
 claude -p "$1" \
   --setting-sources project \
+  --strict-mcp-config \
   --settings .claude/bounded-run.json \
   --permission-mode dontAsk \
   --model sonnet \
