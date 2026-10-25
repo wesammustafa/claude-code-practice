@@ -25,6 +25,7 @@ export const scenarios = [
   { item: 1, name: 'the committed tools still TODO', setup: committed(swap(/^tools: .*$/m, 'tools: TODO')) },
   { item: 1, name: 'the committed file has no tools line', setup: committed(agent(GOOD.replace(/\ntools: .*$/m, ''))) },
   { item: 1, name: 'Bash among the committed tools', setup: committed(swap(/^tools: .*$/m, 'tools: Read, Grep, Glob, Bash')) },
+  { item: 1, name: 'WebFetch among the committed tools', setup: committed(swap(/^tools: .*$/m, 'tools: Read, Grep, Glob, WebFetch')) },
   { item: 2, name: 'no delegation log', files: { 'README.md': '# A project\n' } },
   { item: 2, name: 'a log with only a built-in subagent', files: { [LOG]: 'Explore\n' } },
 ];

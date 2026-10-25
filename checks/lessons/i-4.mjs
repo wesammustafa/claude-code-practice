@@ -1,5 +1,6 @@
 // Permissions, settings scopes and the sandbox (Intermediate, lesson 4). The
 // Learner commits team permission rules in the shared .claude/settings.json,
+// with an ask rule that keeps a checkpoint before a command such as a push,
 // keeps personal settings in the uncommitted .claude/settings.local.json, and
 // turns the sandbox on. That a sandboxed write outside the project fails shows
 // only in a session, so the lesson self-checks it.
@@ -73,6 +74,16 @@ export const items = [
         if (value?.sandbox?.enabled === true) return true;
       }
       return 'The sandbox is off. Run `/sandbox` in a session and choose the auto-allow mode, which saves `"sandbox": {"enabled": true}` to .claude/settings.local.json.';
+    },
+  },
+  {
+    text: 'the committed `.claude/settings.json` asks before a command the team approves each time, such as `git push`',
+    check(repo) {
+      const { value } = parse(committed(repo, SHARED) ?? '');
+      if (!value) return `Commit ${SHARED} as valid JSON, with the ask rule in \`permissions.ask\`.`;
+      const ask = value?.permissions?.ask ?? [];
+      if (ask.some((r) => /TODO/.test(r))) return 'Replace the TODO in `permissions.ask` with a rule, such as `Bash(git push *)`, and commit again.';
+      return ask.some((r) => /^Bash\(.+\)$/.test(r)) ? true : 'Add an ask rule to `permissions.ask`, such as `Bash(git push *)`, so Claude Code prompts before a `git push`, even in auto mode.';
     },
   },
 ];

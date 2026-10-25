@@ -6,7 +6,9 @@ import { frontmatter } from '../frontmatter.mjs';
 export const title = 'Delegate to a custom subagent';
 
 const AGENT = '.claude/agents/test-gaps.md';
-const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'LSP', 'WebFetch', 'WebSearch']);
+// The tools a code-reading subagent needs; the web tools stay out too.
+const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'LSP']);
+const WEB = new Set(['WebFetch', 'WebSearch']);
 
 function committedFields(repo) {
   try {
@@ -36,14 +38,16 @@ export const items = [
     },
   },
   {
-    text: 'its `tools` list is read-only: no tool that edits files or runs commands',
+    text: 'its `tools` list only reads code: no tool that edits files, runs commands or reaches the web',
     check(repo) {
       const fields = committedFields(repo);
       if (fields === null) return missing(repo);
       const tools = list(fields.tools);
       if (!tools.length || tools.includes('TODO')) return 'Fill in `tools:` with the read-only tools it needs, such as `Read, Grep, Glob`. Without the field, a subagent inherits every tool.';
-      const extra = tools.filter((t) => !READ_ONLY.has(t));
-      return extra.length ? `${extra.join(', ')} would let it change files or run commands, so it isn't read-only. Keep tools such as Read, Grep and Glob.` : true;
+      const extra = tools.filter((t) => !READ_ONLY.has(t) && !WEB.has(t));
+      if (extra.length) return `${extra.join(', ')} would let it change files or run commands, so it isn't read-only. Keep tools such as Read, Grep and Glob.`;
+      const web = tools.filter((t) => WEB.has(t));
+      return web.length ? `${web.join(', ')} reaches the web, which a subagent that reads your code doesn't need. Keep Read, Grep and Glob.` : true;
     },
   },
   {

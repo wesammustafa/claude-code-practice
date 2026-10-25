@@ -1,8 +1,11 @@
 // The Intermediate capstone: get the practice repository ready for a new
-// teammate, as capstone/intermediate-brief.md asks. It checks what each
-// Intermediate Exit statement leaves in files and git; picking a model and
-// effort, and seeing each piece work in a session, are self-assessed on the
-// capstone page.
+// teammate, as capstone/intermediate-brief.md asks. The brief states needs,
+// not mechanisms, so the check verifies outcomes and accepts any sound way to
+// reach them: samples/ is protected by a committed Edit deny rule or by a
+// PreToolUse hook that fails closed. It checks what each Intermediate Exit
+// statement leaves in files and git, and the delegation log of the review the
+// bug fix gets; picking a model and effort, and seeing each piece work in a
+// session, are self-assessed on the capstone page.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -17,7 +20,8 @@ import { testsPass, nothingUncommitted } from './b-3.mjs';
 
 export const title = 'Intermediate capstone';
 
-const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'LSP', 'WebFetch', 'WebSearch']);
+// Tools that only read code, as lesson 6 narrows them.
+const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'LSP']);
 const list = (value) => (Array.isArray(value) ? value : String(value ?? '').split(',')).map((t) => t.trim()).filter(Boolean);
 
 function committedFiles(repo, dir, suffix) {
@@ -53,15 +57,33 @@ const skill = {
   },
 };
 
+// The names of the committed subagents that review changes with tools that
+// only read code.
+function reviewers(repo) {
+  return committedFiles(repo, '.claude/agents', '.md').flatMap((path) => {
+    const f = committedFile(repo, path)?.fields;
+    const tools = list(f?.tools);
+    return f?.name && /review/i.test(`${f.name} ${f.description}`) && words(f.description) >= 5 && tools.length && tools.every((t) => READ_ONLY.has(t)) ? [String(f.name)] : [];
+  });
+}
+
 const reviewer = {
-  text: 'a committed reviewer subagent with only read-only tools',
+  text: 'a committed reviewer subagent with only tools that read code',
   check(repo) {
-    const ok = committedFiles(repo, '.claude/agents', '.md').some((path) => {
-      const f = committedFile(repo, path)?.fields;
-      const tools = list(f?.tools);
-      return f?.name && /review/i.test(`${f.name} ${f.description}`) && words(f.description) >= 5 && tools.length && tools.every((t) => READ_ONLY.has(t));
-    });
-    return ok ? true : 'Commit a reviewer in `.claude/agents/`: a subagent whose name or description says it reviews changes, with a `tools` list of read-only tools only, such as `Read, Grep, Glob`, as in lesson 6.';
+    return reviewers(repo).length ? true : 'Commit a reviewer in `.claude/agents/`: a subagent whose name or description says it reviews changes, with a `tools` list of tools that only read code, such as `Read, Grep, Glob`, as in lesson 6.';
+  },
+};
+
+// The review the bug fix gets, logged by the capstone's copy of lesson 6's
+// SubagentStart hook.
+const delegated = {
+  text: '`.practice/i-capstone-agents.txt` shows Claude delegating to the committed reviewer',
+  local: true,
+  check(repo) {
+    const log = repo.read('.practice/i-capstone-agents.txt');
+    if (log === null) return 'There is no delegation log. Start a session with `claude --settings .practice/i-capstone-hook.json`, the hook file the capstone gives, and have your reviewer review the fix.';
+    const ran = log.split(/\r?\n/).map((l) => l.trim());
+    return reviewers(repo).some((name) => ran.includes(name)) ? true : 'The log names no committed reviewer. In a session started with the hook file, ask Claude to have your reviewer review the fix.';
   },
 };
 
@@ -73,16 +95,28 @@ function committedSettings(repo) {
   }
 }
 
+// A deny rule for Claude's file-editing tools on the samples/ folder, written
+// as lesson 4 writes rules: relative, anchored at the settings source, or at
+// any depth.
+const SAMPLES_DENY = /^Edit\((?:\.\/|\/|\*\*\/)?samples\/(?:\*\*)?\)$/;
+
 const hook = {
-  text: 'a committed, executable `PreToolUse` hook for Edit and Write blocks `samples/` and nothing else',
+  text: 'Claude\'s file-editing tools can\'t change `samples/` but can edit the rest: a committed `Edit` deny rule, or a fail-closed `PreToolUse` hook',
   check(repo) {
-    const scripts = editWriteScripts(committedSettings(repo)).filter((s) => committedMode(repo, s) === '100755');
-    if (!scripts.length) return 'Commit an executable script in `.claude/hooks/` and run it from `.claude/settings.json` as a `PreToolUse` hook with the matcher `Edit|Write`, as in lesson 5, to keep Claude out of samples/.';
+    const settings = committedSettings(repo);
+    if ((settings?.permissions?.deny ?? []).some((rule) => SAMPLES_DENY.test(rule))) return true;
+    const scripts = editWriteScripts(settings).filter((s) => committedMode(repo, s) === '100755');
+    if (!scripts.length) return 'Keep Claude out of samples/: commit an `Edit` deny rule such as `Edit(./samples/**)` in `.claude/settings.json`, as in lesson 4, or an executable `PreToolUse` hook for `Edit|Write`, as in lesson 5.';
     const samples = scripts.map((s) => runCommitted(repo, s, 'samples/guide.md'));
-    const source = scripts.map((s) => runCommitted(repo, s, 'src/cli.js'));
+    const source = scripts.flatMap((s) => [runCommitted(repo, s, 'src/cli.js'), runCommitted(repo, s, 'src/samples.js')]);
     if ([...samples, ...source].some(missingJq)) return 'A hook needs `jq`, which isn\'t installed. Install it and run the check again.';
-    if (!samples.some((r) => r?.status === 2)) return 'No Edit|Write hook exits with 2 for `samples/guide.md`, so Claude can still edit samples/.';
-    return source.every((r) => r?.status === 0) ? true : 'An Edit|Write hook also blocks `src/cli.js`: block samples/ only.';
+    const blocking = scripts.filter((_, i) => samples[i]?.status === 2);
+    if (!blocking.length) return 'No Edit|Write hook exits with 2 for `samples/guide.md`, so Claude can still edit samples/.';
+    if (!source.every((r) => r?.status === 0)) return 'An Edit|Write hook also blocks `src/cli.js` or `src/samples.js`: block the samples/ folder only.';
+    // The same scripts, counting only the hook entries that fail closed.
+    const groups = settings.hooks.PreToolUse.map((g) => ({ ...g, hooks: (g?.hooks ?? []).filter((h) => h?.onFailure === 'block') }));
+    const closed = editWriteScripts({ hooks: { PreToolUse: groups } });
+    return blocking.some((s) => closed.includes(s)) ? true : 'Add `"onFailure": "block"` to the hook that protects samples/, as in lesson 5, so a hook that can\'t run blocks the edit instead of letting it through.';
   },
 };
 
@@ -160,4 +194,6 @@ const setupPlugin = asCapstone(plugins[0], ['Add the `enabledPlugins` entry from
 const teamRules = asCapstone(scopes[0], ['Save the partial file from the lesson\'s Your turn there.', 'Write the team settings the capstone asks for there, as in lesson 4.']);
 const imports = asCapstone(memory[0], ['Commit the one you organize in this lesson.', 'Commit the one the capstone asks for, as in lesson 2.']);
 
-export const items = [skill, hook, reviewer, pinnedServer, setupPlugin, teamRules, sandbox, imports, memory[1], testsPass, nothingUncommitted, bugFix];
+// The items that start a process keep their places, 1, 9 and 11, which the
+// app's list of slow items names.
+export const items = [skill, hook, reviewer, pinnedServer, setupPlugin, teamRules, sandbox, imports, memory[1], testsPass, nothingUncommitted, bugFix, delegated, scopes[2]];

@@ -521,7 +521,7 @@ test('the check-only card scrolls no further than the window that ends on the la
       const per = Number(opened[2] ?? opened[1]) - Number(opened[1]) + 1;
       for (let i = 0; i < 20; i++) arrow(d, 'down', size, t);
       const end = shown();
-      assert.equal(Number(end[2] ?? end[1]), 12, `${at}: the last item shows\n${lines(d.state, size, t).join('\n')}`);
+      assert.equal(Number(end[2] ?? end[1]), 14, `${at}: the last item shows\n${lines(d.state, size, t).join('\n')}`);
       assert.ok(Number(end[2] ?? end[1]) - Number(end[1]) + 1 >= per, `${at}: the last window holds as many items as the first\n${lines(d.state, size, t).join('\n')}`);
       arrow(d, 'up', size, t);
       assert.equal(Number(shown()[1]), Number(end[1]) - 1, `${at}: up moved the card at once`);

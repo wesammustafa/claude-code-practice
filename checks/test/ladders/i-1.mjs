@@ -2,7 +2,7 @@
 // folder that produces it: `files` to write, or `setup(dir, { write, commit })`.
 // Each scenario holds one problem, so its message matches one narrow question.
 const SKILL = '.claude/skills/tdd/SKILL.md';
-const DESCRIPTION = 'Builds a feature test-first, one behavior at a time, and commits the tests with the code. Use when the user asks for a new function or feature with tests.';
+const DESCRIPTION = 'Builds a feature test-first, one behavior at a time, and shows the diff for review. Use when the user asks for a new function or feature with tests.';
 const BODY = [
   '',
   'Build this test-first, one behavior at a time: $ARGUMENTS',
@@ -23,8 +23,8 @@ const committed = (text) => (dir, { write, commit }) => {
   commit(dir, 'Add a tdd skill', [SKILL]);
 };
 
-// Commits the finished skill, then a /tdd run's commit holding `files`, and
-// saves that commit as Your turn step 4 does.
+// Commits the finished skill, then the reviewed commit of a /tdd run's
+// `files`, and saves that commit as Your turn step 4 does.
 const saved = (files) => (dir, { write, commit }) => {
   committed(skill())(dir, { write, commit });
   write(dir, files);
@@ -66,7 +66,7 @@ export const scenarios = [
   },
   {
     item: 2,
-    name: 'the saved commit is the skill commit, as when Claude did not commit',
+    name: 'the saved commit is the skill commit, as when the run\'s work was never committed',
     setup(dir, { write, commit }) {
       write(dir, { [SKILL]: skill() });
       const sha = commit(dir, 'Add a tdd skill', [SKILL]);

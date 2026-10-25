@@ -1,9 +1,9 @@
 // Connect a tool with MCP (Intermediate, lesson 7). The Learner shares Chrome
 // DevTools MCP at project scope in a committed .mcp.json, pinned to one
 // version with the server's three outbound data flows turned off, and saves
-// a PNG capture and a repaired local demo. The real MCP console observation
+// a repaired local demo and a PNG capture taken after the repair. The real MCP console observation
 // remains a session self-check.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -50,12 +50,16 @@ export const items = [
     },
   },
   {
-    text: '`.practice/i-7-page.png` holds a PNG image',
+    text: '`.practice/i-7-page.png` holds a PNG image of the repaired page',
     local: true,
     check(repo) {
       const path = join(repo.dir, SHOT);
       if (!existsSync(path)) return `There is no ${SHOT}. Ask Claude to use the chrome-devtools tools to open a page and save a screenshot to ${SHOT}.`;
-      return readFileSync(path).subarray(0, 8).equals(PNG_SIGNATURE) ? true : `${SHOT} isn't a PNG image. Ask Claude to save the screenshot again, as a PNG.`;
+      if (!readFileSync(path).subarray(0, 8).equals(PNG_SIGNATURE)) return `${SHOT} isn't a PNG image. Ask Claude to save the screenshot again, as a PNG.`;
+      // The capture shows the repaired page only if it was saved after the
+      // demo's last change.
+      const demo = join(repo.dir, DEMO);
+      return !existsSync(demo) || statSync(path).mtimeMs >= statSync(demo).mtimeMs ? true : `${SHOT} is older than your last change to ${DEMO}. Capture the page again after the repair.`;
     },
   },
   {

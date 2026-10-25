@@ -1,7 +1,8 @@
 // Turn a repeated workflow into a skill (Intermediate, lesson 1). The Learner
 // finishes the partial tdd skill so it runs by name and loads on its own,
-// commits it, and saves the commit a /tdd run made. Whether Claude loaded the
-// skill on its own shows only in a session, so the lesson self-checks it.
+// commits it, and saves the commit they made after reviewing a /tdd run's
+// diff. Whether Claude loaded the skill on its own, and kept it out of a
+// question, shows only in a session, so the lesson self-checks it.
 import { frontmatter } from '../frontmatter.mjs';
 import { isTestFile } from '../paths.mjs';
 
@@ -56,7 +57,7 @@ export const items = [
     local: true,
     check(repo) {
       const saved = repo.read('.practice/i-1-commit.txt');
-      if (saved === null || !saved.trim()) return `After the /tdd run commits its work, run ${SAVE_COMMIT}.`;
+      if (saved === null || !saved.trim()) return `After you review and commit the /tdd run's test and code, run ${SAVE_COMMIT}.`;
       const sha = saved.trim().split(/\s+/)[0];
       let files;
       try {
@@ -67,7 +68,7 @@ export const items = [
       const tests = files.filter(isTestFile);
       const code = files.filter((f) => !isTestFile(f) && !/\.md$/i.test(f) && !f.startsWith('.claude/'));
       if (tests.length && code.length) return true;
-      return `That commit should hold a test and the code it tests. Run /tdd, commit both, then ${SAVE_COMMIT}.`;
+      return `That commit should hold a test and the code it tests. Run /tdd, review the diff, commit both, then ${SAVE_COMMIT}.`;
     },
   },
 ];

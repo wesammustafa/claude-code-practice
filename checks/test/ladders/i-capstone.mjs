@@ -20,8 +20,10 @@ const committed = (files) => (dir, { write, commit }) => {
   commit(dir, 'Set up the repository');
 };
 
-// The settings that run one script before Edit and Write, as lesson 5 does.
-const HOOKED = json({ hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-samples.sh', args: [] }] }] } });
+// The settings that run one script before Edit and Write, failing closed, as
+// lesson 5 does, and the same without onFailure.
+const hooked = (extra = { onFailure: 'block' }) => json({ hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-samples.sh', args: [], ...extra }] }] } });
+const HOOKED = hooked();
 const HOOK = '.claude/hooks/protect-samples.sh';
 const script = (body) => `#!/bin/bash\nINPUT=$(cat)\n${body}\nexit 0\n`;
 const READS_PATH = 'FILE_PATH=$(echo "$INPUT" | jq -r \'.tool_input.file_path // empty\')';
@@ -61,6 +63,11 @@ export const scenarios = [
     item: 1,
     name: 'a hook that blocks every path',
     setup: committed({ [SHARED]: HOOKED, [HOOK]: script(`${READS_PATH}\necho "Blocked: $FILE_PATH" >&2\nexit 2`) }),
+  },
+  {
+    item: 1,
+    name: 'a samples/ hook that fails open',
+    setup: committed({ [SHARED]: hooked({}), [HOOK]: script('case "$INPUT" in *\'/samples/\'*) echo "Blocked: samples/ is test data" >&2; exit 2 ;; esac') }),
   },
 
   { item: 2, name: 'no subagent committed', files: {} },
@@ -115,4 +122,17 @@ export const scenarios = [
   { item: 11, name: 'committed CLI output exceeds the bound', setup: committed({ 'src/cli.js': 'process.stdout.write("x".repeat(1000000));\n' }) },
   { item: 11, name: 'the original malformed-percent crash', setup: committed(buggyApp) },
 
+  { item: 12, name: 'no delegation log', setup: committed({ '.claude/agents/reviewer.md': REVIEWER('Read, Grep, Glob') }) },
+  {
+    item: 12,
+    name: 'a log of another subagent only',
+    setup(dir, helpers) {
+      committed({ '.claude/agents/reviewer.md': REVIEWER('Read, Grep, Glob') })(dir, helpers);
+      helpers.write(dir, { '.practice/i-capstone-agents.txt': 'Explore\n' });
+    },
+  },
+
+  { item: 13, name: 'no committed settings file', files: { [SHARED]: TEAM } },
+  { item: 13, name: 'the ask rule still TODO', setup: committed({ [SHARED]: json({ permissions: { allow: ['Bash(npm test)'], ask: ['TODO: a command the team approves each time'] } }) }) },
+  { item: 13, name: 'no ask rule', setup: committed({ [SHARED]: TEAM }) },
 ];
