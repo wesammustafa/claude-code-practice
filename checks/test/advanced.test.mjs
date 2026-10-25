@@ -931,6 +931,24 @@ test('a-3 fails while the old form still matches in every folder at HEAD, and sa
   });
 });
 
+// The practice copy's own course code (learn/, checks/, capstone/) is not the
+// Learner's migration: a-3 neither lists it nor waits for it (r27).
+const COURSE_CODE = { 'learn/app.mjs': "const here = new URL('.', import.meta.url);\n", 'checks/run.mjs': "const at = new URL('.', import.meta.url);\n" };
+const withCourse = (dir) => { write(dir, COURSE_CODE); commit(dir, 'Course code', Object.keys(COURSE_CODE)); };
+
+test('a-3 leaves the practice copy\'s course folders out of the migration: it passes when test/ is migrated, and names only the Learner\'s folders when none is', () => {
+  withRepo(workflowRepo({ after: withCourse }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 0, out);
+  });
+  withRepo(workflowRepo({ migrate: [], after: withCourse }), (dir) => {
+    const { code, out } = a3(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /still matches inside `src\/` and `test\/` at `HEAD`/);
+    assert.doesNotMatch(out, /`learn\/`|`checks\/`/);
+  });
+});
+
 test('a-3 fails for a pattern that never matched, or that git cannot read', () => {
   withRepo(workflowRepo({ pattern: 'nothingLikeThis\n' }), (dir) => {
     const { code, out } = a3(dir);
