@@ -1758,9 +1758,11 @@ const VIEWS = {
       else return false;
       return true;
     }
-    // Self, none and "the session has ended" beats.
+    // Self, none and "the session has ended" beats. Space ticks each, as
+    // its key bar says; enter only a none beat, so the enter that goes on
+    // from a step can't tick the next step's self beat unread.
     const v = beat.verify.kind;
-    if ((name === 'space' || name === 'enter') && (v === 'self' || v === 'none' || beat.kind === 'self')) {
+    if ((name === 'space' || (name === 'enter' && v === 'none')) && (v === 'self' || v === 'none' || beat.kind === 'self')) {
       st.status = 'done';
       advance(s, effects);
       return true;

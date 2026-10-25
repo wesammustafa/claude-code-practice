@@ -600,7 +600,7 @@ test('a file check is done once its file holds a line, and a fresh one once it c
   d.key('r');
   d.send({ type: 'file', path: '.practice/b-2-plan.txt', read: null, stamp: 'B', asked: d.state.beat.asked });
   assert.equal(d.state.beat.status, 'fail');
-  assert.match(d.state.beat.fail.hint, /\.practice\/b-2-plan\.txt has no line/);
+  assert.equal(d.state.beat.fail.hint, '.practice/b-2-plan.txt is not there yet.', 'a missing file is not there, not empty (r27 E1)');
   d.send({ type: 'file', path: '.practice/b-2-plan.txt', read: Buffer.from('src/config.js\nsrc/cli.js\n'), stamp: 'C' });
   assert.equal(d.state.beat.status, 'done');
   assert.equal(d.state.beat.evidence, 'src/config.js and 1 more line', 'a list shows how long it is');
@@ -2198,6 +2198,9 @@ test('a file beat is done once its file holds any line, front matter or a lone -
   assert.equal(tryNow(lone, 'notes.md', '\n---\n').evidence, '---');
   const blank = onReading('file notes.md');
   assert.equal(tryNow(blank, 'notes.md', ' \n\n').fail.hint, 'notes.md has no line in it yet.');
+  // A missing file is not there yet, not a file with no line (r27 E1).
+  const gone = onReading('file notes.md');
+  assert.equal(tryNow(gone, 'notes.md', null).fail.hint, 'notes.md is not there yet.');
 });
 
 test('a json key path follows an array only by its indexes: length is no key of one', () => {
@@ -3223,4 +3226,91 @@ test('recall while a long run works: never scored, still, and dropped when the r
   // A digit after the result is no answer.
   open.key('1');
   assert.equal(open.state.beat.whileRuns.answer, null);
+});
+
+// ---- r27 engine fixes (findings/r27/TRIAGE.md section 3) ---------------------
+// DEMO_B2 with W1 reading a log a session writes, its command a cat of that
+// log, as i-2's W4.3 does.
+const LOG_B2 = DEMO_B2.replace('- verify: check 0\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt\n- run: "git status --porcelain > .practice/b-2-before.txt"', '- verify: match .practice/log.txt ^include\\s\n- run: "cat .practice/log.txt"');
+const onB2At = (text, extra = {}) => {
+  const d = driver({ course: courseWith({ 'b-2': text }), saved: { format: 1, welcomed: true, lessons: { 'b-1': b1Done, 'b-2': { warm: ['R1', 'R2', 'R3'], done: ['R1', 'R2', 'R3'], step: 'W1', beat: 0, ...extra } } } });
+  d.key('enter');
+  if (stepOf(d.state)?.id !== 'W1' || d.state.pos.beat !== 0) throw new Error(`onB2At: on ${d.state.view} ${stepOf(d.state)?.id} beat ${d.state.pos.beat}`);
+  return d;
+};
+// The log as main reads it: null when it isn't there.
+const sendLog = (d, text, stamp) => d.send({ type: 'file', path: '.practice/log.txt', read: text === null ? null : Buffer.from(text), stamp });
+const catRow = (state) => screenText(state).find((l) => l.includes('$ cat .practice/log.txt'));
+
+test('r27 E2: a matched line too long for its row ends in …, and a hint that quotes it holds no escape', () => {
+  const line = '- Use `node:test` and `node:assert/strict`; no other test library, and no snapshot files.';
+  assert.ok(line.length > 60);
+  const match = onReading('match notes.md node:test');
+  const evidence = tryNow(match, 'notes.md', `${line}\n`).evidence;
+  assert.equal(evidence, `${line.slice(0, 59)}…`);
+  assert.equal(width(evidence), 60);
+  const no = onReading('no-match notes.md node:test');
+  const hint = tryNow(no, 'notes.md', `${line}\n`).fail.hint;
+  assert.equal(hint, `notes.md still has: ${line.slice(0, 59)}…`);
+  assert.doesNotMatch(hint, /\x1b/, 'cut\'s reset goes: the row sits inside a sentence');
+  const fits = 'x'.repeat(60);
+  assert.equal(tryNow(onReading('match notes.md x'), 'notes.md', `${fits}\n`).evidence, fits, 'a row that fits stays whole');
+});
+
+test('r27 E3: only space ticks a self beat, so the enter that goes on from a step ticks nothing unread; enter still goes on from a none beat', () => {
+  const text = DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n', '- where: shell\n- beat: do\n- verify: self\n- goal: "Read the log."\n- beat: do\n- verify: none\n- goal: "Look around."\n- beat: do\n- verify: check 0\n');
+  const d = onB2At(text);
+  assert.equal(beatOf(d.state).verify.kind, 'self');
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat, d.state.beat.status], ['W1', 0, 'waiting'], 'enter leaves a self beat unticked');
+  d.key('space');
+  assert.deepEqual([d.state.pos.beat, beatOf(d.state).verify.kind], [1, 'none'], 'space ticks it');
+  d.key('enter');
+  assert.deepEqual([stepOf(d.state).id, d.state.pos.beat], ['W1', 2], 'enter goes on from a none beat');
+});
+
+test('r27 E4: a beat done before it opened shows no tick beside its command; one done while it was open does', () => {
+  const already = onB2At(LOG_B2);
+  sendLog(already, 'include CLAUDE.md\n', 'A');
+  assert.equal(already.state.beat.status, 'already');
+  assert.ok(catRow(already.state), screenText(already.state).join('\n'));
+  assert.doesNotMatch(catRow(already.state), /✔/, 'the app never saw the learner run cat');
+  const done = onB2At(LOG_B2);
+  sendLog(done, null, 'A');
+  sendLog(done, 'include CLAUDE.md\n', 'B');
+  assert.equal(done.state.beat.status, 'done');
+  assert.match(catRow(done.state), /✔$/, screenText(done.state).join('\n'));
+});
+
+test('r27 E5: an eased step says so on its first beat when that beat was already done as it opened, and not once a beat is done', () => {
+  const already = onB2At(LOG_B2, { easedSteps: { W1: true } });
+  assert.equal(already.state.beat.eased, true);
+  assert.ok(flat(already.state, 80, 24).includes(C.eased), 'while it waits');
+  sendLog(already, 'include CLAUDE.md\n', 'A');
+  assert.equal(already.state.beat.status, 'already');
+  assert.ok(flat(already.state, 80, 24).includes(C.eased), flat(already.state, 80, 24));
+  const done = onB2At(LOG_B2, { easedSteps: { W1: true } });
+  sendLog(done, null, 'A');
+  sendLog(done, 'include CLAUDE.md\n', 'B');
+  assert.equal(done.state.beat.status, 'done');
+  assert.ok(!flat(done.state, 80, 24).includes(C.eased), flat(done.state, 80, 24));
+});
+
+test('r27 E6: a watch that sees an earlier step\'s state says it turns green once that changes, not "make it again"', () => {
+  assert.deepEqual(C.staleWatch('git branch'), ['Watching ', 'git branch', ". It's from an earlier step: I'll turn green once it changes."]);
+  const d = intoY1('probe branch-ahead docs-pass');
+  d.send({ type: 'stamp', key: 'Y1.0', stamp: 'sha-1', dir: FACTS.root });
+  d.send(probeResult('branch-ahead', ['docs-pass'], true, 'sha-1'));
+  assert.deepEqual([d.state.beat.status, d.state.beat.stale], ['waiting', true]);
+  const screen = flat(d.state, 80, 24);
+  assert.ok(screen.includes("It's from an earlier step: I'll turn green once it changes."), screen);
+  assert.ok(!screen.includes('make it again'), screen);
+});
+
+test('r27 E7: on a Claude Code beat, a command that starts Claude Code shows the shell\'s prompt; a prompt for the session keeps ›', () => {
+  const text = DEMO_B2.replace('- where: shell\n- beat: do\n- verify: check 0\n- watching: .practice/b-2-before.txt\n- evidence: .practice/b-2-before.txt\n- run: "git status --porcelain > .practice/b-2-before.txt"', '- where: claude\n- beat: do\n- verify: self\n- run: "claude --worktree docs-pass"\n- run: "/status"\n- run: "claude"');
+  const d = onB2At(text);
+  const rows = screenText(d.state).map((l) => l.replace(/^\s*│\s*/, '').trimEnd());
+  for (const row of ['$ claude --worktree docs-pass', '› /status', '$ claude']) assert.ok(rows.includes(row), `${row}\n${rows.join('\n')}`);
+  assert.ok(!rows.some((l) => /^› claude/.test(l)), rows.join('\n'));
 });

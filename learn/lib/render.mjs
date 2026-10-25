@@ -485,8 +485,10 @@ const withRoot = (text, root, win32, dir) => {
 // A command on a dark block, one line per `w - 4` columns of the command,
 // so a long path is never cut.
 function chip(t, cmd, where, w) {
-  // A browser has no prompt (ticket 103): what it shows is an address.
-  const prompt = ['claude', 'claude-2'].includes(where) ? '›' : where === 'browser' ? ' ' : t.caps.win32 ? '>' : '$';
+  // A browser has no prompt (ticket 103): what it shows is an address. A
+  // command that starts Claude Code is typed at the shell, so it keeps the
+  // shell's prompt on a Claude Code beat.
+  const prompt = ['claude', 'claude-2'].includes(where) && !/^claude(\s|$)/.test(cmd) ? '›' : where === 'browser' ? ' ' : t.caps.win32 ? '>' : '$';
   const room = Math.max(10, w - 4);
   // Lines break at spaces, so a prompt keeps its words whole; only a word
   // longer than the line, such as a long path, is split.
@@ -1403,7 +1405,9 @@ function stepView(ctx) {
         const cw = chipWidth(ctx, beat);
         const long = cw + 22 <= inner;
         const live = l.tick === 'practice-dir' && s.facts.practiceDir;
-        const checked = done && looksAtFile(beat);
+        // No tick on a beat that was done when it opened: the app never saw
+        // the learner run its command.
+        const checked = st.status === 'done' && looksAtFile(beat);
         // A live tick stays and takes no turn; each other command takes the next.
         const turn = checked && !live ? ++fresh : 0;
         const ticked = checked && (live || passing >= SHOTS.stepDone.tick * turn);
@@ -1734,7 +1738,8 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
     } else if (hintStatus(st) === 'fail' && hintAvailable(s)) rows.push(...(note?.press === false ? [] : para(t, C.pressH, inner - 2, 'muted').map((x) => `  ${x}`)));
     else if (st.idle && hintAvailable(s)) rows.push(t.fg('warn', C.stuckOffer));
   }
-  if (st.eased && !['done', 'already'].includes(st.status) && s.pos.beat === 0) rows.push(...para(t, C.eased, inner, 'muted'));
+  // An eased step whose first beat was already done says so on that beat.
+  if (st.eased && st.status !== 'done' && s.pos.beat === 0) rows.push(...para(t, C.eased, inner, 'muted'));
   // The same answer after a redo (ticket 192), in the form stepView chose:
   // last, so no line above it moves as it comes.
   if (note) rows.push(...note.rows);

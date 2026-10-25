@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { isGlob } from './content.mjs';
 import { C } from './copy.mjs';
-import { graphemes, isEmoji } from './text.mjs';
+import { cut, graphemes, isEmoji, strip } from './text.mjs';
 
 // A file's text: UTF-16 with a byte-order mark (Windows PowerShell 5.1
 // writes it), or UTF-8 with or without one.
@@ -24,14 +24,18 @@ function binaryOf(buf) {
   return C.binaryData(buf.length < 1024 ? `${buf.length} bytes` : `${Math.round(buf.length / 1024)} KB`);
 }
 
-// Text from the learner's file as one screen row, at most `max` characters:
+// Text from the learner's file as one screen row, at most `max` columns:
 // escape sequences and control characters go (a tab or line break becomes a
-// space), and each emoji after the first becomes *, so a row holds one.
+// space), and each emoji after the first becomes *, so a row holds one. A
+// longer row is cut and ends in …, the way the render cuts one; the reset
+// `cut` adds goes, since the row may sit inside a sentence.
 const ESC = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|.)?/gs;
 function oneRow(s, max = 60) {
   let emoji = 0;
   const flat = s.replace(ESC, '').replace(/[\t\n\v\f\r]+/g, ' ').replace(/\p{Cc}/gu, '').trim();
-  return graphemes(flat).slice(0, max).map((g) => (isEmoji(g) && emoji++ ? '*' : g)).join('');
+  // One grapheme past `max` is enough to tell that the row needs the cut.
+  const row = graphemes(flat).slice(0, max + 1).map((g) => (isEmoji(g) && emoji++ ? '*' : g)).join('');
+  return max === Infinity ? row : strip(cut(row, max));
 }
 
 // The line a file shows of itself: its first line that says something, not
@@ -101,7 +105,7 @@ const shown = (v) => oneRow(typeof v === 'string' ? v : JSON.stringify(v));
 // when nothing was added, so a line it forbids that is still there counts.
 export function judge(verify, buf, from = 0) {
   const { path } = verify;
-  if (!buf) return { pass: false, hint: isGlob(path) ? C.noMatch(path) : verify.kind === 'file' ? C.fileEmpty(path) : C.noFile(path) };
+  if (!buf) return { pass: false, hint: isGlob(path) ? C.noMatch(path) : C.noFile(path) };
   const binary = binaryOf(buf);
   if (binary) return verify.kind === 'file' ? { pass: true, evidence: binary } : { pass: false, hint: C.notText(path, binary) };
   const text = textOf(buf);

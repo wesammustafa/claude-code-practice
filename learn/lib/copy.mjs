@@ -94,7 +94,7 @@ export const C = {
   optional: (when) => `Optional. ${when} Press x to skip it.`,
   doneEachPart: "You've done each part before.",
   watching: (what) => [`Watching `, what, ". I'll turn green the moment it's right."],
-  staleWatch: (what) => [`Watching `, what, ". It's from an earlier step: I'll turn green once you make it again."],
+  staleWatch: (what) => [`Watching `, what, ". It's from an earlier step: I'll turn green once it changes."],
   fileEmpty: (path) => `${path} has no line in it yet.`,
   // What a file holds, for a beat that reads it (ticket 87): the not-yet lines.
   noFile: (path) => `${path} is not there yet.`,

@@ -1173,7 +1173,7 @@ test('main: a prerequisite check item runs through the check child in the work f
   // The frame's words, its rows' line ends taken out, for a sentence that wraps.
   const words = () => app.frame().replace(/\x1b\[K/g, '').replace(/\s+/g, ' ');
   try {
-    assert.ok(await until(() => words().includes(C.buildsOnCheck('B5', 'a committed CLAUDE.md has a rule that every new JavaScript file in src/ starts with a given line')) && words().includes(C.buildsOnFile('B4', C.fileEmpty(skill)))), app.frame());
+    assert.ok(await until(() => words().includes(C.buildsOnCheck('B5', 'a committed CLAUDE.md has a rule that every new JavaScript file in src/ starts with a given line')) && words().includes(C.buildsOnFile('B4', C.noFile(skill)))), app.frame());
     assert.deepEqual(app.ran.filter((r) => r.lesson !== 'i-1'), [{ dir: mine, lesson: 'b-5', items: [0] }], 'one check child, for the check item, in the work folder');
     // B5 and B4 are practised in the copy, so doing them again there would
     // not set the work folder right: neither is offered.
