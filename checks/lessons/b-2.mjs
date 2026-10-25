@@ -1,6 +1,5 @@
 // Permission modes and plan mode (Beginner, lesson 2). Your turn works the
-// ticket in practice/b-2/ticket.md, whose last request (make the CLI exit 0
-// on broken links) is planted scope creep to send back before approving.
+// ticket in practice/b-2/ticket.md and reviews the plan before approving.
 // The Learner saves three snapshots under .practice/: git's status while the
 // plan is on screen, the files the plan says it will change, and git's
 // status after approving. The snapshots, not the live tree, prove the plan,
@@ -91,7 +90,7 @@ export const items = [
       const refused = notTemplate(repo);
       if (refused) return refused;
       const run = runTool(repo, { 'notes.md': 'See [the setup](missing.md).\n' });
-      if (run.status !== 1) return `With a broken link, the tool exited with code ${run.status}, not 1, so CI would pass with broken links. That part of the ticket goes back: the \`ignore\` list already skips links into \`vendor/\`.`;
+      if (run.status !== 1) return `With a broken link, the tool exited with code ${run.status}, not 1, so CI would pass with broken links. Compare the plan you approved with the ticket, and tell Claude what to undo.`;
       // Node also exits with 1 when the CLI crashes, so the report must be there.
       if (!run.stdout.includes('broken link to missing.md')) return `With a broken link, the tool exited with code 1 but didn't report \`broken link to missing.md\`, so it failed for another reason: ${run.stderr.split('\n').find((line) => /Error/.test(line))?.trim() ?? 'it printed no error'}`;
       return true;

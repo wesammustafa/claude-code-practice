@@ -53,7 +53,7 @@ badge: Beginner
 - beat: do
 - where: claude
 - verify: self
-- goal: "switch to plan mode before your first prompt"
+- goal: "Here you want to approve the plan before any file changes, so switch to plan mode before your first prompt"
 - hint: "press `Shift+Tab` until the status bar shows `⏸ plan mode on`, or start the prompt with `/plan`"
 
 ### T3 | The task step 3 of 8 | Plan test-first
@@ -84,12 +84,13 @@ badge: Beginner
 - verify: check 0 fresh since T3
 - evidence: .practice/capstone-before.txt
 - goal: "While the final plan is on screen, in your own terminal, save `git status --porcelain` to `.practice/capstone-before.txt`."
-- hint: "Save the files the plan will change, every test file included, to `.practice/capstone-plan.txt`:"
+- hint: "If you skipped the lessons: create the `.practice/` folder in your copy (`mkdir -p .practice`; **Windows:** `New-Item -ItemType Directory -Force .practice`)."
 - watching: .practice/capstone-before.txt
 - beat: do
 - verify: file .practice/capstone-plan.txt fresh since T3
-- goal: "Save the files the plan will change, every test file included, to `.practice/capstone-plan.txt`:"
-- hint: "one path per line, relative to the repository root, with forward slashes, such as `src/cli.js`."
+- goal: "Save the files the plan will change, every test file included, to `.practice/capstone-plan.txt`"
+- note: "one path per line, relative to the repository root, with forward slashes, such as `src/cli.js`."
+- hint: "The commit in `.practice/capstone-commit.txt` changes only files listed in `.practice/capstone-plan.txt`, including a test file."
 
 ### T6 | The task step 6 of 8 | Watch red become green
 - tier: challenge
@@ -97,7 +98,7 @@ badge: Beginner
 - where: claude
 - beat: do
 - verify: self
-- goal: "Approve with **Yes, and use auto mode**, as in [lesson 2](02-permission-modes-and-plan-mode.md#worked-example):"
+- goal: "Approve with **Yes, and use auto mode**, as in [lesson 2](02-permission-modes-and-plan-mode.md#worked-example)"
 - hint: "Watch the new test fail, then pass after the fix."
 - hint: "press `Ctrl+O`, as in [lesson 3](03-first-change.md#worked-example), and `Ctrl+O` again to go back"
 
@@ -107,7 +108,7 @@ badge: Beginner
 - where: claude
 - beat: do
 - verify: self
-- goal: "Review the whole diff, the tests included, against the bug report,"
+- goal: "Review the whole diff, the tests included, against the bug report"
 - hint: "Does the error name the missing folder? Does the tool exit with code 2? Does the test check the case the report describes?"
 - hint: "Ask Claude to correct anything that falls short, inside the files the plan names, and make sure `npm test` passes."
 
@@ -119,13 +120,13 @@ badge: Beginner
 - verify: check 1 2 fresh since T3
 - evidence: .practice/capstone-commit.txt
 - watching: .practice/capstone-commit.txt
-- goal: "Commit the fix and its test together,"
+- goal: "Commit the fix and its test together"
 - hint: "git rev-parse HEAD > .practice/capstone-commit.txt"
 
 ### C | Check | Check
 - tier: challenge
 - skill: check
-- where: terminal
+- where: shell
 - beat: do
 - verify: check all
 - goal: "Run `npm run check -- b-capstone`"
