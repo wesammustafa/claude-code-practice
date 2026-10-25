@@ -3,7 +3,7 @@ lesson: i-capstone
 title: "Intermediate capstone: get a repository ready for a new teammate"
 source: docs/intermediate/capstone.md
 source-commit: 52d83ec
-stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
+stamp: "Verified against Claude Code v2.1.308 (stable) on 2026-10-25"
 page: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/intermediate/capstone.md
 stuck: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/issues/new?template=lesson-feedback.yml&lesson=i-capstone
 next: a-1
