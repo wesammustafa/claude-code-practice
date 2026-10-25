@@ -85,6 +85,39 @@ test('probes: pushed wants an upstream and nothing to push, read from the local 
   }
 }));
 
+// r27 TRIAGE-4 pattern U: a removal is committed and pushed, not any push.
+test('probes: removed wants each path gone from HEAD and HEAD pushed', () => withRepo(started, (dir) => {
+  const remote = repo();
+  try {
+    assert.equal(probeError('removed', ['.github/workflows/a.yml', '.github/workflows/b.yml']), null);
+    for (const bad of [[], ['/abs.yml'], ['../up.yml']]) assert.ok(probeError('removed', bad), bad.join(' '));
+    git(remote, 'config', 'receive.denyCurrentBranch', 'ignore');
+    write(dir, { '.github/workflows/a.yml': 'on: push\n', '.github/workflows/b.yml': 'on: push\n' });
+    commit(dir, 'Add workflows');
+    const branch = git(dir, 'symbolic-ref', '--short', 'HEAD');
+    git(dir, 'remote', 'add', 'origin', remote);
+    git(dir, 'push', '-q', '-u', 'origin', branch);
+    const paths = ['.github/workflows/a.yml', '.github/workflows/b.yml'];
+    const both = probe(dir, 'removed', ...paths);
+    assert.deepEqual([both.pass, both.hint], [false, 'Still in the last commit: .github/workflows/a.yml, .github/workflows/b.yml. Delete them with git rm, then commit and push.']);
+    git(dir, 'rm', '-q', '.github/workflows/a.yml');
+    commit(dir, 'Remove a');
+    assert.equal(probe(dir, 'removed', ...paths).hint, 'Still in the last commit: .github/workflows/b.yml. Delete it with git rm, then commit and push.');
+    // Any push alone doesn't pass it.
+    git(dir, 'push', '-q');
+    assert.equal(probe(dir, 'removed', ...paths).pass, false);
+    git(dir, 'rm', '-q', '.github/workflows/b.yml');
+    commit(dir, 'Remove b');
+    assert.equal(probe(dir, 'removed', ...paths).hint, `1 commit on ${branch} not pushed to origin/${branch} yet.`);
+    git(dir, 'push', '-q');
+    const done = probe(dir, 'removed', ...paths);
+    assert.deepEqual([done.pass, done.evidence], [true, 'Removed and pushed: .github/workflows/a.yml, .github/workflows/b.yml']);
+    assert.equal(done.state, probe(dir, 'pushed').state, 'its state is the push\'s, so a fresh beat waits for a new push');
+  } finally {
+    rmSync(remote, { recursive: true, force: true });
+  }
+}));
+
 test('probes: todos counts the top-level folders whose tracked files hold TODO or FIXME', () => withRepo(started, (dir) => {
   assert.equal(probe(dir, 'todos', '2').hint, 'git grep finds TODO or FIXME in no top-level folder here; this needs 2.');
   write(dir, { 'src/a.js': '// TODO: split\n', 'NOTES.md': 'TODO at the top level\n', 'test/deep/b.js': '// FIXME later\n', 'docs/c.md': 'nothing\n', 'tmp/u.js': '// TODO untracked\n' });

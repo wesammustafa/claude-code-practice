@@ -67,9 +67,19 @@ export function inline(text) {
 export const plainText = (text) => inline(text).map((r) => r.text).join('');
 
 // Wraps runs into lines of at most `w` columns. Words are split on spaces
-// outside code; a code span longer than a line is broken anywhere. Returns
+// outside code; a code span longer than a line breaks at its last space that
+// fits, so a command keeps its words whole (r27 E14), unless that costs a
+// row over breaking it anywhere, which a card at 60x20 can't spare. Returns
 // arrays of runs, one per line.
 export function wrapRuns(runs, w) {
+  const atSpaces = wrapAt(runs, w, true);
+  if (!atSpaces.spaced) return atSpaces.lines;
+  const anywhere = wrapAt(runs, w, false).lines;
+  return atSpaces.lines.length <= anywhere.length ? atSpaces.lines : anywhere;
+}
+
+function wrapAt(runs, w, spaces) {
+  let spaced = false;
   const words = [];
   let word = [];
   const push = () => {
@@ -104,10 +114,16 @@ export function wrapRuns(runs, w) {
         head += g;
       }
       if (!head) head = graphemes(text)[0];
+      const sp = spaces ? text.lastIndexOf(' ', head.length) : -1;
+      const rest = sp > 0 ? text.slice(sp + 1) : text.slice(head.length);
+      if (sp > 0) {
+        head = text.slice(0, sp);
+        spaced = true;
+      }
       lines.push([...line, { ...wd[0], text: head }]);
       line = [];
       used = 0;
-      wd = [{ ...wd[0], text: text.slice(head.length) }];
+      wd = [{ ...wd[0], text: rest }];
       ww = wordWidth(wd);
     }
     if (line.length) {
@@ -118,5 +134,5 @@ export function wrapRuns(runs, w) {
     used += ww;
   }
   if (line.length) lines.push(line);
-  return lines.length ? lines : [[]];
+  return { lines: lines.length ? lines : [[]], spaced };
 }

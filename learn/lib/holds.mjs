@@ -121,7 +121,8 @@ export function judge(verify, buf, from = 0) {
     const re = new RegExp(verify.regex);
     const hit = linesOf(buf, text, verify.kind === 'no-match' && from === buf.length ? 0 : from).find((l) => re.test(l));
     const line = hit === undefined ? null : oneRow(hit);
-    if (verify.kind === 'match') return line === null ? { pass: false, hint: from ? C.noNewLine(path) : C.noLine(path) } : { pass: true, evidence: line };
+    // A matched line shows without a list's trailing comma (r27 E12).
+    if (verify.kind === 'match') return line === null ? { pass: false, hint: from ? C.noNewLine(path) : C.noLine(path) } : { pass: true, evidence: line.replace(/,\s*$/, '') };
     return line === null ? { pass: true, evidence: null } : { pass: false, hint: C.stillHas(path, line) };
   }
   let value;
@@ -138,5 +139,6 @@ export function judge(verify, buf, from = 0) {
   if (verify.value !== null && verify.value !== (typeof found === 'string' ? found : JSON.stringify(found))) {
     return { pass: false, hint: C.notValue(path, verify.key, shown(found), verify.value) };
   }
-  return { pass: true, evidence: shown(found) };
+  // The key with its value, so the line says what holds it (r27 E12).
+  return { pass: true, evidence: `${verify.key} = ${shown(found)}` };
 }
