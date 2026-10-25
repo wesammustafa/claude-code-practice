@@ -13,13 +13,12 @@ needs: [jq gh]
 
 ## intro
 - minutes: "60 to 90 minutes, plus run time"
-- why: "one review for every pull request"
+- why: "one review for every pull request, the same on laptops and in CI, with nothing left unbounded"
 - can: "add CI review your team can share"
 - can: "Two parts at once"
 - can: "One review, everywhere"
 - can: "Our plugin, for everyone"
 - can: "A sweep before a release"
-- can: "CI review with limits"
 - payoff: "add CI review your team can share"
 - need: "Node.js LTS, git, `jq`, and the GitHub CLI signed in with `gh auth login`."
 
@@ -104,7 +103,6 @@ needs: [jq gh]
 - verify: self
 - done-label: both pass
 - goal: "Both validations pass: `claude plugin validate` on the marketplace, and on the plugin directory with `--strict`"
-- note: "Through these settings, the plugin reaches every teammate who trusts the repository, but not CI, where a fresh checkout was never trusted"
 - hint: "Test the plugin only after the merges."
 
 ### T4 | The task step 4 of 5 | A sweep before a release
@@ -225,7 +223,7 @@ needs: [jq gh]
 - verify: none
 - note: "Until you tear down, a live credential sits in the copy's secrets. Deleting a secret leaves the credential it held valid"
 - say: The next beat is for the credential you picked in step 5.
-- hint: "Deleting a secret leaves the credential it held valid"
+- hint: "When the check passes, tear down: this is required."
 - beat: do
 - when: T5.1=a Claude Console API key made for the capstone
 - where: browser
@@ -488,6 +486,7 @@ needs: [jq gh]
 - narrow "is a plugin skill": Is the review a skill in the repository, not in the team plugin?
 - narrow "names no skill committed at": Is the skill committed where its name says?
 - hint: "Write the team's review once, as a skill committed in `.claude/skills/<name>/SKILL.md`, and run it in both places."
+- hint: "Through these settings, the plugin reaches every teammate who trusts the repository, but not CI, where a fresh checkout was never trusted"
 
 ### the CI workflow sets a `concurrency` group with `cancel-in-progress: true`, so a new push cancels the review still running
 - narrow "can't read a `concurrency` group without a committed review workflow": Is the review workflow committed?

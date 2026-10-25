@@ -622,6 +622,8 @@ const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'p
 // Skills a question can mark missed that no later lesson's pool recalls, each
 // with its reason.
 const NO_LATER_WARMUP = {
+  'limit-run': 'ticket 27 cut a-4\'s Your turn question, which tested a flag\'s definition, so a-7\'s questions are the first that can mark limit-run, and no lesson after a-7 has warm-ups',
+  commit: 'ticket 27 cut b-3\'s commit question (its Check grades the same choice), so no Beginner question marks commit, and i-1\'s R1, which recalls it, is the first that can: the Intermediate rework decides that warm-up\'s skill',
 };
 
 // The skills a question in `contents` (in PATH order) can mark missed that

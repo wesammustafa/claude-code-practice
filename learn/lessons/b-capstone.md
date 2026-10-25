@@ -12,7 +12,7 @@ badge: Beginner
 
 ## intro
 - minutes: "30 to 60 minutes"
-- why: "the tool says every link resolves and exits with code 0."
+- why: "A missing folder in `linkcheck.json` passes silently: make linkcheck fail on it, test first."
 - can: "fix a reported bug, from plan to commit"
 - payoff: "fix a reported bug, from plan to commit"
 
@@ -26,6 +26,7 @@ badge: Beginner
 - verify: check 5
 - watching: the committed CLAUDE.md
 - goal: "A committed `CLAUDE.md` in your copy that names the test command, `npm test`"
+- note: "A teammate filed the bug report in `capstone/beginner-bug.md` in your practice copy: the tool says every link resolves and exits with code 0. Read it first: its "What should happen" section is what done means."
 - hint: "If you skipped lesson 5: start `claude` in your copy and run `/init`."
 - hint: "In the new `CLAUDE.md`, delete what it says about the course's own files (`checks/`, `learn/`, `capstone/` and `.github/`) and about `npm run check`, `npm run learn` and `npm run test:checks`, including any rule to keep your work off `main`: that rule is for the template repository, not your copy."
 - hint: "Make sure the file names `npm test`, then end that session with `/exit`, so the task starts in a new one."
@@ -39,7 +40,6 @@ badge: Beginner
 - goal: "Reproduce the bug before you fix it."
 - do: "make a new folder outside your practice copy and save `{ "files": ["docs"] }` in it as `linkcheck.json`."
 - hint: "Then run `npm run linkcheck -- <that folder>` in your copy: until the bug is fixed, it prints `All relative links resolve.`"
-- note: "Don't put a `linkcheck.json` in your copy, because the check counts it as a change."
 - win-note: "**Windows:** save the file with `'{ "files": ["docs"] }' | Set-Content <that folder>\linkcheck.json`, not `>`."
 
 ### T2 | The task step 2 of 8 | Start in plan mode
@@ -53,9 +53,8 @@ badge: Beginner
 - beat: do
 - where: claude
 - verify: self
-- goal: "switch to plan mode before your first prompt:"
+- goal: "switch to plan mode before your first prompt"
 - hint: "press `Shift+Tab` until the status bar shows `⏸ plan mode on`, or start the prompt with `/plan`"
-- note: "A teammate filed the bug report in `capstone/beginner-bug.md` in your practice copy:"
 
 ### T3 | The task step 3 of 8 | Plan test-first
 - tier: challenge
@@ -188,6 +187,7 @@ badge: Beginner
 
 ### nothing is left uncommitted
 - narrow "These changes are uncommitted": Which files remain outside the reviewed fix commit?
+- hint: "Don't put a `linkcheck.json` in your copy, because the check counts it as a change."
 - back: T8 Revisit the decision and evidence from this step before trying the same action again.
 
 ## card
