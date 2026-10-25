@@ -55,7 +55,10 @@ const BODY = "\nconst found = await agent('Review each file under src/ for bugs.
 // ---- lessons 4 and 7: the review script and its run ------------------------
 
 const PROMPT = 'Review this staged diff for bugs and missing tests. List each problem as file:line and one sentence, or say there are none.';
-const FLAGS = '--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 --max-budget-usd 0.50';
+const TOOLS = '--tools "Read,Grep,Glob"';
+const HOOKS = `--settings '{"disableAllHooks": true}'`;
+const STRICT = '--strict-mcp-config';
+const FLAGS = `--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" ${TOOLS} ${HOOKS} ${STRICT} --max-turns 5 --max-budget-usd 0.50`;
 const CALL = `claude -p "${PROMPT}" \\\n  ${FLAGS}`;
 const REVIEW = [
   '#!/usr/bin/env bash',
@@ -138,6 +141,19 @@ function reviewWith(...pairs) {
 const ARGS = 'claude_args: --max-turns 5 --allowedTools "Read,Grep,Glob,Bash(git diff *)"';
 const withArgs = (args) => reviewWith([ARGS, `claude_args: ${args}`]);
 const ci = (text) => committed({ [CI]: text });
+
+// CI's review run, as `gh run list --json ...` saves it, in a copy whose
+// origin is CI_ORIGIN; `ciRecord` commits the review workflow and saves the
+// record (text as it is).
+const CI_RECORD = '.practice/a-capstone-ci.json';
+const CI_ORIGIN = 'git@github.com:learner/claude-capstone.git';
+const CI_URL = 'https://github.com/learner/claude-capstone/actions/runs/123456789';
+const CI_RUN = { databaseId: 123456789, status: 'completed', conclusion: 'success', event: 'pull_request', url: CI_URL, workflowName: 'Claude review' };
+const ciRecord = (record) => (dir, helpers) => {
+  ci(CLAUDE_REVIEW)(dir, helpers);
+  git(dir, 'remote', 'add', 'origin', CI_ORIGIN);
+  helpers.write(dir, { [CI_RECORD]: typeof record === 'string' ? record : json(record) });
+};
 
 // The capstone's integration: one committed review skill that the script and
 // CI both run, and a concurrency group that cancels a superseded review.
@@ -232,7 +248,7 @@ export const scenarios = [
   { item: 4, name: 'claude without -p', setup: script(withCall(`claude "${PROMPT}" ${FLAGS}`)) },
   { item: 4, name: 'claude never called', setup: script(edited([`git diff --cached | ${CALL} > "$out"`, 'echo "Claude is off today." >&2; exit 3'])) },
   { item: 4, name: 'nothing after -p', setup: script(withCall(`claude ${FLAGS} "${PROMPT}" -p`)) },
-  { item: 4, name: 'a flag right after -p', setup: script(withCall(`claude -p --max-turns 5 "${PROMPT}" --output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob"`)) },
+  { item: 4, name: 'a flag right after -p', setup: script(withCall(`claude -p --max-turns 5 "${PROMPT}" --output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" ${TOOLS} ${HOOKS} ${STRICT}`)) },
   { item: 4, name: 'an empty prompt', setup: script(withCall(`claude -p "" ${FLAGS}`)) },
   { item: 4, name: 'no JSON asked for', setup: script(withFlags(FLAGS.replace('--output-format json ', ''))) },
   { item: 4, name: 'no format after the flag', setup: script(withFlags(`${FLAGS.replace('--output-format json ', '')} --output-format`)) },
@@ -251,6 +267,15 @@ export const scenarios = [
   { item: 4, name: 'no number after the turn cap', setup: script(withFlags(`${FLAGS.replace('--max-turns 5 ', '')} --max-turns`)) },
   { item: 4, name: 'a turn cap in words', setup: script(withFlags(FLAGS.replace('--max-turns 5', '--max-turns five'))) },
   { item: 4, name: 'a turn cap above 10', setup: script(withFlags(FLAGS.replace('--max-turns 5', '--max-turns 25'))) },
+  { item: 4, name: 'no --tools', setup: script(withFlags(FLAGS.replace(`${TOOLS} `, ''))) },
+  { item: 4, name: 'Bash kept by --tools', setup: script(withFlags(FLAGS.replace(TOOLS, '--tools "Read,Grep,Glob,Bash"'))) },
+  { item: 4, name: 'a read tool left out of --tools', setup: script(withFlags(FLAGS.replace(TOOLS, '--tools "Read,Grep"'))) },
+  { item: 4, name: 'nothing after --tools', setup: script(withFlags(`${FLAGS.replace(`${TOOLS} `, '')} --tools`)) },
+  { item: 4, name: 'hooks left on', setup: script(withFlags(FLAGS.replace(`${HOOKS} `, ''))) },
+  { item: 4, name: 'nothing after --settings', setup: script(withFlags(`${FLAGS.replace(`${HOOKS} `, '')} --settings`)) },
+  { item: 4, name: 'a settings file in place of inline JSON', setup: script(withFlags(FLAGS.replace(HOOKS, '--settings .claude/review-settings.json'))) },
+  { item: 4, name: 'settings JSON that leaves hooks on', setup: script(withFlags(FLAGS.replace(HOOKS, `--settings '{"disableAllHooks": false}'`))) },
+  { item: 4, name: 'no --strict-mcp-config', setup: script(withFlags(FLAGS.replace(`${STRICT} `, ''))) },
 
   // 5: what the script does around its call.
   { item: 5, name: 'the script not committed', files: { [SCRIPT]: REVIEW } },
@@ -444,4 +469,20 @@ export const scenarios = [
   { item: 15, name: 'no concurrency', setup: ci(CI_SKILL.replace(GROUP, '')) },
   { item: 15, name: 'a group that cancels nothing', setup: ci(CI_SKILL.replace(GROUP, 'concurrency: review\n')) },
   { item: 15, name: 'a job group that cancels nothing', setup: ci(CI_SKILL.replace(GROUP, '').replace('    runs-on: ubuntu-latest', '    runs-on: ubuntu-latest\n    concurrency: { group: review }')) },
+
+  // 16: the saved record of CI's review run.
+  { item: 16, name: 'no record saved', setup: ci(CLAUDE_REVIEW) },
+  { item: 16, name: 'a record that is no JSON', setup: ciRecord('Run 1 passed.\n') },
+  { item: 16, name: 'a record with no runs', setup: ciRecord([]) },
+  { item: 16, name: 'a record without the fields', setup: ciRecord([{ databaseId: 1, url: CI_URL }]) },
+  { item: 16, name: 'a record and no review workflow', setup: (dir, helpers) => { helpers.write(dir, { 'README.md': '# linkcheck\n', [CI_RECORD]: json([CI_RUN]) }); helpers.commit(dir, 'Start'); } },
+  { item: 16, name: 'only another workflow\'s runs', setup: ciRecord([{ ...CI_RUN, workflowName: 'Progress', event: 'push' }]) },
+  { item: 16, name: 'no run a pull request started', setup: ciRecord([{ ...CI_RUN, event: 'workflow_dispatch' }]) },
+  { item: 16, name: 'a run with no URL', setup: ciRecord([{ ...CI_RUN, url: undefined }]) },
+  { item: 16, name: 'a run in another repository', setup: ciRecord([{ ...CI_RUN, url: 'https://github.com/someone/else/actions/runs/1' }]) },
+  { item: 16, name: 'a run still in progress', setup: ciRecord([{ ...CI_RUN, status: 'in_progress', conclusion: '' }]) },
+  { item: 16, name: 'a run a newer push cancelled', setup: ciRecord([{ ...CI_RUN, conclusion: 'cancelled' }]) },
+  { item: 16, name: 'a failed run', setup: ciRecord([{ ...CI_RUN, conclusion: 'failure' }]) },
+  { item: 16, name: 'a run that timed out', setup: ciRecord([{ ...CI_RUN, conclusion: 'timed_out' }]) },
+  { item: 16, name: 'a skipped run', setup: ciRecord([{ ...CI_RUN, conclusion: 'skipped' }]) },
 ];

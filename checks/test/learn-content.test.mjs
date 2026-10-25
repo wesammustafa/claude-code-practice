@@ -1194,7 +1194,7 @@ function sessionEvents(b) {
 // purpose, each with its reason.
 const LEARNERS_ORDER = 'the capstone leaves the order of its tasks to the learner, so the file can\'t tell whether step 4\'s session is still open in that terminal; ticket 27 left it';
 const TERMINAL_WHILE_OPEN = {
-  'a-capstone T5.2': LEARNERS_ORDER,
+  'a-capstone T5.3': LEARNERS_ORDER,
   'a-capstone C.0': LEARNERS_ORDER,
   'a-capstone D1.0': LEARNERS_ORDER,
   'a-capstone D2.0': LEARNERS_ORDER,
@@ -1354,6 +1354,20 @@ test('card: a beat that runs /diff carries the page\'s note that the panel may a
   for (const l of Object.values(parsed)) for (const s of l.steps) s.beats.forEach((b, n) => {
     if (b.lines.some((x) => x.key === 'run' && x.text === '/diff') && !b.lines.some((x) => /typing `\/diff` closes it/.test(x.text))) off.push(placeOf(l.lesson, s, n, 'run', '/diff'));
   });
+  assert.deepEqual(off, []);
+});
+
+test('intro: every can line reads after "You\'ll be able to" (27, pattern T)', () => {
+  // A can line cut from the middle of the Goal starts with a third-person
+  // verb ("reads its JSON result"); a capitalised noun phrase ("Two parts at
+  // once") is a title, not a can-do. A capitalised verb with an object, as
+  // a-7's "Bound a real task", reads.
+  const off = [];
+  for (const l of Object.values(parsed)) {
+    for (const c of l.intro.can) {
+      if (/^[a-z]+[^s\W]s\b/.test(c) || (/^[A-Z][a-z]*(?: [a-z]+)*,? [a-z]/.test(c) && !/^[A-Z][a-z]+ (?:a|an|the|your)\b/.test(c))) off.push(`${l.lesson}: ${c}`);
+    }
+  }
   assert.deepEqual(off, []);
 });
 

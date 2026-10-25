@@ -1132,6 +1132,12 @@ test('a repeat compacts below 24 rows only: the climb staircase becomes one row,
   }
 });
 
+// Intros short enough that 60x20 keeps the staircase whole, each with its
+// reason.
+const STAIRS_WHOLE_AT_60X20 = {
+  'a-capstone intro': 'one can line and one tier (every step CHALLENGE): the staircase is one row, and it fits',
+};
+
 test('every intro opens with its Why line, in the page\'s words, at 60x20 and 80x24: at 60x20 the staircase compacts first', () => {
   const stairs = (lines) => Object.values(C.tierHelp).filter((x) => lines.some((l) => l.includes(x)));
   for (const [label, state] of endScreens().filter(([l]) => l.endsWith('intro'))) {
@@ -1150,7 +1156,7 @@ test('every intro opens with its Why line, in the page\'s words, at 60x20 and 80
         assert.ok(flatText(lines.slice(at, at + 2).join('')).startsWith(flatText(`Why ${why}`)), where);
         // At 80x24 the staircase keeps its rows; at 60x20 it is one row.
         const tiers = stairs(render(state, { cols: 120, rows: 40 }, t).map(strip)).length;
-        assert.equal(stairs(lines).length, cols === 80 ? tiers : 0, where);
+        assert.equal(stairs(lines).length, cols === 80 || STAIRS_WHOLE_AT_60X20[label] ? tiers : 0, where);
       }
     }
   }
@@ -1769,11 +1775,16 @@ const CUT_AT_60X20 = {
   'a-3 Y5.2': { why: 'in ASCII, the long check item and the back line: the title and the say line give way', ascii: ['hint 2', 'hint 3', 'hint 4', 'hint 5', 'hint 6', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'hint 5 (skipped)', 'hint 6 (skipped)'] },
   'a-4 W1.0': { why: 'the claude -p code block under its hint, or eased to HINTED the "A little more help" line: the goal and code lines give way (the hint screen hides the title too; both pre-existing at 574beed)', both: ['hint 1', 'hint 1 (skipped)', 'eased open', 'eased open (skipped)'] },
   'a-4 W3.0': { why: 'eased to GUIDED, the "A little more help" line: the quoted outcome under the run line gives way (pre-existing at 574beed)', both: ['eased open', 'eased open (skipped)'] },
+  'a-5 Y3.0': { why: 'in ASCII, the run-record note (TRIAGE-4 a-5 #11) above the two bottom commands: its last row gives way', ascii: ['bottom'] },
+  'a-5 Y4.0': { why: 'the "Don\'t tear down first" note (TRIAGE-4 a-5 #11) under the long check item: its last row gives way to the hint box (played through; opened from the map it fits)', both: ['hint 1'] },
+  'a-5 W1.0': { why: 'the subscription-token line under the goal and the code window (TRIAGE-3 a-5 #3): once the watching line or the "A little more help" line joins, its last rows give way; the opening screen shows it whole', both: ['waiting', 'waiting (skipped)', 'eased open', 'eased open (skipped)'] },
+  'a-5 Y1.0': { why: 'the checkout-and-Node.js criterion as a note under the long goal (27, pattern M): under the hint box, or eased with the "A little more help" line, its last rows give way; the opening screen shows it whole', both: ['hint 1', 'hint 1 (skipped)', 'eased open', 'eased open (skipped)'] },
+  'a-6 Y4.0': { why: 'in ASCII, the .gitignore criterion as a note under the hint box: its last row gives way', ascii: ['hint 1', 'hint 1 (skipped)'] },
   'a-6 W4.0': { why: 'opened from the map at GUIDED, the commit command shows on the card and again as the bottom rung', both: ['bottom (skipped)'] },
-  'a-7 W3.0': { why: 'a-7\'s long check item and hint ladder: the goal and the eased line give way, and opened from the map, the commands on the card too', both: ['hint 1', 'hint 3', 'fail (skipped)', 'hint 1 (skipped)', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'bottom (skipped)'], ascii: ['hint 2'] },
+  'a-7 W3.0': { why: 'a-7\'s long check item and hint ladder: the goal and the eased line give way, and opened from the map, the commands on the card too', both: ['hint 1', 'fail (skipped)', 'hint 1 (skipped)', 'hint 2 (skipped)', 'hint 3 (skipped)', 'hint 4 (skipped)', 'bottom (skipped)'] },
   'a-7 W4.1': { why: 'opened from the map at GUIDED, the long runner command shows on the card and again as the bottom rung', both: ['hint 1 (skipped)', 'bottom (skipped)'] },
-  'a-7 Y3.1': { why: 'in ASCII, the long check item\'s FAIL row: the Done when line gives way', ascii: ['hint 1', 'hint 1 (skipped)'] },
-  'a-7 C.0': { why: 'a-7\'s long check items under the hint ladder: the run line and the note give way', both: ['hint 1', 'hint 1 (skipped)'], ascii: ['hint 2', 'hint 2 (skipped)'] },
+  'a-7 C.0': { why: 'a-7\'s long check items under the hint ladder: the run line and the note give way', both: ['hint 1', 'hint 1 (skipped)'] },
+  'a-capstone T1.2': { why: 'the two notes (TRIAGE-4 a-capstone #3) under the long check item: their last rows give way to the hint box and the bottom command', both: ['hint 1', 'hint 2', 'bottom', 'hint 1 (skipped)', 'hint 2 (skipped)', 'bottom (skipped)'] },
   'a-capstone T4.0': { why: 'in ASCII, under the hint box: the note\'s last row and "No commands this time" give way', ascii: ['hint 1', 'hint 1 (skipped)'] },
 };
 
@@ -2344,7 +2355,9 @@ const WHY_DROPS = {
     'a-1 W5.0 open', 'a-1 W5.0 waiting', 'a-1 W5.0 fail', 'a-1 W5.0 done', 'a-2 W2.0 open', 'a-2 W2.0 wrong', 'a-2 W2.0 answered',
     // a-3's `/goal` condition and a-4's `claude -p` commands: each is one
     // long line of the page.
-    'a-3 W2.0 open', 'a-4 W2.1 open', 'a-4 W2.1 waiting', 'a-4 W2.1 hint 1', 'a-4 W2.1 done', 'a-4 W3.0 open',
+    'a-3 W2.0 open', 'a-4 W2.1 open', 'a-4 W2.1 waiting', 'a-4 W2.1 done', 'a-4 W3.0 open',
+    // a-6's settings block with the line that says where it goes.
+    'a-6 W3.0 open', 'a-6 W3.0 waiting', 'a-6 W3.0 done',
     'b-2 W5.0 open (skipped)', 'b-3 W2.0 open (skipped)', 'b-3 W2.0 hint 1 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-3 W5.0 open (skipped)',
     'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
     'b-5 W4.0 checking, hint open (skipped)', 'i-1 W4.2 open (skipped)', 'i-1 W4.2 hint 1 (skipped)',
@@ -2356,7 +2369,8 @@ const WHY_DROPS = {
     'i-8 W3.0 hint 1 (skipped)', 'i-8 W3.1 open (skipped)',
     'a-1 W5.0 open (skipped)', 'a-1 W5.0 waiting (skipped)', 'a-1 W5.0 fail (skipped)', 'a-1 W5.0 done (skipped)',
     'a-2 W2.0 open (skipped)', 'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)',
-    'a-3 W2.0 open (skipped)', 'a-4 W2.1 open (skipped)', 'a-4 W2.1 waiting (skipped)', 'a-4 W2.1 hint 1 (skipped)', 'a-4 W2.1 done (skipped)', 'a-4 W3.0 open (skipped)', 'W3 opening',
+    'a-3 W2.0 open (skipped)', 'a-4 W2.1 open (skipped)', 'a-4 W2.1 waiting (skipped)', 'a-4 W2.1 done (skipped)', 'a-4 W3.0 open (skipped)',
+    'a-6 W3.0 open (skipped)', 'a-6 W3.0 waiting (skipped)', 'a-6 W3.0 done (skipped)', 'W3 opening',
     'i-5 W3.0 hint 1', 'b-3 W1.2 bottom (skipped)', 'i-5 W3.0 hint 1 (skipped)'],
   '80x24': ['W3 hint 2'],
 };
