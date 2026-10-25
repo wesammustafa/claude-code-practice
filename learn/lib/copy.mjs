@@ -346,7 +346,9 @@ export const C = {
   savedAt: (label, n, m) => `Saved: ${label}, step ${n} of ${m}. Run npm run learn to pick up where you left off.`,
   // Where the lesson's work folder is another: progress stays in the copy.
   savedAtCopy: (label, n, m, root) => `Saved: ${label}, step ${n} of ${m}. Run npm run learn in your ${TERMS.practiceCopy}, ${root}, to pick up where you left off.`,
-  savedLater: 'Your place is saved once .practice/ exists (lesson 1, step 3).',
+  // Beginner lesson 1 no longer makes .practice/; lesson 2 does, so name the
+  // command rather than a step.
+  savedLater: `Your place is saved once your ${TERMS.practiceCopy} has a .practice/ folder: run mkdir .practice there.`,
   plainIntro: 'npm run learn shows one step at a time in a terminal. Run it in a terminal window to use it.',
   usage: 'Usage: npm run learn -- [--calm] [--plain] [--dir <folder>]. --calm keeps the screen still; --plain draws plain symbols with no color; --dir sets the work folder of the level the app opens on.',
   noFolder: (path) => `No folder at ${path}.`,

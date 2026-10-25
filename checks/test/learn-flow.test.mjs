@@ -3412,6 +3412,11 @@ test('r27 a-5: a work folder whose git doesn\'t ignore .practice/ is told how to
   assert.ok(C.noPractice.includes('.git/info/exclude'), C.noPractice);
 });
 
+test('r27: the goodbye with no .practice/ yet gives the command, not a Beginner lesson 1 step that no longer makes the folder', () => {
+  assert.ok(!/lesson 1/.test(C.savedLater), C.savedLater);
+  assert.ok(C.savedLater.includes('mkdir .practice'), C.savedLater);
+});
+
 test('r27 E16: a fresh push beat that sees an earlier push says everything is pushed and it waits for the next push', () => {
   assert.deepEqual(C.stalePush('git status'), ['Watching ', 'git status', ": everything here is already pushed, so I'll turn green after your next push."]);
   const d = intoY1('probe pushed fresh');
