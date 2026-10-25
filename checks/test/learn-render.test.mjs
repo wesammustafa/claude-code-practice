@@ -2143,10 +2143,10 @@ test('a Windows note is never cut: on Windows at 60x20 and 80x24 the whole note 
     'b-2 W2.1': ['open'],
     'b-capstone T1.2': ['open', 'hint 1'],
   });
-  // A code span wider than the line breaks mid-word (wrapRuns), so at 60x20
-  // the capstone's Set-Content path splits across two lines.
-  assert.deepEqual([...split], ['b-capstone T1.2 open at 60x20', 'b-capstone T1.2 hint 1 at 60x20', 'b-capstone T1.2 open (skipped) at 60x20',
-    'b-capstone T1.2 hint 1 (skipped) at 60x20']);
+  // A code span wider than the line breaks at a space where that costs no
+  // row (wrapRuns, r27 E14), so at 60x20 the capstone's Set-Content command
+  // keeps every word whole, where it used to split its path.
+  assert.deepEqual([...split], []);
   // The kept note leaves a toast no room on b-1's Check at 60x20, so the toast
   // goes (spec 3.1: a toast gives way to kept rows).
   assert.deepEqual([...noToast], ['b-1 C.0 hint 2 at 60x20', 'b-1 C.0 hint 2 (skipped) at 60x20']);
@@ -3712,9 +3712,12 @@ test('a reading beat\'s not-yet line is shown whole, and its pass shows what the
       tryNow(json, '.claude/settings.json', null);
       tryNow(json, '.claude/settings.json', '{"permissions": {"deny": ["Read(./.env)"]}}');
       assert.equal(json.state.beat.status, 'done');
-      // Beside the burst, on one line or, where that is too long, two.
+      // Beside the burst, on one line or, where that is too long, two: the
+      // key and its value (r27 E12), cut at 60x20 where the burst leaves
+      // too little room for the value.
       const words = prose(json.state, size, t);
-      assert.ok(words.includes('.claude/settings.json holds ["Read(./.env)"]') || (words.includes('.claude/settings.json') && words.includes('holds ["Read(./.env)"]')), `${where}: ${words}`);
+      const full = 'holds permissions.deny = ["Read(./.env)"]';
+      assert.ok(words.includes(`.claude/settings.json ${full}`) || (words.includes('.claude/settings.json') && (words.includes(full) || (size[0] === 60 && words.includes('holds permissions.deny = ')))), `${where}: ${words}`);
     }
   }
 });
@@ -3728,7 +3731,7 @@ test('a reading beat already passed when its step opens says "Already done, so t
       const where = `${size.join('x')} ${caps.unicode ? 'unicode' : 'ascii'}`;
       for (const [verify, path, text, shows] of [
         ['file .practice/b-2-plan.txt', '.practice/b-2-plan.txt', 'Plan the change\n', ['.practice/b-2-plan.txt', 'holds Plan the change']],
-        [`json ${settings} permissions.deny`, settings, '{"permissions": {"deny": ["Read(./.env)"]}}', [settings, 'holds ["Read(./.env)"]']],
+        [`json ${settings} permissions.deny`, settings, '{"permissions": {"deny": ["Read(./.env)"]}}', [settings, 'holds permissions.deny = ["Read(./.env)"]']],
         [`match ${skill} ^name:`, skill, '---\nname: tdd\n---\n', [skill, 'holds name: tdd']],
         [`no-match ${skill} \\bTODO\\b`, skill, '---\nname: tdd\n---\n', []],
       ]) {

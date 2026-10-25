@@ -4,6 +4,7 @@
 // Advanced capstone to the new copy each asks for.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, delimiter, dirname, join, relative } from 'node:path';
@@ -846,7 +847,7 @@ test('main: a json beat reads its file in the work folder, with no process, and 
     writeFileSync(join(mine, '.practice', 'i-1.json'), '{"name": "tdd"}');
     assert.ok(await until(() => {
       app.onChanges[mine]();
-      return words().includes('holds tdd');
+      return words().includes('holds name = tdd');
     }), app.frame());
     // The only check run is the lesson's whole check, which the resume screen asks for.
     assert.ok(app.ran.every((r) => r.items === null), `a check child ran for the beat: ${JSON.stringify(app.ran)}`);
@@ -882,13 +883,15 @@ test('main: a git-only beat asks git status in the work folder, which lists each
 });
 
 test('main: a note about the work folder goes once the learner sets the folder right', async () => {
-  // A repository whose .practice/ git would ignore, but that has none yet.
+  // A repository whose git doesn't ignore .practice/ yet (r27 a-5: a folder
+  // it ignores is fine before .practice/ exists).
   const mine = repo();
+  writeFileSync(join(mine, '.git', 'info', 'exclude'), '');
   const app = inCopy({ folders: () => ({ intermediate: mine }) });
-  const noted = () => app.frame().replace(/\s+/g, ' ').includes('has no .practice/ folder');
+  const noted = () => app.frame().replace(/\s+/g, ' ').includes("Git doesn't ignore .practice/");
   try {
     assert.ok(await until(noted), app.frame());
-    mkdirSync(join(mine, '.practice'));
+    writeFileSync(join(mine, '.git', 'info', 'exclude'), '.practice/\n');
     assert.ok(await until(() => {
       app.onChanges[mine]();
       return !noted();
@@ -904,7 +907,8 @@ test('probeFolder says why git could not look, apart from a folder that is no re
   const mine = repo();
   const PATH = process.env.PATH;
   try {
-    assert.deepEqual(await probeFolder(mine), { path: mine, missing: false, git: true, gitBroken: null, practice: false });
+    // repo() ignores .practice/, so it counts before the folder exists (r27 a-5).
+    assert.deepEqual(await probeFolder(mine), { path: mine, missing: false, git: true, gitBroken: null, practice: true });
     mkdirSync(join(mine, '.practice'));
     assert.equal((await probeFolder(mine)).practice, true);
     rmSync(join(mine, '.git'), { recursive: true, force: true });
@@ -916,6 +920,31 @@ test('probeFolder says why git could not look, apart from a folder that is no re
     rmSync(mine, { recursive: true, force: true });
   }
   assert.equal((await probeFolder(join(mine, 'gone'))).missing, true);
+});
+
+// r27 a-5: a new copy made from the template ignores .practice/ in its
+// .gitignore, but the folder isn't there until a step makes it.
+test('probeFolder: a folder whose git ignores .practice/ is fine before .practice/ exists; one git doesn\'t ignore it in, or a .practice file, is not', async () => {
+  const mine = mkdtempSync(join(tmpdir(), 'learn-probe-'));
+  const git = (...args) => execFileSync('git', args, { cwd: mine });
+  try {
+    git('init', '-q');
+    git('config', 'core.excludesFile', '/dev/null');
+    assert.equal((await probeFolder(mine)).practice, false, 'nothing ignores it');
+    writeFileSync(join(mine, '.gitignore'), '.practice/\nnode_modules/\n');
+    assert.deepEqual(await probeFolder(mine), { path: mine, missing: false, git: true, gitBroken: null, practice: true });
+    mkdirSync(join(mine, '.practice'));
+    assert.equal((await probeFolder(mine)).practice, true, 'and once it exists');
+    rmSync(join(mine, '.practice'), { recursive: true });
+    writeFileSync(join(mine, '.practice'), 'a file');
+    assert.equal((await probeFolder(mine)).practice, false, 'a file named .practice holds no saved files');
+    rmSync(join(mine, '.practice'));
+    writeFileSync(join(mine, '.gitignore'), 'node_modules/\n');
+    mkdirSync(join(mine, '.practice'));
+    assert.equal((await probeFolder(mine)).practice, false, 'there, but git would list what it holds');
+  } finally {
+    rmSync(mine, { recursive: true, force: true });
+  }
 });
 
 // main() with no terminal: it prints every lesson's check as plain text.
@@ -1462,6 +1491,48 @@ test('worked: copy keeps each step in its own folder through back and forward, a
   assert.deepEqual([stepOf(again.state).id, askedIn(again)], ['W1', COPY]);
 });
 
+test('r27 E15: a lesson in a new copy shows the page\'s check command, without --dir, and says to run it in the new copy; a level folder keeps --dir', () => {
+  const passAll = (d, id, dir) => d.send({ type: 'check', lesson: id, items: lessonOf(d.state).items.map((text, index) => ({ index, text, pass: true, hint: '' })), dir });
+  const a5 = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore('a-5'), 'a-5': { step: 'C', beat: 0, warm: [], levels: ['challenge'] } }, folders: { 'a-5': ACTIONS } } });
+  a5.key('enter');
+  assert.deepEqual([a5.state.lesson, stepOf(a5.state).id, folderHere(a5.state)], ['a-5', 'C', ACTIONS]);
+  passAll(a5, 'a-5', ACTIONS);
+  const n = lessonOf(a5.state).items.length;
+  for (const size of SIZES) {
+    const text = flat(screen(a5.state, size));
+    assert.ok(text.includes(`npm run check -- a-5 ${C.checkPasses(n, n)[0]}`), `${size}: ${text}`);
+    assert.ok(!text.includes('--dir'), `${size}: ${text}`);
+    assert.ok(text.includes(C.runItToo(C.inNewCopy)), `${size}: ${text}`);
+  }
+  // The learner's own repository has no checks/: its card keeps --dir and the copy.
+  const mine = atWorked({ intermediate: MINE }, { 'i-1': { step: 'C', beat: 0, done: ['W1', 'W2', 'W3', 'Y1', 'Y2', 'Y3'], levels: ['hinted', 'challenge'] } });
+  mine.key('enter');
+  assert.equal(stepOf(mine.state).id, 'C');
+  passAll(mine, 'i-1', MINE);
+  const text = flat(screen(mine.state, [80, 24]));
+  assert.ok(text.includes(`npm run check -- i-1 --dir ${MINE}`), text);
+  assert.ok(text.includes(C.runItToo(C.inCopy)), text);
+});
+
+test('r27 E10: a clean tree is named for where it is: the learner\'s repository in a work folder, the practice copy in the copy', () => {
+  assert.equal(C.cleanRepo, 'Your repository is clean: nothing to commit.');
+  for (const [folders, dir, says, not] of [[{ intermediate: MINE }, MINE, C.cleanRepo, C.cleanCopy], [{ intermediate: COPY }, COPY, C.cleanCopy, C.cleanRepo]]) {
+    const d = atWorked(folders, { 'i-1': { step: 'Y3', beat: 0, done: ['W1', 'W2', 'W3', 'Y1', 'Y2'], levels: ['hinted', 'challenge'] } });
+    d.key('enter');
+    assert.deepEqual([stepOf(d.state).id, beatOf(d.state).verify.kind, askedIn(d)], ['Y3', 'git-clean', dir]);
+    d.send({ type: 'git', paths: ['src/a.js'], dir });
+    d.send({ type: 'git', paths: [], dir });
+    assert.equal(d.state.beat.status, 'done');
+    // The burst beside it may wrap the line: its words up to the colon.
+    const head = (line) => line.slice(0, line.indexOf(':') + 1);
+    for (const size of SIZES) {
+      const text = flat(screen(d.state, size));
+      assert.ok(text.includes(head(says)), `${dir} at ${size}: ${text}`);
+      assert.ok(!text.includes(head(not)), `${dir} at ${size}: ${text}`);
+    }
+  }
+});
+
 test('worked: copy where the work folder is the practice copy itself, or not chosen yet, runs every step in the copy, as before', () => {
   for (const folders of [{ intermediate: COPY }, null]) {
     const d = atWorked(folders);
@@ -1668,7 +1739,7 @@ worked: copy
     writeFileSync(join(mine, '.practice', 'i-1.json'), '{"name": "tdd"}');
     assert.ok(await until(() => {
       app.onChanges[app.copy]();
-      return words().includes('holds copy');
+      return words().includes('holds name = copy');
     }), app.frame());
     // On to Y1, past its level-up: the work folder is watched, and its file read.
     app.type('\r');
@@ -1677,7 +1748,7 @@ worked: copy
     assert.ok(await until(() => app.watched.includes(mine)), `${app.watched}\n${app.frame()}`);
     assert.ok(await until(() => {
       app.onChanges[mine]();
-      return words().includes('holds tdd');
+      return words().includes('holds name = tdd');
     }), app.frame());
     // b: back in the copy, the work folder's watcher closes.
     app.type('b');

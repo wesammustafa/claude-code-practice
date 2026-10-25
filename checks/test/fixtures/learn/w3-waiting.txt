@@ -15,9 +15,9 @@
   │
   │  Done when .practice/version.txt holds a line such as X.Y.Z (Claude Code).
   │
-  │  👀 Watching .practice/version.txt. I'll turn green the moment it's right.
+  │  👀 Part of this check takes a while, so it runs only when you ask: press r
+  │  when you are ready.
   ╰───────────────────────────────────────────────────────────────────────────────
-
 
 
 

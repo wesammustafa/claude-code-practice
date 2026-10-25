@@ -54,7 +54,7 @@ export const C = {
   steps: (n) => `${n} steps`,
   stepOf: (n, m) => `step ${n} of ${m}`,
 
-  where: { terminal: 'in your other terminal', claude: 'in Claude Code', 'claude-2': 'in your second Claude Code', shell: 'in a third terminal', editor: 'in your editor', browser: 'in your browser', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
+  where: { terminal: 'in your other terminal', claude: 'in Claude Code', 'claude-2': 'in your second Claude Code', shell: 'in a terminal beside Claude Code', editor: 'in your editor', browser: 'in your browser', predict: 'guess first', ask: 'quick question', type: 'from memory', self: 'self-check' },
   // A lesson that numbers its terminals as its page does (ticket 103).
   terminalN: (n) => `in terminal ${n}`,
   // A long wait's card, where the page gives no words for it (ticket 103):
@@ -95,6 +95,7 @@ export const C = {
   doneEachPart: "You've done each part before.",
   watching: (what) => [`Watching `, what, ". I'll turn green the moment it's right."],
   staleWatch: (what) => [`Watching `, what, ". It's from an earlier step: I'll turn green once it changes."],
+  stalePush: (what) => ['Watching ', what, ": everything here is already pushed, so I'll turn green after your next push."],
   fileEmpty: (path) => `${path} has no line in it yet.`,
   // What a file holds, for a beat that reads it (ticket 87): the not-yet lines.
   noFile: (path) => `${path} is not there yet.`,
@@ -121,6 +122,8 @@ export const C = {
   // A look at part of the tree has git list each file, where git status
   // alone lists a new folder whole: these lines name files, not git status.
   changedUnder: (n, under) => `${n} file${n === 1 ? '' : 's'} changed under ${under}:`,
+  // A git-clean scope that is one file, and the one change (r27 E13).
+  fileUncommitted: (path) => `${path} has uncommitted changes.`,
   checking: (what) => (what ? `Checking ${what}…` : 'Checking…'),
   // How far a run of several items has got, from the check child's reports.
   checkingItem: (n, m) => `Checking item ${n} of ${m}…`,
@@ -149,6 +152,8 @@ export const C = {
   stepDone: (n) => `Step ${n} done!`,
   holds: (path) => [path, ' holds '],
   cleanCopy: `Your ${TERMS.practiceCopy} is clean: nothing to commit.`,
+  // In the learner's own repository, a work folder that isn't the copy.
+  cleanRepo: 'Your repository is clean: nothing to commit.',
   cleanUnder: (under) => `git status lists nothing under ${under}.`,
   // What changed, for a beat that needs git status to list something.
   changedShows: (shown, more) => `Changed: ${shown}${more ? ` and ${more} more` : ''}`,
@@ -216,6 +221,7 @@ export const C = {
   // where the level's work folder isn't the copy (ticket 86).
   inFolder: (name) => `in ${name}`,
   inCopy: `in your ${TERMS.practiceCopy}`,
+  inNewCopy: `in your ${TERMS.newCopy}`,
 
   levelUp: 'LEVEL UP',
   toHinted: ["You've done each of these once, with every command shown.", 'From here you get the goal. Press h when you want a hint.'],
@@ -276,7 +282,7 @@ export const C = {
   // The notes name no folder: the header and the Work folder line do, so a
   // long name costs no row.
   notGit: `git says this ${TERMS.workFolder} is not a git repository. Press f to pick another folder.`,
-  noPractice: `This ${TERMS.workFolder} has no .practice/ folder that git ignores: set one up as Beginner lesson 1 shows.`,
+  noPractice: `Git doesn't ignore .practice/ in this ${TERMS.workFolder}, where lessons save their files: add a .practice/ line to its .git/info/exclude or .gitignore.`,
   folderGitBroken: (error) => `git couldn't look at this ${TERMS.workFolder}: ${error}.`,
   // A new copy given as this practice copy, in the prompt or with --dir.
   newCopyIsCopy: `That is this ${TERMS.practiceCopy}. Give the folder of your ${TERMS.newCopy} of the template.`,

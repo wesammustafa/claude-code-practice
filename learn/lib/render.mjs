@@ -6,12 +6,12 @@ import { banner, bannerWidth, burst, confetti, pip, PIP_FACE, PIP_RASTER, pipFac
 import { C } from './copy.mjs';
 import { bootPhases, cardFace, greetFace, NOTCHES, oneShot, phases, REST, SHOTS, TIMING } from './motion.mjs';
 import {
-  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, isLastBeat as lastShown, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tearDownLeft, tierOf, tiersOf, toFinish, tryFirst, unmet, whileRunsOf,
+  answerKey, asksFolder, asksHere, asStarted, authoredTier, backOffered, beatOf, cardOf, checkOnlyWords, contentOf, copyable, doneBefore, folderHere, folderKey, folderOf, folderOptions, folderProblem, hintAvailable, hintStatus, introOptions, isDone, isLastBeat as lastShown, lessonNumber, lessonOf, levelFolder, levelKey, levelLessons, levelOf, levelsOf, missingNeeds, moreHelpGives, nextLessonOf, offered, pickWarmups, pinOf, recallOf, repoNeed, rungsOf, stepNote, stepOf, stepsOf, tearDownLeft, tierOf, tiersOf, toFinish, tryFirst, unmet, whileRunsOf,
 } from './flow.mjs';
 import { cut, graphemes, inline, pad, plainText, strip, width, wrapRuns } from './text.mjs';
 import { tierLabel, tierPill, TIER_STYLE } from './theme.mjs';
 import { mix, ruleTiers, scaleMix, TIERS } from './tiers.mjs';
-import { COMMANDS_URL, GIT, indexLevel, indexUrl, OWN_PARTS, READS } from './content.mjs';
+import { COMMANDS_URL, GIT, indexLevel, indexUrl, OWN_PARTS, READS, SLOW } from './content.mjs';
 import { cleanListed, needsChange } from './status.mjs';
 
 export const MIN = { cols: 60, rows: 20 };
@@ -487,8 +487,10 @@ const withRoot = (text, root, win32, dir) => {
 function chip(t, cmd, where, w) {
   // A browser has no prompt (ticket 103): what it shows is an address. A
   // command that starts Claude Code is typed at the shell, so it keeps the
-  // shell's prompt on a Claude Code beat.
-  const prompt = ['claude', 'claude-2'].includes(where) && !/^claude(\s|$)/.test(cmd) ? '›' : where === 'browser' ? ' ' : t.caps.win32 ? '>' : '$';
+  // shell's prompt on a Claude Code beat. A slash command is typed in Claude
+  // Code on any beat, an editor beat's too (r27 E8); a path such as /tmp/x
+  // is not one, since a command's name ends at a space or the line's end.
+  const prompt = (['claude', 'claude-2'].includes(where) && !/^claude(\s|$)/.test(cmd)) || /^\/[a-z][a-z-]*(?:\s|$)/.test(cmd) ? '›' : where === 'browser' ? ' ' : t.caps.win32 ? '>' : '$';
   const room = Math.max(10, w - 4);
   // Lines break at spaces, so a prompt keeps its words whole; only a word
   // longer than the line, such as a long path, is split.
@@ -678,10 +680,12 @@ function lessonHead(ctx, right, rightText) {
 }
 
 // A card's where pill: its emoji, its words and its place, if any, and the
-// place alone, for a top row too narrow for all three.
-const whereOf = (t, emoji, words, place) => ({
+// place alone, for a top row too narrow for all three. `brief` is shorter
+// words for the same window, for a top row too narrow for the long ones.
+const whereOf = (t, emoji, words, place, brief = null) => ({
   where: `${t.lead(emoji)}${words}${place ? `, ${place}` : ''}`,
   short: place ? `${t.lead(emoji)}${place}` : null,
+  brief: brief && !place ? `${t.lead(emoji)}${brief}` : null,
 });
 
 // Pip, at the end of a card's top border, needs the face and the two rule
@@ -689,19 +693,21 @@ const whereOf = (t, emoji, words, place) => ({
 const PIP_ROOM = PIP_FACE + 3;
 
 // `short` is `where` with the place alone, as the top row's fallback.
-function card(ctx, { tint, where, short = null, done, rows }) {
+function card(ctx, { tint, where, short = null, brief = null, done, rows }) {
   const { s, t, W } = ctx;
   const rail = t.fg(tint, t.glyph.rail);
-  // The top row keeps its place whole (ticket 183): where the row is wider
-  // than the card, the DONE pill goes first, then the words before the
-  // place.
-  const leftOf = (w, d) => `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(w, 'chipBg')}${d ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
-  const tries = [[where, done], [where, false], ...(short ? [[short, done], [short, false]] : [])];
-  const left = tries.map(([w, d]) => leftOf(w, d)).find((x) => width(x) <= W) ?? leftOf(...tries.at(-1));
-  const fill = Math.max(0, W - width(left));
   // Pip's face in this frame (motion.mjs's cardFace), over the mood the
   // card shows the app saw.
   const face = cardFace(s, ctx.clock.at, ctx.ph);
+  // The top row keeps its place whole (ticket 183): where the row is wider
+  // than the card, the DONE pill goes first, then the words before the
+  // place. A where label with brief words, such as the shell's (r27 E11),
+  // uses them where the long ones would leave Pip no room, or not fit.
+  const leftOf = (w, d) => `${t.fg(tint, `${t.glyph.tl}${t.glyph.rule}`)} ${t.pill(w, 'chipBg')}${d ? ` ${t.pill(`${t.glyph.check} ${C.done}`, 'okBg')}` : ''} `;
+  const roomy = (x) => width(x) + (face ? PIP_ROOM : 0) <= W;
+  const tries = [[where, done], ...(brief ? [[brief, done]] : []), [where, false], ...(brief ? [[brief, false]] : []), ...(short ? [[short, done], [short, false]] : [])].map(([w, d]) => leftOf(w, d));
+  const left = brief && !roomy(tries[0]) && roomy(tries[1]) ? tries[1] : tries.find((x) => width(x) <= W) ?? tries.at(-1);
+  const fill = Math.max(0, W - width(left));
   // As the card enters, the top rule grows from the pill a third a frame.
   const grown = Math.round((fill * (1 + Math.floor(into(ctx, 'entrance') / SHOTS.entrance.every))) / 3);
   const top = !face ? left + t.fg(tint, t.glyph.rule.repeat(grown))
@@ -1497,7 +1503,9 @@ function stepView(ctx) {
   const where = numbered ? C.terminalN(numbered) : place && ['terminal', 'shell'].includes(whereKey) ? C.terminalInFolder : C.where[whereKey];
   const tint = done ? 'ok' : style.tint;
   const head = lessonHead(ctx, tierPill(t, tier), C.stepOf(s.pos.step + 1, stepsOf(s).length));
-  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, where, place), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind) || needsChange(beat.verify)), rows: withFooter(note) });
+  // The shell's words without "beside Claude Code", where they don't fit.
+  const brief = !numbered && whereKey === 'shell' ? C.terminalInFolder : null;
+  const cardWith = (note) => card(ctx, { tint, ...whereOf(t, whereEmoji, where, place, brief), done: done && (looksAtFile(beat) || GIT.has(beat.verify.kind) || needsChange(beat.verify)), rows: withFooter(note) });
   let body = cardWith(null);
   // The same-answer note (ticket 192) takes the rows the screen pads with,
   // and the row of a "Press h" line the key bar repeats, and no more: the
@@ -1625,20 +1633,23 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
   if (beat.verify.all && ['done', 'already'].includes(st.status) && (st.passed ?? s.checks[s.lesson]?.items)) {
     const items = st.passed ?? s.checks[s.lesson].items;
     // In a work folder that isn't the copy, the command names it with
-    // --dir, and runs from the copy, as the pages say.
-    const dir = folderHere(s) !== s.facts.root ? folderHere(s) : null;
+    // --dir, and runs from the copy, as the pages say. A new copy of the
+    // template holds the checks itself: its page runs them there, without
+    // --dir (r27 E15).
+    const newCopy = pinOf(lessonOf(s)) === 'new copy';
+    const dir = !newCopy && folderHere(s) !== s.facts.root ? folderHere(s) : null;
     const cmd = `npm run check -- ${s.lesson}${dir ? ` --dir ${quotePath(dir, t.caps.win32)}` : ''}`;
     const mark = `${t.fg('ok', t.glyph.check)} `;
     const passes = wrapRuns([{ text: cmd, color: 'code' }, { text: ` ${C.checkPasses(items.filter((x) => x.pass).length, items.length)[0]}`, color: 'ok' }], inner - width(mark));
     rows.push(...hang(mark, passes.map((line) => line.map((r) => t.fg(r.color ?? 'ok', r.text)).join(''))),
-      ...para(t, C.runItToo(dir ? C.inCopy : content.terminals?.[beat.where] ? C.terminalN(content.terminals[beat.where]) : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
+      ...para(t, C.runItToo(newCopy ? C.inNewCopy : dir ? C.inCopy : content.terminals?.[beat.where] ? C.terminalN(content.terminals[beat.where]) : C.where[beat.where] ?? C.where.terminal), inner, 'muted'));
   } else if (st.status === 'done' && looksAtFile(beat)) {
     // What the file holds, beside the burst.
     const ev = showsEvidence(s, beat, isLastBeat) ? holds(room) : [];
     if (isLastBeat) celebrate(ev.length ? ev : para(t, C.beatDone, room, 'text'));
     else rows.push(lead(t, 'verified', t.fg('ok', C.beatDone)));
   } else if (st.status === 'done' && beat.verify.kind === 'git-clean') {
-    const clean = scope ? C.cleanUnder(scope) : C.cleanCopy;
+    const clean = scope ? C.cleanUnder(scope) : folderHere(s) !== s.facts.root ? C.cleanRepo : C.cleanCopy;
     if (isLastBeat) celebrate(para(t, clean, room, 'text'));
     else rows.push(...(scope ? para(t, `${t.lead('verified')}${clean}`, inner, 'ok') : [lead(t, 'verified', t.fg('ok', clean))]));
   } else if (st.status === 'done' && needsChange(beat.verify)) {
@@ -1666,16 +1677,21 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
       if (beat.reveal) rows.push(...quoted(beat.reveal));
       if (f.kind === 'other' && !f.because) rows.push(...para(t, words.stillStuck, inner, 'muted'));
     }
-  } else if (st.status === 'waiting' && st.slowWait) {
+  } else if (st.status === 'waiting' && (st.slowWait || waitsForR(s, beat))) {
     rows.push(...para(t, `${t.lead('watch')}${C.slowWait}`, inner, 'muted'));
   } else if (st.status === 'waiting' && (looksAtFile(beat) || needsChange(beat.verify))) {
-    const [a, what, b] = (st.stale ? C.staleWatch : C.watching)(beat.watching ?? beat.evidence ?? (needsChange(beat.verify) ? 'git status' : 'your files'));
+    // A stale push means everything is pushed already (r27 E16).
+    const line = st.stale && beat.verify.kind === 'probe' && beat.verify.name === 'pushed' ? C.stalePush : st.stale ? C.staleWatch : C.watching;
+    const [a, what, b] = line(beat.watching ?? beat.evidence ?? (needsChange(beat.verify) ? 'git status' : 'your files'));
     rows.push(...para(t, `${t.lead('watch')}${a}\`${what}\`${b}`, inner, 'muted'));
   } else if (beat.verify.kind === 'git-clean' && (st.status === 'waiting' || st.status === 'fail')) {
     const paths = gitListed(s, beat);
     if (st.status === 'fail' || paths.length) {
-      const shown = (st.fail?.paths ?? paths).slice(0, 3).join(', ');
-      rows.push(...para(t, `${st.status === 'fail' ? `${C.notYet} ` : ''}${scope ? C.changedUnder((st.fail?.paths ?? paths).length, scope) : C.gitDirty((st.fail?.paths ?? paths).length)} ${shown}`, inner - 2, 'warn').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', st.status === 'fail' ? warnMark : t.glyph.warnMark)} ${x}`)));
+      const listed = st.fail?.paths ?? paths;
+      // A scope of one file that is the one change names it once (r27 E13).
+      const what = scope && listed.length === 1 && listed[0] === scope ? C.fileUncommitted(scope)
+        : `${scope ? C.changedUnder(listed.length, scope) : C.gitDirty(listed.length)} ${listed.slice(0, 3).join(', ')}`;
+      rows.push(...para(t, `${st.status === 'fail' ? `${C.notYet} ` : ''}${what}`, inner - 2, 'warn').map((x, i) => (i ? `  ${x}` : `${t.fg('warn', st.status === 'fail' ? warnMark : t.glyph.warnMark)} ${x}`)));
       if (st.status === 'fail') rows.push(`  ${t.fg('muted', C.gitFailAfter)}`);
     } else if (scope) rows.push(...para(t, `${t.lead('watch')}${C.watchingGit}\`git status\`: ${t.glyph.check} ${C.gitCleanUnder(scope)}`, inner, 'muted'));
     else rows.push(lead(t, 'watch', `${t.fg('muted', C.watchingGit)}${t.fg('code', 'git status')}${t.fg('muted', ':')} ${t.fg('ok', `${t.glyph.check} ${C.gitClean}`)}`));
@@ -1783,6 +1799,9 @@ const gitListed = (s, beat) => cleanListed(beat.verify, s.git?.paths ?? []);
 
 // A beat whose check is about a file: a check item, or the file read here.
 const looksAtFile = (beat) => beat.verify.kind === 'check' || READS.has(beat.verify.kind);
+// A check beat with a slow item can't turn green on its own: it waits for r
+// from the start, so its card says so before any run (r27 E9).
+const waitsForR = (s, beat) => beat.verify.kind === 'check' && (SLOW[s.lesson] ?? []).some((i) => beat.verify.all || beat.verify.items?.includes(i));
 // Whether the footer draws the evidence line, what the file holds: a done
 // beat's beside the burst, and a reading beat's already done (173).
 const showsEvidence = (s, beat, isLastBeat) => looksAtFile(beat) && Boolean(beat.evidence && s.beat.evidence)
