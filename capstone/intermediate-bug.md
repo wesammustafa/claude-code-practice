@@ -9,4 +9,4 @@ Reproduce this outside `samples/`, then fix the checker:
 - A folder containing broken links exits with code 1. A folder whose links all resolve exits with code 0.
 - Keep the existing sample fixtures unchanged.
 
-Add a regression test that fails before the repair and passes after it. Cover a malformed escape, a valid encoded filename and a later broken link so a catch that simply stops the scan cannot pass. Commit the source fix and its regression test together.
+Add a regression test that fails before the repair and passes after it. Cover a malformed escape, a valid encoded filename and a later broken link so a catch that simply stops the scan cannot pass. Don't commit until the fix has been reviewed; then commit the source fix and its regression test together.

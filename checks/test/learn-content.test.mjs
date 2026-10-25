@@ -1300,10 +1300,10 @@ test('card: every Check shows its npm run check command on the card, not only be
 });
 
 test('card: a beat planned and written GUIDED shows its command, not only behind h (27, pattern J)', () => {
-  // render.mjs shows bottom lines inline only on a step written above
-  // GUIDED that the plan meets at GUIDED, so a GUIDED-written beat whose
-  // command is only a bottom line shows no command where the header promises
-  // every command. A card line that names the command in a code span counts.
+  // The card inlines bottom lines only on a step planned GUIDED and written
+  // above it, so on a step written GUIDED a command kept only in `bottom`
+  // hides behind h while the header promises every command shown. A card
+  // line that names the bottom's command in a code span shows it.
   const off = [];
   contents.forEach((c, i) => {
     if (!c) return;
@@ -1313,21 +1313,19 @@ test('card: a beat planned and written GUIDED shows its command, not only behind
       if (b.lines.some((x) => ['run', 'code'].includes(x.key))) return;
       const card = b.lines.filter((x) => CARD_TEXT.has(x.key)).map((x) => x.text).join('\n');
       const hidden = b.bottom.filter((x) => !card.includes(`\`${x.text}\``));
-      if (hidden.length) off.push(`${placeOf(c.lesson, s, n)}: ${hidden.map((x) => x.text).join(' | ')}`);
+      if (hidden.length) off.push(`${placeOf(c.lesson, s, n, 'bottom', hidden[0].text)}: ${hidden.map((x) => x.text).join(' | ')} only behind h on a GUIDED step`);
     }));
   });
   assert.deepEqual(off, []);
 });
 
-// A slash command in a line's text: `/name` after a space, a code mark or a
-// parenthesis, ending at a space, a code mark, closing punctuation or the
-// line's end, so a path such as `src/links.js` doesn't count.
+// A slash command in a card line, a hint or a bottom line.
 const SLASH = /(?:^|[\s`(])(\/[a-z][a-z-]+)(?=[\s`.,:)]|$)/g;
 
 test('card: a slash command the course shows for the first time in a Worked example is on the card (27, pattern K)', () => {
-  // Curriculum 3.6: a first meeting is Guided, with the exact command. A
-  // Worked example step that reuses a skill plans above GUIDED, so a command
-  // the course hasn't shown yet would wait behind h there.
+  // Curriculum 3.6: a first meeting is Guided. A Worked example step that
+  // reuses an earlier skill plans above GUIDED, so a command the learner has
+  // never met would wait behind h.
   const seen = new Set();
   const off = [];
   contents.forEach((c, i) => {
@@ -1342,7 +1340,7 @@ test('card: a slash command the course shows for the first time in a Worked exam
       for (const cmd of new Set([...vis, ...[...hidden.matchAll(SLASH)].map((m) => m[1])])) {
         if (seen.has(cmd)) continue;
         seen.add(cmd);
-        if (!vis.has(cmd) && s.part === 'Worked example' && rule[k] !== 'guided') off.push(`${placeOf(c.lesson, s, n)} ${cmd}`);
+        if (!vis.has(cmd) && s.part === 'Worked example' && rule[k] !== 'guided') off.push(`${placeOf(c.lesson, s, n)}: ${cmd} is first shown here, only behind h`);
       }
     }));
   });
@@ -1350,11 +1348,11 @@ test('card: a slash command the course shows for the first time in a Worked exam
 });
 
 test('card: a beat that runs /diff carries the page\'s note that the panel may already be open (27, pattern O)', () => {
-  // Claude Code can open the diff panel on its own, and typing /diff then
-  // closes it (interactive-mode, Diff panel).
+  // The diff panel can open on its own once Claude edits files, and typing
+  // /diff then closes it.
   const off = [];
   for (const l of Object.values(parsed)) for (const s of l.steps) s.beats.forEach((b, n) => {
-    if (b.lines.some((x) => x.key === 'run' && x.text === '/diff') && !b.lines.some((x) => /typing `\/diff` closes it/.test(x.text))) off.push(placeOf(l.lesson, s, n));
+    if (b.lines.some((x) => x.key === 'run' && x.text === '/diff') && !b.lines.some((x) => /typing `\/diff` closes it/.test(x.text))) off.push(placeOf(l.lesson, s, n, 'run', '/diff'));
   });
   assert.deepEqual(off, []);
 });
