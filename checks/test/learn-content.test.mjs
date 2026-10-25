@@ -1299,6 +1299,66 @@ test('card: every Check shows its npm run check command on the card, not only be
   assert.deepEqual(exempt, Object.keys(CHECK_COMMAND_BEHIND_H), 'an exemption names a Check that shows its command now');
 });
 
+test('card: a beat planned and written GUIDED shows its command, not only behind h (27, pattern J)', () => {
+  // render.mjs shows bottom lines inline only on a step written above
+  // GUIDED that the plan meets at GUIDED, so a GUIDED-written beat whose
+  // command is only a bottom line shows no command where the header promises
+  // every command. A card line that names the command in a code span counts.
+  const off = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => s.beats.forEach((b, n) => {
+      if (rule[k] !== 'guided' || s.tier !== 'guided' || b.kind !== 'do' || s.part === 'Check' || !b.bottom.length) return;
+      if (b.lines.some((x) => ['run', 'code'].includes(x.key))) return;
+      const card = b.lines.filter((x) => CARD_TEXT.has(x.key)).map((x) => x.text).join('\n');
+      const hidden = b.bottom.filter((x) => !card.includes(`\`${x.text}\``));
+      if (hidden.length) off.push(`${placeOf(c.lesson, s, n)}: ${hidden.map((x) => x.text).join(' | ')}`);
+    }));
+  });
+  assert.deepEqual(off, []);
+});
+
+// A slash command in a line's text: `/name` after a space, a code mark or a
+// parenthesis, ending at a space, a code mark, closing punctuation or the
+// line's end, so a path such as `src/links.js` doesn't count.
+const SLASH = /(?:^|[\s`(])(\/[a-z][a-z-]+)(?=[\s`.,:)]|$)/g;
+
+test('card: a slash command the course shows for the first time in a Worked example is on the card (27, pattern K)', () => {
+  // Curriculum 3.6: a first meeting is Guided, with the exact command. A
+  // Worked example step that reuses a skill plans above GUIDED, so a command
+  // the course hasn't shown yet would wait behind h there.
+  const seen = new Set();
+  const off = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => s.beats.forEach((b, n) => {
+      const inline = rule[k] === 'guided' && s.tier !== 'guided';
+      const card = b.lines.filter((x) => CARD_TEXT.has(x.key) || ['run', 'code'].includes(x.key)).map((x) => x.text);
+      const visible = [...card, ...(inline ? b.bottom.map((x) => x.text) : []), ...(rule[k] === 'guided' ? b.why.slice(0, 1) : [])].join('\n');
+      const hidden = [...b.hints, ...(inline ? [] : b.bottom.map((x) => x.text))].join('\n');
+      const vis = new Set([...visible.matchAll(SLASH)].map((m) => m[1]));
+      for (const cmd of new Set([...vis, ...[...hidden.matchAll(SLASH)].map((m) => m[1])])) {
+        if (seen.has(cmd)) continue;
+        seen.add(cmd);
+        if (!vis.has(cmd) && s.part === 'Worked example' && rule[k] !== 'guided') off.push(`${placeOf(c.lesson, s, n)} ${cmd}`);
+      }
+    }));
+  });
+  assert.deepEqual(off, []);
+});
+
+test('card: a beat that runs /diff carries the page\'s note that the panel may already be open (27, pattern O)', () => {
+  // Claude Code can open the diff panel on its own, and typing /diff then
+  // closes it (interactive-mode, Diff panel).
+  const off = [];
+  for (const l of Object.values(parsed)) for (const s of l.steps) s.beats.forEach((b, n) => {
+    if (b.lines.some((x) => x.key === 'run' && x.text === '/diff') && !b.lines.some((x) => /typing `\/diff` closes it/.test(x.text))) off.push(placeOf(l.lesson, s, n));
+  });
+  assert.deepEqual(off, []);
+});
+
 test('code in a link\'s text shows as code with no backticks, as the page does, and keeps the link', () => {
   assert.deepEqual(inline('where Node.js offers [`import.meta.dirname`](https://nodejs.org/api/esm.html#importmetadirname).'), [
     { text: 'where Node.js offers ' },
