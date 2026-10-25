@@ -28,7 +28,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-samples.sh",
-            "args": []
+            "args": [],
+            "onFailure": "block"
           }
         ]
       }
