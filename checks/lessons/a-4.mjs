@@ -1,8 +1,12 @@
 // Script Claude Code with `claude -p` (Advanced, lesson 4). The Learner
 // commits scripts/review-staged.sh, which pipes the staged diff into one
 // `claude -p` call that asks for JSON, runs in dontAsk mode, pre-approves
-// only Read, Grep and Glob (and, if it restricts the tools with --tools,
-// keeps only those) and caps its turns; saves the JSON to the path in
+// only Read, Grep and Glob, restricts the tools to those three with
+// --tools, turns hooks off with --settings '{"disableAllHooks": true}',
+// starts no MCP server with --strict-mcp-config and caps its turns (a
+// tool --allowedTools doesn't name still runs when a project rule approves
+// it, and a project's Stop hook can send the run back to work); saves the
+// JSON to the path in
 // its first argument, or .practice/a-4-result.json without one; prints the
 // review; and exits non-zero when the run fails or nothing is staged. The
 // check runs the committed script with a stand-in for `claude`, so it
@@ -172,14 +176,40 @@ export function callHints(argv) {
     problems.push(`\`--allowedTools\` lists ${and(shown)}${others.length > 3 ? ` and ${others.length - 3} more` : ''}, ${others.length > 1 ? 'which are' : 'which is'} not \`Read\`, \`Grep\` or \`Glob\`. Claude gets the diff on stdin, so list only those three.`);
   }
 
-  // `--tools` is optional: when it's there, it keeps no tool but the three.
+  // `--tools` keeps exactly the three, so no rule can approve another
+  // built-in tool, such as Bash for the project's test command.
   const { tools } = args.flags;
   const toolValues = (Array.isArray(tools) ? tools : [tools]).filter((v) => v !== null && v !== undefined);
-  if (tools !== undefined && !toolValues.length) problems.push('`--tools` has no tools after it: write `--tools "Read,Grep,Glob"`, or leave it out.');
-  else if (tools !== undefined) {
-    const kept = [...new Set(ruleList(toolValues).filter((t) => !/^(Read|Grep|Glob)$/.test(t)))];
-    if (kept.length) problems.push(`\`--tools\` keeps ${and(kept.slice(0, 3).map(code))}${kept.length > 3 ? ` and ${kept.length - 3} more` : ''} available: list only \`Read\`, \`Grep\` and \`Glob\` there, or leave \`--tools\` out.`);
+  if (tools === undefined) problems.push(`It doesn't restrict the tools: add \`--tools "Read,Grep,Glob"\`, so Claude can't use Bash, Edit or Write even when one of your rules allows them.${spelling('--tools')}`);
+  else if (!toolValues.length) problems.push('`--tools` has no tools after it: write `--tools "Read,Grep,Glob"`.');
+  else {
+    const listed = ruleList(toolValues);
+    const kept = [...new Set(listed.filter((t) => !/^(Read|Grep|Glob)$/.test(t)))];
+    const missing = ['Read', 'Grep', 'Glob'].filter((t) => !listed.includes(t));
+    if (kept.length) problems.push(`\`--tools\` keeps ${and(kept.slice(0, 3).map(code))}${kept.length > 3 ? ` and ${kept.length - 3} more` : ''} available: list only \`Read\`, \`Grep\` and \`Glob\` there.`);
+    else if (missing.length) problems.push(`\`--tools\` leaves out ${and(missing.map(code))}: list \`Read\`, \`Grep\` and \`Glob\` there, as \`--tools "Read,Grep,Glob"\` does.`);
   }
+
+  // Hooks off for the run: a project's hooks run in a `-p` session, and a
+  // Stop hook can send the reviewer back to work.
+  const { settings } = args.flags;
+  const hooksOff = '`--settings \'{"disableAllHooks": true}\'`';
+  if (settings === undefined) problems.push(`It doesn't turn hooks off: add ${hooksOff}, so the project's hooks can't run in the review.${spelling('--settings')}`);
+  else if (settings === null || !settings.trim()) problems.push(`\`--settings\` has nothing after it: write ${hooksOff}.`);
+  else {
+    let value;
+    try {
+      value = JSON.parse(settings);
+    } catch {
+      value = undefined;
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) problems.push(`\`--settings\` gets ${code(quoted(settings))}, which isn't inline JSON: write ${hooksOff}.`);
+    else if (value.disableAllHooks !== true) problems.push(`The \`--settings\` JSON doesn't set \`"disableAllHooks": true\`, so the project's hooks still run: add it, as in ${hooksOff}.`);
+  }
+
+  // No MCP server but the ones the call passes: a `-p` run connects the
+  // project's `.mcp.json` servers without asking.
+  if (!args.flags.strictMcpConfig) problems.push(`It doesn't keep the project's MCP servers out: add \`--strict-mcp-config\`, so the run starts no server you didn't pass with \`--mcp-config\`.${spelling('--strict-mcp-config')}`);
 
   if (maxTurns === undefined) problems.push(`It sets no turn cap: add \`--max-turns\` with a number from 1 to ${CAP_MAX}.${spelling('--max-turns')}`);
   else if (maxTurns === null) problems.push(`\`--max-turns\` has no number after it: write one from 1 to ${CAP_MAX}.`);
@@ -204,7 +234,7 @@ export function committedScript(script, guide = 'the lesson\'s Your turn') {
 
 export function scriptCall(script) {
   return {
-    text: `its \`claude -p\` call asks for JSON, runs in \`dontAsk\` mode, pre-approves only \`Read\`, \`Grep\` and \`Glob\`, caps turns at ${CAP_MAX} or fewer, and has the prompt right after \`-p\``,
+    text: `its \`claude -p\` call asks for JSON in \`dontAsk\` mode, allows only \`Read\`, \`Grep\` and \`Glob\`, with no hook or MCP server, caps turns at ${CAP_MAX} or fewer, and has the prompt right after \`-p\``,
     check(repo) {
       const run = scenario(repo, script, 'review');
       const skipped = notRun(run, script);
@@ -328,7 +358,7 @@ export function savedRun(result, script) {
       }
       if (value?.type !== 'result') return `${code(result)} isn't the result of a \`claude -p\` run with \`--output-format json\`. ${again}`;
       if (value.session_id === STUB_SESSION) return `${code(result)} holds the check's stand-in reply, not a real run: your script saved it there while the check ran it. Save the JSON only where the script's first argument says. ${again}`;
-      if (value.subtype !== 'success') return `The run in ${code(result)} stopped early (${code(String(value.subtype))}) and holds no review.${value.subtype === 'error_max_turns' ? ` Raise the cap, up to ${CAP_MAX}, or narrow the prompt.` : ''} ${again}`;
+      if (value.subtype !== 'success') return `The run in ${code(result)} stopped early (${code(String(value.subtype))}) and holds no review.${value.subtype === 'error_max_turns' ? ` Raise the cap, up to ${CAP_MAX}, narrow the prompt, or check your flags.` : ''} ${again}`;
       if (value.is_error !== false) return `The run in ${code(result)} failed${typeof value.result === 'string' && value.result.trim() ? `: "${quoted(value.result)}"` : ''}. Fix what it says. ${again}`;
       if (typeof value.result !== 'string' || !value.result.trim()) return `The run in ${code(result)} holds no review in \`result\`. ${again}`;
       if (typeof value.session_id !== 'string' || !value.session_id) return `The run in ${code(result)} has no \`session_id\`, so it isn't the JSON \`claude -p\` saves. ${again}`;

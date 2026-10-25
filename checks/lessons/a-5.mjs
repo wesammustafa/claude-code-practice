@@ -303,7 +303,7 @@ export function boundedWorkflow(options = LESSON) {
 }
 
 // `owner/repo` of a github.com `origin`, or null.
-function originRepo(repo) {
+export function originRepo(repo) {
   try {
     const m = repo.git('remote', 'get-url', 'origin').match(GITHUB_REMOTE);
     return m ? `${m[1]}/${m[2]}` : null;

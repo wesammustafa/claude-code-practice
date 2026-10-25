@@ -1194,7 +1194,7 @@ function sessionEvents(b) {
 // purpose, each with its reason.
 const LEARNERS_ORDER = 'the capstone leaves the order of its tasks to the learner, so the file can\'t tell whether step 4\'s session is still open in that terminal; ticket 27 left it';
 const TERMINAL_WHILE_OPEN = {
-  'a-capstone T5.2': LEARNERS_ORDER,
+  'a-capstone T5.3': LEARNERS_ORDER,
   'a-capstone C.0': LEARNERS_ORDER,
   'a-capstone D1.0': LEARNERS_ORDER,
   'a-capstone D2.0': LEARNERS_ORDER,
@@ -1297,6 +1297,78 @@ test('card: every Check shows its npm run check command on the card, not only be
   }
   assert.deepEqual(off, []);
   assert.deepEqual(exempt, Object.keys(CHECK_COMMAND_BEHIND_H), 'an exemption names a Check that shows its command now');
+});
+
+test('card: a beat planned and written GUIDED shows its command, not only behind h (27, pattern J)', () => {
+  // render inlines bottom lines only on a step written above GUIDED and met
+  // at GUIDED, so on a step written GUIDED a command only in bottom is hidden.
+  const off = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => s.beats.forEach((b, n) => {
+      if (rule[k] !== 'guided' || s.tier !== 'guided' || b.kind !== 'do' || s.part === 'Check' || !b.bottom.length) return;
+      if (b.lines.some((x) => ['run', 'code'].includes(x.key))) return;
+      const card = b.lines.filter((x) => CARD_TEXT.has(x.key)).map((x) => x.text).join('\n');
+      const hidden = b.bottom.filter((x) => !card.includes(`\`${x.text}\``));
+      if (hidden.length) off.push(`${placeOf(c.lesson, s, n)}: ${hidden.map((x) => x.text).join(' | ')}`);
+    }));
+  });
+  assert.deepEqual(off, []);
+});
+
+// A slash command written as a word of its own.
+const SLASH = /(?:^|[\s`(])(\/[a-z][a-z-]+)(?=[\s`.,:)]|$)/g;
+
+test('card: a slash command the course shows for the first time in a Worked example is on the card (27, pattern K)', () => {
+  // First meeting is Guided: the command and what it does on the card. A
+  // Worked example step that reuses a skill plans above GUIDED, so a command
+  // the course hasn't shown yet must not wait behind h there.
+  const seen = new Set();
+  const off = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => s.beats.forEach((b, n) => {
+      const inline = rule[k] === 'guided' && s.tier !== 'guided';
+      const card = b.lines.filter((x) => CARD_TEXT.has(x.key) || ['run', 'code'].includes(x.key)).map((x) => x.text);
+      const visible = [...card, ...(inline ? b.bottom.map((x) => x.text) : []), ...(rule[k] === 'guided' ? b.why.slice(0, 1) : [])].join('\n');
+      const hidden = [...b.hints, ...(inline ? [] : b.bottom.map((x) => x.text))].join('\n');
+      const vis = new Set([...visible.matchAll(SLASH)].map((m) => m[1]));
+      for (const cmd of new Set([...vis, ...[...hidden.matchAll(SLASH)].map((m) => m[1])])) {
+        if (seen.has(cmd)) continue;
+        seen.add(cmd);
+        if (!vis.has(cmd) && s.part === 'Worked example' && rule[k] !== 'guided') off.push(`${placeOf(c.lesson, s, n)} ${cmd}`);
+      }
+    }));
+  });
+  assert.deepEqual(off, []);
+});
+
+test('card: a beat that runs /diff carries the page\'s note that the panel may already be open (27, pattern O)', () => {
+  const off = [];
+  for (const l of Object.values(parsed)) {
+    for (const s of l.steps) {
+      s.beats.forEach((b, n) => {
+        if (b.lines.some((x) => x.key === 'run' && x.text === '/diff') && !b.lines.some((x) => /typing `\/diff` closes it/.test(x.text))) off.push(`${placeOf(l.lesson, s, n)}`);
+      });
+    }
+  }
+  assert.deepEqual(off, []);
+});
+
+test('intro: every can line reads after "You\'ll be able to" (27, pattern T)', () => {
+  // A can line cut from the middle of the Goal starts with a third-person
+  // verb ("reads its JSON result"); a capitalised noun phrase ("Two parts at
+  // once") is a title, not a can-do. A capitalised verb with an object, as
+  // a-7's "Bound a real task", reads.
+  const off = [];
+  for (const l of Object.values(parsed)) {
+    for (const c of l.intro.can) {
+      if (/^[a-z]+[^s\W]s\b/.test(c) || (/^[A-Z][a-z]*(?: [a-z]+)*,? [a-z]/.test(c) && !/^[A-Z][a-z]+ (?:a|an|the|your)\b/.test(c))) off.push(`${l.lesson}: ${c}`);
+    }
+  }
+  assert.deepEqual(off, []);
 });
 
 test('code in a link\'s text shows as code with no backticks, as the page does, and keeps the link', () => {
