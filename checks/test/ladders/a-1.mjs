@@ -22,8 +22,9 @@ const ignored = (rules) => (dir, { write, commit }) => {
 // listing saved (`saveBefore` saves it before the commits; `listing`
 // rewrites it, or drops it by returning null), both branches merged
 // (`merge: 'one'` merges only the first, `'none'` neither) and the
-// worktrees removed, except those in `keep`, `lock` and `prune`.
-const parallel = ({ saveBefore = false, merge = 'each', keep = [], lock = [], prune = [], listing = (text) => text } = {}) => (dir, { write, commit }) => {
+// worktrees removed, except those in `keep`, `lock` (locked with `reason`,
+// when given) and `prune`.
+const parallel = ({ saveBefore = false, merge = 'each', keep = [], lock = [], reason, prune = [], listing = (text) => text } = {}) => (dir, { write, commit }) => {
   write(dir, { '.gitignore': '.claude/worktrees/\n', 'README.md': '# A project\n' });
   commit(dir, 'Start');
   for (const name of NAMES) git(dir, 'worktree', 'add', '-q', '-b', branch(name), under(name));
@@ -44,7 +45,7 @@ const parallel = ({ saveBefore = false, merge = 'each', keep = [], lock = [], pr
   } else if (merge === 'one') {
     git(dir, 'merge', '-q', '--ff-only', first);
   }
-  for (const name of lock) git(dir, 'worktree', 'lock', under(name));
+  for (const name of lock) git(dir, 'worktree', 'lock', ...(reason ? ['--reason', reason] : []), under(name));
   for (const name of prune) rmSync(join(dir, under(name)), { recursive: true, force: true });
   for (const name of NAMES) if (![...keep, ...lock, ...prune].includes(name)) git(dir, 'worktree', 'remove', under(name));
 };
@@ -79,5 +80,7 @@ export const scenarios = [
   { item: 2, name: 'a listing with only the main checkout', setup: parallel({ listing: mainOnly }) },
   { item: 2, name: 'a worktree still there', setup: parallel({ keep: ['test-pass'] }) },
   { item: 2, name: 'a locked worktree still there', setup: parallel({ lock: ['test-pass'] }) },
+  // A live process's pid, as the lock of a Claude Code session still open in it.
+  { item: 2, name: 'a worktree whose Claude Code session is still running', setup: parallel({ lock: ['test-pass'], reason: `claude session test-pass (pid ${process.pid} start Sun Oct 25 10:43:31 2026)` }) },
   { item: 2, name: 'a worktree whose folder was deleted', setup: parallel({ prune: ['test-pass'] }) },
 ];

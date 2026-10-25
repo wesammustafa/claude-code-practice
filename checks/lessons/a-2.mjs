@@ -3,9 +3,8 @@
 // writes the choices to a file, and runs job 1 as parallel subagents in a
 // session started with Intermediate lesson 6's delegation log, a
 // SubagentStart hook that logs each subagent's type. An agent team is a
-// pattern the Learner may name, and the chart's hint answers it, but no job
-// calls for one: teams are experimental. Naming the pattern for a job of
-// their own is self-checked.
+// pattern the Learner may name, and the chart's hint answers it. Naming the
+// pattern for a job of their own is self-checked.
 
 export const title = 'Choose an orchestration pattern';
 
@@ -47,10 +46,7 @@ const PATH = {
 };
 
 // The five jobs in the lesson's Your turn, and the answer to each question on
-// the way to the pattern that fits. Jobs 3 and 4 are near misses: a large
-// change that still belongs in one conversation, and investigators who only
-// report back, against job 5's large change whose units each land on their
-// own.
+// the way to the pattern that fits.
 const JOBS = {
   1: { pattern: 'subagents', why: [
     'No: reading the three largest files in your conversation would crowd it, and you only need the suspects.',

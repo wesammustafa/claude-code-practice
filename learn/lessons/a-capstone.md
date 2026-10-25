@@ -38,7 +38,7 @@ needs: [jq gh]
 - where: claude-2
 - verify: self
 - done-label: both sessions are building
-- goal: "build them at the same time, in two Claude Code sessions that can't touch each other's files"
+- goal: "Parts 2 and 3 don't depend on each other, so build them at the same time, in two Claude Code sessions that can't touch each other's files"
 - hint: "In a folder you haven't trusted, `claude --worktree` exits with an error"
 - bottom: "claude --worktree"
 - beat: do
@@ -69,14 +69,14 @@ needs: [jq gh]
 - beat: do
 - verify: check 13
 - watching: scripts/review-staged.sh
-- goal: "it also caps spend with `--max-budget-usd`"
+- say: The review script also caps its spend.
 - hint: "As in lesson 7, it also caps spend with `--max-budget-usd`, written as a number in the script."
 - hint: "Claude Code checks that cap against its client-side cost estimate, and spend can pass it, so leave headroom"
 - beat: do
 - skill: headless-run
 - verify: check 6
 - watching: .practice/a-capstone-run.json
-- goal: "run the script once"
+- say: Run the review script once.
 - hint: "After the merges, stage a one-line change in the main checkout, run the script once, read the review and commit the change"
 - hint: "The saved JSON's `total_cost_usd` estimates what one review spent, and it must come in under your cap."
 - bottom: "mkdir -p .practice && scripts/review-staged.sh .practice/a-capstone-run.json"
@@ -114,15 +114,16 @@ needs: [jq gh]
 - verify: self
 - done-label: it ran
 - wait: long
+- say: Once the merges are in, start the sweep.
 - goal: "from a session in the main checkout, after the merges, ask for a workflow that reviews each file under `src/` and has a second agent check each finding."
 - note: "While it runs, `/workflows` shows each agent's token usage"
 - hint: "ask for a workflow that reviews each file under `src/` and has a second agent check each finding."
 - beat: do
 - verify: match .claude/workflows/*.js ^export const meta fresh
 - goal: "Save it to the project and commit it"
-- hint: "Save it to the project and commit it"
+- bottom: "/workflows"
 - beat: do
-- where: terminal
+- where: shell
 - verify: check 2
 - watching: git ls-files .claude/workflows
 - hint: "Save it to the project and commit it"
@@ -198,7 +199,7 @@ needs: [jq gh]
 - hint: "With the workflow gone, the Claude Code GitHub Action no longer runs"
 - bottom: "git rm .github/workflows/claude-review.yml"
 
-### D2 | Tear down step 2 of 3 | Delete the secret
+### D2 | Tear down step 2 of 3 | Remove the copy's secret
 - tier: challenge
 - skill: gh-secret
 - where: terminal

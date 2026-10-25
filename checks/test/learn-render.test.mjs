@@ -1711,13 +1711,19 @@ const CUT_AT_60X20 = {
     // Intermediate's long hints and code blocks at 60x20.
     'i-4 Y1.0 wrong', 'i-4 Y1.0 answered', 'i-4 Y4.0 hint 3', 'i-4 Y4.0 hint 4', 'i-4 Y4.0 hint 5', 'i-4 Y4.0 hint 6', 'i-5 W1.0 hint 1',
     'i-5 W2.0 hint 1', 'i-6 Y3.0 hint 1', 'i-7 Y3.0 hint 2', 'i-7 Y3.0 hint 3', 'i-7 Y3.0 bottom',
-    // Advanced: a-4 W1.0's `claude -p` command and its hint; a-7's long check items and hint ladders.
+    // Advanced: a-2 W2.0's chart questions under its feedback, a-2 Y1.0's file format on job 1's card, a-2 Y2.1's notes and
+    // a-3 Y3.1's save dialog under a hint (ticket 27's r27 fixes); a-4 W1.0's `claude -p` command and its hint; a-7's long
+    // check items and hint ladders.
+    'a-2 W2.0 wrong', 'a-2 W2.0 answered', 'a-2 Y1.0 hint 3', 'a-2 Y2.1 hint 1', 'a-2 Y2.1 hint 2', 'a-3 Y3.1 hint 2',
     'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 3', 'a-7 C.0 hint 1',
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
     'i-4 Y1.0 wrong (skipped)', 'i-4 Y1.0 answered (skipped)', 'i-4 Y4.0 hint 3 (skipped)', 'i-4 Y4.0 hint 4 (skipped)', 'i-4 Y4.0 hint 5 (skipped)',
     'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
     'i-8 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)',
+    'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)', 'a-2 Y1.0 hint 3 (skipped)', 'a-2 Y2.1 hint 1 (skipped)',
+    'a-2 Y2.1 hint 2 (skipped)', 'a-3 W1.0 hint 1 (skipped)', 'a-3 W1.0 hint 2 (skipped)', 'a-3 W1.0 bottom (skipped)',
+    'a-3 W4.1 hint 1 (skipped)', 'a-3 W4.1 hint 2 (skipped)', 'a-3 W4.1 bottom (skipped)', 'a-3 Y3.1 hint 2 (skipped)',
     'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
     'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
     'a-7 W4.1 bottom (skipped)',
@@ -1726,9 +1732,13 @@ const CUT_AT_60X20 = {
     'b-4 W5.4 hint 2', 'b-4 W5.4 bottom', 'b-capstone T1.1 hint 4', 'b-capstone T1.2 open', 'b-capstone T1.2 hint 1',
     'i-4 Y1.0 wrong', 'i-4 Y1.0 answered', 'i-4 Y4.0 hint 3', 'i-4 Y4.0 hint 4', 'i-4 Y4.0 hint 5', 'i-4 Y4.0 hint 6', 'i-5 W1.0 hint 1',
     'i-5 W2.0 hint 1', 'i-6 Y3.0 hint 1', 'i-7 Y3.0 hint 1', 'i-7 Y3.0 hint 2', 'i-7 Y3.0 hint 3', 'i-7 Y3.0 bottom',
+    // The r27 fixes' notes under a hint or feedback: a-2 W2.0, Y1.0 and Y2.1, a-3 W1.0 and Y3.1, a-capstone T4.0.
+    'a-2 W2.0 wrong', 'a-2 W2.0 answered', 'a-2 Y1.0 hint 1', 'a-2 Y1.0 hint 3', 'a-2 Y2.1 hint 1', 'a-2 Y2.1 hint 2',
+    'a-3 W1.0 bottom', 'a-3 Y3.1 hint 2',
     // a-3 Y5.2's long check item and its back line, now that Your turn's last step commits at CHALLENGE (ticket 27).
     'a-3 Y5.2 hint 2', 'a-3 Y5.2 hint 3', 'a-3 Y5.2 hint 4', 'a-3 Y5.2 hint 5', 'a-3 Y5.2 hint 6',
     'a-4 W1.0 hint 1', 'a-7 W3.0 hint 1', 'a-7 W3.0 hint 2', 'a-7 W3.0 hint 3', 'a-7 Y3.1 hint 1', 'a-7 C.0 hint 1', 'a-7 C.0 hint 2',
+    'a-capstone T4.0 hint 1',
     'b-1 C.0 hint 2 (skipped)', 'b-2 Y5.3 hint 2 (skipped)', 'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)',
     'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)', 'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)',
     'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
@@ -1737,11 +1747,15 @@ const CUT_AT_60X20 = {
     'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
     'i-8 W1.0 hint 1 (skipped)',
     'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)',
+    'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)', 'a-2 Y1.0 hint 1 (skipped)', 'a-2 Y1.0 hint 3 (skipped)',
+    'a-2 Y2.1 hint 1 (skipped)', 'a-2 Y2.1 hint 2 (skipped)', 'a-3 W1.0 hint 1 (skipped)', 'a-3 W1.0 hint 2 (skipped)',
+    'a-3 W1.0 bottom (skipped)', 'a-3 W4.1 hint 1 (skipped)', 'a-3 W4.1 hint 2 (skipped)', 'a-3 W4.1 bottom (skipped)',
+    'a-3 Y3.1 hint 2 (skipped)',
     'a-3 Y5.2 hint 2 (skipped)', 'a-3 Y5.2 hint 3 (skipped)', 'a-3 Y5.2 hint 4 (skipped)', 'a-3 Y5.2 hint 5 (skipped)', 'a-3 Y5.2 hint 6 (skipped)',
     'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
     'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
     'a-7 W4.1 bottom (skipped)',
-    'a-7 Y3.1 hint 1 (skipped)', 'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)'],
+    'a-7 Y3.1 hint 1 (skipped)', 'a-7 C.0 hint 1 (skipped)', 'a-7 C.0 hint 2 (skipped)', 'a-capstone T4.0 hint 1 (skipped)'],
 };
 
 test('the step screens a 60x20 window cuts are the known ones, and 80x24 cuts none', async () => {
@@ -2279,8 +2293,8 @@ const WHY_DROPS = {
     'i-1 W4.2 open', 'i-1 W4.2 hint 1', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W2.0 done', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done',
     'i-2 W5.0 waiting', 'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W2.0 done', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-4 W5.0 hint 1',
     'i-6 W3.0 open', 'i-6 W3.0 hint 1', 'i-8 W3.0 hint 1',
-    // Advanced: a-1's two merge commands and a-2's chart question with its feedback.
-    'a-1 W5.0 hint 1', 'a-2 W2.0 wrong', 'a-2 W2.0 answered',
+    // Advanced: a-1's two merge commands with the merge-commit note, and a-2's chart questions.
+    'a-1 W5.0 open', 'a-1 W5.0 waiting', 'a-1 W5.0 fail', 'a-1 W5.0 done', 'a-2 W2.0 open', 'a-2 W2.0 wrong', 'a-2 W2.0 answered',
     // a-3's `/goal` condition and a-4's `claude -p` commands: each is one
     // long line of the page.
     'a-3 W2.0 open', 'a-4 W2.1 open', 'a-4 W2.1 waiting', 'a-4 W2.1 hint 1', 'a-4 W2.1 done', 'a-4 W3.0 open',
@@ -2292,7 +2306,8 @@ const WHY_DROPS = {
     'i-4 W2.0 done (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)', 'i-4 W5.0 hint 1 (skipped)', 'i-5 W2.0 open (skipped)',
     'i-5 W2.0 waiting (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 done (skipped)', 'i-6 W3.0 open (skipped)', 'i-6 W3.0 hint 1 (skipped)',
     'i-8 W1.0 hint 1 (skipped)', 'i-8 W1.0 hint 2 (skipped)', 'i-8 W1.0 bottom (skipped)', 'i-8 W3.0 hint 1 (skipped)',
-    'a-1 W5.0 hint 1 (skipped)', 'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)',
+    'a-1 W5.0 open (skipped)', 'a-1 W5.0 waiting (skipped)', 'a-1 W5.0 fail (skipped)', 'a-1 W5.0 done (skipped)',
+    'a-2 W2.0 open (skipped)', 'a-2 W2.0 wrong (skipped)', 'a-2 W2.0 answered (skipped)',
     'a-3 W2.0 open (skipped)', 'a-4 W2.1 open (skipped)', 'a-4 W2.1 waiting (skipped)', 'a-4 W2.1 hint 1 (skipped)', 'a-4 W2.1 done (skipped)', 'a-4 W3.0 open (skipped)', 'W3 opening',
     'i-5 W3.0 hint 1', 'b-3 W1.2 bottom (skipped)', 'i-5 W3.0 hint 1 (skipped)'],
   '80x24': ['W3 hint 2'],

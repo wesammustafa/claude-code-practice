@@ -2,7 +2,7 @@
 // repository with --dir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -36,8 +36,8 @@ const LISTING = '.practice/a-1-worktrees.txt';
 // `listing` rewrites the saved listing, or drops it by returning null.
 function parallelRepo({
   gitignore = IGNORE, pending, exclude, globalIgnore, files = {}, under = '.claude/worktrees',
-  names = ['docs-pass', 'test-pass'], saveBefore = false, merge = 'each', keep = [], lock = [], prune = [],
-  listing = (text) => text,
+  names = ['docs-pass', 'test-pass'], saveBefore = false, merge = 'each', keep = [], lock = [], reason, prune = [],
+  listing = (text) => text, commits = 1,
 } = {}) {
   return () => {
     const dir = repo({ ...(gitignore === null ? {} : { '.gitignore': gitignore }), 'README.md': '# demo\n', ...files });
@@ -57,8 +57,10 @@ function parallelRepo({
     };
     if (saveBefore) save();
     for (const name of names) {
-      write(path(name), { [`work/${branch(name)}.txt`]: `${name}\n` });
-      commit(path(name), `Work in ${name}`);
+      for (let k = 1; k <= commits; k++) {
+        write(path(name), { [`work/${branch(name)}.txt`]: `${name}\n`.repeat(k) });
+        commit(path(name), `Work in ${name}${k > 1 ? `, part ${k}` : ''}`);
+      }
     }
     if (!saveBefore) save();
     const [first, second] = names.map(branch);
@@ -78,7 +80,7 @@ function parallelRepo({
       // A rebase onto the branch, then a fast-forward, copies each commit.
       for (const b of [first, second]) git(dir, 'cherry-pick', b);
     }
-    for (const name of lock) git(dir, 'worktree', 'lock', `${under}/${name}`);
+    for (const name of lock) git(dir, 'worktree', 'lock', ...(reason ? ['--reason', reason] : []), `${under}/${name}`);
     for (const name of prune) rmSync(path(name), { recursive: true, force: true });
     for (const name of names) if (![...keep, ...lock, ...prune].includes(name)) git(dir, 'worktree', 'remove', `${under}/${name}`);
     return dir;
@@ -244,6 +246,13 @@ test('a-1 passes for squash merges and rebases, which bring the changes in as co
   }
 });
 
+test('a-1 passes for a squash merge of a branch with two commits, whose one patch is the branch\'s whole change', () => {
+  withRepo(parallelRepo({ merge: 'squash', commits: 2 }), (dir) => {
+    const { code, out } = a1(dir);
+    assert.equal(code, 0, out);
+  });
+});
+
 test('a-1 fails when neither change is in the branch, naming both', () => {
   withRepo(parallelRepo({ merge: 'none' }), (dir) => {
     const { code, out } = a1(dir);
@@ -268,16 +277,33 @@ test('a-1 fails while a worktree still exists, with the command that removes it'
   });
 });
 
-test('a-1 says to unlock a locked worktree first, and to prune one whose folder is gone', () => {
+test('a-1 says to unlock a worktree locked with no Claude Code session running, and to prune one whose folder is gone', () => {
   withRepo(parallelRepo({ lock: ['test-pass'] }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
-    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists and is locked: from your main checkout, run `git worktree unlock \.claude\/worktrees\/test-pass`, then `git worktree remove \.claude\/worktrees\/test-pass`/);
+    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists and is locked, with no Claude Code session running in it: from your main checkout, run `git worktree unlock \.claude\/worktrees\/test-pass`, then `git worktree remove \.claude\/worktrees\/test-pass`/);
+  });
+  // A Claude Code session's lock whose process has exited.
+  const gone = spawnSync(process.execPath, ['-e', '']).pid;
+  withRepo(parallelRepo({ lock: ['test-pass'], reason: `claude session test-pass (pid ${gone} start Sun Oct 25 10:43:31 2026)` }), (dir) => {
+    const { code, out } = a1(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /still exists and is locked, with no Claude Code session running in it: from your main checkout, run `git worktree unlock/);
   });
   withRepo(parallelRepo({ prune: ['test-pass'] }), (dir) => {
     const { code, out } = a1(dir);
     assert.equal(code, 1, out);
     assert.match(out, /whose folder is gone: run `git worktree prune`/);
+  });
+});
+
+test('a-1 says to exit a Claude Code session still running in a worktree, never to unlock it', () => {
+  // This test's own process stands in for the session, so its pid is alive.
+  withRepo(parallelRepo({ lock: ['test-pass'], reason: `claude session test-pass (pid ${process.pid} start Sun Oct 25 10:43:31 2026)` }), (dir) => {
+    const { code, out } = a1(dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /`\.claude\/worktrees\/test-pass` still exists, and the Claude Code session in it is still running: in that session, run `\/exit` and choose to remove the worktree, or keep it and then run `git worktree remove \.claude\/worktrees\/test-pass` from your main checkout\./);
+    assert.doesNotMatch(out, /unlock/);
   });
 });
 
@@ -308,7 +334,7 @@ test('a-1 reads a listing saved by Windows PowerShell, with Windows paths and ex
   });
 });
 
-test('the worktree parser keeps each record\'s flags and drops refs/heads/', () => {
+test('the worktree parser keeps each record\'s flags, with a lock\'s or prune\'s reason, and drops refs/heads/', () => {
   const sha = 'a'.repeat(40);
   const text = [
     `worktree /repo`, `HEAD ${sha}`, 'branch refs/heads/main', '',
@@ -321,7 +347,8 @@ test('the worktree parser keeps each record\'s flags and drops refs/heads/', () 
   assert.deepEqual(xy, { path: '/repo/.claude/worktrees/x y', head: sha, branch: null, bare: false, detached: true, locked: true, prunable: false });
   assert.equal(z.head, sha);
   assert.equal(z.branch, 'worktree-z');
-  assert.equal(z.prunable, true);
+  assert.equal(z.prunable, 'gitdir file points to non-existent location');
+  assert.equal(parseWorktrees('worktree /repo/.claude/worktrees/a\nlocked claude session a (pid 7 start Sun Oct 25 10:43:31 2026)\n')[0].locked, 'claude session a (pid 7 start Sun Oct 25 10:43:31 2026)');
   assert.deepEqual([bare.bare, bare.head], [true, null]);
 });
 
