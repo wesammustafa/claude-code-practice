@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GUIDE, indexLevel, isChoice, OWN_PARTS, PART_IDS, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
+import { GUIDE, indexLevel, isChoice, OWN_PARTS, PART_IDS, parseLesson, PATH, READS, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { TYPED_MAX, WARMUPS } from '../../learn/lib/flow.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
@@ -1368,6 +1368,23 @@ test('intro: every can line reads after "You\'ll be able to" (27, pattern T)', (
       if (/^[a-z]+[^s\W]s\b/.test(c) || (/^[A-Z][a-z]*(?: [a-z]+)*,? [a-z]/.test(c) && !/^[A-Z][a-z]+ (?:a|an|the|your)\b/.test(c))) off.push(`${l.lesson}: ${c}`);
     }
   }
+  assert.deepEqual(off, []);
+});
+
+test('verify: a beat that asks for a commit or a removal checks it (27, pattern U)', () => {
+  // A beat that says "then commit it" and reads only the working file, with
+  // no later beat in its step that reads the commit, turns green before the
+  // commit; a removal that verifies only `probe pushed` turns green on any
+  // push. The `removed` probe checks the paths are gone from HEAD and pushed.
+  // "Don't commit it" asks for no commit.
+  const off = [];
+  for (const l of Object.values(parsed)) for (const s of l.steps) s.beats.forEach((b, n) => {
+    if (b.kind !== 'do') return;
+    const card = b.lines.filter((x) => CARD_TEXT.has(x.key)).map((x) => x.text).join(' ');
+    const later = s.beats.slice(n + 1).some((x) => ['check', 'probe', 'head-moved'].includes(x.verify.kind));
+    if (READS.has(b.verify.kind) && /\bthen commit\b|(?<!\bdon't )\bcommit it\b/i.test(card) && !later) off.push(placeOf(l.lesson, s, n));
+    if (b.verify.kind === 'probe' && b.verify.name === 'pushed' && /\b(delete|remove)\b/i.test(card)) off.push(placeOf(l.lesson, s, n));
+  });
   assert.deepEqual(off, []);
 });
 

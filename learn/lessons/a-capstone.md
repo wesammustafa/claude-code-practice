@@ -203,7 +203,7 @@ needs: [jq gh]
 - skill: teardown
 - where: terminal
 - beat: do
-- verify: probe pushed fresh
+- verify: probe removed .github/workflows/claude-review.yml
 - goal: "Delete the workflow with `git rm .github/workflows/claude-review.yml`, then commit and push."
 - hint: "With the workflow gone, the Claude Code GitHub Action no longer runs"
 - bottom: "git rm .github/workflows/claude-review.yml"
