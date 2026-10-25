@@ -1,7 +1,7 @@
 ---
 name: changelog
 description: Adds a one-line entry for the staged changes to CHANGELOG.md. Use when the user asks for a changelog entry.
-model: sonnet
+model: haiku
 effort: low
 disable-model-invocation: true
 ---

@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Builds a feature test-first, one behavior at a time, and commits the tests with the code. Use when the user asks for a new function or feature with tests, or says test-first or TDD.
+description: Builds a requested feature test-first, one behavior at a time, and stops at a diff for review. Use when the user asks for a new function or feature, or says test-first or TDD.
 ---
 
 Build this test-first, one behavior at a time: $ARGUMENTS
@@ -9,4 +9,4 @@ Build this test-first, one behavior at a time: $ARGUMENTS
 2. Green: write the least code that makes the new test pass, then run the whole test suite and confirm that every test passes. Don't change the tests in this step.
 3. Refactor: improve the names and structure of the code you just wrote without changing what it does, and run the tests again. They must still pass.
 
-Repeat until the feature is done, then run the whole test suite and commit the tests and the code together.
+Repeat until the feature is done, then run the whole test suite and show the diff. Don't commit: the user reviews the diff and commits.
