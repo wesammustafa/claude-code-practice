@@ -11,7 +11,9 @@ fi
 
 mkdir -p "$(dirname "$out")"
 git diff --cached | claude -p "/team-review" \
-  --model sonnet --output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 --max-budget-usd 0.50 > "$out"
+  --model sonnet --output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" \
+  --tools "Read,Grep,Glob" --settings '{"disableAllHooks": true}' --strict-mcp-config \
+  --max-turns 5 --max-budget-usd 0.50 > "$out"
 status=$?
 
 jq -r '.result // empty' "$out"
