@@ -104,7 +104,7 @@ needs: [jq gh]
 - verify: self
 - done-label: both pass
 - goal: "Both validations pass: `claude plugin validate` on the marketplace, and on the plugin directory with `--strict`"
-- note: "The plugin reaches every teammate who trusts the repository, but not CI, where a fresh checkout was never trusted"
+- note: "Through these settings, the plugin reaches every teammate who trusts the repository, but not CI, where a fresh checkout was never trusted"
 - hint: "Test the plugin only after the merges."
 
 ### T4 | The task step 4 of 5 | A sweep before a release
