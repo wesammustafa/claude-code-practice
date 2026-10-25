@@ -784,3 +784,23 @@ test('the check-only card\'s item window fills its room: no window leaves rows u
   }
   assert.ok(filled > 0, 'no window had rows to spare');
 });
+
+test('a passed Check step counts the run that passed it: a later poll that leaves the slow items out changes no count (r27)', () => {
+  // Lessons with slow items whose Check step opens on the whole check.
+  const ids = course.filter((l) => l.content && SLOW[l.id] && l.content.steps.find((st) => st.id === 'C')?.beats[0].verify.all).map((l) => l.id);
+  assert.ok(ids.length >= 8, ids.join(' '));
+  for (const id of ids) {
+    const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore(id), [id]: { step: 'C', beat: 0, warm: [] } } } });
+    d.key('enter');
+    const asked = d.key('r').find((e) => e.type === 'check')?.asked;
+    assert.ok(asked, id);
+    const m = lessons[id].items.length;
+    const passes = C.checkPasses(m, m)[0];
+    d.send({ ...result(id, () => true, { slow: false }), asked });
+    assert.ok(['done', 'already'].includes(d.state.beat.status), `${id}: ${d.state.beat.status}`);
+    assert.ok(cardText(lines(d.state, [120, 40])).includes(passes), `${id}: ${cardText(lines(d.state, [120, 40]))}`);
+    // The watcher's next poll runs only the fast items.
+    d.send(result(id, () => true, { slow: true }));
+    assert.ok(cardText(lines(d.state, [120, 40])).includes(passes), `${id} after a poll: ${cardText(lines(d.state, [120, 40]))}`);
+  }
+});

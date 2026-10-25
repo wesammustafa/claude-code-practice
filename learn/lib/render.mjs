@@ -1622,8 +1622,8 @@ function footerRows(ctx, { beat, content, isLastBeat, note = null }) {
     }
     else rows.push(...para(t, `${t.lead('verified')}${beat.verify.all ? C.alreadyCheck : C.already}`, inner, 'ok'));
   }
-  if (beat.verify.all && ['done', 'already'].includes(st.status) && s.checks[s.lesson]?.items) {
-    const items = s.checks[s.lesson].items;
+  if (beat.verify.all && ['done', 'already'].includes(st.status) && (st.passed ?? s.checks[s.lesson]?.items)) {
+    const items = st.passed ?? s.checks[s.lesson].items;
     // In a work folder that isn't the copy, the command names it with
     // --dir, and runs from the copy, as the pages say.
     const dir = folderHere(s) !== s.facts.root ? folderHere(s) : null;

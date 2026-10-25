@@ -1105,6 +1105,9 @@ function decide(s, ev, effects, failing) {
   st.stale = false;
   if (!failing) {
     st.status = st.baseline === undefined ? 'already' : 'done';
+    // The run that passed the lesson's whole check: its done line counts
+    // these, not a later poll's, which leaves the slow items out.
+    if (beat.verify.all) st.passed = ev.items;
     st.evidence = ev.evidence ?? null;
     // The file a glob matched, for the card to name (106).
     st.found = ev.found ?? null;
