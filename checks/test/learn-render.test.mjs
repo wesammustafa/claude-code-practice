@@ -1716,7 +1716,7 @@ const CUT_AT_60X20 = {
     'b-3 W2.0 bottom (skipped)', 'b-4 W4.2 hint 1 (skipped)', 'b-4 W4.2 hint 2 (skipped)', 'b-4 W4.2 hint 3 (skipped)', 'b-4 W5.4 hint 1 (skipped)',
     'b-4 W5.4 hint 2 (skipped)', 'b-4 W5.4 bottom (skipped)', 'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)',
     'i-4 Y1.0 wrong (skipped)', 'i-4 Y1.0 answered (skipped)', 'i-4 Y4.0 hint 3 (skipped)', 'i-4 Y4.0 hint 4 (skipped)', 'i-4 Y4.0 hint 5 (skipped)',
-    'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
+    'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
     'i-8 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)',
     'a-4 W1.0 hint 1 (skipped)', 'a-6 W4.0 bottom (skipped)', 'a-7 W3.0 fail (skipped)', 'a-7 W3.0 hint 1 (skipped)', 'a-7 W3.0 hint 2 (skipped)',
     'a-7 W3.0 hint 3 (skipped)', 'a-7 W3.0 hint 4 (skipped)', 'a-7 W3.0 bottom (skipped)', 'a-7 W4.1 hint 1 (skipped)',
@@ -1734,7 +1734,7 @@ const CUT_AT_60X20 = {
     'b-5 W7.1 hint 2 (skipped)', 'b-capstone T1.1 hint 4 (skipped)', 'b-capstone T1.2 open (skipped)',
     'b-capstone T1.2 hint 1 (skipped)',
     'i-4 Y1.0 wrong (skipped)', 'i-4 Y1.0 answered (skipped)', 'i-4 Y4.0 hint 3 (skipped)', 'i-4 Y4.0 hint 4 (skipped)', 'i-4 Y4.0 hint 5 (skipped)',
-    'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
+    'i-4 Y4.0 hint 6 (skipped)', 'i-5 W1.0 hint 1 (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-6 W1.0 hint 1 (skipped)', 'i-6 W1.0 bottom (skipped)', 'i-6 Y3.0 hint 1 (skipped)',
     'i-8 W1.0 hint 1 (skipped)',
     'a-1 W1.0 hint 1 (skipped)', 'a-1 W1.0 hint 2 (skipped)', 'a-1 W1.0 hint 3 (skipped)',
     'a-3 Y5.2 hint 2 (skipped)', 'a-3 Y5.2 hint 3 (skipped)', 'a-3 Y5.2 hint 4 (skipped)', 'a-3 Y5.2 hint 5 (skipped)', 'a-3 Y5.2 hint 6 (skipped)',
@@ -2277,7 +2277,7 @@ const WHY_DROPS = {
     // Intermediate's Worked examples: a code block, a two-row command or a
     // hint box takes the room.
     'i-1 W4.2 open', 'i-1 W4.2 hint 1', 'i-2 W2.0 open', 'i-2 W2.0 waiting', 'i-2 W2.0 done', 'i-2 W3.0 open', 'i-2 W3.0 waiting', 'i-2 W3.0 done',
-    'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W2.0 done', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-4 W5.0 hint 1',
+    'i-2 W5.0 waiting', 'i-3 W4.0 done', 'i-4 W2.0 open', 'i-4 W2.0 waiting', 'i-4 W2.0 done', 'i-4 W4.0 hint 1', 'i-4 W4.0 done', 'i-4 W5.0 hint 1',
     'i-6 W3.0 open', 'i-6 W3.0 hint 1', 'i-8 W3.0 hint 1',
     // Advanced: a-1's two merge commands and a-2's chart question with its feedback.
     'a-1 W5.0 hint 1', 'a-2 W2.0 wrong', 'a-2 W2.0 answered',
@@ -2288,7 +2288,7 @@ const WHY_DROPS = {
     'b-3 W6.3 hint 1 (skipped)', 'b-5 W4.0 hint 1 (skipped)', 'b-5 W4.0 hint 2 (skipped)', 'b-5 W4.0 bottom (skipped)',
     'b-5 W4.0 checking, hint open (skipped)', 'i-1 W4.2 open (skipped)', 'i-1 W4.2 hint 1 (skipped)',
     'i-2 W2.0 open (skipped)', 'i-2 W2.0 waiting (skipped)', 'i-2 W2.0 done (skipped)', 'i-2 W3.0 open (skipped)', 'i-2 W3.0 waiting (skipped)',
-    'i-2 W3.0 done (skipped)', 'i-3 W4.0 done (skipped)', 'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)',
+    'i-2 W3.0 done (skipped)', 'i-2 W5.0 waiting (skipped)', 'i-3 W4.0 done (skipped)', 'i-4 W2.0 open (skipped)', 'i-4 W2.0 waiting (skipped)',
     'i-4 W2.0 done (skipped)', 'i-4 W4.0 hint 1 (skipped)', 'i-4 W4.0 done (skipped)', 'i-4 W5.0 hint 1 (skipped)', 'i-5 W2.0 open (skipped)',
     'i-5 W2.0 waiting (skipped)', 'i-5 W2.0 hint 1 (skipped)', 'i-5 W2.0 done (skipped)', 'i-6 W3.0 open (skipped)', 'i-6 W3.0 hint 1 (skipped)',
     'i-8 W1.0 hint 1 (skipped)', 'i-8 W1.0 hint 2 (skipped)', 'i-8 W1.0 bottom (skipped)', 'i-8 W3.0 hint 1 (skipped)',

@@ -82,6 +82,7 @@ needs: [jq python3]
 - beat: do
 - verify: self
 - done-label: it's saved
+- say: The same need asks for one more thing.
 - goal: "the testing conventions should load only when Claude works on the files under `test/`."
 - hint: "A committed rule in `.claude/rules/` is scoped with `paths:`, and every scoped rule matches a file in the repository."
 
@@ -178,10 +179,10 @@ needs: [jq python3]
 - verify: check 12 fresh
 - watching: .practice/i-capstone-agents.txt
 - evidence: .practice/i-capstone-agents.txt
-- goal: "have your reviewer review the fix"
+- goal: "Before you commit, have your reviewer review the fix"
 - hint: "Before you commit, have your reviewer review the fix in a session started with `claude --settings .practice/i-capstone-hook.json`"
 - beat: do
-- where: terminal
+- where: shell
 - skill: commit
 - verify: check 11
 - watching: git show HEAD:src
@@ -222,7 +223,7 @@ needs: [jq python3]
 - beat: self
 - skill: set-model
 - done-label: yes, I can
-- goal: "pick the model and effort for each job as [lesson 3](03-model-and-effort.md) showed."
+- goal: "Then try each part in a session, and pick the model and effort for each job as [lesson 3](03-model-and-effort.md) showed."
 - self: "I can pick a model and an effort level for a task, and say why."
 - beat: do
 - where: shell
