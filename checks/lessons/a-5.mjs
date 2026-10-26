@@ -1,11 +1,14 @@
 // GitHub Actions (Advanced, lesson 5). In a copy of the template made for this
-// lesson, the Learner commits a workflow they start by hand, in which a pinned
+// lesson, set up by hand with a repository secret and no Claude GitHub App,
+// the Learner commits a workflow they start by hand, in which a pinned
 // anthropics/claude-code-action runs Claude in automation mode, with its
 // credential from a repository secret and its limits in the file; runs it
 // once; saves the `gh run list` JSON under .practice/; and then tears the
 // workflow down. The workflow items read the history, newest first, so they
 // pass before and after the teardown, and a later workflow on other events
-// never stands in for this one. Who can start a run, and which issue or
+// never stands in for this one. Once the lesson's file is in the history,
+// they read only that file, so the Worked example's workflow, which also
+// starts by hand, never stands in for it either. Who can start a run, and which issue or
 // comment text reaches Claude as input, is a judgment the check can't see, so
 // the lesson self-checks it. The Advanced capstone reuses the workflow items, as one item, with its
 // own events.
@@ -22,14 +25,14 @@ export const TIMEOUT_MAX = 30;
 // What the lesson's workflow starts on, its file, where the page says what to
 // write, and two things the hints say about the setup: where the credential's
 // secret came from, and what the action does without `github_token`. The
-// lesson's copy is set up with quick setup, which installs the Claude GitHub
-// App.
+// lesson's copy has only the secret, saved with `gh secret set`, and no
+// Claude GitHub App.
 const LESSON = {
   triggers: ['workflow_dispatch'],
   file: WORKFLOW,
   guide: 'Your turn',
-  secret: 'the secret quick setup saved',
-  noToken: 'Claude acts as the Claude GitHub App, which can write to the repository',
+  secret: 'the secret you saved',
+  noToken: 'the action authenticates as the Claude GitHub App, which this copy doesn\'t have',
 };
 
 const RUN_FIELDS = 'databaseId,status,conclusion,event,headSha,url,workflowName';
@@ -188,17 +191,20 @@ const chosen = new WeakMap();
 
 // The workflow step the items evaluate: in the newest commit that holds a
 // step on one of `triggers`, the one with a `prompt` and the fewest problems.
-// `options` gives the hints' wording, as the items' options do. Returns
+// Once the history holds `o.file`, only that file counts. `options` gives
+// the hints' wording, as the items' options do. Returns
 // `{ file, step, setup, limits }`, or null.
 export function chosenWorkflow(repo, triggers, options = LESSON) {
   const o = { ...LESSON, ...options };
   if (!chosen.has(repo)) chosen.set(repo, new Map());
   const byTriggers = chosen.get(repo);
-  const key = [...triggers, o.secret, o.noToken].join('\0');
+  const key = [...triggers, o.file, o.secret, o.noToken].join('\0');
   if (!byTriggers.has(key)) {
     let found = null;
-    for (const { files } of claudeHistory(repo)) {
-      const steps = files.flatMap((file) => file.steps
+    const history = claudeHistory(repo);
+    const named = history.some(({ files }) => files.some((f) => f.path === o.file));
+    for (const { files } of history) {
+      const steps = files.filter((file) => !named || file.path === o.file).flatMap((file) => file.steps
         .filter((step) => step.triggers.some((t) => triggers.includes(t)))
         .map((step) => ({ file, step, setup: setupProblems(file, step, o), limits: limitProblems(file, step, o) })));
       if (!steps.length) continue;
@@ -297,7 +303,7 @@ export function boundedWorkflow(options = LESSON) {
 }
 
 // `owner/repo` of a github.com `origin`, or null.
-function originRepo(repo) {
+export function originRepo(repo) {
   try {
     const m = repo.git('remote', 'get-url', 'origin').match(GITHUB_REMOTE);
     return m ? `${m[1]}/${m[2]}` : null;
@@ -351,8 +357,11 @@ export function dispatchedRun(record = RUNS, file = WORKFLOW) {
     const sha = typeof run.headSha === 'string' && /^[0-9a-f]{40}$/i.test(run.headSha) ? run.headSha.toLowerCase() : null;
     if (!sha) return { stage: 4, hint: `${which} has no \`headSha\`, so the check can't tell which commit it ran on. Save the list with that field: ${save}.` };
     if (!isCommit(repo, sha)) return { stage: 4, hint: `${which} ran on commit ${short(sha)}, which this repository doesn't have. Run \`git pull\` to fetch it, then run the check again.` };
-    const held = claudeWorkflowsAt(repo, sha).some((f) => f.steps.some((s) => s.inputs.prompt?.text?.trim()));
-    if (!held) return { stage: 5, hint: `${which} ran on commit ${short(sha)}, where no workflow runs \`anthropics/claude-code-action\` with a \`prompt\`. Once your workflow is pushed, run it with ${start}, wait for it to finish, ${again}.` };
+    // Once the history holds the lesson's file, the run must be on a commit
+    // that holds it, as the workflow items read only that file then.
+    const named = claudeHistory(repo).some(({ files }) => files.some((f) => f.path === file));
+    const held = claudeWorkflowsAt(repo, sha).some((f) => (!named || f.path === file) && f.steps.some((s) => s.inputs.prompt?.text?.trim()));
+    if (!held) return { stage: 5, hint: `${which} ran on commit ${short(sha)}, where ${named ? code(file) : 'no workflow'} ${named ? "doesn't run" : 'runs'} \`anthropics/claude-code-action\` with a \`prompt\`. Once your workflow is pushed, run it with ${start}, wait for it to finish, ${again}.` };
     return { stage: 6 };
   }
 

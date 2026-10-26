@@ -50,9 +50,9 @@ const flat = (text) => text.replaceAll('`', '').replace(/\s+/g, ' ');
 // The guide's pages and the time each page's header line gives.
 const PAGES = [
   ['b-1', 'beginner', '01-install-and-look-around', 'about 20 minutes'],
-  ['b-2', 'beginner', '02-permission-modes-and-plan-mode', 'about 20 minutes'],
+  ['b-2', 'beginner', '02-permission-modes-and-plan-mode', 'about 25 minutes'],
   ['b-3', 'beginner', '03-first-change', 'about 20 minutes'],
-  ['b-4', 'beginner', '04-keep-a-session-on-track', 'about 20 minutes'],
+  ['b-4', 'beginner', '04-keep-a-session-on-track', 'about 25 minutes'],
   ['b-5', 'beginner', '05-project-memory', 'about 20 minutes'],
   ['b-capstone', 'beginner', 'capstone', '30 to 60 minutes'],
   ['i-1', 'intermediate', '01-first-skill', 'about 20 minutes'],
@@ -71,7 +71,7 @@ const PAGES = [
   ['a-5', 'advanced', '05-github-actions', 'about 20 minutes, plus run time'],
   ['a-6', 'advanced', '06-share-your-setup', 'about 20 minutes'],
   ['a-7', 'advanced', '07-bounded-runs', 'about 20 minutes, plus run time'],
-  ['a-capstone', 'advanced', 'capstone', '30 to 60 minutes, plus run time'],
+  ['a-capstone', 'advanced', 'capstone', '60 to 90 minutes, plus run time'],
 ];
 
 test('PATH lists all 23 lessons in course order, each with its page, its level and the minutes its page\'s header line gives', () => {
@@ -521,7 +521,7 @@ test('the check-only card scrolls no further than the window that ends on the la
       const per = Number(opened[2] ?? opened[1]) - Number(opened[1]) + 1;
       for (let i = 0; i < 20; i++) arrow(d, 'down', size, t);
       const end = shown();
-      assert.equal(Number(end[2] ?? end[1]), 12, `${at}: the last item shows\n${lines(d.state, size, t).join('\n')}`);
+      assert.equal(Number(end[2] ?? end[1]), 14, `${at}: the last item shows\n${lines(d.state, size, t).join('\n')}`);
       assert.ok(Number(end[2] ?? end[1]) - Number(end[1]) + 1 >= per, `${at}: the last window holds as many items as the first\n${lines(d.state, size, t).join('\n')}`);
       arrow(d, 'up', size, t);
       assert.equal(Number(shown()[1]), Number(end[1]) - 1, `${at}: up moved the card at once`);
@@ -783,4 +783,24 @@ test('the check-only card\'s item window fills its room: no window leaves rows u
     }
   }
   assert.ok(filled > 0, 'no window had rows to spare');
+});
+
+test('a passed Check step counts the run that passed it: a later poll that leaves the slow items out changes no count (r27)', () => {
+  // Lessons with slow items whose Check step opens on the whole check.
+  const ids = course.filter((l) => l.content && SLOW[l.id] && l.content.steps.find((st) => st.id === 'C')?.beats[0].verify.all).map((l) => l.id);
+  assert.ok(ids.length >= 8, ids.join(' '));
+  for (const id of ids) {
+    const d = driver({ course, saved: { format: 1, welcomed: true, lessons: { ...finishedBefore(id), [id]: { step: 'C', beat: 0, warm: [] } } } });
+    d.key('enter');
+    const asked = d.key('r').find((e) => e.type === 'check')?.asked;
+    assert.ok(asked, id);
+    const m = lessons[id].items.length;
+    const passes = C.checkPasses(m, m)[0];
+    d.send({ ...result(id, () => true, { slow: false }), asked });
+    assert.ok(['done', 'already'].includes(d.state.beat.status), `${id}: ${d.state.beat.status}`);
+    assert.ok(cardText(lines(d.state, [120, 40])).includes(passes), `${id}: ${cardText(lines(d.state, [120, 40]))}`);
+    // The watcher's next poll runs only the fast items.
+    d.send(result(id, () => true, { slow: true }));
+    assert.ok(cardText(lines(d.state, [120, 40])).includes(passes), `${id} after a poll: ${cardText(lines(d.state, [120, 40]))}`);
+  }
 });

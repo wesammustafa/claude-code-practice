@@ -74,7 +74,7 @@ export const items = [
       const { files, error } = savedCommit(repo);
       if (error) return error;
       const extra = files.filter((f) => !plan.has(f));
-      if (extra.length) return `The commit changes files the plan didn't name: ${extra.join(', ')}. If the plan named them, add them to \`.practice/capstone-plan.txt\`; if not, take them out of the commit. Re-save the SHA (task 7).`;
+      if (extra.length) return `The commit changes files the plan didn't name: ${extra.join(', ')}. If the plan named them, add them to \`.practice/capstone-plan.txt\`; if not, take them out of the commit. Re-save the SHA (task 8).`;
       if (!files.some(isTestFile)) return `The commit changes no test file. The test goes in the same commit as the fix: ask Claude to add it, then ${AMEND}.`;
       return files.every(isTestFile) ? ONLY_TESTS : true;
     },

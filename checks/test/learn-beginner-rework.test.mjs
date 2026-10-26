@@ -14,11 +14,16 @@ import { openRepo } from '../repo.mjs';
 import { commit, repo, withRepo, write } from './helpers.mjs';
 
 const beginner = liveCourse.filter(l => l.level === 'beginner');
-test('lesson 3 sets lesson 2 aside before starting a new change', () => {
+// Lesson 2 commits its reviewed change (ticket 27, S3), so lesson 3 starts
+// from a clean tree with nothing to set aside.
+test('lesson 3 starts from the clean tree lesson 2 committed', () => {
   const first = beginner.find(l => l.id === 'b-3').content.steps[0].beats[0];
   assert.equal(first.verify.kind, 'git-clean');
   assert.equal(first.where, 'terminal');
-  assert.ok(first.bottom.some(line => line.text.includes('git stash push --include-untracked -m b-2')));
+  assert.ok(!first.bottom.some(line => line.text.includes('git stash')));
+  const b2 = beginner.find(l => l.id === 'b-2').content;
+  assert.ok(b2.steps.some(s => s.part === 'Worked example' && s.beats.some(b => b.verify.kind === 'git-clean' && b.lines.some(line => line.key === 'run' && line.text.startsWith('git commit')))), 'b-2 commits its Worked example');
+  assert.ok(!readFileSync(join(root, 'learn/lessons/b-2.md'), 'utf8').includes('git stash'), 'b-2 stashes nothing');
 });
 
 test('capstone prepares committed memory and preserves its Windows reproduction warning', () => {
@@ -31,12 +36,21 @@ test('capstone prepares committed memory and preserves its Windows reproduction 
 test('Beginner live content teaches the promoted features and all four memory notes', () => {
   const text = id => readFileSync(join(root, 'learn/lessons', `${id}.md`), 'utf8');
   for (const feature of ['Ctrl+B', '/btw', '/tasks']) assert.ok(text('b-3').includes(feature), feature);
-  for (const feature of ['Restore code', 'Summarize from here', '/branch']) assert.ok(text('b-4').includes(feature), feature);
+  // Ticket 27, S2: b-4 recovers with Esc and a rewind of code and
+  // conversation; /branch and Summarize from here move to Go further.
+  for (const feature of ['Restore code and conversation', '**Restore code**', 'Esc', '/compact', '/clear']) assert.ok(text('b-4').includes(feature), feature);
+  for (const gone of ['/branch', 'Summarize from here']) assert.ok(!text('b-4').includes(gone), gone);
   for (const note of ['npm run tests', '~/scratch/linkcheck-docs', 'summary at the end', 'linkcheck:']) assert.ok(text('b-5').includes(note), note);
   for (const scope of ['~/.claude/CLAUDE.md', 'CLAUDE.local.md', 'Auto memory']) assert.ok(text('b-5').includes(scope), scope);
   assert.ok(!text('b-1').includes('.practice/version.txt'));
 });
 
+// A row that holds only the theme's `…` (`...` in ASCII), bare or inside a
+// card's rail: where teaching rows gave way.
+const cutRow = t => line => line.trim() === t.glyph.ellipsis || line.trim() === `${t.glyph.rail}  ${t.glyph.ellipsis}`;
+// Every beat's opening screen, and every screen at 80x24, shows all its
+// rows. At 60x20 a hint or feedback screen may cut the card: those are the
+// known cuts in learn-render.test.mjs, each with its reason.
 test('each reworked Beginner beat fits at 60x20 and 80x24 in Unicode and ASCII', () => {
   for (const unicode of [true, false]) {
     const t = theme({ tty: true, depth: 1, unicode, links: false, win32: !unicode });
@@ -49,7 +63,8 @@ test('each reworked Beginner beat fits at 60x20 and 80x24 in Unicode and ASCII',
         const lines = render(state, { cols, rows }, t).map(strip);
         assert.equal(lines.length, rows, label);
         assert.ok(lines.every(line => width(line) < cols), `${label}: line too wide`);
-        assert.ok(lines.every(line => line.trim() !== '…' && !(line.endsWith('…') && width(line) === cols - 1)), `${label} ${cols}x${rows}: teaching text cut`);
+        assert.ok(lines.every(line => line.trim() !== t.glyph.ellipsis && !(line.endsWith('…') && width(line) === cols - 1)), `${label} ${cols}x${rows}: teaching text cut`);
+        if (rows >= 24 || /^\S+ \S+\.\d+ open$/.test(label)) assert.ok(!lines.some(cutRow(t)), `${label} ${cols}x${rows}: the card cuts a row\n${lines.join('\n')}`);
       }
     }
   }

@@ -28,8 +28,8 @@ export const items = [
       const fields = frontmatter(text)?.fields ?? {};
       const model = String(fields.model ?? '').trim();
       const effort = String(fields.effort ?? '').trim();
-      if (!model || model === 'TODO') return 'Set `model:` in the skill: the alias of the model this task needs, such as `sonnet`.';
-      if (LARGE.test(model)) return `\`model: ${model}\` picks a larger model than this task needs: a change you can describe precisely is routine work. Use \`sonnet\`, or \`haiku\` outside auto mode.`;
+      if (!model || model === 'TODO') return 'Set `model:` in the skill: the alias of the model this task needs, such as `haiku`.';
+      if (LARGE.test(model)) return `\`model: ${model}\` picks a larger model than this task needs: a change you can describe precisely is routine work. Use \`haiku\` where it resolves to Haiku 5.5, as on the Anthropic API, or \`sonnet\`.`;
       if (!SMALL.test(model)) return `\`model: ${model}\` isn't a model alias or name Claude Code knows. Use \`sonnet\` or \`haiku\`.`;
       if (!LEVELS.includes(effort)) return `Set \`effort:\` to one of ${LEVELS.join(', ')}.`;
       if (LEVELS.indexOf(effort) > 1) return `\`effort: ${effort}\` asks for a higher effort than a routine, reviewed change needs. Use \`low\` or \`medium\`.`;

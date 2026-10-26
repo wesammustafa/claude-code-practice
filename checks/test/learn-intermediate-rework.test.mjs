@@ -47,7 +47,10 @@ for (const id of intermediate) test(`${id}: every beat fits in both terminal siz
         const diagnostic = `${label} ${cols}x${rows}\n${lines.join('\n')}`;
         assert.equal(lines.length, rows, diagnostic);
         assert.ok(lines.every(line => width(line) < cols), diagnostic);
-        assert.ok(lines.every(line => line.trim() !== '…' && !(line.endsWith('…') && width(line) === cols - 1)), `teaching text cut: ${diagnostic}`);
+        assert.ok(lines.every(line => line.trim() !== t.glyph.ellipsis && !(line.endsWith('…') && width(line) === cols - 1)), `teaching text cut: ${diagnostic}`);
+        // An opening screen, and every screen at 80x24, cuts no row inside
+        // the card either; at 60x20 the other cuts are learn-render's known ones.
+        if (rows >= 24 || /^\S+ \S+\.\d+ open$/.test(label)) assert.ok(!lines.some(line => line.trim() === `${t.glyph.rail}  ${t.glyph.ellipsis}`), `the card cuts a row: ${diagnostic}`);
       }
     }
   }

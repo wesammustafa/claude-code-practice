@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadCourse, parseLesson, READS } from '../../learn/lib/content.mjs';
-import { beatOf, DEFER_MS, hintAvailable, IDLE_MS, initialState, lessonOf, reduce, rungsOf, stepOf } from '../../learn/lib/flow.mjs';
+import { beatOf, DEFER_MS, easeLands, hintAvailable, IDLE_MS, initialState, lessonOf, reduce, rungsOf, stepOf, tierOf } from '../../learn/lib/flow.mjs';
 import { versionSaved } from './fixtures/saved-version.mjs';
 import { openRepo } from '../repo.mjs';
 import { repo, withRepo, write } from './helpers.mjs';
@@ -135,7 +135,7 @@ export const withCode = (lines) => DEMO_B2.replace('- run: "git status --porcela
 export const DEMO_I1 = `---
 lesson: i-1
 title: "Demo"
-stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
+stamp: "Verified against Claude Code v2.1.308 (stable) on 2026-10-25"
 next: i-2
 ---
 
@@ -470,7 +470,8 @@ export function allScreens() {
   d.key('1'); snap('W5 wrong');
   d.key('s'); snap('W5 revealed');
   d.key('enter'); snap('W6');
-  d.key('enter'); snap('W6 ask');
+  // W6's first beat waits for the learner's word, its done-label: space.
+  d.key('space'); snap('W6 ask');
   d.key('2'); snap('W6 decoy');
   d.key('1'); snap('W6 right');
   d.key('enter'); snap('W7 predict');
@@ -629,6 +630,30 @@ export function lessonScreens(id, lessons = course, { skipped = false, folders =
     } else climb(d, at, out);
   }));
   return out;
+}
+// Each step's opening screen when an ease lands on it: a bottom rung or a
+// missed warm-up on its skill brings the step back one tier easier, with
+// "A little more help" on its first beat (flow's easeLands). An ease lands
+// only where the step opens above GUIDED, so a step that opens GUIDED is
+// opened with "less help" on, the one way an ease reaches it. The learner
+// finished every lesson before it, or, with `skipped`, none.
+export function easedOpenings(id, lessons = course, { skipped = false } = {}) {
+  const l = lessons.find((x) => x.id === id);
+  const complete = skipped ? {} : finishedBefore(id, lessons);
+  const open = (step, extra) => {
+    const d = driver({ course: lessons, saved: { format: 1, welcomed: true, lessons: { ...complete, [id]: { step: step.id, beat: 0, warm: [], levels: ['hinted', 'challenge'], ...extra } } } });
+    d.key('enter');
+    if (stepOf(d.state)?.id !== step.id) throw new Error(`easedOpenings: ${id} ${step.id} opened ${d.state.view} ${stepOf(d.state)?.id}`);
+    return d;
+  };
+  return l.content.steps.flatMap((step) => {
+    const lessHelp = tierOf(open(step, {}).state) === 'guided';
+    const plain = open(step, { lessHelp });
+    if (!easeLands(plain.state, plain.state.pos.step)) return [];
+    const d = open(step, { lessHelp, easedSteps: { [step.id]: true } });
+    if (!d.state.beat.eased) throw new Error(`easedOpenings: ${id} ${step.id} is not eased`);
+    return [[`${id} ${step.id}.0 eased open`, d.state]];
+  });
 }
 const rungsAt = (d) => d.state.view === 'step' && d.state.beat && !['done', 'already'].includes(d.state.beat.status);
 // Every rung behind h, the bottom line too. Where a CHALLENGE beat keeps its

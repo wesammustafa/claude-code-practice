@@ -272,7 +272,7 @@ test('the intro looks for its prerequisites in the work folder; one that fails s
     if (size[1] < 24 && text.includes(C.notesShort)) assert.ok(!text.includes('builds on'), where);
     else {
       assert.ok(text.includes(C.buildsOnCheck('B5', words(B5_ITEM))), where);
-      assert.ok(text.includes(C.buildsOnFile('B4', C.fileEmpty(SKILL))), where);
+      assert.ok(text.includes(C.buildsOnFile('B4', C.noFile(SKILL))), where);
     }
     assert.ok(text.includes(C.startLesson(1)) && text.includes(C.openFirst('B5')), where);
   }
@@ -341,7 +341,7 @@ test('each ask for the prerequisites has its number: an answer to an older ask t
   // In order, each answer counts.
   d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: Buffer.from('x\n'), asked: 1 });
   d.send({ type: 'prereq', lesson: 'i-1', dir: COPY, at: 1, read: null, asked: 2 });
-  assert.ok(flat(screen(d.state)).includes(C.buildsOnFile('B4', C.fileEmpty(SKILL))), screen(d.state).join('\n'));
+  assert.ok(flat(screen(d.state)).includes(C.buildsOnFile('B4', C.noFile(SKILL))), screen(d.state).join('\n'));
 });
 
 test('an offer that goes once its prerequisite passes leaves the cursor on the start option', () => {
@@ -499,7 +499,7 @@ test('n opens the intro\'s notes whole, a note at a time where they are taller t
     d.key('down');
   }
   const all = [...seen].join(' ');
-  for (const text of [C.notGit, `"${NEED_REPO}"`, `"${WINDOWS}"`, words(NEED_JQ), words(NEED_LONG), C.buildsOnCheck('B5', words(B5_ITEM)), C.buildsOnFile('I1', C.fileEmpty(SKILL))]) {
+  for (const text of [C.notGit, `"${NEED_REPO}"`, `"${WINDOWS}"`, words(NEED_JQ), words(NEED_LONG), C.buildsOnCheck('B5', words(B5_ITEM)), C.buildsOnFile('I1', C.noFile(SKILL))]) {
     assert.ok(all.includes(text), `the notes never show "${text}"`);
   }
   d.key('n');

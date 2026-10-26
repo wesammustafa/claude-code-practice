@@ -9,7 +9,12 @@ import { join } from 'node:path';
 const SCRIPT = 'scripts/review-staged.sh';
 const RESULT = '.practice/a-4-result.json';
 const PROMPT = 'Review this staged diff for bugs and missing tests. List each problem as file:line and one sentence, or say there are none.';
-const FLAGS = '--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5';
+const TOOLS = '--tools "Read,Grep,Glob"';
+const HOOKS = `--settings '{"disableAllHooks": true}'`;
+const STRICT = '--strict-mcp-config';
+// What keeps the run to the three read tools, with no hooks and no MCP server.
+const LIMITS = `${TOOLS} ${HOOKS} ${STRICT}`;
+const FLAGS = `--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 ${LIMITS}`;
 const CALL = `claude -p "${PROMPT}" ${FLAGS}`;
 const GUARD = 'if git diff --cached --quiet; then echo "Nothing is staged." >&2; exit 2; fi';
 const SAVE = `git diff --cached | ${CALL} > "$out"`;
@@ -81,23 +86,32 @@ export const scenarios = [
   { item: 1, name: 'nothing after -p', setup: committed(edited([`claude -p "${PROMPT}" ${FLAGS}`, `claude ${FLAGS} -p`])) },
   { item: 1, name: 'a flag between -p and the prompt', setup: committed(edited([`claude -p "${PROMPT}" --output-format json`, `claude -p --output-format json "${PROMPT}"`])) },
   { item: 1, name: 'an empty prompt', setup: committed(edited([`"${PROMPT}"`, '""'])) },
-  { item: 1, name: 'no output format', setup: committed(flags('--permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5')) },
-  { item: 1, name: 'text output', setup: committed(flags('--output-format text --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5')) },
-  { item: 1, name: 'no permission mode', setup: committed(flags('--output-format json --allowedTools "Read,Grep,Glob" --max-turns 5')) },
-  { item: 1, name: 'dontAsk in the wrong case', setup: committed(flags('--output-format json --permission-mode dontask --allowedTools "Read,Grep,Glob" --max-turns 5')) },
-  { item: 1, name: 'another permission mode', setup: committed(flags('--output-format json --permission-mode acceptEdits --allowedTools "Read,Grep,Glob" --max-turns 5')) },
+  { item: 1, name: 'no output format', setup: committed(flags(`--permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'text output', setup: committed(flags(`--output-format text --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'no permission mode', setup: committed(flags(`--output-format json --allowedTools "Read,Grep,Glob" --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'dontAsk in the wrong case', setup: committed(flags(`--output-format json --permission-mode dontask --allowedTools "Read,Grep,Glob" --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'another permission mode', setup: committed(flags(`--output-format json --permission-mode acceptEdits --allowedTools "Read,Grep,Glob" --max-turns 5 ${LIMITS}`)) },
   { item: 1, name: 'permissions skipped', setup: committed(flags(`${FLAGS} --dangerously-skip-permissions`)) },
-  { item: 1, name: 'no allowed tools', setup: committed(flags('--output-format json --permission-mode dontAsk --max-turns 5')) },
-  { item: 1, name: 'a tool name in the wrong case', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "read,Grep,Glob" --max-turns 5')) },
-  { item: 1, name: 'Bash among the allowed tools', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob,Bash" --max-turns 5')) },
-  { item: 1, name: 'no turn cap', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob"')) },
-  { item: 1, name: 'a turn cap above 10', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 20')) },
-  { item: 1, name: 'a turn cap that is no number', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns five')) },
-  { item: 1, name: 'no format after the output flag', setup: committed(flags('--permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 --output-format')) },
-  { item: 1, name: 'no mode after the permission flag', setup: committed(flags('--output-format json --allowedTools "Read,Grep,Glob" --max-turns 5 --permission-mode')) },
-  { item: 1, name: 'an empty tool list', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "" --max-turns 5')) },
-  { item: 1, name: 'a word of the prompt in the tool list', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" review --max-turns 5')) },
-  { item: 1, name: 'no number after the turn cap', setup: committed(flags('--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns')) },
+  { item: 1, name: 'no allowed tools', setup: committed(flags(`--output-format json --permission-mode dontAsk --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'a tool name in the wrong case', setup: committed(flags(`--output-format json --permission-mode dontAsk --allowedTools "read,Grep,Glob" --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'Bash among the allowed tools', setup: committed(flags(`--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob,Bash" --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'no turn cap', setup: committed(flags(`--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" ${LIMITS}`)) },
+  { item: 1, name: 'a turn cap above 10', setup: committed(flags(`--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 20 ${LIMITS}`)) },
+  { item: 1, name: 'a turn cap that is no number', setup: committed(flags(`--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns five ${LIMITS}`)) },
+  { item: 1, name: 'no format after the output flag', setup: committed(flags(`--permission-mode dontAsk --allowedTools "Read,Grep,Glob" --max-turns 5 ${LIMITS} --output-format`)) },
+  { item: 1, name: 'no mode after the permission flag', setup: committed(flags(`--output-format json --allowedTools "Read,Grep,Glob" --max-turns 5 ${LIMITS} --permission-mode`)) },
+  { item: 1, name: 'an empty tool list', setup: committed(flags(`--output-format json --permission-mode dontAsk --allowedTools "" --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'a word of the prompt in the tool list', setup: committed(flags(`--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" review --max-turns 5 ${LIMITS}`)) },
+  { item: 1, name: 'no number after the turn cap', setup: committed(flags(`--output-format json --permission-mode dontAsk --allowedTools "Read,Grep,Glob" ${LIMITS} --max-turns`)) },
+  { item: 1, name: 'no --tools', setup: committed(edited([`${TOOLS} `, ''])) },
+  { item: 1, name: 'Bash kept by --tools', setup: committed(edited([TOOLS, '--tools "Read,Grep,Glob,Bash"'])) },
+  { item: 1, name: 'a read tool left out of --tools', setup: committed(edited([TOOLS, '--tools "Read"'])) },
+  { item: 1, name: 'nothing after --tools', setup: committed(edited([`${TOOLS} `, ''], [STRICT, `${STRICT} --tools`])) },
+  { item: 1, name: 'hooks left on', setup: committed(edited([`${HOOKS} `, ''])) },
+  { item: 1, name: 'nothing after --settings', setup: committed(edited([`${HOOKS} `, ''], [STRICT, `${STRICT} --settings`])) },
+  { item: 1, name: 'a settings file in place of inline JSON', setup: committed(edited([HOOKS, '--settings .claude/review-settings.json'])) },
+  { item: 1, name: 'settings JSON that leaves hooks on', setup: committed(edited([HOOKS, `--settings '{"disableAllHooks": false}'`])) },
+  { item: 1, name: 'no --strict-mcp-config', setup: committed(edited([` ${STRICT}`, ''])) },
   { item: 1, name: 'claude called by its path', setup: committed(edited([`claude -p "${PROMPT}"`, `/usr/local/bin/claude -p "${PROMPT}"`])) },
   { item: 2, name: 'the script not committed', files: { 'README.md': '# A project\n' } },
   { item: 2, name: 'Windows line ends', setup: committed(REVIEW.replace(/\n/g, '\r\n')) },

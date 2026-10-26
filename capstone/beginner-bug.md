@@ -18,5 +18,4 @@ The tool should stop with an error that names the missing folder, `docs`, and ex
 
 ## Notes
 
-- The folders are read in `src/check-links.js`; the exit codes are set in `src/cli.js`.
 - Add a test that fails before the fix and passes after it.

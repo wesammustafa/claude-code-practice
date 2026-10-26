@@ -104,9 +104,9 @@ const OPTION_KEYS = new Set(['right', 'wrong', 'option', 'stuck', 'other', 'deco
 // says so (ticket 86).
 export const PATH = [
   { id: 'b-1', level: 'beginner', page: 'docs/beginner/01-install-and-look-around.md', minutes: 'about 20 minutes' },
-  { id: 'b-2', level: 'beginner', page: 'docs/beginner/02-permission-modes-and-plan-mode.md', minutes: 'about 20 minutes' },
+  { id: 'b-2', level: 'beginner', page: 'docs/beginner/02-permission-modes-and-plan-mode.md', minutes: 'about 25 minutes' },
   { id: 'b-3', level: 'beginner', page: 'docs/beginner/03-first-change.md', minutes: 'about 20 minutes' },
-  { id: 'b-4', level: 'beginner', page: 'docs/beginner/04-keep-a-session-on-track.md', minutes: 'about 20 minutes' },
+  { id: 'b-4', level: 'beginner', page: 'docs/beginner/04-keep-a-session-on-track.md', minutes: 'about 25 minutes' },
   { id: 'b-5', level: 'beginner', page: 'docs/beginner/05-project-memory.md', minutes: 'about 20 minutes' },
   { id: 'b-capstone', level: 'beginner', page: 'docs/beginner/capstone.md', minutes: '30 to 60 minutes' },
   { id: 'i-1', level: 'intermediate', page: 'docs/intermediate/01-first-skill.md', minutes: 'about 20 minutes' },
@@ -125,7 +125,7 @@ export const PATH = [
   { id: 'a-5', level: 'advanced', page: 'docs/advanced/05-github-actions.md', minutes: 'about 20 minutes, plus run time', newCopy: true },
   { id: 'a-6', level: 'advanced', page: 'docs/advanced/06-share-your-setup.md', minutes: 'about 20 minutes' },
   { id: 'a-7', level: 'advanced', page: 'docs/advanced/07-bounded-runs.md', minutes: 'about 20 minutes, plus run time' },
-  { id: 'a-capstone', level: 'advanced', page: 'docs/advanced/capstone.md', minutes: '30 to 60 minutes, plus run time', newCopy: true },
+  { id: 'a-capstone', level: 'advanced', page: 'docs/advanced/capstone.md', minutes: '60 to 90 minutes, plus run time', newCopy: true },
 ];
 // The guide's levels, in course order.
 export const LEVELS = [...new Set(PATH.map((p) => p.level))];

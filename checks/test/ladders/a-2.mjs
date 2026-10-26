@@ -2,8 +2,8 @@
 // that produces it: `files` to write, or `setup(dir, { write, commit })`.
 // Each scenario breaks one thing, so one narrow question matches its message.
 const CHOICES = '.practice/a-2-choices.md';
-const LOG = '.practice/a-2-agents.txt';
-const HOOK = '.practice/a-2-hook.json';
+const LOG = '.practice/i-6-agents.txt';
+const HOOK = '.practice/i-6-hook.json';
 
 // The five jobs' right patterns, one line each, with job `n` changed to
 // `line` (or dropped when `line` is null).
@@ -12,7 +12,7 @@ const RIGHT = {
   2: '2: workflow because every finding is confirmed and it reruns each release',
   3: '3: main conversation because the edits and the build share one context',
   4: '4: subagents because each suspect is checked on its own and reported back',
-  5: '5: agent team because the investigators must argue it out',
+  5: '5: /batch because each package changes and lands on its own',
 };
 const choices = (n, line) => `${Object.entries(RIGHT).map(([k, l]) => (Number(k) === n ? line : l)).filter((l) => l !== null).join('\n')}\n`;
 
@@ -27,6 +27,6 @@ export const scenarios = [
   { item: 1, name: 'no log and no hook file', files: { 'README.md': '# A project\n' } },
   { item: 1, name: 'no log, with the hook file saved', files: { [HOOK]: '{"hooks":{}}\n' } },
   { item: 1, name: 'an empty log', files: { [LOG]: '\n\n' } },
-  { item: 1, name: 'one subagent started', files: { [LOG]: 'a1b2\tExplore\n' } },
-  { item: 1, name: 'one subagent resumed', files: { [LOG]: 'a1b2\tExplore\na1b2\tExplore\n' } },
+  { item: 1, name: 'one subagent started after test-gaps', files: { [LOG]: 'test-gaps\nExplore\n' } },
+  { item: 1, name: 'only lesson 6\'s test-gaps', files: { [LOG]: 'test-gaps\n' } },
 ];

@@ -82,6 +82,17 @@ function pushed(repo) {
   return { pass: true, evidence: `${branch} is pushed to ${upstream}`, state };
 }
 
+// `removed <path>...`: none of the paths is in HEAD, and HEAD is pushed
+// (r27 pattern U), so a beat that deletes files passes on their removal's
+// push, not on any push. Its state is the push's.
+function removed(repo, paths) {
+  const head = ask(repo, 'rev-parse', '--verify', '-q', 'HEAD^{commit}') ?? '';
+  const left = paths.filter((p) => ask(repo, 'cat-file', '-e', `HEAD:${p}`) !== null);
+  if (left.length) return { pass: false, hint: `Still in the last commit: ${some(left)}. Delete ${left.length === 1 ? 'it' : 'them'} with git rm, then commit and push.`, state: head };
+  const p = pushed(repo);
+  return p.pass ? { pass: true, evidence: `Removed and pushed: ${some(paths)}`, state: p.state } : p;
+}
+
 // `todos <n>`: TODO or FIXME in tracked files of at least n top-level folders.
 function todos(repo, [n]) {
   const files = (ask(repo, 'grep', '-l', '-I', '-E', 'TODO|FIXME') ?? '').split('\n').filter(Boolean);
@@ -107,6 +118,7 @@ export const PROBES = {
   merged: { args: [BRANCH], many: true, watching: 'git log', run: merged },
   gone: { args: [PATH], watching: 'git worktree list', run: gone },
   pushed: { args: [], watching: 'git status', run: pushed },
+  removed: { args: [PATH], many: true, watching: 'git log', run: removed },
   todos: { args: [COUNT], watching: 'git grep', run: todos },
 };
 

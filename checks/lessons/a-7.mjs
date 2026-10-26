@@ -1,7 +1,10 @@
 // Put bounds on autonomous runs (Advanced, lesson 7). The Learner commits
 // scripts/bounded-run.sh, which takes a task and a result path and starts
 // one `claude -p` run in dontAsk mode, with JSON output, a turn limit, a
-// spend limit and a committed settings file passed with --settings. That
+// spend limit, --strict-mcp-config (so no `.mcp.json` server starts, even
+// one rejected in `.claude/settings.local.json`, which `--setting-sources
+// project` leaves out) and a committed settings file passed with
+// --settings. That
 // file allows only one folder or one command per rule, denies `git commit`
 // and `git push`, and turns the sandbox on in strict mode, without
 // auto-allow, refusing to start without it. The check runs the committed
@@ -202,6 +205,8 @@ function callProblems(repo, call) {
   else if (format.startsWith('-')) problems.push(`\`--output-format\` has no format after it, so it takes ${code(format)} as its value: write \`--output-format json\`.`);
   else if (format !== 'json') problems.push(`It asks for \`--output-format ${format}\`: use \`json\`, so the result path holds the run's result as one JSON object.`);
 
+  if (!flags.strictMcpConfig) problems.push(`It doesn't keep the project's MCP servers out: add \`--strict-mcp-config\`, so the run starts no server you didn't pass with \`--mcp-config\`.${spelling('--strict-mcp-config')}`);
+
   const settings = settingsOf(repo, call);
   if (settings.hint) problems.push(settings.hint);
   return problems;
@@ -244,7 +249,7 @@ function modeHint(repo, script) {
 
 export function boundedScript(script = SCRIPT) {
   return {
-    text: `${code(script)} is committed and executable, takes a task and a result path (${usage(script)}), and starts \`claude -p\` in \`dontAsk\` mode with JSON output and a committed \`--settings\` file`,
+    text: `${code(script)} is committed and executable, takes a task and a result path, and starts \`claude -p\` in \`dontAsk\` mode with JSON output, no MCP server and a committed \`--settings\` file`,
     check(repo) {
       const mode = modeHint(repo, script);
       if (mode) return mode;

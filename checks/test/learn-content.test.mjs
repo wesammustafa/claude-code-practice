@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GUIDE, indexLevel, isChoice, PART_IDS, parseLesson, PATH, WHERE } from '../../learn/lib/content.mjs';
+import { GUIDE, indexLevel, isChoice, OWN_PARTS, PART_IDS, parseLesson, PATH, READS, WHERE } from '../../learn/lib/content.mjs';
 import { C, TERMS } from '../../learn/lib/copy.mjs';
 import { TYPED_MAX, WARMUPS } from '../../learn/lib/flow.mjs';
 import { inline, width, wrapRuns } from '../../learn/lib/text.mjs';
@@ -122,8 +122,6 @@ test('the first GUIDED Worked example step on each skill has a why line on a bea
 
 // A page step split in two: the second step keeps the page step's number.
 const SPLIT = {
-  'a-5 W2': 'page step 1 ("In the copy, start `claude`, run `/install-github-app`") splits as i-8\'s does, so a-5 opens on starting Claude Code at CHALLENGE, not on its GUIDED App install',
-  'i-8 W2': 'page step 1 ("In a session in your repository") splits as b-5\'s does, so i-8 opens on starting Claude Code at CHALLENGE, not on its GUIDED install',
 };
 
 // What is wrong with the numbering of lesson `id`'s steps: each part's
@@ -569,6 +567,8 @@ test('the Check\'s recall question files a miss under a skill the course has tau
 // Lessons with no skill in their warm-up pool that comes back in their own
 // steps, so R1 can't be one; each with its reason.
 const R1_NOT_REUSED = {
+  'a-1': 'the level\'s first lesson recalls Intermediate\'s scope and delegation choices; the only earlier skills its steps reuse are commit and save-version, chores with no scenario worth a warm-up',
+  'i-1': 'its pool recalls Beginner\'s compact, resume and rewind, which no i-1 step asks again: the commit candidate it reused went once no Beginner question could mark commit missed',
 };
 
 // What is wrong with the order of lesson `id`'s warm-ups.
@@ -595,11 +595,13 @@ test('warm-ups: the first two mix a recent lesson and an older one, and R1 comes
 });
 
 // Ticket 85: i-1's and i-2's pools recall Beginner skills Beginner never
-// asks again. i-1's R1 is one i-1 reuses, and its R2 an older lesson's.
+// asks again. The demo i-1's R1 is one it reuses, and its R2 an older
+// lesson's; it is read as a lesson of its own, since the shipped i-1's
+// exemption in R1_NOT_REUSED doesn't fit a pool that reuses commit.
 test('warm-ups: a lesson may recall a lesson of an earlier level, as i-1 recalls Beginner', () => {
   const i1 = parseLesson(DEMO_I1, 'i-1.md');
   assert.deepEqual(i1.warmup.map((w) => [w.from, w.skill]), [['b-5', 'commit'], ['b-4', 'compact']]);
-  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1', i1)], []);
+  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1 demo', i1)], []);
 });
 
 // Ticket 178: a warm-up may recall a level's index page, any level's, from
@@ -607,7 +609,7 @@ test('warm-ups: a lesson may recall a lesson of an earlier level, as i-1 recalls
 test('warm-ups: a warm-up may recall a level index, from any lesson', () => {
   const i1 = parseLesson(DEMO_I1_INDEX, 'i-1.md');
   assert.deepEqual(i1.warmup.map((w) => [w.from, w.skill]), [['b-5', 'commit'], ['intermediate-index', 'when-to-use']]);
-  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1', i1)], []);
+  assert.deepEqual([...warmupOff('i-1', i1), ...pairOff('i-1 demo', i1)], []);
   // Beginner's second lesson may quote the Advanced index.
   const b2 = parseLesson(DEMO_B2.replace('- from: b-1\n- beat: type', '- from: advanced-index\n- beat: type'), 'b-2.md');
   assert.deepEqual(b2.warmup.map((w) => w.from), ['b-1', 'advanced-index', 'b-1']);
@@ -622,9 +624,7 @@ const marksMissed = (b) => b.kind === 'type' || (Boolean(b.ask) && b.kind !== 'p
 // Skills a question can mark missed that no later lesson's pool recalls, each
 // with its reason.
 const NO_LATER_WARMUP = {
-  'gh-secret': 'a-6\'s warm-up recalls it, and the level\'s last lessons recall into the capstone, which has no warm-up (194)',
-  'team-marketplace': 'a-7\'s warm-up recalls it, and the capstone after a-7 has no warm-up (194)',
-  'check-cost': 'a-7\'s warm-up recalls it, and the capstone after a-7 has no warm-up (194); drop this once an earlier lesson\'s question can mark it missed',
+  'limit-run': 'ticket 27 cut a-4\'s Your turn question, which tested a flag\'s definition, so a-7\'s questions are the first that can mark limit-run, and no lesson after a-7 has warm-ups',
 };
 
 // The skills a question in `contents` (in PATH order) can mark missed that
@@ -1063,4 +1063,342 @@ test('choices: every when names a real choice made before it, and one of its opt
   // A step's first beat always shows; a warm-up follows no choice.
   assert.throws(() => parseLesson(`---\nlesson: a-1\ntitle: "Demo"\n---\n\n## intro\n- can: "do it"\n\n## steps\n\n### W1 | Worked example step 1 of 1 | Do it\n- tier: guided\n- skill: s\n- where: claude\n${WHEN_KEY('C.0=x').join('\n')}\n\n### C | Check | Check\n- tier: challenge\n- skill: check\n- where: terminal\n- beat: do\n- verify: check all\n- goal: "Run it."`, 'a-1.md'), /first beat always shows/);
   assert.throws(() => ruled('a-1', { warm: [[...CHOICE, ...WHEN_KEY('R1.0=An API key')]] }), /a when line on a warm-up/);
+});
+
+// ---- what the ticket 27 dry-runs found (patterns A to I) --------------------
+// The 2.1.308 dry-runs found step-file patterns that a script can spot, each
+// fixed in every lesson: a line that dangles (A), a hint that repeats the
+// card (B), `terminal` while Claude Code still runs there (D), a beat that
+// passes before the learner looks (E), a line cut from mid-sentence (F), a
+// card line that repeats the title (G), a command beside "No commands this
+// time" (H), and a Check whose command is only behind h (I). Their C, a
+// decision or a format only behind h, is a finish-review item: no script
+// can tell which hint holds one. Each test reads every lesson in PATH order
+// at its plan tiers, and names the file line, the step and beat, and the
+// line it found.
+const sourceLines = Object.fromEntries(files.map((f) => [f.replace(/\.md$/, ''), readFileSync(join(dir, f), 'utf8').split('\n')]));
+
+// Where a beat's line sits: `learn/lessons/<id>.md:<n> <step>.<beat>`, with n
+// the file line of the beat's `- <key>: ` line that holds `text`, or of the
+// beat's own line.
+function placeOf(id, step, n, key, text) {
+  const lines = sourceLines[id];
+  const from = step.beats[n].line - 1;
+  let at = from;
+  for (let i = from + 1; key && i < lines.length && !/^(- beat:|### )/.test(lines[i]); i++) {
+    if ([`- ${key}: "${text}"`, `- ${key}: ${text}`].includes(lines[i].trim())) {
+      at = i;
+      break;
+    }
+  }
+  return `learn/lessons/${id}.md:${at + 1} ${step.id}.${n}`;
+}
+
+// Every beat of every lesson in PATH order, each with its step's plan tier:
+// a lesson's warm-ups first, at CHALLENGE, then its steps.
+function planBeats() {
+  const out = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    for (const [s, tier] of [...c.warmup.map((w) => [w, 'challenge']), ...c.steps.map((s, k) => [s, rule[k]])]) {
+      s.beats.forEach((b, n) => out.push({ id: c.lesson, s, n, b, tier }));
+    }
+  });
+  return out;
+}
+
+// The lines a beat's card shows at its plan tier, in order: a guess shows
+// only its notes. Run and code lines show at the plan's tier (only "less
+// help" on a GUIDED step hides them), and bottom lines never do.
+const cardLines = (b) => (b.kind === 'predict' ? b.lines.filter((x) => x.key === 'note') : b.lines);
+const CARD_TEXT = new Set(['goal', 'do', 'say', 'note', 'rule', 'after', 'expect']);
+// Two lines say the same words when they differ only in case, bold, code
+// marks, spacing or closing punctuation.
+const sameWords = (x) => x.replace(/\*\*|`/g, '').replace(/[\s.:,;]+$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+// What a card line's closing colon may introduce, on the line right under
+// it: a command (a run or code line), what to expect (an expect line), a
+// list (the next two lines share a key, as b-2 W4's choices do), or, under
+// a say line, the app's own words, the quote it introduces (as a-2 Y1's job
+// text). Anything else means the page's colon lost its code block: what it
+// introduces went behind h, to a later beat, or nowhere.
+const introduces = (line, next, after) => Boolean(next) && (['run', 'code', 'expect'].includes(next.key)
+  || (['note', 'do', 'say'].includes(next.key) && after?.key === next.key)
+  || (line.key === 'say' && next.key === 'note'));
+
+test('card: a line that ends in a colon has what it introduces under it, and no card line, GUIDED why line or hint is left hanging (27, pattern A)', () => {
+  const off = [];
+  for (const { id, s, n, b, tier } of planBeats()) {
+    const shown = cardLines(b);
+    shown.forEach((x, j) => {
+      if (!CARD_TEXT.has(x.key)) return;
+      const text = x.text.trim();
+      if (text.endsWith(',')) off.push(`${placeOf(id, s, n, x.key, x.text)}: ${x.key} "${x.text}" ends in a comma`);
+      else if (text.endsWith(':') && !introduces(x, shown[j + 1], shown[j + 2])) off.push(`${placeOf(id, s, n, x.key, x.text)}: ${x.key} "${x.text}" ends in a colon, and what it introduces is not under it`);
+    });
+    // At GUIDED a do or ask beat's first why line shows under the title, alone.
+    const why = b.why[0]?.trim() ?? '';
+    if (tier === 'guided' && ['do', 'ask'].includes(b.kind) && /[:,]$/.test(why)) off.push(`${placeOf(id, s, n, 'why', b.why[0])}: why "${b.why[0]}" ends in a ${why.endsWith(':') ? 'colon' : 'comma'} under the title`);
+    // A hint shows alone: it ends in a colon only as the last one, where the
+    // y/n and the bottom line after it finish its sentence.
+    b.hints.forEach((h, m) => {
+      if (h.trim().endsWith(':') && !(m === b.hints.length - 1 && b.bottom.length)) off.push(`${placeOf(id, s, n, 'hint', h)}: hint ${m + 1} "${h}" ends in a colon, and no bottom line follows it`);
+    });
+  }
+  assert.deepEqual(off, []);
+});
+
+test('help: no hint repeats a line the card already shows (27, pattern B)', () => {
+  const off = [];
+  for (const { id, s, n, b, tier } of planBeats()) {
+    const card = cardLines(b).filter((x) => CARD_TEXT.has(x.key)).map((x) => x.text);
+    if (b.self) card.push(b.self);
+    if (tier === 'guided' && ['do', 'ask'].includes(b.kind) && b.why.length) card.push(b.why[0]);
+    const shown = new Set(card.map(sameWords));
+    b.hints.forEach((h, m) => {
+      if (shown.has(sameWords(h))) off.push(`${placeOf(id, s, n, 'hint', h)}: hint ${m + 1} "${h}" repeats the card`);
+    });
+  }
+  assert.deepEqual(off, []);
+});
+
+// A session's starts and ends, in the order a beat gives them: a run or
+// bottom line that starts an interactive `claude` (flags only: no `-p`, no
+// subcommand, no `--version` or `--help`) or types `/exit`, and an order on
+// the card, such as "start `claude` again" or "End the session". Hints are
+// left out: one may offer a session the step doesn't need ("For a second
+// opinion, start `claude`"), or repeat the step before.
+const ORDER = String.raw`(?:^|[.,:;]\s+|\b(?:then|and)\s+)`;
+const STARTS = new RegExp(String.raw`${ORDER}start\b[^.;:]*?(?:\x60claude[\x60\s]|\bsession\b|\bClaude Code\b)`, 'gi');
+const ENDS = new RegExp(String.raw`/exit\b|${ORDER}(?:end|exit|quit|close)\b[^.;:]*?\bsession\b`, 'gi');
+const startsClaude = (cmd) => /^claude(\s|$)/.test(cmd) && !/^claude\s+[a-z]/.test(cmd) && !/(^|\s)(-p|--print|-v|--version|-h|--help)(\s|$)/.test(cmd);
+function sessionEvents(b) {
+  const events = [];
+  const command = (cmd) => {
+    if (startsClaude(cmd)) events.push('start');
+    else if (/^\/exit\b/.test(cmd)) events.push('end');
+  };
+  for (const x of cardLines(b)) {
+    if (x.key === 'run') command(x.text);
+    else if (CARD_TEXT.has(x.key)) {
+      const found = [...[...x.text.matchAll(STARTS)].map((m) => [m.index, 'start']), ...[...x.text.matchAll(ENDS)].map((m) => [m.index, 'end'])];
+      events.push(...found.sort((p, q) => p[0] - q[0]).map(([, e]) => e));
+    }
+  }
+  for (const x of b.bottom) command(x.text);
+  return events;
+}
+
+// Beats that say `terminal` where a session may still run, kept on
+// purpose, each with its reason.
+const LEARNERS_ORDER = 'the capstone leaves the order of its tasks to the learner, so the file can\'t tell whether step 4\'s session is still open in that terminal; ticket 27 left it';
+const TERMINAL_WHILE_OPEN = {
+  'a-capstone T5.3': LEARNERS_ORDER,
+  'a-capstone C.0': LEARNERS_ORDER,
+  'a-capstone D1.0': LEARNERS_ORDER,
+  'a-capstone D2.0': LEARNERS_ORDER,
+  'a-capstone D2.1': LEARNERS_ORDER,
+  'a-capstone D3.0': LEARNERS_ORDER,
+  'a-capstone D3.2': LEARNERS_ORDER,
+  'a-capstone D3.3': LEARNERS_ORDER,
+};
+
+test('where: no beat sends the learner to the terminal Claude Code is still running in (27, pattern D)', () => {
+  const off = [];
+  const exempt = [];
+  for (const c of contents) {
+    // A page that numbers its terminals has each beat say which one.
+    if (!c || c.terminals) continue;
+    // `terminal` is the window Claude Code runs in: a claude beat, or a
+    // start in that window, opens its session, and an end there closes it.
+    // claude-2, shell, editor and browser are other windows.
+    let open = null;
+    c.steps.forEach((s) => s.beats.forEach((b, n) => {
+      const events = sessionEvents(b);
+      if (b.kind === 'do' && b.where === 'terminal' && open && !events.length) {
+        const at = `${c.lesson} ${s.id}.${n}`;
+        if (TERMINAL_WHILE_OPEN[at]) exempt.push(at);
+        else off.push(`${placeOf(c.lesson, s, n)}: where terminal, while the session from ${open} still runs there`);
+      }
+      if (b.where !== 'terminal' && b.where !== 'claude') return;
+      if (events.length) open = events.at(-1) === 'start' ? `${s.id}.${n}` : null;
+      else if (b.where === 'claude' && !open) open = `${s.id}.${n}`;
+    }));
+  }
+  assert.deepEqual(off, []);
+  assert.deepEqual(exempt, Object.keys(TERMINAL_WHILE_OPEN), 'an exemption names a beat that no longer says terminal while a session runs there');
+});
+
+test('a git-clean beat that asks the learner to run git status waits for them: it has a done-label (27, pattern E)', () => {
+  const off = [];
+  for (const { id, s, n, b } of planBeats()) {
+    const run = b.lines.find((x) => x.key === 'run' && /^git status\b/.test(x.text));
+    if (b.verify.kind === 'git-clean' && run && !b.doneLabel) off.push(`${placeOf(id, s, n, 'run', run.text)}: verify git-clean beside "${run.text}" with no done-label, so it passes before the learner looks`);
+  }
+  assert.deepEqual(off, []);
+});
+
+// How a sentence starts: a capital or a digit, or a code span, a link, a
+// quote mark, bold or a parenthesis around one.
+const SENTENCE_START = /^[A-Z0-9`["*(]/;
+
+test('card: a beat\'s first goal, do or say line starts a sentence, never midway through the page\'s (27, pattern F)', () => {
+  const off = [];
+  for (const { id, s, n, b } of planBeats()) {
+    const first = cardLines(b).find((x) => ['goal', 'do', 'say'].includes(x.key));
+    if (first && !SENTENCE_START.test(first.text)) off.push(`${placeOf(id, s, n, first.key, first.text)}: ${first.key} "${first.text}" starts midway through a sentence`);
+  }
+  assert.deepEqual(off, []);
+});
+
+test('card: no line on a step\'s card repeats the step\'s title (27, pattern G)', () => {
+  const off = [];
+  for (const { id, s, n, b } of planBeats()) {
+    for (const x of cardLines(b)) {
+      if (CARD_TEXT.has(x.key) && sameWords(x.text) === sameWords(s.title)) off.push(`${placeOf(id, s, n, x.key, x.text)}: ${x.key} "${x.text}" repeats the title "${s.title}"`);
+    }
+  }
+  assert.deepEqual(off, []);
+});
+
+test('card: a CHALLENGE Your turn or task step shows no run line beside "No commands this time" (27, pattern H)', () => {
+  const off = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => {
+      if (rule[k] !== 'challenge' || !OWN_PARTS.has(s.part)) return;
+      // The card says it on the step's first beat that is no guess.
+      const n = s.beats.findIndex((b) => b.kind !== 'predict');
+      const run = s.beats[n]?.lines.find((x) => x.key === 'run');
+      if (run) off.push(`${placeOf(c.lesson, s, n, 'run', run.text)}: run "${run.text}" beside "${C.noCommands}"`);
+    });
+  });
+  assert.deepEqual(off, []);
+});
+
+// Checks that keep their command behind h, each with its reason.
+const CHECK_COMMAND_BEHIND_H = {
+  'a-capstone C': 'any line on C.0\'s card, a goal or a run line, pushes even the title off a 60x20 ASCII card under three of its FAIL messages (only a workflow that waits for a mention, no credential, a key in a committed note), so learn-check-says fails; it needs shorter messages or another Check title first',
+};
+
+test('card: every Check shows its npm run check command on the card, not only behind h (27, pattern I)', () => {
+  const off = [];
+  const exempt = [];
+  for (const c of contents) {
+    if (!c) continue;
+    const check = c.steps.find((s) => s.part === 'Check');
+    const shows = check.beats.some((b) => cardLines(b).some((x) => (x.key === 'run' && /^npm run check\b/.test(x.text)) || (CARD_TEXT.has(x.key) && /`npm run check\b/.test(x.text))));
+    const at = `${c.lesson} ${check.id}`;
+    if (shows) continue;
+    if (CHECK_COMMAND_BEHIND_H[at]) exempt.push(at);
+    else off.push(`learn/lessons/${c.lesson}.md:${check.line} ${check.id}: no beat shows \`npm run check\` on the card${check.beats.some((b) => b.bottom.some((x) => /^npm run check\b/.test(x.text))) ? ': it is only a bottom line, behind h' : ''}`);
+  }
+  assert.deepEqual(off, []);
+  assert.deepEqual(exempt, Object.keys(CHECK_COMMAND_BEHIND_H), 'an exemption names a Check that shows its command now');
+});
+
+test('card: a beat planned and written GUIDED shows its command, not only behind h (27, pattern J)', () => {
+  // The card inlines bottom lines only on a step planned GUIDED and written
+  // above it, so on a step written GUIDED a command kept only in `bottom`
+  // hides behind h while the header promises every command shown. A card
+  // line that names the bottom's command in a code span shows it.
+  const off = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => s.beats.forEach((b, n) => {
+      if (rule[k] !== 'guided' || s.tier !== 'guided' || b.kind !== 'do' || s.part === 'Check' || !b.bottom.length) return;
+      if (b.lines.some((x) => ['run', 'code'].includes(x.key))) return;
+      const card = b.lines.filter((x) => CARD_TEXT.has(x.key)).map((x) => x.text).join('\n');
+      const hidden = b.bottom.filter((x) => !card.includes(`\`${x.text}\``));
+      if (hidden.length) off.push(`${placeOf(c.lesson, s, n, 'bottom', hidden[0].text)}: ${hidden.map((x) => x.text).join(' | ')} only behind h on a GUIDED step`);
+    }));
+  });
+  assert.deepEqual(off, []);
+});
+
+// A slash command in a card line, a hint or a bottom line.
+const SLASH = /(?:^|[\s`(])(\/[a-z][a-z-]+)(?=[\s`.,:)]|$)/g;
+
+test('card: a slash command the course shows for the first time in a Worked example is on the card (27, pattern K)', () => {
+  // Curriculum 3.6: a first meeting is Guided. A Worked example step that
+  // reuses an earlier skill plans above GUIDED, so a command the learner has
+  // never met would wait behind h.
+  const seen = new Set();
+  const off = [];
+  contents.forEach((c, i) => {
+    if (!c) return;
+    const rule = ruleTiers(contents, i);
+    c.steps.forEach((s, k) => s.beats.forEach((b, n) => {
+      const inline = rule[k] === 'guided' && s.tier !== 'guided';
+      const card = b.lines.filter((x) => CARD_TEXT.has(x.key) || ['run', 'code'].includes(x.key)).map((x) => x.text);
+      const visible = [...card, ...(inline ? b.bottom.map((x) => x.text) : []), ...(rule[k] === 'guided' ? b.why.slice(0, 1) : [])].join('\n');
+      const hidden = [...b.hints, ...(inline ? [] : b.bottom.map((x) => x.text))].join('\n');
+      const vis = new Set([...visible.matchAll(SLASH)].map((m) => m[1]));
+      for (const cmd of new Set([...vis, ...[...hidden.matchAll(SLASH)].map((m) => m[1])])) {
+        if (seen.has(cmd)) continue;
+        seen.add(cmd);
+        if (!vis.has(cmd) && s.part === 'Worked example' && rule[k] !== 'guided') off.push(`${placeOf(c.lesson, s, n)}: ${cmd} is first shown here, only behind h`);
+      }
+    }));
+  });
+  assert.deepEqual(off, []);
+});
+
+test('card: a beat that runs /diff carries the page\'s note that the panel may already be open (27, pattern O)', () => {
+  // The diff panel can open on its own once Claude edits files, and typing
+  // /diff then closes it.
+  const off = [];
+  for (const l of Object.values(parsed)) for (const s of l.steps) s.beats.forEach((b, n) => {
+    if (b.lines.some((x) => x.key === 'run' && x.text === '/diff') && !b.lines.some((x) => /typing `\/diff` closes it/.test(x.text))) off.push(placeOf(l.lesson, s, n, 'run', '/diff'));
+  });
+  assert.deepEqual(off, []);
+});
+
+test('intro: every can line reads after "You\'ll be able to" (27, pattern T)', () => {
+  // A can line cut from the middle of the Goal starts with a third-person
+  // verb ("reads its JSON result"); a capitalised noun phrase ("Two parts at
+  // once") is a title, not a can-do. A capitalised verb with an object, as
+  // a-7's "Bound a real task", reads.
+  const off = [];
+  for (const l of Object.values(parsed)) {
+    for (const c of l.intro.can) {
+      if (/^[a-z]+[^s\W]s\b/.test(c) || (/^[A-Z][a-z]*(?: [a-z]+)*,? [a-z]/.test(c) && !/^[A-Z][a-z]+ (?:a|an|the|your)\b/.test(c))) off.push(`${l.lesson}: ${c}`);
+    }
+  }
+  assert.deepEqual(off, []);
+});
+
+test('verify: a beat that asks for a commit or a removal checks it (27, pattern U)', () => {
+  // A beat that says "then commit it" and reads only the working file, with
+  // no later beat in its step that reads the commit, turns green before the
+  // commit; a removal that verifies only `probe pushed` turns green on any
+  // push. The `removed` probe checks the paths are gone from HEAD and pushed.
+  // "Don't commit it" asks for no commit.
+  const off = [];
+  for (const l of Object.values(parsed)) for (const s of l.steps) s.beats.forEach((b, n) => {
+    if (b.kind !== 'do') return;
+    const card = b.lines.filter((x) => CARD_TEXT.has(x.key)).map((x) => x.text).join(' ');
+    const later = s.beats.slice(n + 1).some((x) => ['check', 'probe', 'head-moved'].includes(x.verify.kind));
+    if (READS.has(b.verify.kind) && /\bthen commit\b|(?<!\bdon't )\bcommit it\b/i.test(card) && !later) off.push(placeOf(l.lesson, s, n));
+    if (b.verify.kind === 'probe' && b.verify.name === 'pushed' && /\b(delete|remove)\b/i.test(card)) off.push(placeOf(l.lesson, s, n));
+  });
+  assert.deepEqual(off, []);
+});
+
+test('code in a link\'s text shows as code with no backticks, as the page does, and keeps the link', () => {
+  assert.deepEqual(inline('where Node.js offers [`import.meta.dirname`](https://nodejs.org/api/esm.html#importmetadirname).'), [
+    { text: 'where Node.js offers ' },
+    { text: 'import.meta.dirname', code: true, url: 'https://nodejs.org/api/esm.html#importmetadirname' },
+    { text: '.' },
+  ]);
+  assert.deepEqual(inline('[`tdd` skill](x.md)'), [{ text: 'tdd', code: true, url: 'x.md' }, { text: ' skill', url: 'x.md' }]);
+  // Every lesson file's link text, so none shows a stray backtick.
+  for (const f of files) {
+    for (const line of readFileSync(join(dir, f), 'utf8').split('\n')) {
+      for (const r of inline(line).filter((x) => x.url)) assert.ok(!r.text.includes('`'), `${f}: ${r.text}`);
+    }
+  }
 });

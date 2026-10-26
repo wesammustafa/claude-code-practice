@@ -61,7 +61,7 @@ function brokenIn(repo, files) {
 }
 
 // Whether the last commit holds the patch's test: the Learner committed their
-// fix, so a flaw that is still there gets a hint that names it.
+// fix, so a flaw that is still there gets a more specific hint.
 function patchCommitted(repo) {
   try {
     repo.gitLocal('cat-file', '-e', 'HEAD:test/external.test.js');
@@ -71,8 +71,7 @@ function patchCommitted(repo) {
   }
 }
 
-// isExternal as the planted patch, practice/b-3/protocol-relative.patch,
-// writes it: it skips every link that starts with a slash.
+// isExternal as the patch practice/b-3/protocol-relative.patch writes it.
 const PLANTED = `export * from './links.checked.js';
 export function isExternal(target) {
   return target.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(target);
@@ -142,7 +141,7 @@ export const items = [
       if (!skipped.length) return true;
       // Before the Learner commits a fix, the hint leaves finding the flaw to them.
       if (!patchCommitted(repo)) return 'The checker skips a link that the patch\'s description says is still checked: the flaw is still there. Compare that description with what the new line skips, and tell Claude (Your turn, steps 1 and 3).';
-      return `Your commit still skips ${skipped.map((line) => links[line]).join(' and ')}. Only \`//\` or a URL scheme is external. Fix the rule, add a test that fails on the patch, and commit both.`;
+      return `Your commit still skips ${skipped.map((line) => links[line]).join(' and ')}. Compare that with the patch's description, fix the rule, add a test that fails on the patch, and commit both.`;
     },
   },
   {
@@ -162,7 +161,7 @@ export const items = [
         const mutantError = testRunError(mutant, { requireFailure: true });
         if (mutantError || mutant.status !== 0) return mutantError ?? true;
         if (!patchCommitted(repo)) return 'Your tests still pass with the patch\'s `isExternal` put back, so none of them catches its flaw yet. Once you have found the flaw (Your turn, step 1), ask Claude for a test that fails on the patch\'s version.';
-        return 'Your tests still pass with the patch\'s `isExternal` put back: none of them checks a link that starts with one slash. Add a regression case for `/docs/setup.md` and commit it.';
+        return 'Your tests still pass with the patch\'s `isExternal` put back: none of them fails on a link the patch skips by mistake. Add a regression case for that link and commit it.';
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

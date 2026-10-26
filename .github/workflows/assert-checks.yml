@@ -27,7 +27,7 @@ jobs:
       # Beginner lesson 1 checks the installed CLI, without signing in.
       - name: Install the guide's Claude Code baseline
         run: |
-          npm install --global @anthropic-ai/claude-code@2.1.292
+          npm install --global @anthropic-ai/claude-code@2.1.308
           claude --version
       - name: Run the tests
         run: npm test
