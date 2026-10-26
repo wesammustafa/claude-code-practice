@@ -1267,7 +1267,7 @@ const SETTINGS = '.claude/settings.json';
 const WORKED = `---
 lesson: i-1
 title: "Demo"
-stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
+stamp: "Verified against Claude Code v2.1.308 (stable) on 2026-10-25"
 next: i-2
 worked: copy
 requires: [b-5 check 0]
@@ -1692,7 +1692,7 @@ test('main: a Worked example step in the copy reads its file there and watches t
   const i1 = `---
 lesson: i-1
 title: "Demo"
-stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-15"
+stamp: "Verified against Claude Code v2.1.308 (stable) on 2026-10-25"
 next: i-2
 worked: copy
 ---

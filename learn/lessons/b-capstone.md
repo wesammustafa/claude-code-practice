@@ -2,8 +2,8 @@
 lesson: b-capstone
 title: "Beginner capstone: fix a reported bug, from plan to commit"
 source: docs/beginner/capstone.md
-source-commit: 0944226b4011a058028aeac9d697459bfaff47f0
-stamp: "Verified against Claude Code v2.1.292 (stable) on 2026-10-19"
+source-commit: 676831f
+stamp: "Verified against Claude Code v2.1.308 (stable) on 2026-10-25"
 page: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/blob/main/docs/beginner/capstone.md
 stuck: https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know/issues/new?template=lesson-feedback.yml&lesson=b-capstone
 next: i-1
